@@ -24,6 +24,20 @@ export type ExamHook = {
     unit: boolean;
     reservedPx: number;
   }>;
+  // The inter-layer gap reserves of the laid-out plan, in absolute graph x: the
+  // chip zone beside each side's ports and the trunk-column zone between them.
+  // A trunk chip is placed inside one of these, and no DOM reading can rebuild
+  // them, so the browser-side geometry audit gets them from here. Structural
+  // shape rather than layerModel's GapRecord: this file is a leaf on purpose
+  // (see above) and must not pull the canvas module graph in behind it.
+  gapZones(): Array<{
+    index: number;
+    left: number;
+    right: number;
+    sourceZone: { left: number; right: number };
+    columnZone: { left: number; right: number };
+    targetZone: { left: number; right: number };
+  }>;
   // Provenance of the build being driven, so a capture is stamped with what it
   // actually photographed. The exam defaults to a deployed preview, and deploy
   // lag would otherwise make an older build indistinguishable from the tip once

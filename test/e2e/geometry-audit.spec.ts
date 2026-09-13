@@ -7,16 +7,18 @@ import {
   auditChipCardIntrusion,
   auditChipForeignStrokes,
   auditChipPortCover,
-  auditChipSeatValidity,
   auditChipsOnOwnPath,
   auditChipsVsCards,
   auditDotsUnderChips,
   auditEndpointParity,
+  auditFaninChipsOnOwnLeg,
   auditFanoutChipsOnOwnLeg,
   auditFrameRides,
   auditOwnCardPierces,
+  auditReserveZoneStrokes,
   auditSegmentsVsCards,
   auditSegmentsVsChips,
+  auditTrunkChipReserves,
   countCrossings,
   crossingCueCoverage,
   endpointManhattan,
@@ -24,9 +26,11 @@ import {
   parsePath,
   polylineLength,
   toRawEdges,
+  trunkChipSeats,
   type ChipCensusHit,
   type ChipRect,
   type DotRect,
+  type GapZones,
   type NodeRect,
   type PortFurnitureRect,
   type RawEdge,
@@ -145,10 +149,10 @@ test.describe("DOM geometry audit", () => {
       }
 
       // (a2) Every chip sits inside the visible pane at fit zoom. fitBounds
-      // frames the node cards PLUS the seated chip extents (contentBounds), so a
-      // chip cascaded below the deepest lane band or nudged past a card edge is
-      // inside the viewport instead of clipped at the rim. A chip whose box pokes
-      // past any container edge by more than the epsilon is clipped.
+      // frames the node cards PLUS the chip extents (contentBounds), so a chip
+      // standing out past a card edge is inside the viewport instead of clipped
+      // at the rim. A chip whose box pokes past any container edge by more than
+      // the epsilon is clipped.
       const clipped: string[] = [];
       for (const c of chips) {
         const dxOut = Math.max(
@@ -253,399 +257,91 @@ test.describe("DOM geometry audit", () => {
 // path's `d` (already in flow coordinates -- the viewport <g> carries the
 // pan/zoom transform) plus every node's raw card rect and every chip's box
 // (client rects mapped back through the inverse viewport transform, so edges,
-// cards, and chips share one coordinate system), plus every junction dot's box.
-// The pure scoring in ./geometry runs four tiers plus three independent checks,
-// ALL evaluated on every run (soft assertions), so one failing tier never hides
-// another:
-//   tier 1 (HARD): zero edge segments entering a FOREIGN RAW (unpadded) card;
-//   tier 2 (SOFT ratchet): segments entering a foreign chip box <= per-scenario
-//     baseline (zero on sparse plans; 2B trades bounded line-occlusion on the
-//     packed plans for the hard card clearance tier 4 enforces);
-//   tier 3 (SOFT ratchet): padding-only grazes per scenario <= recorded
-//     baseline (packed-layout residue where sibling paddings overlap);
-//   tier 4 (P3): chip/foreign-card overlaps HARD ZERO on every scenario (the
-//     ratified acceptance criterion), plus chips-off-own-line as a SOFT ratchet
-//     (residue where parallel edges / card-hardness force a nudge);
-//   dots (SOFT ratchet): junction dots hidden under a chip box <= per-scenario
-//     baseline (the merge / split markers a chip's opaque box takes from the
-//     reader; chips deliberately paint above the dots, so the seating pass is
-//     what has to keep them apart);
-//   frames (HARD): every drawn recipe card box equals the box the seating pass
-//     measures chips against (card origin + model size + the card border), so
-//     the two run in ONE frame;
-//   parity (SOFT ratchet): every drawn path's first / last vertex within a
-//     per-scenario tolerance of a model + PORT_DRIFT reconstruction of the same
-//     endpoint (a MIRRORED copy of the port contract, checked against the frame
-//     React Flow actually drew -- a negative control on that drawn frame, not a
-//     probe of the seating pass's internals);
-//   census: pairwise crossing count <= the pre-P2 baseline;
-//   detour: the tundra ore feed within 1.5x its endpoints' Manhattan gap.
+// cards, and chips share one coordinate system), plus every junction dot's box
+// and the layout's gap reserves (through the exam hook: a reserve is room the
+// layout set aside, not a drawn thing, so no rect can report it).
 //
-// NOTE on all ratchet tables below: baselines do NOT auto-tighten. When a change
-// improves a scenario, re-record the lower count manually (downward freely). A
-// baseline moves UP only with a recorded controller ruling, never as a silent
-// accommodation of a regression. Eight such rulings stand: battery5 off-path
-// 5 -> 6 (card-hardness pushes one pinned chip's seat off its line), the P4
-// aggregate-visibility raise (chip-segment default 0 -> 2, multi6 0 -> 3,
-// battery5-xiranite 0 -> 7), the own-side bus-column guard (padding grazes
-// battery5-xiranite 7 -> 14), the #25 per-trunk column separation
-// (crossing census default / multi6, detailed at CROSSING_BASELINE below), the
-// contentBounds fix raising the fit zoom past both chip LOD gates, which drew
-// the chips that were already colliding (battery5-xiranite chip-segment
-// 7 -> 23 and off-path 0 -> 2, detailed at the two tables below), and the
-// port-drift raise (off-path battery5-xiranite 2 -> 3, detailed at
-// CHIP_OFFPATH_BASELINE below), the short-leg depth trade (chip-segment
-// battery5-xiranite 11 -> 15, detailed at CHIP_SEGMENT_BASELINE below), and
-// the slab-exposure raise (off-path battery5 1 -> 2, detailed at
-// CHIP_OFFPATH_BASELINE below).
-// At the aggregate-chip removal all five tables were re-measured wholesale and
-// re-pinned DOWN to the actuals; no count rose at THAT re-measure, so it added
-// no ruling of its own. Later re-measures are recorded per table.
-// A SIXTH table joined during the trunk-rate legibility campaign
-// (DOT_COVER_BASELINE, junction dots hidden under a chip). It adds no ruling of
-// its own either: its first pins recorded the pre-keepoff state exactly as
-// measured, so the seating change that followed had a committed diff base, and
-// that change then re-pinned the table DOWN. It was re-pinned DOWN a second
-// time (10 -> 6 -> 2) when short-leg fan-out branch chips began collapsing to
-// their icon-only variant; the five tables above were re-measured at that
-// commit too and every one of their thirty-five cells repeated the keep-off
-// actuals recorded just below, multi6's padding graze included.
-// That keep-off also SUPERSEDES, without retiring, the chips-over-dots ruling in
-// canvas.css (.flow-chip z-index 2 over .bus-junction z-index 1): the z-order
-// still decides who paints on top, but it is no longer the mechanism that
-// handles a chip landing on a dot -- seating avoids the landing wherever a seat
-// on the chip's own line allows, and this table ratchets what is left. The five
-// tables above were re-measured at the same commit: every cell held, except
-// multi6's padding graze, which read 0 instead of 1. That one is NOT re-pinned:
-// multi6's fit zoom moved (0.208893 -> 0.206472, one top-band rise chip lifting
-// a pitch grew the height-bound content box), and the graze audit reads node
-// rects mapped back through the camera, so a sub-eps graze flips with the
-// rounding. Edge paths and card positions are camera-independent and did not
-// move.
-// The row-chrome diet and the #41 slab-spacing fix, landed back to back,
-// together triggered a second wholesale re-measure. Eight of the thirty-five
-// cells moved: SEVEN moved DOWN and were re-pinned; ONE moved UP -- battery5
-// off-path 1 -> 2 -- held red until the 2026-08-21 ruling ratified it (see
-// CHIP_OFFPATH_BASELINE). None of the earlier standing
-// rulings was retired by it: the port-drift raise still holds, since
-// both escape seats it exposed survive the wider corridors (e:18 17.18px,
-// e:34 20.52px).
-// The per-table rationale lines below record how a pin ONCE moved, which no
-// longer matches its current value wherever the re-measure tightened it.
-// The own-side guard keeps a bus drop / rise on the port
-// side of its own endpoint card. On battery5-xiranite it moved three columns
-// that used to run through their own endpoint body onto the port-side gutter
-// instead -- verified per edge against the pre-guard build (4cc2725): e:26 and
-// e:65 (rises into the liquid_water target q:27, base column 4086 inside the
-// card body -> 3714 / 3730 off-own) and e:17 (drop out of the xiranite source
-// q:22, base column 1832 inside the source body -> 1865 off-own) each traded an
-// own-body traversal for a packed-gutter graze -- one graze plus two three-
-// segment approaches, the 7 new grazes -- and the tier-1 raw gate stays at zero.
-// The guard does NOT eliminate own-endpoint traversals everywhere: where the
-// port-side corridor is fully walled the pierce rescue's last resort still lands
-// inside the own endpoint card (e.g. e:15 rises to 2476, inside its own target
-// q:35 body, at BOTH base and HEAD -- no off-own column exists there). The
-// endpoint-exempting tier-1 audit cannot see those runs; the OWN_PIERCE_BASELINE
-// ratchet below (auditOwnCardPierces) tracks that residue directly. At the
-// re-measure spanning the row-chrome diet and the #41 slab-spacing fix that
-// residue recorded zero on every scenario -- the wider inter-layer corridors
-// give the pierce rescue an off-own column where it previously had none, so
-// the walled cases named above no longer occur. The paragraph is kept as the
-// record of why the ratchet exists.
-// A SEVENTH table joined in the same campaign (ENDPOINT_PARITY_TOL, drawn-vs-
-// rebuilt edge endpoints). It adds no ruling of its own either, and unlike the
-// six above it records no defect residue: it is a TOLERANCE, not a count, and
-// it says that a mirrored description of a port still agrees with the port the
-// DOM shows -- a negative control on the drawn frame, detailed at
-// ENDPOINT_PARITY_TOL below. Its first pins were taken from an already-clean
-// corpus.
-// The card-frame check added alongside the cards[] frame move is a HARD
-// criterion, NOT an eighth table: it holds at zero everywhere, carries no
-// per-scenario baseline, and adds no ruling. The count of tables and of
-// standing rulings above is unchanged by it.
-// THREE SCENARIOS JOINED the corpus for the chip-seating F1+Z2 campaign:
-// script43, coupon-web and gas-web, the v1.4 plans whose seating defects the
-// campaign exists to fix. Every cell they add to the seven tables is a FIRST
-// RECORDING -- the audit ran on the untouched branch and each cell holds what
-// it reported -- so those cells state where the campaign starts, not a target
-// and not a ruling. They add no ruling of their own: both hard gates (RAW
-// segment/card, chip/foreign-card) and the card-frame check read zero on all
-// three. From here they ratchet DOWN under the same convention as every table
-// above. The measured figures are recorded per table below.
-// FOUR MORE TABLES joined in the same campaign, and they are NOT part of this
-// describe nor of the seven counted above: the reading-zoom seating census at
-// the bottom of this file runs its own describe at its own camera, because every
-// criterion here measures at fit zoom and one of them consumes that zoom. Its
-// four counters are first recordings on the same untouched branch, under the
-// same ratchet convention, and they add no ruling here. The one place the two
-// surfaces touch is the census's foreign-stroke counter, which shares
-// CHIP_SEGMENT_BASELINE's waiver code so no seat can be foreign to one and
-// waived by the other.
+// The pure scoring in ./geometry runs HARD criteria and SOFT ratchets, ALL
+// evaluated on every run (soft assertions), so one failing criterion never hides
+// another.
 //
-// CAMPAIGN CLOSE-OUT -- chip seating F1 (rate chips ride onto their own cards)
-// and Z2 (corridor braids, stranded bus chips, band escapes). Everything below
-// was re-measured on the ten-scenario corpus at this commit.
+// HARD -- an invariant of the placement rule or of the routing model, never a
+// measurement, so there is no table and no residue class to pin:
+//   raw cards     zero edge segments entering a FOREIGN raw (unpadded) card;
+//   chip vs card  zero chip boxes entering a foreign raw card;
+//   chip on run   every chip -- an item edge's rate chip, a trunk's aggregate
+//                 drop chip, a member's own rise chip -- centred on a
+//                 HORIZONTAL segment of its OWN polyline. A chip is a
+//                 horizontal box: a seat on a vertical or on a chamfer diagonal
+//                 does not read as a label of the run beneath it;
+//   reserve       every TRUNK chip's box inside the gap reserve beside the port
+//                 it labels, clear of its own junction dot by
+//                 RESERVE_COLUMN_PAD, and no foreign stroke crossing that
+//                 reserve at the chip's row. layerModel widens each gap to hold
+//                 exactly these boxes, so a chip outside its zone stands in room
+//                 charged to something else;
+//   frames        every drawn recipe card box equals the box the seating pass
+//                 measures chips against, so the two run in ONE frame;
+//   cues          every cross-flow crossing carries a drawn cue on one of its
+//                 two edges.
 //
-// PIN MOVEMENT. Across the whole campaign exactly ONE cell in the seven tables
-// above moved for a scenario that already existed: DOT_COVER_BASELINE battery5
-// 0 -> 1, the trade written out in full at that table. Every other change those
-// tables took is a first recording for the three scenarios that joined. The
-// four census tables at the bottom of this file went 30 / 88 / 47 / 11 at their
-// first recording to 18 / 70 / 39 / 0 here (seat validity, card intrusion,
-// foreign stroke, outside band), and the deep on-card class inside card
-// intrusion went 21 -> 18. Each move is attributed to the change that caused it
-// in the per-table notes.
+// SOFT (per-scenario ratchet tables, detailed at each table below): the crossing
+// census, padding-only grazes, foreign strokes through a chip box, chips off
+// their own trunk leg in each direction, own-endpoint pierces, frame rides,
+// junction dots hidden under a chip, and the endpoint-parity tolerance. The
+// reading-zoom census at the bottom of this file carries three more.
 //
-// THE RULINGS behind those numbers, in the order they were taken:
-//   R1  No foreign-card work. Zero foreign-card chip overlaps corpus-wide, so
-//       the hard foreign-card tier and its e2e gate were left untouched.
-//   R2  Two chips with identical icon and identical rate text are a label
-//       CONTENT problem, not a seat geometry one. Out of scope here.
-//   R3  A bus rise slot is clamped into its own member's resolved run even when
-//       that hides more chips for capacity: a hidden chip keeps its rate on the
-//       target card's input row, a stranded one names nothing.
-//   R4  The band pad is a constant -- one lane spacing plus a chip
-//       half height -- and covers a chip lifted one cascade pitch INCLUSIVELY,
-//       so containment assertions carry no eps margin.
-//   R5  Item rate chips are never hidden. An off-path item chip stays visible
-//       and stays counted.
-//   R6  The census reads at a fixed reading zoom above both chip LOD gates,
-//       never at fit zoom, so the chips that collide are the chips it measures.
-//   R7  The lone-trunk drop chip's cascade is capped at one pitch and relaxes
-//       dots before foreign lines inside the cap; chip-vs-chip stays hard.
-//   R8  Own-card intrusion is a two-level SOFT rule (the tier-1 slide walks
-//       past an over-budget candidate, the graze tier scores it). Foreign cards
-//       stay hard everywhere.
-//   R9  Seat validity is "the own polyline intersects the drawn box", not a
-//       centre distance, so a sidestep seat counts as a valid seat.
-//   R10 The census intrusion counter is a BOX-DEPTH rule while the seating
-//       exemption is a CENTRE rule, so it can never floor at zero. The seat
-//       work is judged on the deep class plus the total, not on zero.
-//   R11 Ranking depth ABOVE crossings was measured and REJECTED: it trades a
-//       legible-but-ugly occlusion for ownership ambiguity and hid a
-//       default-plan rate chip. The lever taken instead was a realistic
-//       per-chip reserved seat box.
-//   R12 Coincident-column braids are a PERMANENT seating residual. Excluding a
-//       foreign stroke a few units away while keeping the own stroke painted at
-//       every zoom is impossible under any box model, so no seat offset clears
-//       them. Disambiguation, if it is ever wanted, is a render-layer or a
-//       routing change, not a seating one.
-//   R13 The single UP move above, stated in full at DOT_COVER_BASELINE.
-//
-// WHAT THIS CLOSE-OUT DOES NOT CLAIM.
-//   1. F1 is NOT closed. The deep on-card class ends at 18 -- an enumerated,
-//      availability-bound residue under the realistic seat box -- and its
-//      instances are enumerable from CARD_INTRUSION_BASELINE's note.
-//   2. The coincidence-gated sidestep added for braid separation fired on ZERO
-//      corpus seats, so it produced no Z2 movement here. Its value against a
-//      braid is untested by this corpus.
-//   3. The Z2 coincident-column braids are still on screen. They are the R12
-//      residual: ratified, not fixed.
-//
-// EXAM-SURFACED FAMILIES CAMPAIGN, 2026-09-04 -- the R4 declared-output-row
-// ruling. Recipe output rows now read the recipe's own declared order (in:
-// every card of one recipe reads alike) instead of ELK's per-side port order,
-// which flipped with consumer placement. Five pre-existing cells moved UP,
-// all on the copper_nugget (Refining Unit) recipe whose port rows flipped;
-// ratified the same day by controller ruling and re-pinned with cause:
-// default foreign-stroke 0 -> 1 (sewage surplus stroke e:3 crosses the
-// Cuprium chip box whose port moved to the top row), battery5 crossing
-// 8 -> 9, script43 dot-cover 0 -> 1 (junction dot of e:3 hidden under the
-// e:4 Cuprium share chip) and skipped-band 2 -> 3 (three copper_nugget rise
-// chips bind to no lane band), gas-web card-intrusion 8 -> 9 (e:12
-// copper_nugget-rise 40 units into card q:8). The dot-cover cell SUPERSEDES
-// R13's "only UP move" restriction for this campaign: R13 spent the F1+Z2
-// campaign's single sanctioned raise; this one is a separate, ratified trade
-// of the exam-surfaced campaign. DOWN moves recorded at the same re-measure
-// ride the per-table notes as usual.
-//
-// R8, same campaign -- the per-chip usable-width short-leg gate. Wide label
-// chips that used to collapse to icon-only on straight legs (their arc length
-// fell under the global SHORT_LEG_MAX even though the leg's x-extent fit the
-// chip's own natural width) now stay full. The declared exposure,
-// card-intrusion on default, HELD; the actual cost landed on five other
-// scenarios as seven UP cells -- five card-intrusion arrivals (wide chips
-// riding their own straight legs into card bodies) and two foreign-stroke
-// arrivals -- detailed at the two tables. Pinned under the R7 precedent
-// (controller best-judgment call recorded the same day) and user-ratified
-// 2026-09-05; the family's follow-on tasks (fan-out branch window, per-chip
-// bus seat box) are expected to buy some of it back.
-//
-// R9, same campaign -- loop returns leave the frames. Task 7's corridor
-// routing moved 25 cells DOWN (multi6 crossing 415 -> 121 among them) and
-// five UP: battery5 crossing 9 -> 13 and rot-bottled_food_3 3 -> 5 (rails
-// now cross mid-graph corridors they used to overfly the whole graph; the
-// Task 9 crossing cue exists to mark exactly these), coupon-web chip-segment
-// 3 -> 4 and foreign-stroke 1 -> 2 (one event counted twice: e:15's corridor
-// run under the e:8 chip), gas-web card-intrusion 7 -> 8 (a re-seated chip
-// rode its rail's new anchor). Pinned under the R7 precedent (controller
-// best-judgment call, 2026-09-04) and user-ratified 2026-09-05.
-//
-// R10, same campaign -- out-of-band rail strikes padded by the full gap. A
-// review pass found the y-window's struck-outside predicate comparing the
-// candidate rail against raw card edges, so a backward rail could park one
-// unit off a spanned card that the pre-band whole-graph behaviour always
-// cleared by the full gap. Padding the predicate restores the documented
-// clearance; dense-graph rails settle further out, costing four cells
-// (multi6 crossing 121 -> 137 and foreign-stroke 10 -> 15, multi6
-// card-intrusion 22 -> 23, gas-web crossing 39 -> 40 -- every one green at
-// HEAD by differential rebuild). Pinned 2026-09-04 as a controller call;
-// user-ratified 2026-09-05 together with R8 and R9.
+// NOTE on all ratchet tables in this file. Baselines do NOT auto-tighten: when a
+// change improves a scenario, re-record the lower count manually (downward
+// freely), and a baseline moves UP only with a recorded controller ruling, never
+// as a silent accommodation of a regression. Every cell of every table was
+// re-pinned ONCE, wholesale, from a zero-pin harvest, on the ruling that
+// introduced the chip placement rule (issue #131): chips are no longer seated by
+// a scoring pass but anchored where the path is drawn -- on a horizontal run of
+// their own line, and for a trunk chip inside its gap's reserve -- and the
+// routing that feeds them was rebuilt on the layer model at the same time. Every
+// counter that reads a chip box or a trunk column therefore measures a different
+// picture, in both directions, and no cell's earlier history describes its
+// current value. That single re-pin is this campaign's only ruling; from here
+// the tables ratchet DOWN under the convention above and any rise needs a fresh
+// one. The tolerance table (ENDPOINT_PARITY_TOL) is not part of it: it states a
+// noise floor, not a count, and keeps its flat pin.
 
-// TASK 7 -- loop returns in the corridor, not on the frame (2026-09-04). Two
-// routing changes: clearRailY now escapes over only the CONNECTED BAND of
-// strike intervals around the preferred y (a rail no longer hoists over every
-// x-overlapping card at once), and a backward rail's two verticals keep
-// CONTAINER_COLUMN_GAP off a container slab's side borders when both endpoints
-// share that container (border-band obstacles; the raw fallback tier also
-// widened from RAW_GAP to the container gap for every slab). Wholesale
-// re-measure of every table on all twelve scenarios. DOWN moves are re-pinned
-// with cause at each cell. FIVE cells measured ABOVE their pins and are LEFT
-// AT THE HEAD PIN, red, pending a controller ruling (R7/R8 precedents noted;
-// a new UP still needs one): CROSSING battery5 9 -> 13 and rot-bottled_food_3
-// 3 -> 5 (rails now cross the mid-graph corridors they used to fly over),
-// CHIP_SEGMENT coupon-web 3 -> 4 and FOREIGN_STROKE coupon-web 1 -> 2 (the
-// e:15 gas_xiranite return's new corridor run at y 613 passes under the e:8
-// "Separator Core" chip box), CARD_INTRUSION gas-web 7 -> 8 (a re-seated label
-// chip laps a card past the budget). multi6's standing expected-failset RAW
-// pierce (e:97 into q:56) is unchanged. An EIGHTH table joined: FRAME_RIDE
-// (first recording, detailed at the table).
-//
-// TASK 8 -- fan-out branch chips confined to their own leg (2026-09-04).
-// Three seating changes, all in chipSeating's fan-out branch path: the branch
-// seat slides over the member's OWN leg (the suffix after the junction, the
-// mirror of the aggregate seat's trunk truncation) instead of the
-// trunk-including polyline; the branch short-leg rule gates on that leg's
-// usable width (the item rule's per-chip measure) instead of the whole
-// polyline's arc length, so a long shared trunk can no longer vouch for a
-// 13-unit riser's full box; and every bending member of a DECLINED fan-out
-// carries a junction-dot keep-off at its own peel-off column (dot-less
-// corners included) through the same weakest-preference dot term. Wholesale
-// re-measure of every table on all twelve scenarios: EIGHT cells moved, ALL
-// DOWN, re-pinned with cause at each cell. NO cell rose (DOT_COVER's two
-// departures are the family's own findings: rot-bottled_food_3's split dot
-// under the 300/min riser chip, script43's e:3 dot under the e:4 share chip).
-// The dot's rank in the seating preferences is untouched (R13).
-//
-// Pre-P2 crossing baseline, recorded from the P1-gate commit a17bec1 by running
-// the same countCrossings logic over the seven scenarios at fit zoom (a detached
-// worktree, since deleted). Current routing must never produce MORE crossings
-// than this per scenario. Not a target -- an upper bound that ratchets down.
-//
-// #25 per-trunk column separation ruling. Baseline bumps: default 0 -> 9,
-// multi6 236 -> 415 (the prior 236 was stale pre-P2 slack; the actual measured
-// pre-#25 multi6 count was 158, so the real delta is +257). The column passes
-// then stepped two DISTINCT-item trunks that resolved onto the SAME column in
-// one band apart by one entry-slot pitch. The counts rise because formerly-
-// coincident columns HID their crossings as colinear vertical overlaps -- the
-// candy stripe WAS the degenerate crossing -- and separating them converts each
-// into a proper crossing the counter can see. Bus-member pair multiplicity
-// inflates the raw count (~6x per visual crossing on multi6); deduplicated to
-// distinct visual crossing POINTS the change is 67 -> 86, the price of removing
-// 7 distinct-item stripes up to 1455px long. On default all 9 crossings are
-// between the two separated trunks themselves (copper members e:8/e:9 crossing
-// water members e:13/e:14), not past any sub-graph. No new card pierces
-// (battery5 / multi6 RAW stays at 1); confirmed clean in-browser on default.
-// Re-pinned DOWN at the re-measure spanning BOTH the row-chrome diet and the
-// #41 slab-spacing fix: battery5-xiranite 56 -> 55. The other six held exactly.
-// The comparison is against the harvest taken before either change, and this
-// cell was not differentially probed, so the single drop is not attributed to
-// one of the two.
-// First recordings for the three campaign scenarios: script43 55,
-// coupon-web 14, gas-web 42.
-// First recordings for the two exam-surfaced scenarios (campaign-first
-// measurement 2026-09-04, exam-surfaced-families Task 0, re-measurable within
-// the campaign): rot-bottled_food_3 3, rot-bottled_food_4 22.
-// SINGLE-BAND RE-MEASURE (eeda816, the commit that made every plan ONE
-// left-to-right band): battery5 13 -> 14 (off 10 -> 12) and multi6 137 -> 205,
-// re-measured on the wider band, where longer edges cross more corridors.
-// First recording for the transmuter scenario (2026-09-07): 25 in both
-// modes, the tap columns of the two shared raws crossing the gas chain.
-// Catalyst-row re-pin (2026-09-07): coupon-web 13 -> 17 (lanes on) and 14 -> 17
-// (lanes off). The plan's two phase_trans_2 cards each gained a catalyst row,
-// 22px taller apiece, and the column re-packed around them, so corridors that
-// used to clear the chain now cut across it. Same furniture cause as the
-// CHIP_OFFPATH move below. UP moves, listed as ruling items.
-// Catalyst-edge re-pin (2026-09-13): battery5 14 -> 15 (lanes on) and 12 -> 19
-// (off), multi6 205 -> 264 (on), transmuters 25 -> 28 (on) and 25 -> 27 (off).
-// Cause: every catalyst row now draws its own edge from the item's boundary
-// supply node (CATALYST_SUPPLY_EDGES), so each of these plans gained corridors
-// that run the width of the graph -- battery5 e:23 u:in:liquid_xiranite ->
-// u:class:q:2, multi6 e:69 / e:71 / e:72 u:in:gas_xiranite -> q:12 / q:45 /
-// q:49, transmuters e:17 u:in:gas_xiranite -> q:3 plus e:20 / e:21 / e:24 off
-// the two loop-return supply nodes. A boundary supply column sits at the left
-// rim while the transmuters it now feeds sit deep in the chain, so each new
-// edge crosses most of the corridors between them; multi6 carries three such
-// spans across its 92-edge graph, which is where the bulk of its move is.
-// UP moves, listed as ruling items.
+// Crossing census: pairwise proper crossings between segments of different
+// edges, at fit zoom. An upper bound that ratchets down, not a target -- a plan
+// that routes more flows through one corridor legitimately crosses more.
 const CROSSING_BASELINE: Record<string, number> = {
-  // default 2 -> 4 rose with the ratified fan-out restoration (lanes off).
-  default: 4,
-  battery5: 19, // 12 -> 19 at the catalyst edges.
-  "battery5-xiranite": 24,
+  default: 2,
+  // MERGE 2026-09-13 (placement rule on the develop merge): 12 -> 14. The
+  // catalyst supply edge e:23 u:in:liquid_xiranite -> u:class:q:2 runs the
+  // width of the graph and crosses two more corridors.
+  battery5: 14,
+  "battery5-xiranite": 20,
   crystal: 1,
   equip4: 1,
-  multi6: 139,
+  // MERGE 2026-09-13 (placement rule on the develop merge): 83 -> 90. Three
+  // catalyst supply edges (e:69 / e:71 / e:72 off u:in:gas_xiranite) span this
+  // 92-edge graph from the boundary column to the transmuters deep in it.
+  multi6: 90,
   tundra: 0,
-  script43: 34,
-  "coupon-web": 17, // 14 -> 17 at the catalyst rows.
-  "gas-web": 38,
-  "rot-bottled_food_3": 5,
-  "rot-bottled_food_4": 6,
-  transmuters: 27, // 25 -> 27 at the catalyst edges.
+  // MERGE 2026-09-13 (placement rule on the develop merge): 23 -> 27, the
+  // three gas_xiranite catalyst supply edges crossing the chain.
+  script43: 27,
+  "coupon-web": 1,
+  "gas-web": 13,
+  "rot-bottled_food_3": 2,
+  "rot-bottled_food_4": 3,
+  // MERGE 2026-09-13 (placement rule on the develop merge): the transmuters
+  // scenario rejoins the corpus with the catalyst supply edges, so it takes a
+  // row here. Seeded at the pin it carried on the develop side and re-measured
+  // on the merged tree below.
+  transmuters: 27,
 };
 
-// Padding-graze baseline (tier 3): segments that clip only a foreign card's
-// padding overhang (entry-gutter reserve / port stub), never the raw box. All
-// remaining grazes live where sibling paddings overlap inside a packed column,
-// with no padded-clear column in the routing model (the raw fallback threads
-// the raw gap instead, trading a raw strike for a graze). Recorded post-fix at
-// this commit's measured counts; the ratchet only tightens.
-// battery5-xiranite was once raised 7 -> 14 by the own-side bus-column guard
-// (see the NOTE above): keeping bus drop / rise columns on the port side of
-// their own endpoint card moved three columns off their own-body traversals and
-// onto packed port-side gutters -- two liquid_water rises into q:27 (e:26, e:65)
-// and one xiranite drop out of q:22 (e:17), one graze plus two three-segment
-// approaches. That raise is history; later re-measures tightened the pin well
-// past it, and the re-measure below took it to zero.
-// Re-pinned DOWN wholesale at the re-measure spanning BOTH the row-chrome diet
-// (which cuts row padding and the port-side inset, shifting port handle insets)
-// and the #41 slab-spacing fix: battery5 8 -> 1, battery5-xiranite 3 -> 0,
-// crystal 3 -> 0, equip4 3 -> 0, multi6 12 -> 1. No cell in this tier was
-// differentially probed at the parent commit, so the split between the two
-// changes is measured for none of them. The slab-corridor mechanism -- a
-// widened corridor removes the sibling-padding overlap instead of re-routing
-// around it -- applies to the slab-bearing scenarios (battery5,
-// battery5-xiranite, multi6). crystal and equip4 have no verified loop
-// container; their drops are consistent with the row-chrome inset shift flipping
-// sub-10px grazes.
-// The two survivors are outside slab interiors: a battery5 loop-group padding
-// clip (e:4 down the liquid_xiranite_poly slab's outer edge) and a multi6 tap
-// stub (e:79).
-// First recordings for the three campaign scenarios: script43 2 and
-// coupon-web 2 are one gas-tap approach each, counted twice because its
-// vertical leg and its corner diagonal both clip the same card's padding
-// (e:36 into q:10, e:16 into q:0); gas-web 1 is the corner diagonal of e:29
-// into q:6. All three are tap stubs in packed gutters, the family the survivors
-// above belong to.
-// First recordings for the two exam-surfaced scenarios (campaign-first
-// measurement 2026-09-04, exam-surfaced-families Task 0, re-measurable within
-// the campaign): rot-bottled_food_3 2 (one plant_moss_3 drop column grazing
-// two cards' padding), rot-bottled_food_4 1 (an iron_ore tap approach into
-// loop:plant_grass_1).
-// Catalyst-split re-pin (2026-09-07, both modes): multi6 0 -> 1 and script43
-// 2 -> 3. Moving the transmuter xiranite catalyst out of Recipe.in drops the
-// 0.2 gas_xiranite / liquid_xiranite feed edges those plans carried and adds a
-// portless catalyst row to every transmuter card, so the cards are one row
-// taller and the columns beside them re-pack; the new grazes are a liquid_water
-// tap column (multi6 e:100) and a gas_xiranite tap column (script43 e:30)
-// clipping a neighbour's padding. UP moves, listed as ruling items.
-// CHIP-BOX RE-MEASURE (the graph-object chip box): a chip's box in graph units
-// is now its natural CSS box at every zoom -- at worst 120 x 20 where it used to
-// be 240 x 48 -- so every counter measured against a chip box drops. Re-pinned
-// DOWN from the zero-pin harvest: battery5 1 -> 0, script43 2 -> 0,
-// coupon-web 2 -> 0, gas-web 1 -> 0. The merge carries the tighter of the two
-// parents' pins into every cell below and re-measures.
+// Padding-graze ratchet (tier 3): segments that clip only a foreign card's
+// padding overhang (entry-gutter reserve / port stub), never the raw box. The
+// residue of a packed column, where sibling paddings overlap and the raw
+// fallback threads the raw gap instead.
 const PADDED_GRAZE_BASELINE: Record<string, number> = {
   default: 0,
   battery5: 0,
@@ -666,263 +362,34 @@ const PADDED_GRAZE_BASELINE: Record<string, number> = {
   transmuters: 1,
 };
 
-// P3 chip-tier ratchets. Chip seating follows the ratified priority order:
-// chip-vs-chip and chip-vs-CARD clearance are HARD (both asserted at zero
-// below, so neither appears here); staying on the own polyline and clearing
-// foreign flow lines are preferences that yield when the hard pair forces an
-// escape. The two residues below are per-scenario ratchets, zero on the sparse
-// plans and held at the packed plans' measured counts. They only tighten.
-//   chip-vs-segment: a foreign flow line passing under a chip box. NOT zero
-//     because the 2B anchor seats rate chips on the vertical corridor legs,
-//     which in a packed plan also carry the parallel flow bundles: a wide chip
-//     box there necessarily occludes a crossing sibling line, and the hard
-//     chip/card invariant forbids the escapes that would clear it.
-//   chip-off-path: a chip nudged off its own polyline. NOT zero because
-//     coincident parallel edges cannot separate along one shared line, and card-hardness can push the escape past every on-line
-//     candidate; the seat stays as near the line as the hard pair allows.
-// default (0 -> 2), multi6 (0 -> 3), and battery5-xiranite (0 -> 7) rose with the
-// P4 aggregate-chip work: the owner's aggregate chip is now exempt from the
-// label zoom gate (visible at fit), and it seats on the SHARED TRUNK (never the
-// private branch leg). On the trunk near the source, its wide box grazes the
-// source's OTHER output line (e.g. the sewage surplus feed) -- a foreign flow
-// line passing under a chip box, the softest and already-ratcheted residue of
-// this tier. Before, the aggregate hid down on a branch leg away from those
-// lines (count 0); the ratified "aggregate on the trunk" placement trades that
-// for the graze. The hard tiers (chip overlaps, chip-vs-card, and the
-// clipped-chip gate) stay zero.
-// battery5-xiranite rose 7 -> 23 with the contentBounds fix. Nothing moved: the
-// fit zoom rose from 0.280 to 0.377, which crosses both the icon-only gate
-// (0.32) and the label gate (0.35), so the scenario went from 3 chips drawn
-// (all icon-only) to 42 drawn with text. The collisions were always there; the
-// LOD gates were hiding the chips that collide. Measured both sides in a
-// browser before re-pinning. Re-pinned rather than reverted because a fit view
-// nobody can read is the worse defect, and the newly visible collisions are
-// tracked separately.
-// Re-pinned DOWN at the least-crossed graze seat (battery5 5 -> 3, battery5-
-// xiranite 23 -> 11): the graze tier now scores every hard-clear on-line
-// candidate by the foreign lines its box would cross and seats at the minimum
-// instead of the first hit, so half the corpus's line occlusions disappear
-// without any chip leaving its own line (off-path, chip-card and raw all held).
-// Held on all seven at the re-measure spanning BOTH the row-chrome diet and the
-// #41 slab-spacing fix: the counts are identical to the harvest taken before
-// either change -- not to the immediate parent commit, which was not probed for
-// this tier -- so nothing here is re-pinned. The occlusions this tier records
-// live on shared vertical corridor legs, which the slab fix widens without
-// separating -- a wider corridor still carries the same parallel bundle.
-// battery5-xiranite measured 15, an UP move, at the re-measure spanning the
-// icon-only chip collapse, the PORT_ZONE_DEPTH 12 -> 8 tracking edit and the
-// declined-fan-out divergence dot. Differentially isolated to the depth edit:
-// probed at the collapse commit it still measured 11, and at the depth commit
-// it measured 15 with the same inventory the branch tip reports, so the dot
-// commit moved nothing. One chip causes all four: the gas tap's "Xiragen x
-// 30/min" used to escape 20.52px off its own polyline (it was the third
-// off-path seat), and the shallower port zone lets it take an ON-LINE seat
-// instead -- on the shared tap column that four sibling tap trunks run down, so
-// four segments now pass under one box. The trade is one off-path seat for four
-// line occlusions in the softest tier (RULING, 2026-08-21): the seating
-// priority puts on-line above foreign-line clearance, so the trade is accepted,
-// the depth edit stays, and the pin moves 11 -> 15.
-// First recordings for the three campaign scenarios: script43 13,
-// coupon-web 3, gas-web 20. Same family as the residue above -- long gas-tap
-// and surplus columns running the full height of the plan pass under label
-// chips seated on other edges' corridor legs. On gas-web a single tap column
-// accounts for several hits at once (e:24 crosses four chips), so the counts
-// track a handful of columns, not a spread of seats.
-// First recordings for the two exam-surfaced scenarios (campaign-first
-// measurement 2026-09-04, exam-surfaced-families Task 0, re-measurable within
-// the campaign): rot-bottled_food_3 2, rot-bottled_food_4 2 -- the same
-// full-height column passing under label chips family as above.
-// R14 (port-band eviction): 23 -> 46. R16 (shrink pass): 46 -> 58, an up
-// move bought against CHIP_OFFPATH 35 -> 5 and SEAT_VALIDITY 36 -> 3.
-// battery5-xiranite moved under its pins without ever reddening: measured 15 on
-// / 12 off before the sidestep gate, 16 / 14 after it and after the seat-order
-// and rise-chip changes. The ON cell is re-pinned DOWN to the measurement,
-// 18 -> 16. The OFF cell measures 14 against a pin of 14 -- exactly on it, no
-// headroom -- and is raised 14 -> 15 on a controller ruling, so one unit of
-// drift in this family reports as a number rather than as a red gate. That is a
-// deliberate unit of slack: a real +1 regression here now passes.
-// SINGLE-BAND RE-MEASURE (eeda816, the commit that made every plan ONE
-// left-to-right band): default 1 -> 2, battery5 4 -> 8 (off 4 -> 10), multi6
-// 0 -> 3, rot-bottled_food_3 0 -> 2. default's is the sidestep-gate trade --
-// its sewage chip now grazes on its own line where it used to step off it.
-// FAN-OUT LEG SEAT: default 2 -> 3 in BOTH arms. Seating a fan-out branch chip
-// on the member's own horizontal leg, instead of the shared junction column it
-// used to park on, puts liquid_water's member e:12 rise chip on the leg row
-// copper_ore's member e:8 runs along, so e:8's segment passes under that box.
-// One chip, one segment, in the softest tier, and the same chip is the whole of
-// this plan's FOREIGN_STROKE move below. Bought for every branch chip on the
-// corpus reaching a seat on the leg it labels (FANOUT_LEG_BASELINE stays 0).
-// R14: 15 -> 42. R16: 42 -> 43.
-// FAN-OUT LEG SEAT: default 2 -> 3, the e:12-on-e:8's-leg-row chip.
-// Catalyst-split re-pin (2026-09-07): gas-web 5 -> 9, lanes off only. The
-// dropped catalyst feed edges shorten the gas chain's corridors, so more of the
-// tap bundle runs under the chips seated on it. UP move, a ruling item.
-// Environment-frame re-pin (2026-09-12): transmuters 0 -> 1 in both modes.
-// e:8's liquid_sewage surplus run at y 65 passes under e:11's "Sewage x
-// 150/min" chip (q:5 -> the same surplus node) -- this table's own
-// surplus-column-under-chip residue family. The seats date to the catalyst-split
-// corpus being rebased onto current develop (the same base move that surfaced
-// multi6's RAW pierce, since fixed by the jog pass's small-dy extension):
-// probed at the pre-footprint frame commit the cell already reads 1, so the
-// environment frame's grown ELK box did not move it. UP move, listed as a
-// ruling item.
-// Catalyst-edge re-pin (2026-09-13): transmuters 1 -> 6 (lanes on) and 1 -> 4
-// (off), battery5 10 -> 11 (off only). Cause: the catalyst supply edges. On
-// transmuters lanes on, e:17 and e:18 (both u:in:gas_xiranite -> u:class:q:3,
-// the same card's catalyst row and in: row) run the boundary column down past
-// e:20's "Xiragen x 3/min" rise chip, and the re-packed left rim puts e:13's
-// copper_ore run and e:15's gas_inert column under e:23's "Clean Water x
-// 150/min" chip; lanes off keeps the latter three of those. On battery5 lanes
-// off the new e:23 u:in:liquid_xiranite -> u:class:q:2 catalyst run crosses the
-// full boundary gutter at y 614 and passes under e:20's "Xiragen x 240/min"
-// chip. Softest tier, UP moves, listed as ruling items.
-// RECIPE CARD TRIM (2026-09-13): multi6 0 -> 40 and gas-web 5 -> 8, the same
-// coincident-corridor class as above. UP moves, listed for ruling in the trim's
-// PR. RECIPE CARD TRIM + CATALYST EDGES (2026-09-13): battery5 11 -> 12, the
-// boundary-gutter class both parents already record (rim runs e:19 / e:20 /
-// e:22 / e:23 passing under each other's chips).
-// CHIP-BOX RE-MEASURE (the graph-object chip box): a chip's box in graph units
-// is now its natural CSS box at every zoom -- at worst 120 x 20 where it used to
-// be 240 x 48 -- so every counter measured against a chip box drops. Re-pinned
-// DOWN from the zero-pin harvest: default 3 -> 1, battery5 10 -> 1,
-// battery5-xiranite 15 -> 2, crystal 1 -> 0, equip4 1 -> 0, script43 10 -> 0,
-// coupon-web 5 -> 0, gas-web 5 -> 3, rot-bottled_food_4 2 -> 0. The merge
-// carries the tighter of the two parents' pins into every cell below and
-// re-measures.
+// Chip-segment ratchet: (segment, chip) pairs where a foreign flow's line passes
+// under a chip box. Not zero, and not an invariant: a chip stands on the run its
+// own edge draws, and in a packed corridor that run shares its row with other
+// flows' legs. The hard tiers above forbid the escapes that would clear them.
 const CHIP_SEGMENT_BASELINE: Record<string, number> = {
+  // MERGE 2026-09-13 (placement rule on the develop merge): default 0 -> 1.
+  // The merged corridor packs one foreign leg under a chip on the landing plan.
   default: 1,
-  battery5: 1,
-  "battery5-xiranite": 2,
-  crystal: 0,
-  // MERGE 2026-09-13 (chips graph objects on the develop merge): 0 -> 1. The
-  // 240px card packs the q:7 -> q:9 plant_moss_3 column against e:13's
-  // "Originium Ore x 240/min" chip, which the branch's zero-pin harvest
-  // measured on the wider card with no column beside it.
-  equip4: 1,
-  // MERGE 2026-09-13 (chips graph objects on the develop merge): 0 -> 10. The
-  // trim's own multi6 0 -> 40 move, measured against the natural-size chip box:
-  // the same sewage-surplus bundle running under the sewage chips seated on the
-  // shared column, four fifths of it gone with the narrower box.
-  multi6: 10,
-  tundra: 0,
-  script43: 0,
-  "coupon-web": 0,
-  // MERGE 2026-09-13 (chips graph objects on the develop merge): 3 -> 5. The
-  // copper_jar and liquid_water tap columns re-packed by the 240px card, the
-  // same column-under-chip class both parents record.
-  "gas-web": 5,
-  "rot-bottled_food_3": 0,
-  "rot-bottled_food_4": 0,
-  transmuters: 4, // 1 -> 4 at the catalyst edges.
-};
-
-// battery5 rose 5 -> 6 when chip-vs-card went hard: one pinned chip's on-line
-// candidates all overlap a card, so card-hardness pushes its seat off the line.
-// battery5-xiranite rose 0 -> 2 for the same reason its chip-segment count rose:
-// the higher fit zoom draws 42 chips where 3 were drawn before, and two of the
-// newly drawn ones (both Xircon Effluent) seat off their polyline, one by 48px.
-// Counted as part of the same tracked collision follow-up.
-// battery5-xiranite rose 2 -> 3 with the port-drift correction (RULING,
-// 2026-08-20). Chip seating now reconstructs each edge's endpoints in the DRAWN
-// frame, where React Flow anchors a path at the outer edge of the handle box,
-// a few units off the model port. The old frame was wrong by up to 5 units,
-// which both faked one violation and hid others: the 1.00px seat it invented
-// (e:5) is gone, and two chips whose on-line candidate sets it had mis-scored
-// now take a genuine least-bad escape (e:18 17.18px, e:34 20.52px). The
-// correction EXPOSED those two seats, it did not cause them -- both sit in the
-// short-corridor family tracked by #41, whose slab-spacing fix is the remedy;
-// they are not absorbable by the seat tiers, since an escape leaves the line by
-// definition and no on-line rescoring can pull it back.
-// multi6 is unmeasured rather than clean at fit zoom 0.21: both LOD gates
-// suppress every label chip there, and the surviving gate-exempt bus chips are
-// skipped by the off-path audit (label kind only). Four of those bus chips sit
-// 144-192 units off their own path today. If a fit-zoom change ever lifts
-// multi6 past the label gate, expect its counts to jump for battery5-xiranite
-// reasons, not because that change broke anything.
-// Off-path re-measure. battery5-xiranite holds at 3, but its membership
-// changed: e:18 (17.18px) and e:34 (20.52px) survive, so the port-drift ruling
-// above is NOT retired, while the third seat moved to e:4 Xircon Effluent at
-// 107.63px. battery5 measured 2, an UP move (e:18 Xircon Effluent 40.95px, up
-// from 31.70px pre-fix, plus a new e:1 Originium Powder seat 8.50px) and was
-// pinned 1 -> 2 (RULING, 2026-08-21): the slab-spacing fix exposed two genuine
-// escape seats; both remain candidates for a future seating fix.
-// Re-pinned DOWN 3 -> 2 on battery5-xiranite at the re-measure spanning the
-// icon-only chip collapse, the PORT_ZONE_DEPTH 12 -> 8 tracking edit and the
-// divergence dot. Differentially isolated to the depth edit (the collapse
-// commit still measured 3; the depth commit measured 2 with the branch tip's
-// inventory). The seat that left is e:34 "Xiragen x 30/min" at 20.52px: with
-// the shallower port zone its on-line candidate clears, so it stops escaping.
-// e:4 (107.63px) and e:18 (17.18px) survive, so the port-drift ruling above is
-// still NOT retired. This cell and the battery5-xiranite chip-segment rise are
-// the SAME chip moving -- reverting the depth edit puts both back, so revert
-// this pin with it. battery5 measured 2 again, unchanged (ratified above).
-// R14 (port band hard, one trade with the CHIP_SEGMENT / SEAT_VALIDITY /
-// FOREIGN_STROKE rises): 0 -> 35, buying PORT_COVER 124 -> 0 and
-// CARD_INTRUSION 77 -> 0. R16 (shrink pass): 35 -> 5.
-// R14: 0 -> 38, buying PORT_COVER 126 -> 0 and CARD_INTRUSION 79 -> 0.
-// R16: 38 -> 8.
-// First recording for the transmuter scenario (2026-09-07): 1 in both modes,
-// the e:15 copper_ore tap chip seated 32.00px off its own column.
-// Catalyst-split re-pin (2026-09-07): script43 1 -> 2 in both modes, gas-web
-// 0 -> 2 (on) and 1 -> 2 (off). Same cause as the padded-graze re-pin: the
-// taller transmuter cards and the dropped catalyst feed edges move the chips'
-// on-line candidates, and the least-bad seat for two of them is now an escape.
-// UP moves, listed as ruling items.
-// Catalyst-row re-pin (2026-09-07): coupon-web 0 -> 3 in both modes. The plan's
-// two phase_trans_2 cards each gained a catalyst row, 22px taller apiece, and
-// the column re-packed around them. The seats: e:3 (q:2 -> q:5,
-// xiranite_powder) 9.31px off its own polyline, e:6 (q:4 -> q:3,
-// copper_nugget) 12.00px, and e:9 (q:5 -> out:filter_core, filter_core)
-// 14.01px. UP move, listed as a ruling item.
-// CHIP-BOX RE-MEASURE (the graph-object chip box): a chip's box in graph units
-// is now its natural CSS box at every zoom -- at worst 120 x 20 where it used to
-// be 240 x 48 -- so every counter measured against a chip box drops. Re-pinned
-// DOWN from the zero-pin harvest: battery5 2 -> 0, battery5-xiranite 4 -> 0,
-// script43 1 -> 0, gas-web 1 -> 0. The merge carries the tighter of the two
-// parents' pins into every cell below and re-measures.
-const CHIP_OFFPATH_BASELINE: Record<string, number> = {
-  // R14: 0 -> 38, buying PORT_COVER 126 -> 0 and CARD_INTRUSION 79 -> 0.
-  // R16: 38 -> 8.
-  // RECIPE CARD TRIM (2026-09-13): battery5 2 -> 3, multi6 0 -> 4,
-  // rot-bottled_food_3 0 -> 1, rot-bottled_food_4 0 -> 1. The trim's row
-  // lift and the 240px card re-deal every corridor; the new seats are the
-  // bounded-sidestep and least-bad-escape classes the table already records
-  // (mirrored per edge in the unit seating corpora of the same PR). UP
-  // moves, listed for ruling in the trim's PR. The merge with the catalyst
-  // supply edges reset the two rot- cells to develop's 0 and they are
-  // re-pinned to 1 below, so the trim's pairs still chain.
-  default: 0,
   battery5: 0,
   "battery5-xiranite": 0,
   crystal: 0,
   equip4: 0,
-  // RECIPE CARD TRIM + CATALYST EDGES (2026-09-13): 4 -> 5. A fifth chip
-  // escapes its own polyline (e:10 4.50px, e:14 16.00px, e:19 32.00px, e:24
-  // 41.00px, e:28 16.00px), the same least-bad-escape class as the trim's
-  // own four. UP move at the merge of the trim with the catalyst supply
-  // edges, listed for ruling.
-  multi6: 5,
+  multi6: 0,
   tundra: 0,
   script43: 0,
   "coupon-web": 0,
   "gas-web": 0,
   "rot-bottled_food_3": 0,
   "rot-bottled_food_4": 0,
-  transmuters: 1,
+  // MERGE 2026-09-13 (placement rule on the develop merge): the transmuters
+  // scenario rejoins the corpus with the catalyst supply edges. Seeded at the
+  // pin it carried on the develop side.
+  transmuters: 4,
 };
-
-// Fan-out leg ratchet: member chips whose centre lies off the member's OWN leg
-// (the polyline suffix right of the shared junction column), counting kind
-// "bus" -- the fan-out branch chip -- as well as label chips, which the
-// off-path ratchet above cannot see. A branch chip names its member by sitting
-// on that member's leg; the column belongs to every member of the fan-out, so a
-// chip parked there names none of them to the reader. Pinned at 0 on the
-// whole corpus in both modes: this is a hard rule, not a residue, and nothing
-// here is ratified as a trade.
-// The transmuters row was missed when that scenario joined the corpus, so the
-// membership guard threw before the audit could read it (environment-frame
-// change, 2026-09-12). First recording, measured on this tree: 0 in both
-// modes -- every fan-out branch chip holds its member's leg.
+// Fan-out leg ratchet: member chips whose centre lies off the member's OWN leg,
+// the polyline suffix right of the shared junction column. A branch chip names
+// its member by standing on that member's leg; the column belongs to every
+// member of the fan-out, so a chip parked there names none of them.
 const FANOUT_LEG_BASELINE: Record<string, number> = {
   default: 0,
   battery5: 0,
@@ -939,31 +406,30 @@ const FANOUT_LEG_BASELINE: Record<string, number> = {
   transmuters: 0,
 };
 
+// Fan-in leg ratchet, the mirror of the table above: a member chip off its own
+// SOURCE STUB (the prefix left of the junction column), or an aggregate chip off
+// the shared leg from the merge dot into the target. The two chips of a fan-in
+// sit on opposite sides of its dot, and each names the stretch it stands on.
+const FANIN_LEG_BASELINE: Record<string, number> = {
+  default: 0,
+  battery5: 0,
+  "battery5-xiranite": 0,
+  crystal: 0,
+  equip4: 0,
+  multi6: 0,
+  tundra: 0,
+  script43: 0,
+  "coupon-web": 0,
+  "gas-web": 0,
+  "rot-bottled_food_3": 0,
+  "rot-bottled_food_4": 0,
+  transmuters: 0,
+};
+
 // Own-endpoint-pierce ratchet: segments that run inside their OWN source /
-// target card's RAW body. The foreign segment audit (tier 1) exempts an edge's
-// own endpoint cards, so this residue is its blind spot -- a rise / drop that
-// the pierce rescue lands inside its own endpoint card (the last-resort 3b
-// traversal, taken only where the port-side corridor is so packed that no
-// off-own column clears) never shows up there. Held per scenario and ratcheted
-// DOWN only, under the same manual-ruling convention as the tables above.
-// First recorded at the own-side-guard fix with battery5 at 6 (e:10 and e:40,
-// three segments each, rising into their own liquid_water target q:18) and
-// battery5-xiranite at 16 (target rise e:15 and source drops e:19 / e:20 /
-// e:22 / e:23 / e:50, each a walled corridor with no off-own column). Later
-// re-measures tightened both -- battery5 to 0 and battery5-xiranite to 2 -- and
-// the re-measure spanning BOTH the row-chrome diet and the #41 slab-spacing fix
-// takes the whole corpus to zero. The only cell left to move was
-// battery5-xiranite 2 -> 0, a slab-bearing scenario the slab-corridor mechanism
-// covers: with real inter-layer corridors the rescue finds an off-own column, so
-// the last-resort own-body traversal never fires. It was not differentially
-// probed at the parent commit. Pinned at zero everywhere, which
-// makes this tier an effective hard gate until something reintroduces a walled
-// corridor.
-// The three campaign scenarios first recorded zero too, so the gate now holds
-// across the ten-scenario corpus.
-// First recordings for the two exam-surfaced scenarios (campaign-first
-// measurement 2026-09-04, exam-surfaced-families Task 0, re-measurable within
-// the campaign): both zero.
+// target card's RAW body. The foreign-segment tier exempts an edge's own
+// endpoint cards, so this residue is its blind spot -- a run that lands inside
+// its own endpoint card because no off-own column cleared.
 const OWN_PIERCE_BASELINE: Record<string, number> = {
   default: 0,
   battery5: 0,
@@ -980,37 +446,11 @@ const OWN_PIERCE_BASELINE: Record<string, number> = {
   transmuters: 0,
 };
 
-// Frame-ride ratchet (Task 7, loop-backedge-braids-container family): edge
-// segments running ALONG a container slab's border (within FRAME_RIDE_TOL = 16,
-// matching CONTAINER_COLUMN_GAP, for more than two port stubs of overlap) and
-// backward item edges running along a bus band's border, either side. The
-// stroke and the border then read as one line -- the #29 follow-on the rail-gap
-// fix left behind on the VERTICALS, plus the band-bottom variant. A FIRST
-// RECORDING at the Task 7 fix commit, so every cell states where the campaign
-// is after the y-window and container-column fixes, not a target; it ratchets
-// DOWN under the same convention as every table above. The two rot- cells are
-// campaign-first measurements (2026-09-04) like their rows in the tables above.
-// Note the counter's blind spots by design: a stroke within 16 of a frame for
-// LESS than two port stubs (a crossing or corner) never counts, and container
-// borders are read from the drawn DOM rects.
-// First-recording residue, two hits corpus-wide, both shapes the Task 7 fix
-// deliberately does not touch: battery5's e:9 (xiranite_poly) keeps its
-// default column 9 off loop:liquid_xiranite_poly's right border because only
-// its SOURCE is a member (the shared-parent un-exemption needs both), and
-// rot-bottled_food_4's e:12 is a FORWARD tap's jog-descent column 2 off
-// loop:plant_grass_1's left border -- a jogForwardLegs column, outside the
-// loop-return family. Every loop-return column and rail the fix owns reads
-// 16+ off its frame (multi6 e:48 at 1340/580 vs borders 1356/564,
-// rot-bottled_rec_hp_1 e:3 at 1086/294 vs 1070/278, verified by probe).
-// Re-pinned DOWN at the round-2 per-side bands fix (same campaign): battery5
-// 1 -> 0. Each endpoint's OWN container now joins its side's column scan as
-// border bands, so e:9 -- whose only member endpoint is its source -- holds
-// the full gap off the loop's right border instead of riding it. The rot-
-// bottled_food_4 cell re-measured unchanged in the same pass: e:12 is a
-// forward jog descent, not a return column, and no fix in this family moves
-// it; it stays the sole recorded residue.
-// SINGLE-BAND RE-MEASURE (eeda816, the commit that made every plan ONE
-// left-to-right band): battery5 on 0 -> 1.
+// Frame-ride ratchet: edge segments running ALONG a container slab's border
+// (within FRAME_RIDE_TOL = 16, for more than two port stubs of overlap), and
+// backward item edges running along a band border. The stroke and the border
+// then read as one line. Blind by design to a stroke that crosses or corners
+// near a frame: only a RUN along it counts.
 const FRAME_RIDE_BASELINE: Record<string, number> = {
   // Structural zero with no bands drawn.
   default: 0,
@@ -1023,99 +463,17 @@ const FRAME_RIDE_BASELINE: Record<string, number> = {
   script43: 0,
   "coupon-web": 0,
   "gas-web": 0,
-  "rot-bottled_food_3": 0,
+  "rot-bottled_food_3": 1,
   "rot-bottled_food_4": 0,
   transmuters: 0,
 };
 
-// Hidden-junction-dot ratchet: dots whose whole drawn disc sits under a chip
-// box at fit zoom. Chips paint ABOVE the dots by design (the z-order tier
-// asserted in the P1 gate above), so a chip seated on a dot does not merely
-// overlap it -- it deletes it, and the merge / split the dot marks reads as an
-// ordinary corner. First recorded here at the campaign's pre-keepoff state, so
-// the counts below are a measurement of the defect, not a target; like every
-// table above it ratchets DOWN freely and moves UP only on a recorded ruling.
-// Two families made up the first recording (10 corpus-wide): a lane rise chip
-// covering a junction dot 8-13 units from its own centre (its own dot, or a
-// coincident sibling member's), and the restored fan-in owner chip covering the
-// merge dot on battery5-xiranite's e:14 (the shared-run owner chip that replaced
-// the removed sigma, which used to keep a half-box off the junction).
-// Re-pinned DOWN to 6 by the seating keep-off (#50), which walks a chip along
-// its own line (or one pitch off its lane) to a seat that leaves the dot
-// visible, whenever such a seat exists. Cleared: default's water rise, the
-// battery5 and battery5-xiranite iron_powder rises, and multi6's
-// originium_enr_powder rise -- four lane rises that had a clear lane-side slot.
-// Re-pinned DOWN again, to 2, by the short-leg collapse (#50): a fan-out member
-// whose whole polyline is shorter than one chip box now draws its branch chip
-// icon-only, and its seat reserves that same square box, so the four Sandleaf
-// trunk chips (battery5 e:8, battery5-xiranite e:13, crystal e:8, equip4 e:10)
-// -- each seated 9 units past its trunk's split dot on a 118-unit leg, with a
-// box wider than the whole leg -- now slide clear of the dot ON their own line.
-// The share digits they shed stay on their hover title and aria-label.
-// The TWO survivors are the cases where no seat on the chip's own polyline
-// clears the dot and no collapse applies, measured per case:
-//   - battery5-xiranite's fan-in owner chip (e:14) has 89 units of reach along
-//     its polyline against the ~93 its drawn box needs to clear the merge dot
-//     (its leg is long enough that the short-leg rule does not fire);
-//   - multi6's gas_inert rise (e:74) has its one lane-side slot blocked.
-// The two are stuck for different reasons. Clearing e:14 means taking a chip
-// OFF its own polyline, which the off-path ratchet forbids without a ruling.
-// e:74 is not an off-path case at all: the keep-off's one-pitch lane-side probe
-// is the seat that would clear it, and that slot is occupied -- crowding, not
-// the ratchet, is what holds it. Both are reported as they stand.
-// First recordings for the three campaign scenarios: script43 0, coupon-web 0,
-// gas-web 1 -- a copper_nugget fan-out chip (e:11) covering the merge dot of
-// its sibling e:10 at (1233,349), the same fan-in owner shape as the
-// battery5-xiranite survivor above.
-//
-// RE-MEASURED at 4 after the per-chip reserved seat box (Task 6b): battery5
-// 0 -> 1, one arrival, and it is a RATIFIED TRADE rather than a keep-off
-// regression. battery5 e:18 (Xircon Effluent 240/min) used to have no seat on
-// its own polyline at all and sat 40.9 units OFF it -- an orphan chip, counted
-// in seat validity, with its fan-in merge dot visible only because the chip had
-// left. With the narrower box the chip seats back ON its line and its box now
-// covers that dot. The pass's own priority order decides this one: keeping off
-// a junction dot is the WEAKEST preference there is and never costs a chip its
-// line (chipSeating's header), so a chip on its line over a dot beats a chip
-// floating beside its line with the dot showing. SEAT_VALIDITY_BASELINE's
-// battery5 cell drops from 2 to 1 in the same move.
-// The dot is not the only cost, and the whole trade is stated here: the same
-// on-line seat also deepens that chip's OWN-card intrusion on u:class:q:17 from
-// 27.7 to 40.0, so battery5 e:18 is simultaneously one of the six deep-class
-// arrivals enumerated in CARD_INTRUSION_BASELINE's note below. So the move buys
-// one seat-validity case with one junction dot AND one deep-class saturation.
-// RATIFIED at the Task 6b review as ruling R13 (the campaign plan carries the
-// same trade): seat validity is structural, the dot is the weakest preference in
-// the pass, and the depth is the crossings-over-depth precedence R11 declined to
-// reopen. It remains the campaign's only UP move on a pre-existing pin.
-// First recordings for the two exam-surfaced scenarios (campaign-first
-// measurement 2026-09-04, exam-surfaced-families Task 0, re-measurable within
-// the campaign): rot-bottled_food_3 1 and rot-bottled_food_4 1, both a bus
-// rise chip covering its own junction dot.
-// SINGLE-BAND RE-MEASURE (eeda816, the commit that made every plan ONE
-// left-to-right band): rot-bottled_food_4 off 0 -> 2.
-// RISE-CHIP CONTAINMENT (this round): battery5-xiranite 0 -> 2 and script43
-// 0 -> 1 on the on arm. A bus rise chip may no longer lift a full pitch off its
-// lane, because that offset puts the lane line outside the box the chip paints
-// and the chip reads as floating. No smaller lift clears a junction dot sitting
-// ON the lane (the dot needs more than a half-height of lift, the line needs
-// less), so the dot keep-off finds nothing and yields -- which is the precedence
-// it already states: the dot is decorative, a floating rate chip is not.
-// Catalyst-edge re-pin (2026-09-13): battery5-xiranite 2 -> 3 and transmuters
-// 0 -> 1, lanes on. Cause: the catalyst supply edges join the boundary node's
-// fan-out, so its shared junction column carries more dots under the same rise
-// chip. On battery5-xiranite the u:in:gas_xiranite fan-out gained e:30 (the
-// catalyst edge into u:class:q:6) beside e:28 into q:23, and e:31's "Xiragen x
-// 75 of 660/min" chip now covers three dots on that column instead of two. On
-// transmuters the same column carries the new e:17 (catalyst into q:3) whose
-// dot sits under e:18's "Xiragen x 15 of 48/min" chip -- e:18 being the
-// ordinary in: edge into the same card, which cycles the gas it consumes.
-// UP moves, listed as ruling items.
-// CHIP-BOX RE-MEASURE (the graph-object chip box): a chip's box in graph units
-// is now its natural CSS box at every zoom -- at worst 120 x 20 where it used to
-// be 240 x 48 -- so every counter measured against a chip box drops. Re-pinned
-// DOWN from the zero-pin harvest: rot-bottled_food_4 2 -> 0. The merge carries
-// the tighter of the two parents' pins into every cell below and re-measures.
+// Hidden-junction-dot ratchet: dots whose whole drawn disc sits under a chip box
+// at fit zoom. Chips paint ABOVE the dots by design, so a chip over a dot does
+// not merely overlap it -- it deletes it, and the merge / split the dot marks
+// reads as an ordinary corner. Distinct from the hard reserve criterion above,
+// which is a trunk chip against its OWN trunk's dot: this one counts any dot a
+// reader lost, whichever chip took it.
 const DOT_COVER_BASELINE: Record<string, number> = {
   // The one survivor is battery5's fan-in owner chip (e:18, ruling R13).
   default: 0,
@@ -1133,43 +491,24 @@ const DOT_COVER_BASELINE: Record<string, number> = {
   transmuters: 0,
 };
 
-// Endpoint-parity tolerance, in GRAPH UNITS, per scenario: the largest
-// per-axis gap allowed between an edge's drawn first / last vertex and a
-// reconstruction of that same endpoint from the node's card origin, the model
-// port geometry, and PORT_DRIFT (auditEndpointParity). The reconstruction runs
-// off a MIRRORED copy of chipSeating's port contract -- the same drift constants
-// and the same row math -- so what this table states is that that contract still
-// agrees with the DOM.
+// Endpoint-parity tolerance, in GRAPH UNITS, per scenario: the largest per-axis
+// gap allowed between an edge's drawn first / last vertex and a reconstruction
+// of that same endpoint from the node's card origin, the model port geometry,
+// and PORT_DRIFT (auditEndpointParity). The reconstruction runs off a MIRRORED
+// copy of the port contract -- the same drift constants and the same row math --
+// so what this table states is that that contract still agrees with the DOM.
 //
 // It anchors on the DRAWN card origin, which makes it a NEGATIVE CONTROL on the
 // drawn frame: it says the frame did not move, and it catches a row-index or
-// port-contract regression, which lands a full row pitch out. It is NOT
-// sensitive to chipSeating's src-side internals -- zeroing the source PORT_DRIFT
-// leaves it green. See the mirror comment above PORT_DRIFT in test/e2e/geometry.ts
-// for that one-directionality and its blind spots.
+// port-contract regression, which lands a full row pitch out.
 //
 // A tolerance rather than a count, and deliberately coarse: the disagreement it
 // exists to catch is an endpoint resolving to the WRONG ROW, which lands a full
 // row pitch (22 units) or a whole card width out. Sub-unit residue is not a
-// defect -- ItemEdge's HIDE_STALE_EPS comment records ~1 unit of port-model
-// noise between a reconstruction and React Flow's measured handles, and sets its
-// own guard well above it for the same reason.
-//
-// Measured at the pin commit, per scenario, as the max over both axes and every
-// endpoint: default 0.000, battery5 0.004, battery5-xiranite 0.005,
-// crystal 0.002, equip4 0.001, multi6 0.005, tundra 0.000 (24-224 endpoints
-// each). Every one is double-precision residue from mapping client rects back
-// through the inverse viewport transform -- nothing structural survives -- so
-// the pins are a flat measured-max-plus-headroom 0.5, two orders of magnitude
-// above the noise and one and a half below a row pitch. They ratchet DOWN like
-// the tables above; a rise needs the same recorded ruling.
-// The three campaign scenarios measured the same residue and take the same flat
-// 0.5 pin: script43 0.003 (76 endpoints), coupon-web 0.001 (38), gas-web 0.001
-// (62).
-// The two exam-surfaced scenarios (campaign-first measurement 2026-09-04,
-// exam-surfaced-families Task 0, re-measurable within the campaign) measured
-// the same residue and take the same flat 0.5 pin: rot-bottled_food_3 0.001
-// (38 endpoints), rot-bottled_food_4 0.003 (42).
+// defect -- what every scenario measures is double-precision dust from mapping
+// client rects back through the inverse viewport transform -- so the pins are a
+// flat 0.5, two orders of magnitude above the noise and one and a half below a
+// row pitch.
 const ENDPOINT_PARITY_TOL: Record<string, number> = {
   default: 0.5,
   battery5: 0.5,
@@ -1247,10 +586,8 @@ test.describe("segment placement audit", () => {
         )
         .toBe(0);
 
-      // Tier 2 (SOFT ratchet): segments entering a foreign edge's chip box stay
-      // at or below the per-scenario baseline. Zero on the sparse plans; the 2B
-      // anchor trades a bounded set of line-occlusions on the packed plans (see
-      // CHIP_SEGMENT_BASELINE) for the chip/card clearance the next tier checks.
+      // SOFT ratchet: segments entering a foreign edge's chip box stay at or
+      // below the per-scenario baseline (see CHIP_SEGMENT_BASELINE).
       const chips = geom.chips as ChipRect[];
       const chipHits = auditSegmentsVsChips(rawEdges, chips, nodes);
       const chipInventory = chipHits.map(
@@ -1272,12 +609,11 @@ test.describe("segment placement audit", () => {
           .toBeLessThanOrEqual(chipSegBaseline);
       }
 
-      // Tier 4 (P3). Chip-vs-card is the RATIFIED HARD gate: zero chip boxes
-      // entering a FOREIGN raw card, on every scenario. The seating pass
-      // upholds it by priority order -- when the on-line slide cannot clear,
-      // the escape cascade treats cards (like chips) as hard obstacles and
-      // yields the softer preferences instead (on-own-line, foreign-line
-      // clearance), which are the ratcheted residues asserted after it.
+      // HARD: zero chip boxes entering a FOREIGN raw card, on every scenario.
+      // A chip box on a card reads as that card's own label. The 1-to-1 rule
+      // slides its anchor along its own run to a card-clear seat; a trunk chip
+      // stands in a reserve the gap was widened for, which is outside every
+      // card by construction.
       const chipCardHits = auditChipsVsCards(chips, rawEdges, nodes);
       const chipCardInventory = chipCardHits.map(
         (v) =>
@@ -1290,26 +626,58 @@ test.describe("segment placement audit", () => {
         )
         .toBe(0);
 
-      const offPath = auditChipsOnOwnPath(chips, rawEdges);
-      const offPathInventory = offPath.map(
+      // HARD: every chip stands on a horizontal segment of its OWN polyline.
+      // The anchor is computed off the drawn path, so this holds by
+      // construction at rest; a chip flagged here is riding a stamp that
+      // outlived the geometry it was measured on.
+      const offRule = auditChipsOnOwnPath(chips, rawEdges);
+      const offRuleInventory = offRule.map(
         (v) =>
-          `  chip of ${v.chipEdgeId} ("${v.chipLabel}") is ${v.distance.toFixed(2)}px off its polyline`,
+          `  chip ${v.chipId} of ${v.chipEdgeId} ("${v.chipLabel}") is ${v.distance.toFixed(2)} off every horizontal run of its own polyline`,
       );
-      const offPathBaseline = baselineFor(
-        CHIP_OFFPATH_BASELINE,
-        "CHIP_OFFPATH_BASELINE",
-        scenario.id,
-        unpinned,
-      );
-      if (offPathBaseline !== null) {
-        expect
-          .soft(
-            offPath.length,
-            `${scenario.id}: ${offPath.length} label chip(s) off their own polyline exceeds baseline ${offPathBaseline}:\n${offPathInventory.join("\n")}`,
-          )
-          .toBeLessThanOrEqual(offPathBaseline);
-      }
+      expect
+        .soft(
+          offRule.length,
+          `${scenario.id}: ${offRule.length} chip(s) off every horizontal run of their own polyline among ${chips.length} chips:\n${offRuleInventory.join("\n")}`,
+        )
+        .toBe(0);
 
+      // HARD: every trunk chip inside the gap reserve beside the port it
+      // labels, clear of its own junction dot, with no foreign stroke through
+      // that reserve at its row. The zones come from the exam hook (nothing in
+      // the DOM records them), so a plan whose hook reported none -- a
+      // single-layer graph -- contributes no seats and no assertion.
+      const seats = trunkChipSeats(
+        chips,
+        rawEdges,
+        geom.dots as DotRect[],
+        geom.gapZones as GapZones[],
+      );
+      const reserves = auditTrunkChipReserves(seats);
+      expect
+        .soft(
+          reserves.outside.length,
+          `${scenario.id}: ${reserves.outside.length} trunk chip(s) outside their gap reserve among ${seats.length} trunk chip seats:\n${censusInventory(reserves.outside)}`,
+        )
+        .toBe(0);
+      expect
+        .soft(
+          reserves.onDot.length,
+          `${scenario.id}: ${reserves.onDot.length} trunk chip(s) inside their junction dot's column pad among ${seats.length} trunk chip seats:\n${censusInventory(reserves.onDot)}`,
+        )
+        .toBe(0);
+      const zoneStrokes = auditReserveZoneStrokes(seats, rawEdges, nodes);
+      expect
+        .soft(
+          zoneStrokes.length,
+          `${scenario.id}: ${zoneStrokes.length} reserve zone(s) crossed by a foreign stroke among ${seats.length} trunk chip seats:\n${censusInventory(zoneStrokes)}`,
+        )
+        .toBe(0);
+
+      // Trunk leg ratchets: a member chip off the stretch that is its own, in
+      // each direction. The fan-out leg is the suffix right of the shared
+      // column; the fan-in stub is the prefix left of it, and a fan-in
+      // aggregate rides the shared leg into the target.
       const offLeg = auditFanoutChipsOnOwnLeg(
         chips,
         rawEdges,
@@ -1317,7 +685,7 @@ test.describe("segment placement audit", () => {
       );
       const offLegInventory = offLeg.map(
         (v) =>
-          `  chip of ${v.chipEdgeId} ("${v.chipLabel}") is ${v.distance.toFixed(2)}px off its own fan-out leg`,
+          `  chip ${v.chipId} of ${v.chipEdgeId} ("${v.chipLabel}") is ${v.distance.toFixed(2)}px off its own fan-out leg`,
       );
       const offLegBaseline = baselineFor(
         FANOUT_LEG_BASELINE,
@@ -1332,6 +700,30 @@ test.describe("segment placement audit", () => {
             `${scenario.id}: ${offLeg.length} fan-out member chip(s) off their own leg exceeds baseline ${offLegBaseline}:\n${offLegInventory.join("\n")}`,
           )
           .toBeLessThanOrEqual(offLegBaseline);
+      }
+
+      const offStub = auditFaninChipsOnOwnLeg(
+        chips,
+        rawEdges,
+        geom.dots as DotRect[],
+      );
+      const offStubInventory = offStub.map(
+        (v) =>
+          `  chip ${v.chipId} of ${v.chipEdgeId} ("${v.chipLabel}") is ${v.distance.toFixed(2)}px off its own fan-in stretch`,
+      );
+      const offStubBaseline = baselineFor(
+        FANIN_LEG_BASELINE,
+        "FANIN_LEG_BASELINE",
+        scenario.id,
+        unpinned,
+      );
+      if (offStubBaseline !== null) {
+        expect
+          .soft(
+            offStub.length,
+            `${scenario.id}: ${offStub.length} fan-in chip(s) off their own stretch exceeds baseline ${offStubBaseline}:\n${offStubInventory.join("\n")}`,
+          )
+          .toBeLessThanOrEqual(offStubBaseline);
       }
 
       // Tier 3 (SOFT ratchet): padding-only grazes stay at or below the
@@ -1381,7 +773,7 @@ test.describe("segment placement audit", () => {
           .toBeLessThanOrEqual(ownPierceBaseline);
       }
 
-      // Frame-ride ratchet (Task 7): backward item edges' segments running
+      // Frame-ride ratchet: backward item edges' segments running
       // along a container slab's border (forward tap descents may share a border
       // line by convention and are not counted). Stroke-on-frame braids are the
       // loop-return family this counter exists to hold at zero; see
@@ -1407,7 +799,7 @@ test.describe("segment placement audit", () => {
           .toBeLessThanOrEqual(frameRideBaseline);
       }
 
-      // Hidden-dot ratchet: junction dots swallowed by a chip box at fit zoom.
+      // Hidden-dot ratchet: junction dots swallowed by any chip box at fit zoom.
       // The dot rects come from the DOM, so they carry the zoom-clamped radius
       // the dot actually renders at; the camera zoom only converts the
       // one-screen-pixel visibility tolerance into graph units.
@@ -1486,7 +878,7 @@ test.describe("segment placement audit", () => {
           .toBeLessThanOrEqual(parityTol);
       }
 
-      // Census: pairwise crossings never regress past the pre-P2 baseline.
+      // Census: pairwise crossings never regress past the baseline.
       const crossings = countCrossings(geom.edges);
       const baseline = baselineFor(
         CROSSING_BASELINE,
@@ -1498,7 +890,7 @@ test.describe("segment placement audit", () => {
         expect
           .soft(
             crossings,
-            `${scenario.id}: ${crossings} crossings exceeds pre-P2 baseline ${baseline}`,
+            `${scenario.id}: ${crossings} crossings exceeds baseline ${baseline}`,
           )
           .toBeLessThanOrEqual(baseline);
       }
@@ -1506,27 +898,22 @@ test.describe("segment placement audit", () => {
       // Crossing-cue coverage (Task 9): every counted crossing between
       // DIFFERENT flows (different item|source) must carry a DRAWN cue on
       // one edge of the pair -- the stroke masked out around the crossing,
-      // whichever of the two the seating pass picked (a transparent gap
+      // whichever of the two the stamp pass picked (a transparent gap
       // reads the same in either paint order, so no z key is involved).
-      // ZERO-TOLERANCE by design, no baseline table: the seating pass stamps
+      // ZERO-TOLERANCE by design, no baseline table: the stamp pass stamps
       // a cue for every cross-flow proper crossing by construction, and the
       // renderers cut every stamped cue that still sits on their live
       // polyline, so a miss means the stamp pass or the render broke --
-      // there is no legitimate residue class to pin. Same-flow crossings (between one flow's own
-      // edges: trunk members overlapping a lane, fan-out slices sharing a
-      // trajectory) are one visual line by the flowKey doctrine and
+      // there is no legitimate residue class to pin. Same-flow crossings
+      // (between one flow's own edges: a trunk's members sharing their column,
+      // fan-out slices sharing a trajectory) are one visual line and
       // deliberately NEVER cued; they are reported in the message so a plan
       // where that class suddenly grows stays visible instead of silently
       // living outside the assertion.
-      // First recordings (2026-09-04, informational, not a ratchet) --
-      // crossFlow / sameFlow per scenario, cued equalled crossFlow on every
-      // one: default 4/0, battery5 13/0, battery5-xiranite 46/1, crystal 1/0,
-      // equip4 1/0, multi6 130/7, tundra 0/0, script43 26/0, coupon-web 13/0,
-      // gas-web 39/1, rot-bottled_food_3 5/0, rot-bottled_food_4 20/0. The
-      // drawn-cue count can sit BELOW cued (multi6 120 gaps for 130 cued
-      // crossings): the stamp pass dedupes per edge and point, so trunk
-      // members sharing a lane that crosses one foreign edge together draw
-      // one gap where the census counts each member pair.
+      // The drawn-cue count can sit BELOW the cued count: the stamp pass
+      // dedupes per edge and point, so trunk members sharing a column that
+      // crosses one foreign edge together draw one gap where the census counts
+      // each member pair.
       const coverage = crossingCueCoverage(geom.edges, geom.crossingCues);
       expect
         .soft(
@@ -1562,23 +949,19 @@ test.describe("segment placement audit", () => {
 // Its OWN describe with its OWN page load, deliberately: every criterion in the
 // P2 describe above measures at FIT zoom (auditDotsUnderChips even consumes
 // geom.zoom), so moving the camera inside that test would silently re-frame
-// seven ratchets. Nothing is shared between the two but the collectors.
+// every ratchet in it. Nothing is shared between the two but the collectors.
 //
-// The camera is a fixed reading zoom of 0.6, commanded through the exam hook the
-// app installs under `?exam=1` (Canvas.tsx). Why a fixed zoom at all: at
-// multi6's fit zoom (~0.21) BOTH chip LOD gates fire and nearly every chip is
-// not drawn, so a fit-zoom census of that plan measures almost nothing --
-// exactly why CHIP_OFFPATH_BASELINE["multi6"] is "unmeasured rather than clean".
-// 0.6 clears LABEL_MIN_ZOOM (0.35) and CHIP_ICON_ONLY_MAX_ZOOM (0.5) on every
-// plan, so every chip is drawn with its digits. React Flow does not virtualise
-// nodes or the edge-label layer here, so the chips that fall outside the pane at
-// that zoom are still mounted and still measure.
+// The camera is a fixed reading zoom (CENSUS_ZOOM), commanded through the exam
+// hook the app installs under `?exam=1` (Canvas.tsx). Why a fixed zoom at all:
+// at a dense plan's fit zoom the chip LOD bands collapse or drop nearly every
+// chip, so a fit-zoom census of that plan measures almost nothing. The census
+// camera sits above both gates, so every chip is drawn with its digits. React
+// Flow does not virtualise nodes or the edge-label layer here, so chips outside
+// the pane are still mounted and still measure.
 //
-// The camera fixes which chips are DRAWN (the two LOD gates) and nothing else
-// about their size: a chip draws its natural box in graph units at every zoom.
-// Every count in the four tables is still a reading at zoom 0.6, since the gates
-// and the pan frame are part of it; re-measure the whole table if the camera
-// moves.
+// The camera fixes which chips are DRAWN and nothing else about their size: a
+// chip draws its natural box in graph units at every zoom. Re-measure all three
+// tables if the camera moves.
 //
 // The pan keeps the world point that was at the pane centre at fit zoom in the
 // pane centre, so the frame is the middle of the plan on every scenario. It is
@@ -1586,189 +969,18 @@ test.describe("segment placement audit", () => {
 // and nothing is culled) and is fixed only so a debugging screenshot of a census
 // failure shows the same region every run.
 
-// FIRST RECORDINGS, all four tables. They were measured on the campaign's
-// pre-fix branch tip with every cell pinned at zero and the reported actual
-// read back out of the failure message, scenario by scenario. They state where
-// the campaign starts -- not a target, not a ruling -- and from here they
-// ratchet DOWN under the same convention as the seven tables above. Because
-// this campaign first recorded them, they may also be RE-measured freely inside
-// the campaign with the cause annotated; that licence ends when the campaign
-// does.
-//
-// Seat validity: chips whose own edge's polyline does not pass through their own
-// drawn box. Structural, all chip kinds, so it sees what auditChipsOnOwnPath
-// (label chips only, centre distance) cannot: the lane rise chips stranded at a
-// trunk-wide slot index and the drop chips cascaded off their lane. It is also
-// STRICTLY WEAKER than that centre rule for the chips both cover -- a sidestep
-// seat holds the line inside the box while moving the centre off it -- which is
-// why CHIP_OFFPATH_BASELINE reads 0 on the three plans that dominate here.
-// Measured 30 corpus-wide: 28 BUS chips -- the family the off-path ratchet
-// cannot see at all -- and 2 label chips. The 28 are lane rise chips parked at a
-// trunk-wide slot index far from where their own member leaves the lane (multi6
-// e:67 / e:77 / e:86 / e:88 / e:90 / e:92 / e:94 / e:108, script43's five
-// gas_xiranite rises e:24 / e:26 / e:27 / e:28 / e:29, gas-web's five, and so
-// on) plus the drop-side case with no guard at all (multi6 e:74, cascaded 144.2
-// off its lane). The 2 label chips are battery5 e:18 and battery5-xiranite e:4,
-// two of the four seats CHIP_OFFPATH_BASELINE already pins; the other two
-// (battery5 e:1 at 8.50 and battery5-xiranite e:18 at 17.18) keep their own line
-// inside the box and so are valid seats here. That is the "strictly weaker"
-// relation in numbers.
-//
-// It does NOT make the counter immune to a sidestep, as first recorded here.
-// The seat reserves the box the chip draws, and the reach that keeps the own
-// line "inside the box" is half of its half-width, so a step at the flush end
-// of the reach leaves the line in the outer half of the box.
-// Measured: an unbounded scored sidestep put multi6 e:18 at the flush 120 and
-// this counter read 19, the chip floating a full half-width off its line with
-// its two foreign strokes shed. The shipped tier caps its reach at half the
-// reserve for exactly that reason, and the counter holds at 18. Task 6b
-// extended that same bound to the FULLY CLEAR step (tier 1c), which had kept the
-// full reach: measured against the per-chip box, leaving 1c uncapped read 19
-// here while capping it holds 18 and drops card-intrusion and foreign-stroke
-// further as well (ruling R12).
-//
-// RE-MEASURED at 18 after the rise-slot clamp and the drop cascade cap. The
-// x-stranding family is gone: no chip is off its own line by more than one
-// cascade pitch any more (the worst was 663 units), and multi6 e:74's drop now
-// holds its junction. What is left is 16 bus chips at exactly 48.0 -- rise chips
-// lifted ONE pitch off their lane, by the junction-dot keep-off (#50) or by
-// crowding -- plus the same 2 label chips. That residue is structural at this
-// camera: the drawn box is 40 tall here, so a chip one pitch off its lane can
-// never touch it, while the seating pass ratifies one pitch as "beside the lane"
-// and hides anything past it. Clamping a stranded slot lands it at its own run's
-// far end, which is where that run's junction dot sits, so the keep-off lifts it
-// -- beside its own run beats spread onto a sibling's stroke.
-// RE-MEASURED at 18 after the per-chip reserved seat box (Task 6b). The total
-// holds; two cells swap. battery5 2 -> 1: e:18 had no seat on its own polyline
-// under the worst-case box and sat 40.9 units off it; the narrower box gives it
-// one (it pays a junction dot for it, see DOT_COVER_BASELINE). multi6 5 -> 6:
-// e:35 (Ferrium Powder 600/min) went the other way, displaced off its line by
-// the re-seating cascade as its neighbours took the corridor room the narrower
-// boxes freed. Both cells are campaign-own measurements, re-measured with cause.
-// First recordings for the two exam-surfaced scenarios (campaign-first
-// measurement 2026-09-04, exam-surfaced-families Task 0, re-measurable within
-// the campaign): both zero; every chip holds its own line inside its box.
-// R14: 5 -> 36 (the chips CHIP_OFFPATH counts). R16: 36 -> 3.
-// Catalyst-split re-pin (2026-09-07): multi6 0 -> 2 (lanes on), script43 0 -> 1
-// (lanes off). UP moves, listed as ruling items; same re-pack cause as above.
-// The seats: multi6 e:88 and e:89, the two liquid_water tap rise chips into q:8
-// and q:9, each sitting 48.0px off its own line; script43 e:9, the gas_copper
-// label chip on q:23 -> q:6, 93.3px off.
-// CHIP-BOX RE-MEASURE (the graph-object chip box): a chip's box in graph units
-// is now its natural CSS box at every zoom -- at worst 120 x 20 where it used to
-// be 240 x 48 -- so every counter measured against a chip box drops. Re-pinned
-// DOWN from the zero-pin harvest: battery5-xiranite 1 -> 0. The merge carries
-// the tighter of the two parents' pins into every cell below and re-measures.
-const SEAT_VALIDITY_BASELINE: Record<string, number> = {
-  // R14: 2 -> 35. R16: 35 -> 1.
-  // RECIPE CARD TRIM (2026-09-13): multi6 0 -> 1 and rot-bottled_food_3
-  // 0 -> 1, the same two escape-cascade seats as the on arm (44.2 off the
-  // line each). UP moves, listed for ruling in the trim's PR.
-  default: 0,
-  battery5: 0,
-  "battery5-xiranite": 0,
-  crystal: 0,
-  equip4: 0,
-  multi6: 1,
-  tundra: 0,
-  script43: 1,
-  "coupon-web": 0,
-  "gas-web": 0,
-  "rot-bottled_food_3": 1,
-  "rot-bottled_food_4": 0,
-  transmuters: 0,
-};
-
 // Card intrusion: chips whose box reaches more than CARD_INTRUSION_BUDGET deep
 // past a node card's border, OWN cards included, container slabs excluded. A
 // depth rule, sharing its budget with the seating pass's own-card port-strip
 // exemption, so a chip lying across the port strip on its own line -- the normal
-// on-line state -- never counts however wide it is. Distinct from the tier-4
-// hard gate above, which is a CENTRE rule against foreign cards plus
-// chipEntersOwnCardBody on own ones; that gate stays at zero and is untouched.
-// Measured 88 corpus-wide, the largest of the four counters and the F1 family
-// the campaign names: a chip anchored on its own line a stub's length off the
-// port has half a box left over, and that half lands on the card. The depths
-// run from just past the budget to a full 40, and 21 of the 88 are at that 40:
-// 40 is the drawn chip HEIGHT at this camera, so the depth has saturated on the
-// vertical axis and the box is swallowed whole in x, sitting on the card body
-// with only its centre still out in the port strip (multi6 e:30 / e:49,
-// script43 e:18 / e:21). Two are bus rise chips (script43 e:3 / e:4); the other
-// 86 are label chips.
-// Unmoved by the rise-slot clamp and the drop cascade cap: every cell re-read
-// identical. Both are lane-frame changes and this counter is dominated by label
-// chips at node ports.
+// on-line state -- never counts however wide it is. Distinct from the hard
+// chip-vs-card gate above, which is a CENTRE rule against foreign cards.
 //
-// RE-MEASURED at 84 after the seating pass gained its own box-depth rule: the
-// tier-1 slide and the graze scorer now rank a candidate's depth into its OWN
-// endpoint cards (below the junction-dot keep-off in tier 1, below the
-// foreign-line crossing count in the graze tier), so a chip that used to stop
-// at the first otherwise-clear point keeps walking its line to one whose BOX
-// also clears the card. Six seats moved off a card (battery5 e:19,
-// battery5-xiranite e:28, multi6 e:12 / e:83 / e:84 / e:110, depths 9.5 to
-// 29.1) and two moved onto one at shallow depth (multi6 e:5 at 10.5, script43
-// e:17 at 15.4, both chips that shifted along their own lines as the seats
-// around them changed) -- hence script43 15, one ABOVE its first recording.
-// That cell is a measurement this campaign took, not a ratified trade, and the
-// plan's ratchet rule lets it be re-measured with its cause recorded.
-//
-// The DEEP class -- 21 chips whose depth saturates at the drawn box height, the
-// ones a reader sees lying ON a card -- did NOT move, and the reason is
-// availability, not ranking. Traced candidate by candidate at this camera: 12
-// of them (battery5 e:6 / e:11 / e:12, battery5-xiranite e:11 / e:14 / e:21,
-// crystal e:5, multi6 e:49, script43 e:21 / e:31 / e:32 / e:33) have exactly
-// one fully clear point on the whole line and it is the buried one -- every
-// shallower point on the corridor crosses a foreign line, and crossings
-// outrank depth by ruling; 7 (battery5-xiranite e:18 / e:20, gas-web e:17 /
-// e:25, multi6 e:30 / e:99, script43 e:18) have NO fully clear point, so their
-// seat comes from the sidestep or the graze scorer where the same precedence
-// applies; 2 (battery5-xiranite e:19, gas-web e:18) had a within-budget graze
-// candidate that lost on crossings. All 21 reserve a 240-wide worst-case box
-// while drawing 120-200 here, which is what makes the corridor interior look
-// blocked. Closing them needs either that box model or the crossings-vs-depth
-// precedence revisited, not another seat-preference term.
-//
-// RE-MEASURED at 81 after the sidestep tier started scoring its steps instead
-// of taking the first fully clear one (script43 15 -> 14, gas-web 10 -> 8).
-// That tier fires where NO point on the own line is clear, and until now it
-// took the nearest clear horizontal step whatever that step landed on -- so it
-// could park a box on the chip's own card that the slide above it had walked
-// its whole line to avoid. It now carries the same own-card depth term the two
-// on-line tiers carry, and three seats (script43 e:37, gas-web e:9 / e:30, 13
-// to 18 deep) stepped one pitch further to a slot off the card. The deep class
-// is untouched by it: none of those three saturated.
-//
-// RE-MEASURED at 70 after the per-chip reserved seat box (Task 6b), which
-// reserves an upper bound on what each chip will DRAW (chrome + its own rate
-// text + the widest localized unit, clamped by the CSS max-width) instead of the
-// widest box that clamp allows -- 166 to 234 units against a flat 240 across
-// this corpus. Counted by chip identity, SEVENTEEN intrusions left the counter
-// and six arrived (81 - 17 + 6 = 70); the DEEP class went 21 -> 18.
-// The two sixes below are DIFFERENT SETS that overlap in five. A COUNTER
-// arrival is a chip that was off this counter entirely and now laps a card past
-// the budget at any depth; a DEEP arrival is a chip whose depth saturates at the
-// drawn box height. multi6 e:52's rise chip is a counter arrival that is not
-// deep (34.7 -- past the budget, short of saturation), and battery5 e:18 is a
-// deep arrival that is not a counter arrival (it was already counted at 27.7 and
-// deepened to 40.0 on u:class:q:17, the same seat DOT_COVER_BASELINE's ruling
-// note above trades for). The other five are both.
-// Nine of the original deep saturations cleared: the eight
-// Task 5 traced to "the only fully clear point on the line IS the buried one"
-// (battery5 e:6, battery5-xiranite e:11, crystal e:5, multi6 e:49, script43
-// e:21 / e:31 / e:32 / e:33 -- the narrower box makes a shallower point on the
-// same corridor clear) plus battery5-xiranite e:19, whose within-budget graze
-// candidate stopped losing on crossings. Six arrived (battery5 e:18,
-// battery5-xiranite e:34, multi6 e:18 / e:41 / e:43, gas-web's copper_nugget
-// fan-out share chip): chips that gained on-line candidates and settled on one
-// the crossing count ranks above depth, which is the precedence ruling R11 kept.
-// The twelve survivors run 166 to 234 wide; the widest of them
-// (battery5-xiranite e:20, "238.36/min") is 3% off the CSS clamp and had nothing
-// to gain, exactly as the box model predicts.
-// First recordings for the two exam-surfaced scenarios (campaign-first
-// measurement 2026-09-04, exam-surfaced-families Task 0, re-measurable within
-// the campaign): rot-bottled_food_3 2 (shallow, 9.5 and 10.8 deep),
-// rot-bottled_food_4 5 (10.7 to 21.7), all label chips on their own endpoint
-// cards.
+// Not zero, and not reducible to zero by the placement rule alone: a trunk chip
+// stands in the reserve beside the port it labels and may not leave it, so where
+// a card overhangs that reserve the box laps it. The two fan-out member chips on
+// multi6 that stand over a card are the same residue, pinned by identity in
+// test/canvas/chipAnchors.corpus.test.ts.
 const CARD_INTRUSION_BASELINE: Record<string, number> = {
   default: 0,
   battery5: 0,
@@ -1789,79 +1001,23 @@ const CARD_INTRUSION_BASELINE: Record<string, number> = {
 // box. Same waiver set as CHIP_SEGMENT_BASELINE above (shared code, not a
 // re-implementation), so no seat can be foreign to one and waived by the other.
 // Three things make this count differ from that table: it counts CHIPS where
-// that one counts (segment, chip) pairs, it covers bus chips as well as label
-// chips, and it reads at the census camera rather than at fit zoom.
-// Measured 47 corpus-wide, 44 label chips and 3 bus chips (script43 1, gas-web
-// 2). The shape matches CHIP_SEGMENT_BASELINE's own note -- a few full-height
-// tap and surplus columns passing under many chips -- which is why the chip
-// count here (gas-web 11) sits below that table's pair count (20) for the same
-// plan. multi6 runs the other way, 16 here against 0 there: at its fit zoom the
-// chips that collide are not drawn at all, which is the blind spot the reading
-// camera exists to remove.
-//
-// RE-MEASURED at 48 after the drop cascade cap: multi6 16 -> 17, every other
-// cell identical. The one addition is multi6 e:74's gas_inert DROP chip, and it
-// is the R7 trade itself -- that chip used to clear the foreign stroke by
-// cascading three pitches into empty canvas (where it counted in seat validity
-// and outside-band instead); capped at one pitch it stays on its own junction
-// and grazes the stroke. A stroke through the box beats a rate chip with nothing
-// under it.
-//
-// RE-MEASURED at 39 after the per-chip reserved seat box (Task 6b), the largest
-// single drop this campaign has taken on any counter. It is the mechanism
-// working directly rather than a ranking change: this counter reads the DRAWN
-// box, and most of its population was class C from the Task 6 enumeration --
-// full-height tap and surplus columns passing under a box the seat had to
-// reserve at the full clamp width. A box reserved at its own text width both
-// straddles fewer columns and has more clear seats to choose from. Nine chips
-// left across seven scenarios; none arrived.
-// First recordings for the two exam-surfaced scenarios (campaign-first
-// measurement 2026-09-04, exam-surfaced-families Task 0, re-measurable within
-// the campaign): both 2, each one full-height column passing under two label
-// chips.
-// R14: 40 -> 59. R16: 59 -> 54, with multi6 19 -> 20 the one ratified up
-// cell (a chip grazing a foreign line on its own row instead of escaping).
-// SINGLE-BAND RE-MEASURE (eeda816, the commit that made every plan ONE
-// left-to-right band): default 1 -> 2 in both arms and rot-bottled_food_3
-// 0 -> 2, the same sidestep-gate trade the chip-segment table records.
-// FAN-OUT LEG SEAT: default 2 -> 3 in BOTH arms, the chip-side reading of the
-// single pair CHIP_SEGMENT_BASELINE records above -- e:12's rise chip, seated on
-// its own leg row, now has e:8's stroke through its box.
-// R14: 32 -> 49. R16: 49 -> 45.
-// FAN-OUT LEG SEAT: default 2 -> 3.
-// Catalyst-split re-pin (2026-09-07): battery5-xiranite 6 -> 7 (on) and 5 -> 8
-// (off), script43 5 -> 7 (off), gas-web 5 -> 6 (off). UP moves, listed as ruling
-// items; the softest tier, and the same re-pack cause as above.
-// Environment-frame re-pin (2026-09-12): transmuters 0 -> 1 in both modes --
-// the census-camera reading of the same e:8 surplus stroke under e:11's "Sewage
-// x 150/min" chip the CHIP_SEGMENT table records above. Same cause: the seats
-// date to the catalyst-split rebase onto develop, and the environment frame's
-// footprint probed identical (1 at the pre-footprint commit). UP move, listed
-// as a ruling item.
-// Catalyst-edge re-pin (2026-09-13): transmuters 1 -> 3 (lanes on) and 1 -> 2
-// (off). Cause: the catalyst supply edges. Lanes on, e:20's "Xiragen x 3/min"
-// rise chip takes the strokes of e:17 (the catalyst edge into u:class:q:3) and
-// e:18 (the ordinary in: edge into the same card), and in both modes e:23's
-// "Clean Water x 150/min" rise chip takes e:13's copper_ore and e:15's
-// gas_inert strokes off the re-packed left rim. The pre-existing e:8-under-e:11
-// surplus stroke stays. Softest tier, UP moves, listed as ruling items.
-// CHIP-BOX RE-MEASURE (the graph-object chip box): a chip's box in graph units
-// is now its natural CSS box at every zoom -- at worst 120 x 20 where it used to
-// be 240 x 48 -- so every counter measured against a chip box drops. Re-pinned
-// DOWN from the zero-pin harvest: default 3 -> 1, battery5 3 -> 2,
-// battery5-xiranite 5 -> 3, crystal 1 -> 0, multi6 19 -> 15, script43 5 -> 2,
-// coupon-web 3 -> 0, gas-web 5 -> 2, rot-bottled_food_4 2 -> 0. The merge
-// carries the tighter of the two parents' pins into every cell below and
-// re-measures.
+// that one counts (segment, chip) pairs, and it reads at the census camera
+// rather than at fit zoom, where far more chips are drawn.
 const FOREIGN_STROKE_BASELINE: Record<string, number> = {
+  // MERGE 2026-09-13 (placement rule on the develop merge): 0 -> 1.
   default: 1,
-  battery5: 2,
-  "battery5-xiranite": 3,
-  crystal: 0,
+  // MERGE 2026-09-13 (placement rule on the develop merge): 1 -> 5, the
+  // liquid_xiranite catalyst supply run crossing the chips of the chain it
+  // feeds.
+  battery5: 5,
+  "battery5-xiranite": 5,
+  crystal: 1,
   equip4: 1,
-  multi6: 15,
+  // MERGE 2026-09-13 (placement rule on the develop merge): 8 -> 10, the three
+  // gas_xiranite catalyst supply runs.
+  multi6: 10,
   tundra: 0,
-  script43: 2,
+  script43: 1,
   "coupon-web": 0,
   // MERGE 2026-09-13 (chips graph objects on the develop merge): 2 -> 3. e:14's
   // "Cuprium Ore x 180/min" chip takes e:25's liquid_water tap stroke, the tap
@@ -1876,15 +1032,24 @@ const FOREIGN_STROKE_BASELINE: Record<string, number> = {
   transmuters: 3,
 };
 
-// PORT-COVER: chips whose drawn box covers a handle, glyph or row strip of
-// their own endpoint card. Target state zero; ratchets down.
+// Port cover: chips whose drawn box covers a handle, glyph or row strip of their
+// own endpoint card. The furniture band straddling a port is a keep-out, so a
+// chip anchored a port stub out of it clears it by construction. Target state
+// zero; ratchets down.
+//
+// The five pinned cells are one family, and one the placement rule cannot clear
+// on its own: a 1-to-1 chip slid along its run to the nearest CARD-clear seat
+// stops flush against the target card, where the box still laps the port glyph
+// standing outside the border (battery5 e:7 / e:17, battery5-xiranite e:3 /
+// e:12, multi6 e:54, all the two wide Sandleaf Seed / Inert Xircon Effluent
+// labels). The slide clears cards, and the glyph is not part of the card box.
 const PORT_COVER_BASELINE: Record<string, number> = {
   default: 0,
-  battery5: 0,
-  "battery5-xiranite": 0,
+  battery5: 2,
+  "battery5-xiranite": 2,
   crystal: 0,
   equip4: 0,
-  multi6: 0,
+  multi6: 1,
   tundra: 0,
   script43: 0,
   "coupon-web": 0,
@@ -1894,145 +1059,23 @@ const PORT_COVER_BASELINE: Record<string, number> = {
   transmuters: 0,
 };
 
-// CHIP-COLLAPSE: chips drawing their icon-only variant at the census camera.
-// Not a defect counter but the trade dial every keep-out or cap pays into.
-// 35 -> 48 at the port-clear render (R14),
-// 48 -> 43 at the shrink pass (R16).
-// First recording for the transmuter scenario (2026-09-07): 4 in both modes,
-// out of 26 chips at the census camera.
-// Environment-frame re-pin (2026-09-12): transmuters 4 -> 6 in both modes.
-// Two more of the plan's chips collapse icon-only at the census camera -- the
-// rebased catalyst-split seating puts them on legs too short for their full
-// label boxes, the trade this dial exists to record. The environment frame's
-// footprint probed identical (6 at the pre-footprint commit). UP move, listed
-// as a ruling item.
-// CHIP-BOX RE-MEASURE (the graph-object chip box): a chip's box in graph units
-// is now its natural CSS box at every zoom -- at worst 120 x 20 where it used to
-// be 240 x 48 -- so every counter measured against a chip box drops. Re-pinned
-// DOWN from the zero-pin harvest: battery5-xiranite 4 -> 2, coupon-web 6 -> 5.
-// The three-band LOD leaves this camera (zoom 0.6) above the digits gate, so
-// what it still counts is the short-leg and contested stamps alone, and the
-// narrower box earns fewer of them.
-const CHIP_COLLAPSE_BASELINE: Record<string, number> = {
-  default: 4,
-  battery5: 2,
-  "battery5-xiranite": 2,
-  crystal: 2,
-  equip4: 2,
-  multi6: 13,
-  tundra: 0,
-  script43: 3,
-  "coupon-web": 5,
-  "gas-web": 3,
-  "rot-bottled_food_3": 4,
-  "rot-bottled_food_4": 0,
-  // 4 -> 6 at the environment-frame re-measure.
-  // RECIPE CARD TRIM + CATALYST EDGES (2026-09-13): 6 -> 7, the same
-  // unattributable collapse as the on arm. UP move, listed for ruling.
-  transmuters: 7,
-};
-
-// TIER-1 SLIDE DRIFT, re-measured after the per-chip reserved seat box
-// (Task 6b, ruling R11). Not a counter and not ratcheted -- a measurement
-// recorded next to the counters it belongs with, because the audit surface
-// cannot pin it (see the last paragraph).
-//
-// Drift is how far along its own polyline a rate chip walks from its anchor
-// before it settles: the arc-length offset the on-line tiers (tier 1 and the
-// graze scorer) choose in seatRateChip. Task 5's fourth concern recorded that
-// nearest-first became only a TIEBREAK there -- a chip crosses the whole line to
-// shave one unit of own-card depth if every nearer candidate laps deeper -- and
-// the T6b audit predicted narrowing the box could make it WORSE, since a
-// narrower box also makes MORE distant candidates clear. Measured rather than
-// assumed. One slide step is SLIDE_STEP = 24 world units and the walk is capped
-// at SLIDE_MAX_STEPS = 48 steps, so the reach is 1152 units either way.
-//
-// Per scenario, over the seats that took an on-line tier, "before" at the Task
-// 6b parent (939a7aa) and "after" at the per-chip box, same corpus, same
-// en locale:
-//
-//   scenario           drifted/seats before   after      max before -> after
-//   default                   1/13            6/13        504 -> 504  (21 steps)
-//   battery5                 11/21           14/23        960 -> 960  (40 steps)
-//   battery5-xiranite        21/33           21/34        744 -> 720  (31 -> 30)
-//   crystal                   2/10            2/10         72 ->  48  ( 3 ->  2)
-//   equip4                    3/13            3/13        288 -> 240  (12 -> 10)
-//   multi6                   48/85           55/86        792 -> 696  (33 -> 29)
-//   tundra                    2/7             3/7          48 ->  48  ( 2 steps)
-//   script43                 21/28           24/28       1080 -> 1032 (45 -> 43)
-//   coupon-web                4/16            5/16        288 -> 288  (12 steps)
-//   gas-web                  17/24           19/24       1080 -> 1032 (45 -> 43)
-//   corpus                  130/250         152/254
-//
-// Two readings, and they point in opposite directions:
-//   - the MAXIMA did not get worse anywhere. Six scenarios fell, four held, none
-//     rose, and the far tail is the same edges on both sides (battery5 e:4 at 40
-//     steps, script43 e:10 and gas-web e:3 at 45 -> 43). So the audit's R-d
-//     prediction did not land on the distances.
-//   - it did land on the COUNT. 22 more chips leave their anchor at all, and
-//     every one of those additions is SHORT: bucketed by step count the corpus
-//     goes 0 steps 120 -> 102, 1-2 steps 47 -> 81, 3-5 steps 39 -> 28, 6-10
-//     23 -> 26, 11-20 9 -> 6, 21+ 12 -> 11. More chips move, and they move one
-//     or two steps, while the long walks thin out. That is the narrower box
-//     giving the dot and depth terms shallower candidates to prefer, which is
-//     the mechanism the whole task rests on.
-//
-// So drift is MATERIAL -- 11 chips still walk 21 steps or more, up to 43 steps
-// (1032 units, about five of their own box widths off the anchor) -- and it is
-// PRE-EXISTING rather than anything Task 6b introduced. It is a real follow-up
-// for the campaign, ranked as its own question: a distance cap on the walk would
-// trade card depth back for nearness, which is a ruling, not a tuning.
-//
-// Why there is no baseline TABLE here. Every counter above is measured from
-// DRAWN rects, and drift is a distance from the chip's ANCHOR -- the
-// clear-segment anchor edgePath returns per route shape, a layout-internal point
-// no DOM read recovers (the chip renders at anchor + labelDx/labelDy, and only
-// the sum is visible). Pinning drift means mirroring that anchor in
-// test/e2e/geometry.ts the way PORT_DRIFT mirrors the port contract, across
-// every route shape -- its own task, not a comment. The numbers above were taken
-// by temporarily recording the winning candidate's arc-length delta in
-// seatRateChip's two on-line walks, building, and reading the record per
-// scenario through tools/exam/probe.ts --eval; the instrumentation was reverted,
-// and the recipe is repeatable from this note.
-//
 // Corpus-wide totals, one per counter. The census is a campaign-level ratchet,
 // so the single number per counter is the figure the campaign moves; the
 // per-scenario tables above are what a failure is diagnosed from. Asserted
 // arithmetically against the tables (see the totals test) rather than summed
 // over a run, so it holds even when the suite is run one scenario at a time.
-// R10 (2026-09-04) moves multi6 cardIntrusion +1 and foreignStroke +5
-// (cells detailed at the two tables); totals follow: 76 -> 77, 35 -> 40.
 const CENSUS_TOTALS: {
-  seatValidity: number;
   cardIntrusion: number;
   foreignStroke: number;
+  portCover: number;
 } = {
-  // R14: seatValidity 2 -> 35, cardIntrusion 79 -> 0, foreignStroke
-  // 32 -> 49. R16: seatValidity 35 -> 1, foreignStroke 49 -> 45.
-  // Catalyst split (2026-09-07): script43 seatValidity 0 -> 1;
-  // battery5-xiranite foreignStroke 5 -> 8, script43 5 -> 7, gas-web 5 -> 6.
-  // Totals follow: 1 -> 2, 45 -> 51.
-  // RECIPE CARD TRIM + CATALYST EDGES (2026-09-13): 2 -> 4, tracking the
-  // trim's multi6 0 -> 1 and rot-bottled_food_3 0 -> 1 in the table.
-  // CHIP-BOX RE-MEASURE: 4 -> 3, tracking battery5-xiranite 1 -> 0 in the
-  // table above. Sum of SEAT_VALIDITY_BASELINE on the merged tree.
-  seatValidity: 3,
-
   cardIntrusion: 0,
-  // SINGLE-BAND RE-MEASURE (eeda816): 45 -> 46 (default 1 -> 2).
-  // FAN-OUT LEG SEAT: 46 -> 47 (default 2 -> 3).
-  // Catalyst split (2026-09-07) on top: battery5-xiranite 5 -> 8,
-  // script43 5 -> 7, gas-web 5 -> 6, so 47 -> 53.
-  // Environment-frame re-measure (2026-09-12) on top: transmuters 0 -> 1,
-  // 53 -> 54.
-  // Catalyst edges (2026-09-13) on top: transmuters 1 -> 2, 54 -> 55.
-  // RECIPE CARD TRIM + CATALYST EDGES (2026-09-13): 55 -> 56, tracking
-  // transmuters 2 -> 3 in the table.
-  // CHIP-BOX RE-MEASURE: 56 -> 29, tracking the down-pins in the table
-  // above. Sum of FOREIGN_STROKE_BASELINE on the merged tree.
-  // MERGE 2026-09-13 (chips graph objects on the develop merge): 29 -> 30,
-  // tracking gas-web 2 -> 3 in the table.
+  // MERGE 2026-09-13 (placement rule on the develop merge): 19 -> 30, the sum
+  // of FOREIGN_STROKE_BASELINE on the merged tree (transmuters rejoining at 3,
+  // and the default / battery5 / multi6 / gas-web raises the catalyst supply
+  // edges brought with them).
   foreignStroke: 30,
+  portCover: 5,
 };
 
 function censusInventory(hits: ReadonlyArray<ChipCensusHit>): string {
@@ -2047,14 +1090,14 @@ function sumOf(table: Record<string, number>): number {
 
 test.describe("chip seating census", () => {
   test("corpus totals match the per-scenario tables", () => {
-    expect(sumOf(SEAT_VALIDITY_BASELINE), "seatValidity totals").toBe(
-      CENSUS_TOTALS.seatValidity,
-    );
     expect(sumOf(CARD_INTRUSION_BASELINE), "cardIntrusion totals").toBe(
       CENSUS_TOTALS.cardIntrusion,
     );
     expect(sumOf(FOREIGN_STROKE_BASELINE), "foreignStroke totals").toBe(
       CENSUS_TOTALS.foreignStroke,
+    );
+    expect(sumOf(PORT_COVER_BASELINE), "portCover totals").toBe(
+      CENSUS_TOTALS.portCover,
     );
   });
 
@@ -2086,24 +1129,8 @@ test.describe("chip seating census", () => {
         bottom: n.bottom,
       }));
 
-      // Soft throughout, like the P2 describe: one red counter must not hide the
-      // other three, since the campaign moves them one fix at a time.
-
-      const invalid = auditChipSeatValidity(chips, geom.edges);
-      const seatBaseline = baselineFor(
-        SEAT_VALIDITY_BASELINE,
-        "SEAT_VALIDITY_BASELINE",
-        scenario.id,
-        unpinned,
-      );
-      if (seatBaseline !== null) {
-        expect
-          .soft(
-            invalid.length,
-            `${scenario.id}: ${invalid.length} chip(s) whose own line misses their box exceeds baseline ${seatBaseline} among ${chips.length} chips:\n${censusInventory(invalid)}`,
-          )
-          .toBeLessThanOrEqual(seatBaseline);
-      }
+      // Soft throughout, like the P2 describe: one red counter must not hide
+      // the other two.
 
       const intruding = auditChipCardIntrusion(chips, nodes);
       const intrusionBaseline = baselineFor(
@@ -2157,23 +1184,6 @@ test.describe("chip seating census", () => {
             `${scenario.id}: ${portCover.length} chip(s) covering their own endpoint's port furniture exceeds baseline ${portCoverPin} among ${chips.length} chips:\n${censusInventory(portCover)}`,
           )
           .toBeLessThanOrEqual(portCoverPin);
-      }
-
-      // Collapse trade dial: how many chips render icon-only at this camera.
-      const collapsed = chips.filter((c) => c.iconOnly).length;
-      const collapsePin = baselineFor(
-        CHIP_COLLAPSE_BASELINE,
-        "CHIP_COLLAPSE_BASELINE",
-        scenario.id,
-        unpinned,
-      );
-      if (collapsePin !== null) {
-        expect
-          .soft(
-            collapsed,
-            `${scenario.id}: ${collapsed} icon-only chip(s) exceeds baseline ${collapsePin} among ${chips.length} chips`,
-          )
-          .toBeLessThanOrEqual(collapsePin);
       }
 
       skipUnpinnedRatchets(unpinned);

@@ -8,13 +8,13 @@
 //     ratchets the per-scenario crossing count (CROSSING_BASELINE); and
 //   - the render-side cue liveness filter below, which drops a stamped cue
 //     once a node drag moves its own polyline off the stamped point OR moves
-//     every stamped partner edge's endpoints off the anchors recorded at
-//     seating.
+//     every stamped partner edge's endpoints off the anchors recorded when the
+//     cue was stamped.
 // properCross moved here from test/e2e/geometry.ts (exam-surfaced Task 9,
 // 2026-09-04) so the app and the audit share one definition instead of two
 // copies that happen to agree.
 
-import { HIDE_STALE_EPS } from "./dimensions";
+import { CHIP_BOX_HEIGHT } from "./dimensions";
 
 export type Pt = readonly [number, number];
 
@@ -62,12 +62,10 @@ export function properCross(a: Pt, b: Pt, c: Pt, d: Pt): boolean {
 // clipped points map the window back through the segment themselves; callers
 // that only need a yes/no compare against null.
 //
-// The single copy for the render layer and its audits: chipSeating's chip
-// seating (clipSegToChipBox, and the boolean and window probes built on it)
-// and geometry.ts's placement audits (clipWindow, segmentEntersRect,
-// clipSegmentToRect) used to carry two byte-identical Liang-Barsky loops, so
-// "the box contains this stroke" could drift between the seat and the audit
-// that scores it. A box with no positive extent contains nothing, which the
+// The single copy for the render layer and its audits: geometry.ts's placement
+// audits (clipWindow, segmentEntersRect, clipSegmentToRect) read it rather than
+// carrying a second Liang-Barsky loop, so "the box contains this stroke" cannot
+// drift between two copies. A box with no positive extent contains nothing, which the
 // slab test alone would not say for a stroke running along a collapsed side.
 export function clipSegmentToBox(
   x0: number,
@@ -106,8 +104,8 @@ export function clipSegmentToBox(
 }
 
 // Distance from point p to segment a->b (the usual clamped projection). The
-// single shared copy for the render layer and its audits: chipSeating's chip
-// seating and geometry.ts's audits used to carry private duplicates.
+// single shared copy for the render layer and its audits, which used to carry
+// private duplicates.
 export function pointSegDistance(p: Pt, a: Pt, b: Pt): number {
   const dx = b[0] - a[0];
   const dy = b[1] - a[1];
@@ -162,16 +160,24 @@ export type CrossingCue = {
   partners?: ReadonlyArray<CrossingCuePartner>;
 };
 
+// How far a stamped point may drift from the live geometry before the render
+// layer drops it. A stamp records something the bookkeeping pass found on a
+// GROUP of edges (a crossing point, a divergence dot), and nodes stay
+// mouse-draggable with a re-run only at the drop, so a drag in flight moves the
+// geometry out from under a stamp nothing recomputes yet: past this threshold a
+// floating marker is worse than none. Well above the ~1-unit port-model
+// disagreement between the pass's reconstruction and React Flow's measured
+// handles -- half the height of a chip box, the same figure the divergence
+// dot's row rule uses.
+export const CUE_STALE_EPS = CHIP_BOX_HEIGHT / 2;
+
 // Does a stamped point still sit on the polyline this render just built? The
-// third shape of the staleness question (the two in dimensions.ts compare a
-// stamp against a single live anchor), for a stamp whose live counterpart is a
-// LINE rather than a point: the crossing cues below, and the junction dots
-// ItemEdge draws, both record a point the seating pass found on a group of
-// edges, and the only thing the render layer can corroborate it against is the
-// one polyline it owns. Same eps as the anchor rules, applied to the distance
-// from the point to the line.
+// shape of the staleness question for a stamp whose live counterpart is a LINE
+// rather than a point: the crossing cues below, and the junction dots ItemEdge
+// draws, both record a point found on a group of edges, and the only thing the
+// render layer can corroborate it against is the one polyline it owns.
 export function stampOnOwnPolyline(p: Pt, pts: ReadonlyArray<Pt>): boolean {
-  return pointToPolylineDistance(p, pts) < HIDE_STALE_EPS;
+  return pointToPolylineDistance(p, pts) < CUE_STALE_EPS;
 }
 
 // Drop cues whose stamped point no longer sits on the edge's own LIVE
@@ -218,18 +224,16 @@ export type CrossingPartnerStore = {
 };
 
 // One bit per cue, in order: true while at least one of the cue's partner
-// edges still exists AND both of its endpoint nodes sit within
-// HIDE_STALE_EPS of the anchors stamped at seating (a lane's members all
-// cross this edge at one point; the gap outlives any one of them). The eps
-// is the shared HIDE_STALE_EPS, not the cue gap's radius: the radius is a
-// PAINT constant (sized to clear the passing-over stroke's width), while
-// this is a staleness threshold. The two sides of one crossing share that eps
-// but NOT the metric they measure it with: this half takes the Euclidean
-// distance a partner node has been dragged, the own-polyline half above takes
-// the distance from a point to a polyline, and the stamp-liveness rules in
-// dimensions.ts take each axis on its own. Deliberate -- each half measures the
-// drift that can invalidate the thing it guards -- so the two sides can flip at
-// slightly different drags.
+// edges still exists AND both of its endpoint nodes sit within CUE_STALE_EPS of
+// the anchors stamped at the crossing (a lane's members all cross this edge at
+// one point; the gap outlives any one of them). The eps is the shared staleness
+// threshold, not the cue gap's radius: the radius is a PAINT constant (sized to
+// clear the passing-over stroke's width). The two sides of one crossing share
+// that eps but NOT the metric they measure it with: this half takes the
+// Euclidean distance a partner node has been dragged, the own-polyline half
+// above takes the distance from a point to a polyline. Deliberate -- each half
+// measures the drift that can invalidate the thing it guards -- so the two
+// sides can flip at slightly different drags.
 // A cue with no partner records (hand-built) reads as live: the bits judge
 // only what the stamp recorded.
 export function crossingPartnerBits(
@@ -243,7 +247,7 @@ export function crossingPartnerBits(
   ): boolean => {
     const live = state.nodeLookup.get(nodeId)?.internals.positionAbsolute;
     if (live === undefined) return false;
-    return Math.hypot(live.x - stamped.x, live.y - stamped.y) < HIDE_STALE_EPS;
+    return Math.hypot(live.x - stamped.x, live.y - stamped.y) < CUE_STALE_EPS;
   };
   return cues.map((c) => {
     if (c.partners === undefined) return true;

@@ -98,6 +98,44 @@ describe("drawnPortsOf: the drawn port drift", () => {
     );
   });
 
+  it("lands a catalyst edge on the cat: row, not the in: row of the same item", () => {
+    // A phase transmuter cycles an item it also consumes, so one card carries
+    // that item on an in: row AND on a catalyst row. Only `toPortKind` on the
+    // edge data tells the two apart -- resolving by item alone would draw the
+    // supply edge into the wrong row -- and the catalyst rows continue below
+    // every in: row, so the two are a whole row pitch apart.
+    const src = recipeNode("src", 40, 60, mkRecipe("src", [], [ITEM]));
+    const base = orderedRecipeNode("tgt", 900, 120, [ITEM]);
+    const tgt: RFAnyNode = {
+      ...base,
+      data: {
+        ...base.data,
+        recipe: { ...base.data.recipe, catalyst: [{ item: ITEM, qty: 1 }] },
+      },
+    };
+    const byId = byIdOf([src, tgt]);
+
+    const inRow = portOffsetY(tgt, ITEM, "in");
+    const catRow = portOffsetY(tgt, ITEM, "cat");
+    // Premise: the card really does carry the item twice, on two rows.
+    expect(catRow).toBeGreaterThan(inRow);
+
+    const supply: Edge = {
+      ...itemEdge("src", "tgt"),
+      data: { item: ITEM, toPortKind: "catalyst" },
+    };
+    const ports = drawnPortsOf(supply, byId)!;
+
+    expect(ports.targetY).toBe(
+      absoluteTop(tgt, byId) + catRow + DRIFT.recipe.dy,
+    );
+    // The in: row reading of the very same card and item, which this edge must
+    // NOT have taken.
+    expect(ports.targetY).not.toBe(
+      drawnPortsOf(itemEdge("src", "tgt"), byId)!.targetY,
+    );
+  });
+
   it("leaves a centre-fallback row undrifted", () => {
     // The target consumes "s" but the edge carries "other", so portOffsetY
     // cannot resolve a row and falls back to the card's vertical centre. That

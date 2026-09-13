@@ -19,15 +19,24 @@
 import type { Edge } from "@xyflow/react";
 
 import { layoutRenderPlan, type RFAnyNode } from "./layout";
+import type { GapRecord } from "./layerModel";
 import type { SolveForRenderOutput } from "../pipeline/solveForRender";
 
 export async function layoutSolved(
   solved: SolveForRenderOutput,
-): Promise<{ nodes: RFAnyNode[]; edges: Edge[] }> {
+  options: { widenGaps?: boolean } = {},
+): Promise<{
+  nodes: RFAnyNode[];
+  edges: Edge[];
+  gaps: ReadonlyArray<GapRecord>;
+}> {
   const { plan, pack } = solved;
   return layoutRenderPlan({
     plan,
     recipeById: new Map(pack.recipes.map((r) => [r.id, r])),
     itemById: new Map(pack.items.map((i) => [i.id, i])),
+    ...(options.widenGaps !== undefined
+      ? { widenGaps: options.widenGaps }
+      : {}),
   });
 }

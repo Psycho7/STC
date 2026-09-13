@@ -1,85 +1,58 @@
-// Chip seating: the whole-graph de-confliction pass that places every
-// edge-label chip (fan-out chips, item rate chips) after routing has finished,
-// plus the clearance machinery it runs on.
+// Chip placement bookkeeping: the whole-graph pass that runs after routing and
+// stamps what a chip's own edge cannot know, plus the card geometry the audits
+// share with it.
 //
-// Two coincident chips read as one, and the surviving chip lied about the flow.
-// deconflictChipAnchors runs last in the render pipeline (after
-// routeFanoutEdges, assignEntryColumns, and assignBendColumns, so it sees the
-// final junction column, entryX and bendX) and threads chip-nudge offsets
-// onto edge data through one shared collision set (the ClearanceField).
+// WHERE A CHIP SITS is not decided here. Every chip anchor is a RULE on the
+// drawn polyline, resolved in edgePath.ts where the path is built (a 1-to-1
+// chip on the centre of its longest horizontal run, a trunk chip a port stub
+// out of the port it labels, on the run that is its own), so the renderers read
+// the anchor straight off drawnEdge and nothing hides or collapses a chip after
+// the fact. The one input that rule needs and a single edge cannot see is the
+// card rects: the card-clear slide below computes the 1-to-1 seat from them and
+// hands it back as a hint, and edgePath applies it -- so the rule still lives in
+// one place and the stamp is an input to it, not an override of it.
 //
-// Seating runs in EXPLICIT PHASES, in this order -- the ordering is
-// load-bearing, not incidental, so keep it explicit rather than folding it
-// into a generic priority framework:
-//   0. junction-dot geometry: the three dot families (fan-out trunk split,
-//      fan-in merge, declined-fan-out divergence) are pure functions of the
-//      reconstructed polylines, so they all resolve before the first chip seats
-//      and every seating phase runs against a known dot set.
-//   3. fan-out trunk chips: the owner's aggregate on the shared trunk, then
-//      each member's branch chip on its own leg.
-//   4. item rate chips: seated on their own polyline's clear segment by
-//      seatRateChip, yielding to everything placed before them.
-// Within each phase, edges are processed in edge-id (or target-map insertion)
-// order, so the whole pass is pure and deterministic.
+// What is left is the bookkeeping no single edge can answer, because it is a
+// property of a GROUP of edges:
+//   - the declined fan-out's divergence dot: where N coincident same-flow item
+//     edges first peel apart, stamped on one elected owner edge;
+//   - the crossing cues: where two DIFFERENT flows properly cross, stamped on
+//     one edge of the pair so its renderer can mask a gap in its own stroke;
+//   - the fan-in convergence dot of a trunk whose members are all FAR: they are
+//     drawn as plain item edges pinned to one column, so no BusEdge draws the
+//     trunk's merge dot, and one elected member carries it instead. Such a
+//     trunk still draws NO aggregate chip -- the aggregate rides a retyped near
+//     member's leg, and there is none; the target card states the total;
+//   - the card-clear seat of a 1-to-1 chip whose longest run passes over a
+//     card: the slide is a deterministic function of the run and the card
+//     rects, and the rects are what a single edge cannot see.
+// Both are pure functions of the reconstructed polylines, and the
+// reconstruction goes through drawnEdge -- the same seam the renderers draw
+// through -- so this pass cannot answer a different polyline than the one on
+// screen.
 //
-// Phase boundaries, measured rather than assumed -- the phases are NOT separable
-// modules. No seating phase reads another seating phase's accumulator: the
-// index maps phases 3 and 4 write between them flow only to the emit loop
-// at the end of deconflictChipAnchors. Their sole coupling is field.placed --
-// every seat tests overlapsChip against everything seated so far -- so the phase
-// order is a PRIORITY order, not a data dependency: reordering changes which
-// chip keeps a contested position and which one yields its seat at the rollback
-// sites. The one accumulator that crosses backwards is faninChipHiddenByIndex,
-// declared with the phase 0a state and written in phase 4. The wide-reach region
-// is the reconstruction that runs before phase 0, whose geometry maps every
-// later phase reads -- not any seating phase. So a phase seam would carry only
-// field.placed, to exactly one caller each, and would turn the ordering the
-// compiler guarantees here into a call-site convention.
-//
-// Escapes follow the ratified priority order: chip-vs-chip and chip-vs-CARD
-// clearance are HARD invariants; staying on the own polyline and clearing
-// foreign flow lines are preferences that yield when the hard pair forces an
-// escape. Keeping off a junction dot (#50) is a SOFT preference throughout: it
-// never costs a chip its tier, its line, or a foreign-line clearance. Where it
-// ranks against the other soft terms depends on the tier, and the two orders
-// differ: within tier 1 the dot count outranks own-card intrusion (measured --
-// ranking intrusion first buries more split dots for a handful of shallow card
-// laps), while in the graze scorer the dot is the LAST tiebreak, under
-// crossings, then intrusion, then binding.
+// contentBounds, at the bottom, is the camera-fit reader of the same rule: it
+// unions the node cards with every chip box at its rule anchor.
 
 import type { Edge } from "@xyflow/react";
 
-import {
-  CHIP_BOX_HEIGHT,
-  DOT_KEEPOFF,
-  ENV_FRAME_EXTENTS,
-  GLYPH_SIDE_OFFSET,
-  anchorStampLive,
-  faninHideLive,
-} from "./dimensions";
+import { ENV_FRAME_EXTENTS, GLYPH_SIDE_OFFSET } from "./dimensions";
 import {
   CHAMFER,
+  cardClearRunAnchor,
+  chipBoxClearsCards,
   drawnEdge,
-  forwardStepGeometry,
-  pathPointAtPts,
+  itemAnchor,
   routingHintsFromData,
 } from "./edgePath";
 import {
-  clipSegmentToBox,
-  pointSegDistance,
-  pointToPolylineDistance,
   properCrossPoint,
   type CrossingCue,
   type CrossingCuePartner,
 } from "./crossings";
 import {
-  ENTRY_SLOT_PITCH,
-  OBSTACLE_PAD_LEFT,
-  OBSTACLE_PAD_Y,
-  edgePortsModel,
-  flowKeyOf as busFlowKey,
   isTrunkOwner,
-  type BusEdgeData,
+  type FaninBusEdgeData,
   type FanoutBusEdgeData,
 } from "./busRouting";
 import {
@@ -87,230 +60,24 @@ import {
   absoluteTop,
   drawnPortsOf,
   edgeItem,
+  flowKeyOf as busFlowKey,
   nodeHeight,
   nodeIndexOf,
   nodeWidth,
 } from "./nodeGeometry";
-// Type-only: ItemEdge.tsx declares the base canvas edge payload this pass seats
-// chips for. Erased at compile time, so it adds no runtime or bundler edge.
+// Type-only: ItemEdge.tsx declares the base canvas edge payload this pass
+// stamps. Erased at compile time, so it adds no runtime or bundler edge.
 import type { ItemEdgeData } from "./ItemEdge";
 import type { RFAnyNode } from "./layout";
-// The chip BOX: how wide a chip is and what it says. This pass owns only the
-// POLICY -- where that box may sit and how far it may move.
+// The chip BOX: how wide a chip is and what it says. The camera fit frames that
+// box at the anchor the path builder put it on.
 import {
   CHIP_HALF_H,
-  CHIP_HALF_W_WIDE,
   aggregateChipText,
   branchChipText,
-  chipNaturalWidth,
   chipSeatHalfW,
   rateChipText,
-  type ChipText,
 } from "./chipMetrics";
-
-// The fan-out BRANCH short-leg rule shares the item rule's usable-width gate
-// (usableWidthCollapses above): a member whose OWN leg -- the sub-polyline
-// AFTER the junction, never the trunk-including whole polyline -- lacks the
-// horizontal run for its chip's reserved box has no seat on that leg that
-// keeps the box off the trunk's split dot either (#50; the keep-off square
-// alone reaches DOT_KEEPOFF past the box's half-width), and the collapsed
-// box is narrow enough that one exists. Measuring the leg rather than the
-// whole polyline, a long shared trunk can no longer vouch for a 13-unit
-// riser's full "300/min" box: the trunk prefix is the trunk's to draw on, not
-// the branch chip's. The rule USED to state this as a total-arc-length bound
-// against the widest box (SHORT_LEG_MAX = CHIP_HALF_W_WIDE), which both
-// counted vertical travel a horizontal chip cannot use and let the shared
-// trunk prefix puff the measure -- the two failures Task 6's item rule fixed
-// first.
-
-export type XSpan = { lo: number; hi: number };
-
-// The widest sub-interval of the polyline's x-extent that no band reaches
-// into: the longest clear run a chip's box can slide along. Null when the
-// points are empty or the bands blanket the extent. Its width is the chip's
-// clear window (the collapse rule and the scale cap both read it) and its
-// midpoint is the seat's preferred on-line candidate.
-//
-// Exported for the seating suite, which asserts that bands blanketing the
-// extent report no window at all rather than the bare extent.
-export function largestClearSpan(
-  pts: ReadonlyArray<readonly [number, number]>,
-  ownBands: ReadonlyArray<XSpan>,
-): XSpan | null {
-  let minX = Infinity;
-  let maxX = -Infinity;
-  for (const [x] of pts) {
-    if (x < minX) minX = x;
-    if (x > maxX) maxX = x;
-  }
-  if (!Number.isFinite(minX) || !Number.isFinite(maxX)) return null;
-  const clips: XSpan[] = [];
-  for (const b of ownBands) {
-    const lo = Math.max(b.lo, minX);
-    const hi = Math.min(b.hi, maxX);
-    if (hi > lo) clips.push({ lo, hi });
-  }
-  clips.sort((a, b) => a.lo - b.lo);
-  let best: XSpan | null = null;
-  let sweep = minX;
-  for (const c of clips) {
-    if (c.lo > sweep) {
-      if (best === null || c.lo - sweep > best.hi - best.lo)
-        best = { lo: sweep, hi: c.lo };
-    }
-    sweep = Math.max(sweep, c.hi);
-  }
-  if (maxX > sweep) {
-    if (best === null || maxX - sweep > best.hi - best.lo)
-      best = { lo: sweep, hi: maxX };
-  }
-  return best;
-}
-
-// Vertical pitch a colliding chip is bumped by each step: one full chip-box
-// height, so the resolved clearance never drops below one box.
-const CHIP_PITCH_Y = CHIP_BOX_HEIGHT;
-const CHIP_NUDGE_STEP = CHIP_PITCH_Y;
-
-// A placed chip box in the shared collision set: its centre plus per-axis
-// half-extents. Two boxes overlap when their centres sit closer than the sum of
-// their half-extents on BOTH axes.
-export type ChipBox = { x: number; y: number; halfW: number; halfH: number };
-
-// Frame margin around foreign card rects in the clearance field.
-const CARD_CLEAR_MARGIN = 0.5;
-
-// The target's entry band: the gutter just left of a consumer's card where its
-// arriving lines converge on the Left port. A rate chip whose centre sits in
-// this band is part of the arrival cluster -- it names a line entering here, so
-// it may rest among its siblings' final approaches; one out on the corridor is
-// not, so it must clear a sibling's line like any foreign flow. Built from the
-// same OBSTACLE_PAD_LEFT / OBSTACLE_PAD_Y overhangs paddedObstacles reserves, so
-// the band matches the padded card's left overhang by construction.
-export type EntryBand = {
-  left: number;
-  right: number;
-  top: number;
-  bottom: number;
-};
-
-function centreInBand(x: number, y: number, band: EntryBand): boolean {
-  return x >= band.left && x <= band.right && y >= band.top && y <= band.bottom;
-}
-
-function chipBoxesOverlap(a: ChipBox, b: ChipBox): boolean {
-  return (
-    Math.abs(a.x - b.x) < a.halfW + b.halfW &&
-    Math.abs(a.y - b.y) < a.halfH + b.halfH
-  );
-}
-
-// A segment clipped to a chip box: the piece of it the box actually contains,
-// in the same (x0,y0,x1,y1) shape the obstacle segments use.
-type ClippedSeg = readonly [number, number, number, number];
-
-// A chip box as an edge rect.
-function boxRect(box: ChipBox): PortZoneRect {
-  return {
-    left: box.x - box.halfW,
-    top: box.y - box.halfH,
-    right: box.x + box.halfW,
-    bottom: box.y + box.halfH,
-  };
-}
-
-// Do two rects interpenetrate by more than eps on both axes?
-function rectsOverlapBy(
-  a: PortZoneRect,
-  b: PortZoneRect,
-  eps: number,
-): boolean {
-  return (
-    Math.min(a.right, b.right) - Math.max(a.left, b.left) > eps &&
-    Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top) > eps
-  );
-}
-
-// The part of the segment (x0,y0)-(x1,y1) inside the chip box, or null when the
-// box does not contain a positive-length piece of it. The clip itself is
-// crossings.ts's clipSegmentToBox, shared with the placement audits; this wraps
-// it in the chip box's centre/half-extent shape and maps the parameter window
-// back onto the segment. The single segment-vs-box geometry in this module: the
-// boolean probe below and the window probe on the ClearanceField are both this
-// one clip, so "the box contains this stroke" and "here is the piece it
-// contains" can never disagree.
-function clipSegToChipBox(
-  x0: number,
-  y0: number,
-  x1: number,
-  y1: number,
-  box: ChipBox,
-): ClippedSeg | null {
-  const window = clipSegmentToBox(x0, y0, x1, y1, boxRect(box));
-  if (window === null) return null;
-  const [t0, t1] = window;
-  const dx = x1 - x0;
-  const dy = y1 - y0;
-  return [x0 + t0 * dx, y0 + t0 * dy, x0 + t1 * dx, y0 + t1 * dy];
-}
-
-// Does the segment (x0,y0)-(x1,y1) enter the chip box's interior?
-function segIntersectsChipBox(
-  x0: number,
-  y0: number,
-  x1: number,
-  y1: number,
-  box: ChipBox,
-): boolean {
-  return clipSegToChipBox(x0, y0, x1, y1, box) !== null;
-}
-
-// Distance-from-a-point geometry (pointSegDistance,
-// pointToPolylineDistance) is shared from ./crossings.ts since the
-// exam-surfaced Task 9 crossing-cue work: the render layer's cue liveness
-// filter and the e2e audits read the same copy, so the seating pass and the
-// audit can never disagree about whether a point sits on a line.
-
-// A reconstructed edge polyline the chip pass treats as an obstacle: the
-// segments of every edge OUTSIDE the chip's own flow (its own edge plus
-// same-(item, source) siblings, which share one visual line -- a trunk's lane
-// run or a fanout's common trajectory) and outside its own ARRIVAL CLUSTER
-// (edges into the same target: the converging lines before one consumer read
-// as one junction, so a chip near its port may sit among its siblings' final
-// approaches). flowKey groups the flow siblings; target the cluster.
-export type EdgeSegments = {
-  // The owning edge's id. `ownIds`-based (trunk-aware) foreignness matches on it;
-  // plain item chips ignore it and group by flowKey.
-  id: string;
-  flowKey: string;
-  target: string;
-  segs: ReadonlyArray<readonly [number, number, number, number]>;
-};
-
-// The arrival-cluster state of ONE query, resolved once before the per-edge
-// walk: with no entry band the cluster exemption is unconditional (bus / entry
-// seats), with one it holds only while the box centre sits inside the band.
-function clusterExemptOf(box: ChipBox, entryBand?: EntryBand): boolean {
-  return entryBand === undefined || centreInBand(box.x, box.y, entryBand);
-}
-
-// The single per-edge foreignness rule both line probes run: an edge is foreign
-// when it is not own (by `ownIds` membership when the caller gives a trunk
-// member set, else by flowKey group) and not waived by the arrival cluster
-// (same target while the cluster exemption holds). Shared so the boolean probe
-// and the counting probe cannot drift apart -- the count is zero EXACTLY when
-// the boolean is false because both ask this one question per edge.
-function isForeignEdge(
-  edge: EdgeSegments,
-  flowKey: string,
-  target: string,
-  clusterExempt: boolean,
-  ownIds?: ReadonlySet<string>,
-): boolean {
-  const own =
-    ownIds !== undefined ? ownIds.has(edge.id) : edge.flowKey === flowKey;
-  return !own && (!clusterExempt || edge.target !== target);
-}
 
 // A raw card rect a chip's box must stay clear of (the P3 hard invariant), in
 // the DRAWN frame: the rendered border box, which is what the browser paints and
@@ -392,13 +159,12 @@ type PortZoneRect = {
 // violation the seat must escape); false = no vertical overlap with the card, or
 // the centre is still in the corridor / port strip (the normal on-line state).
 // `side` selects the port edge ("source" hugs the card's right edge / out-port,
-// "target" its left edge / in-port). Shared verbatim by the seating pass
-// (makeClearanceField) and the e2e chip/card audit so the gate and the placement
-// rule never drift.
+// "target" its left edge / in-port). The e2e chip/card audit scores chips with
+// it; it is stated here, beside the card rects it is measured against.
 //
-// BOTH callers pass DRAWN card rects -- the audit reads them off the DOM, the
-// seating pass grows the model box by CARD_GROWTH -- so the strip starts one
-// CARD_BORDER inside the rect, where the row the depth is derived from begins.
+// Callers pass DRAWN card rects -- the audit reads them off the DOM, cardRectsFor
+// grows the model box by CARD_GROWTH -- so the strip starts one CARD_BORDER
+// inside the rect, where the row the depth is derived from begins.
 export function chipEntersOwnCardBody(
   chip: PortZoneRect,
   card: PortZoneRect,
@@ -413,1093 +179,6 @@ export function chipEntersOwnCardBody(
   // drawnPortsOf in nodeGeometry.ts); hoisting makes it readable here.
   const depth = CARD_BORDER + PORT_ZONE_DEPTH;
   return side === "target" ? cx > card.left + depth : cx < card.right - depth;
-}
-
-// Seat-side companion to chipEntersOwnCardBody, and a DIFFERENT rule on the
-// same number: how much deeper than the port strip the chip's BOX reaches into
-// one of its own endpoint cards, in graph units, 0 when it stays within budget.
-// The centre rule above says whether the readable payload is buried; this one
-// says how much of the box the reader sees lying ON the card, which is the F1
-// complaint (a chip whose centre is still in the corridor but whose box is
-// swallowed by the card body). Both are needed: the centre rule is the hard
-// invariant every tier upholds, this one is a PREFERENCE the on-line tiers
-// minimise, so it can never fling a chip off its line (issue #9).
-//
-// Depth is the smaller of the two overlap extents. For a box lapping a card's
-// port edge that is the x-overlap; once the lap passes the box's own height the
-// depth saturates there, which is the "swallowed whole" state. Conservative in
-// the same direction as the e2e census counter (auditChipCardIntrusion in the
-// geometry audit), which mirrors this rule against the DRAWN box; the box here
-// is the seat's reservation of that same box.
-//
-// The budget is the same CARD_BORDER + PORT_ZONE_DEPTH strip the centre rule
-// exempts (9): a chip lying across its own port strip is the normal on-line
-// state however wide it is. Taken as a default argument, not a module const,
-// because CARD_BORDER is declared further down the file.
-//
-// Exported for the seating suite, which asserts a box lying no deeper than the
-// port strip scores zero intrusion.
-export function chipOwnCardIntrusion(
-  chip: PortZoneRect,
-  card: PortZoneRect,
-  budget = CARD_BORDER + PORT_ZONE_DEPTH,
-): number {
-  const ox = Math.min(chip.right, card.right) - Math.max(chip.left, card.left);
-  const oy = Math.min(chip.bottom, card.bottom) - Math.max(chip.top, card.top);
-  if (ox <= 0 || oy <= 0) return 0;
-  return Math.max(0, Math.min(ox, oy) - budget);
-}
-
-// Per-edge card exemption for the chip seat. Container slabs (group boxes) stay
-// wholly exempt; the edge's own source / target cards are exempt only while the
-// chip centre stays in their port-adjacent strip (issue #10), keyed by node id
-// to the zone's port side.
-export type CardExemption = {
-  whole: ReadonlySet<string>;
-  zones: ReadonlyMap<string, PortZoneSide>;
-};
-
-// The shared clearance state every seating phase runs against: the chips
-// placed so far plus the two static obstacle sets (reconstructed edge
-// polylines and raw card rects), exposed through the named predicates each
-// seat composes. Chips enter through `seat` as they seat, so later phases see
-// everything earlier phases placed.
-export type ClearanceField = {
-  // Every box seated so far, append-ordered by seat time. This IS the phase
-  // priority record: a later seat yields to every earlier box. Read it freely;
-  // it is not mutable from out here -- `seat` and `unseat` are the only ways in
-  // and out.
-  readonly placed: ReadonlyArray<ChipBox>;
-  // Reserve one box and return it. Exactly one box enters the field per call,
-  // and the returned box is that box: the rollback handle AND the authoritative
-  // seated centre. Callers read `box.x` / `box.y` rather than re-deriving the
-  // centre from their anchor plus the offsets they were handed, which can drift
-  // from what was actually reserved.
-  seat(box: ChipBox): ChipBox;
-  // Release a box `seat` returned, by reference identity, so an undone seat
-  // leaves no phantom obstacle blocking a later chip. Valid only for the most
-  // recent seat on this field: interleaving two live seats and releasing the
-  // older one is unsupported, and a box that is absent or not last leaves the
-  // set unchanged and fires a DEV-only tripwire.
-  unseat(box: ChipBox): void;
-  overlapsChip(box: ChipBox): boolean;
-  // A foreign card is any obstacle whose id is neither wholly exempt (a
-  // container slab) nor an own endpoint card. Own endpoint cards are obstacles
-  // MINUS their port-adjacent zone (issue #10): a chip entering such a card's
-  // body outside the shallow port strip is a violation just like a foreign card.
-  entersForeignCard(box: ChipBox, exempt: CardExemption): boolean;
-  // Does this box cover an own endpoint card's port keep-out band
-  // (portKeepOutRect)? A hard keep-out for every tier. Only the `zones` cards
-  // have a band: a foreign card's whole box already blocks.
-  entersOwnPortBand(box: ChipBox, exempt: CardExemption): boolean;
-  // Foreign-line test with the arrival-cluster exemption: a same-target
-  // sibling's line is skipped unconditionally when no entry band is given
-  // (bus / entry seats), and only while the box centre sits inside the band
-  // when one is (rate-chip seats, the narrowed rule).
-  //
-  // Own-flow classification is by flowKey (same item|source is one visual line)
-  // UNLESS `ownIds` is given: then "own" is EXACTLY that edge-id set -- the
-  // trunk's actual member edges plus the aggregate's own edge -- so a same-
-  // flowKey edge outside the trunk (a separate direct edge) reads foreign. Only
-  // trunk-context chips (the fan-out aggregate) pass it; plain item-edge chips
-  // omit it and keep the flowKey grouping (issue #28).
-  onForeignLine(
-    box: ChipBox,
-    flowKey: string,
-    target: string,
-    entryBand?: EntryBand,
-    ownIds?: ReadonlySet<string>,
-  ): boolean;
-  // Counting sibling of onForeignLine, same own-flow and arrival-cluster
-  // exemptions, same obstacle set and frame: the number of foreign
-  // (edge, segment) pairs intersecting the box. Counts PAIRS rather than
-  // distinct edges because that is what the segment-vs-chip audit ratchets, so
-  // a seat minimizing this score minimizes the audited count. Zero exactly when
-  // onForeignLine is false -- both ask the same shared per-edge question
-  // (isForeignEdge over clusterExemptOf), so they cannot drift apart. Kept
-  // separate from the boolean so the hot tier-1 slide keeps its early exit.
-  foreignLineCrossings(
-    box: ChipBox,
-    flowKey: string,
-    target: string,
-    entryBand?: EntryBand,
-    ownIds?: ReadonlySet<string>,
-  ): number;
-  // Windowing sibling of the two probes above: the piece of each foreign
-  // (edge, segment) the box actually contains, clipped to the box, one entry per
-  // pair in the same unit foreignLineCrossings counts. Same own-flow and
-  // arrival-cluster exemptions (the shared isForeignEdge over clusterExemptOf),
-  // same obstacle set, same frame, and the same single clip the boolean probe
-  // runs -- so the array is EMPTY exactly when onForeignLine is false and its
-  // length is exactly foreignLineCrossings, by construction rather than by
-  // agreement.
-  //
-  // Counts alone cannot say WHERE inside the box a foreign stroke runs, which is
-  // the braid question: a stroke crossing the box from side to side reads as a
-  // line passing under the chip, while one running ALONGSIDE the chip's own
-  // stroke leaves the reader unable to tell which flow the chip labels. The
-  // caller answers that by measuring these windows against its own polyline,
-  // which it already holds -- no own-line API is added here.
-  foreignLineWindows(
-    box: ChipBox,
-    flowKey: string,
-    target: string,
-    entryBand?: EntryBand,
-    ownIds?: ReadonlySet<string>,
-  ): ReadonlyArray<ClippedSeg>;
-  // How many junction dots this box would swallow, for the graze tier's scored
-  // seat. Chips paint ABOVE the dots in the shared label layer (canvas.css
-  // .flow-chip z-index 2 vs .bus-junction 1) and are opaque, so a chip seated on
-  // a dot does not overlap it -- it deletes it, and the merge / split the dot
-  // marks reads as an ordinary corner. Unlike the chip and card predicates this
-  // one is a PREFERENCE: it never forces a chip off its line or into a coarser
-  // tier.
-  dotsCovered(box: ChipBox): number;
-  // Deepest over-budget reach of this box into one of the edge's OWN endpoint
-  // cards (chipOwnCardIntrusion, worst card), 0 when every one of them is within
-  // the port strip. Only own cards are asked: a foreign card is hard-blocked by
-  // entersForeignCard in every tier, so a candidate that got this far cannot be
-  // on one. Like dotsCovered this is a PREFERENCE -- the on-line tiers minimise it
-  // and no tier is blocked by it.
-  ownCardIntrusion(box: ChipBox, exempt: CardExemption): number;
-};
-
-// Exported for the seating and sidestep-gate suites, which build a field from
-// synthetic crossings and cards and assert the seat / unseat contract (an
-// unseated box is no obstacle again) directly.
-export function makeClearanceField(
-  segments: ReadonlyArray<EdgeSegments>,
-  cards: ReadonlyArray<CardRect>,
-  // Every junction dot the render layer will draw, resolved before the first
-  // chip seats (phase 0). Empty for callers that seat against chips and lines
-  // alone.
-  dots: ReadonlyArray<JunctionDot> = [],
-): ClearanceField {
-  const placed: ChipBox[] = [];
-  // A box swallows a dot when it covers the dot's keep-off square, i.e. their
-  // rects overlap on both axes -- the same per-axis test chipBoxesOverlap runs.
-  const swallows = (box: ChipBox, dot: JunctionDot): boolean =>
-    Math.abs(box.x - dot.x) < box.halfW + DOT_KEEPOFF &&
-    Math.abs(box.y - dot.y) < box.halfH + DOT_KEEPOFF;
-  // Foreign cards are tested with a frame margin: a seat parked flush against
-  // the interpenetration eps clears the model frame by thousandths and then
-  // flips the e2e hard gate on camera rounding.
-  const foreignCards = cards.map((c) => ({
-    id: c.id,
-    left: c.left - CARD_CLEAR_MARGIN,
-    top: c.top - CARD_CLEAR_MARGIN,
-    right: c.right + CARD_CLEAR_MARGIN,
-    bottom: c.bottom + CARD_CLEAR_MARGIN,
-  }));
-  const portBands = new Map(
-    cards.map((c) => [
-      c.id,
-      {
-        source: portKeepOutRect(c, "source"),
-        target: portKeepOutRect(c, "target"),
-      },
-    ]),
-  );
-  return {
-    placed,
-    seat: (box) => {
-      placed.push(box);
-      return box;
-    },
-    unseat: (box) => {
-      if (placed[placed.length - 1] === box) {
-        placed.pop();
-        return;
-      }
-      if (import.meta.env.DEV) {
-        // Dev/test-only tripwire, tree-shaken out of production builds (parity
-        // with the seat-exhaustion warnings below), where the call is a no-op.
-        console.warn(
-          "chip seating: unseat on a box that is not the most recent seat " +
-            "(absent, or seated before another live seat); field unchanged",
-        );
-      }
-    },
-    overlapsChip: (box) => placed.some((b) => chipBoxesOverlap(b, box)),
-    entersForeignCard: (box, exempt) => {
-      const chip = boxRect(box);
-      return cards.some((c, i) => {
-        if (exempt.whole.has(c.id)) return false;
-        const zone = exempt.zones.get(c.id);
-        if (zone === undefined)
-          return rectsOverlapBy(chip, foreignCards[i]!, 0.5);
-        return chipEntersOwnCardBody(chip, c, zone, 0.5);
-      });
-    },
-    entersOwnPortBand: (box, exempt) => {
-      if (exempt.zones.size === 0) return false;
-      const chip = boxRect(box);
-      for (const [id, side] of exempt.zones) {
-        const band = portBands.get(id)?.[side];
-        if (band !== undefined && rectsOverlapBy(chip, band, 0.5)) return true;
-      }
-      return false;
-    },
-    onForeignLine: (box, flowKey, target, entryBand, ownIds) => {
-      const clusterExempt = clusterExemptOf(box, entryBand);
-      return segments.some(
-        (e) =>
-          isForeignEdge(e, flowKey, target, clusterExempt, ownIds) &&
-          e.segs.some(([x0, y0, x1, y1]) =>
-            segIntersectsChipBox(x0, y0, x1, y1, box),
-          ),
-      );
-    },
-    foreignLineCrossings: (box, flowKey, target, entryBand, ownIds) => {
-      const clusterExempt = clusterExemptOf(box, entryBand);
-      let count = 0;
-      for (const e of segments) {
-        if (!isForeignEdge(e, flowKey, target, clusterExempt, ownIds)) continue;
-        for (const [x0, y0, x1, y1] of e.segs) {
-          if (segIntersectsChipBox(x0, y0, x1, y1, box)) count++;
-        }
-      }
-      return count;
-    },
-    foreignLineWindows: (box, flowKey, target, entryBand, ownIds) => {
-      const clusterExempt = clusterExemptOf(box, entryBand);
-      const out: ClippedSeg[] = [];
-      for (const e of segments) {
-        if (!isForeignEdge(e, flowKey, target, clusterExempt, ownIds)) continue;
-        for (const [x0, y0, x1, y1] of e.segs) {
-          const win = clipSegToChipBox(x0, y0, x1, y1, box);
-          if (win !== null) out.push(win);
-        }
-      }
-      return out;
-    },
-    dotsCovered: (box) =>
-      dots.reduce((n, d) => n + (swallows(box, d) ? 1 : 0), 0),
-    ownCardIntrusion: (box, exempt) => {
-      const chip = boxRect(box);
-      let worst = 0;
-      for (const c of cards) {
-        if (exempt.whole.has(c.id)) continue;
-        if (!exempt.zones.has(c.id)) continue;
-        const excess = chipOwnCardIntrusion(chip, c);
-        if (excess > worst) worst = excess;
-      }
-      return worst;
-    },
-  };
-}
-
-// Row tolerance for matching a stamped y against a drawn vertex: paths round to
-// two decimals, so a unit is well clear of the rounding and well under any real
-// row separation. Same value the fan-in run detection uses.
-const RUN_ROW_EPS = 1;
-
-// The polyline's horizontal run at y: the first vertex pair whose two ends both
-// sit on that level (within the row tolerance). Empty when the polyline
-// draws no such run -- a jog always draws one, between its two chamfers.
-function horizontalRunAt(
-  pts: ReadonlyArray<readonly [number, number]>,
-  y: number,
-): ReadonlyArray<readonly [number, number]> {
-  for (let i = 1; i < pts.length; i++) {
-    const a = pts[i - 1]!;
-    const b = pts[i]!;
-    if (
-      Math.abs(a[1] - y) <= RUN_ROW_EPS &&
-      Math.abs(b[1] - y) <= RUN_ROW_EPS
-    ) {
-      return [a, b];
-    }
-  }
-  return [];
-}
-
-// A two-point horizontal run with its left end pushed to `lo`, or null when the
-// run does not reach past it (nothing of it is seatable, so the caller leaves
-// the seat on the whole polyline and the window measurement decides).
-function clipRunLeft(
-  run: ReadonlyArray<readonly [number, number]>,
-  lo: number,
-): ReadonlyArray<readonly [number, number]> | null {
-  const a = run[0];
-  const b = run[run.length - 1];
-  if (a === undefined || b === undefined || run.length < 2) return null;
-  const left = Math.min(a[0], b[0]);
-  const right = Math.max(a[0], b[0]);
-  if (right <= lo) return null;
-  return [
-    [Math.max(left, lo), a[1]],
-    [right, b[1]],
-  ];
-}
-
-// Where a fan-out branch chip's seat starts from. chamferFanoutPath anchors the
-// chip on the midpoint of the branch's longest part, which is the column the
-// trunk's members SHARE whenever a member's descent outgrows its own leg; every
-// seat tier that leaves the line (sidestep, nudge, escape) then moves relative
-// to a point on that column and parks the chip there. On such a member the seat
-// starts from the leg's own midpoint instead; where the render anchor already
-// lies on the leg it is kept, so those members seat exactly as before.
-function branchSeatAnchorOf(
-  branchAnchor: { x: number; y: number },
-  leg: ReadonlyArray<readonly [number, number]> | null,
-): { x: number; y: number } {
-  const a = leg?.[0];
-  const b = leg?.[1];
-  if (a === undefined || b === undefined) return branchAnchor;
-  const onLeg =
-    Math.abs(branchAnchor.y - a[1]) <= RUN_ROW_EPS &&
-    branchAnchor.x >= Math.min(a[0], b[0]) &&
-    branchAnchor.x <= Math.max(a[0], b[0]);
-  return onLeg ? branchAnchor : { x: (a[0] + b[0]) / 2, y: a[1] };
-}
-
-// Cumulative arc-length of point (x, y) along the parsed polyline. The point is
-// on exactly one segment by construction (a clear-segment anchor is a segment
-// midpoint), so this returns the length from the path start to it. Falls back to
-// the half-length when the point matches no segment (never expected).
-function lengthAtPoint(
-  pts: ReadonlyArray<readonly [number, number]>,
-  x: number,
-  y: number,
-): number {
-  let acc = 0;
-  let total = 0;
-  for (let i = 1; i < pts.length; i++) {
-    total += Math.hypot(
-      pts[i]![0] - pts[i - 1]![0],
-      pts[i]![1] - pts[i - 1]![1],
-    );
-  }
-  for (let i = 1; i < pts.length; i++) {
-    const [x0, y0] = pts[i - 1]!;
-    const [x1, y1] = pts[i]!;
-    const segLen = Math.hypot(x1 - x0, y1 - y0);
-    const cross = (x1 - x0) * (y - y0) - (y1 - y0) * (x - x0);
-    const withinX = x >= Math.min(x0, x1) - 1 && x <= Math.max(x0, x1) + 1;
-    const withinY = y >= Math.min(y0, y1) - 1 && y <= Math.max(y0, y1) + 1;
-    if (Math.abs(cross) < 1 && withinX && withinY) {
-      return acc + Math.hypot(x - x0, y - y0);
-    }
-    acc += segLen;
-  }
-  return total / 2;
-}
-
-// Arc length of the first point on the polyline at x = wantX, or null when no
-// segment spans that x.
-function arcAtX(
-  pts: ReadonlyArray<readonly [number, number]>,
-  wantX: number,
-): number | null {
-  let acc = 0;
-  for (let i = 1; i < pts.length; i++) {
-    const [x0, y0] = pts[i - 1]!;
-    const [x1, y1] = pts[i]!;
-    if ((x0 <= wantX && wantX <= x1) || (x1 <= wantX && wantX <= x0)) {
-      return acc + Math.abs(wantX - x0);
-    }
-    acc += Math.hypot(x1 - x0, y1 - y0);
-  }
-  return null;
-}
-
-// Arc-length half-pitch of the on-line slide, and its cap. Half the vertical
-// pitch keeps the probe fine enough to find gaps between crossing lines.
-const SLIDE_STEP = CHIP_NUDGE_STEP / 2;
-const SLIDE_MAX_STEPS = 48;
-// Cap on the off-line vertical nudge used when no on-line seat clears the
-// foreign lines (coincident parallel edges, a shared bus lane, or a dense
-// pin). Bounds how far a chip may leave its own line for LINE clearance;
-// card clearance below is unbounded within LAST_RESORT_CAP_STEPS.
-const NUDGE_CAP_STEPS = 3;
-// Cap on the final chips-and-cards cascade. Cards are finite, so free space
-// always exists within a few card heights of the anchor; this cap only bounds
-// the search, it is never expected to exhaust.
-const LAST_RESORT_CAP_STEPS = 200;
-
-// Horizontal sidestep pitch and reach. When a parallel FOREIGN vertical line
-// sits within the wide chip box on a corridor leg, no vertical motion clears it:
-// the on-line slide, the nudge, and the escape cascade all hold x, so a wide box
-// straddling a neighbour a few units away would have to travel its whole
-// half-width -- which it cannot on a vertical leg, and cannot along a short
-// horizontal trunk whose whole span the box already overhangs. The sidestep
-// steps the box in x, away from the foreign line toward the own line's free
-// side, by ENTRY_SLOT_PITCH increments.
-//
-// The reach is HALF the reserved half-width, and the halving is a containment
-// bound rather than a taste call: an offset past halfW / 2 leaves the own line
-// in only the outer half of the box, and past halfW it leaves the box
-// altogether, so the chip reads as an orphan floating beside its line -- the
-// issue-#9 defect the
-// whole tier ladder exists to prevent. BOTH sidestep tiers take that bound:
-// the fully clear step (tier 1c) and the scored step (tier 1b'). Tier 1c used
-// to keep the full half-width on the argument that a seat shedding every
-// foreign stroke buys the flush step's risk back; measured against the
-// per-chip seat box that argument no longer pays -- capping it holds
-// seat-validity at its baseline and drops card-intrusion and foreign-stroke
-// further than the uncapped tier does (Task 6b, ruling R12).
-const SIDESTEP_PITCH = ENTRY_SLOT_PITCH;
-const SIDESTEP_MAX = CHIP_HALF_W_WIDE;
-
-// How close a foreign stroke has to run to the chip's OWN stroke before the two
-// read as one line under the chip -- the braid distance (Z2). Half the entry
-// slot pitch, i.e. one chamfer: adjacent routed columns are a full pitch apart
-// by construction (assignBendColumns / the entry gutter), so two strokes closer
-// than half of that are not two lanes the reader can separate, they are one
-// stroke's width of paint. Measured braids sit at 0.0-3.0 units apart, well
-// inside it.
-const BIND_NEAR = ENTRY_SLOT_PITCH / 2;
-// ...and for how far it has to hold that distance before it is a braid rather
-// than an incident. One slot pitch of shared run: below that the "parallel"
-// stroke is a corner the clip caught, a port stub ending beside the own line,
-// or a chamfer turning away -- none of which the reader mistakes for the
-// chip's own lane, and none of which a horizontal step could shed anyway.
-const BIND_RUN = ENTRY_SLOT_PITCH;
-
-// How a rate chip ended up seated, coarsest last:
-//   anchor    on its clear-segment anchor, fully clear;
-//   slide     slid along its own polyline to a fully clear point;
-//   graze     on its own polyline clear of chips and cards, grazing a foreign
-//             line (no fully clear on-line point existed);
-//   sidestep  a bounded horizontal step off a corridor leg, away from a parallel
-//             foreign line the wide box straddled and no vertical motion could
-//             clear, the own line still within the box. Either fully clear at
-//             the seat, or -- where nothing on the line or beside it is -- the
-//             step that scores strictly better than the best on-line graze;
-//   nudge     a short vertical lift off the line, still fully clear;
-//   escape    the chips-and-cards cascade found a seat (foreign-line
-//             clearance and on-own-line preference yielded);
-//   exhausted the bounded search failed and the chip parked at its anchor
-//             (never expected; the caller's DEV warning fires on this).
-export type RateSeatTier =
-  | "anchor"
-  | "slide"
-  | "graze"
-  | "sidestep"
-  | "nudge"
-  | "escape"
-  | "exhausted";
-
-// The seated result: the offsets from the render anchor, the tier that produced
-// them, and the box actually reserved in the field -- the rollback handle for a
-// caller that decides to hide the chip after seeing the tier, and the
-// authoritative seated centre.
-export type RateSeat = {
-  dx: number;
-  dy: number;
-  tier: RateSeatTier;
-  box: ChipBox;
-};
-
-export type RateSeatOpts = {
-  // Trunk-aware foreignness: own flow is exactly this edge-id set, not the
-  // flowKey group (issue #28).
-  ownIds?: ReadonlySet<string> | undefined;
-  // Seated same-trunk sibling centre-ys the on-line slide may not cross. The
-  // nudge and escape tiers move vertically unchecked, so a caller passing
-  // these must hide off-line seats.
-  barrierYs?: ReadonlyArray<number> | undefined;
-  // The chip renders collapsed, so every tier reserves the icon square. Only
-  // a caller that also stamps the collapse may pass it.
-  iconOnly?: boolean | undefined;
-  // The text the chip draws, sizing the reserve; omitted, the worst case.
-  text?: ChipText | undefined;
-  // The longest clear run of the chip's own line (largestClearSpan). Its
-  // centre is the first candidate after the anchor, ahead of the slide grid
-  // that can step over a narrow corridor.
-  clearSpan?: XSpan | null | undefined;
-};
-
-// Seat an item rate chip: the tiered seat the item phase (and 3b's fan-out
-// chips) run. Tier 1 slides ALONG THE OWN POLYLINE from the anchor, nearest
-// arc-length offset first, taking the first point clear of chips, cards, and
-// foreign lines whose box also stays within the port strip of its own endpoint
-// cards -- the chip stays on the flow it labels without lying on the card it
-// runs into. Where the line offers no such point the tier still seats on it, at
-// the shallowest intrusion available. Tier 1b (graze)
-// repeats that slide upholding only the HARD invariants (chips and cards) and
-// seats at the LEAST-crossed candidate rather than the first one, grazing as
-// few foreign lines as the line allows: staying visibly attached to the own
-// line outranks clearing a parallel foreign line, because a braided corridor
-// can poison every fully-clear candidate and the old off-line exits parked
-// chips in empty canvas (issue #9). Tier 1c (sidestep), tried between them: a
-// bounded horizontal step off the line, away from a parallel foreign vertical
-// the wide box straddles and no on-line motion can shed, keeping the own line
-// within the box (issue #28). Where the graze tier's own seat is left braided
-// with a coincident foreign stroke, those same offsets are walked a second time
-// under the graze scorer and a strictly better one wins (Z2). Tier 2 is a short
-// bidirectional vertical nudge
-// off the anchor, fully clear, reached only when the whole own line is chip-
-// or card-blocked. Tier 3 waives every soft preference and cascades
-// bidirectionally against CHIPS AND CARDS only, nearest escape first (ties
-// prefer down). The seat is pushed into the field; the returned offsets are
-// relative to the anchor.
-//
-// The on-line tiers run at the box the chip draws, and so do the off-line
-// tiers: a chip draws that box at every zoom, so there is no second, smaller
-// reserve to retry at. A narrower reserve would pass the band at a seat the
-// painted box then covers.
-// Every seat the on-line tiers may take, in the order they prefer them: the
-// anchor, the clear-span centre, then the arc-length grid nearest offset first,
-// forward before backward, barrier-crossing points dropped. The tier-1 slide,
-// the graze walk and the scarcity probe below all walk this one list, so an
-// edge's seat and its measured window count are always counted the same way.
-function onLineCandidates(
-  pts: ReadonlyArray<readonly [number, number]>,
-  total: number,
-  anchorLen: number,
-  clearSpan: XSpan | null | undefined,
-  crossesBarrier: (py: number) => boolean,
-): Array<readonly [number, number]> {
-  const out: Array<readonly [number, number]> = [];
-  const pushArc = (len: number): void => {
-    if (len < 0 || len > total) return;
-    const [px, py] = pathPointAtPts(pts, total === 0 ? 0 : len / total);
-    if (!crossesBarrier(py)) out.push([px, py]);
-  };
-  pushArc(anchorLen);
-  if (clearSpan != null) {
-    const arc = arcAtX(pts, (clearSpan.lo + clearSpan.hi) / 2);
-    if (arc !== null && Math.abs(arc - anchorLen) > 1e-9) pushArc(arc);
-  }
-  for (let k = 1; k <= SLIDE_MAX_STEPS; k++) {
-    pushArc(anchorLen + k * SLIDE_STEP);
-    pushArc(anchorLen - k * SLIDE_STEP);
-  }
-  return out;
-}
-
-// Everything needed to ask where a chip could sit: the clearance field, the
-// chip's OWN polyline with its render anchor, the flow key and target id that
-// decide which lines and cards count as foreign, the card exemption, and the
-// entry band an arrival cluster is narrowed to. It describes the query, not the
-// chip -- the chip's own text, icon state, own-id set, barriers and clear span
-// travel beside it in RateSeatOpts.
-//
-// A query is evaluated against the field AS IT STANDS. Read once per edge
-// BEFORE any item chip is placed, it is a property of the edge and the bus
-// furniture rather than of the seating order, and so order-independent and
-// deterministic.
-export type SeatQuery = {
-  readonly field: ClearanceField;
-  readonly path: {
-    readonly pts: ReadonlyArray<readonly [number, number]>;
-    readonly anchorX: number;
-    readonly anchorY: number;
-  };
-  readonly flowKey: string;
-  readonly target: string;
-  readonly exempt: CardExemption;
-  readonly entryBand: EntryBand;
-};
-
-// How many points on this edge's OWN polyline could still hold its rate chip
-// fully clear of every placed chip, every foreign flow line, every foreign card
-// and its own port bands -- its supply of on-line seats. Measured at the box the
-// chip draws, so a count of zero means that box fits nowhere on its line: the
-// edge cannot be seated on its line at all.
-//
-// Deliberately uncapped, though it walks the whole candidate list per item edge:
-// measured on multi6 at ~1400 candidate evaluations with lanes on and ~2400 with
-// lanes off, about 9% and 19% of a layout pass. Every cap that saves any of that
-// (anything up to 48) reorders the item seats, because the counts saturate and
-// the ties fall to the edge id; a cap of 12 or less hands battery5's e:1 its
-// approach leg to e:12 -- the one seat this ranking exists to protect.
-function clearOnLineSeats(query: SeatQuery, opts?: RateSeatOpts): number {
-  const { field, path, flowKey, target, exempt, entryBand } = query;
-  const { pts, anchorX, anchorY } = path;
-  const halfW = chipSeatHalfW(opts?.text, opts?.iconOnly === true);
-  const halfH = CHIP_BOX_HEIGHT / 2;
-  let total = 0;
-  for (let i = 1; i < pts.length; i++) {
-    total += Math.hypot(
-      pts[i]![0] - pts[i - 1]![0],
-      pts[i]![1] - pts[i - 1]![1],
-    );
-  }
-  const anchorLen = Math.min(total, lengthAtPoint(pts, anchorX, anchorY));
-  const candidates = onLineCandidates(
-    pts,
-    total,
-    anchorLen,
-    opts?.clearSpan,
-    () => false,
-  );
-  let clear = 0;
-  for (const [px, py] of candidates) {
-    const box = { x: px, y: py, halfW, halfH };
-    if (
-      !field.entersForeignCard(box, exempt) &&
-      !field.entersOwnPortBand(box, exempt) &&
-      !field.overlapsChip(box) &&
-      !field.onForeignLine(box, flowKey, target, entryBand, opts?.ownIds)
-    ) {
-      clear++;
-    }
-  }
-  return clear;
-}
-
-// Exported for the seating suites, which assert the tier ladder one seat at a
-// time (graze, sidestep, shrink, off-line) -- tiers deconflictChipAnchors'
-// stamped output cannot tell apart.
-export function seatRateChip(query: SeatQuery, opts?: RateSeatOpts): RateSeat {
-  const halfW = chipSeatHalfW(opts?.text, opts?.iconOnly === true);
-  const run = (online: boolean) =>
-    seatRateChipPass(query, opts, halfW, CHIP_HALF_H, online);
-  return run(true) ?? run(false)!;
-}
-
-// One pass of the tier ladder. Online: the anchor / slide / sidestep / graze
-// tiers, null when none seats. Offline: the nudge and escape cascades, which
-// always seat.
-function seatRateChipPass(
-  query: SeatQuery,
-  opts: RateSeatOpts | undefined,
-  halfW: number,
-  halfH: number,
-  online: boolean,
-): RateSeat | null {
-  const { field, path, flowKey, target, exempt, entryBand } = query;
-  const { pts, anchorX, anchorY } = path;
-  const ownIds = opts?.ownIds;
-  const barrierYs = opts?.barrierYs;
-  // A slide candidate crosses a barrier when it and the anchor sit on OPPOSITE
-  // sides of a seated sibling (their signed offsets from it differ), i.e. the
-  // slide would jump past the sibling and invert the stack. Same-side and
-  // on-the-sibling candidates (the latter blocked by the hard chip overlap
-  // anyway) are allowed.
-  const crossesBarrier = (py: number): boolean =>
-    barrierYs !== undefined &&
-    barrierYs.some((by) => (anchorY - by) * (py - by) < 0);
-  let total = 0;
-  for (let i = 1; i < pts.length; i++) {
-    total += Math.hypot(
-      pts[i]![0] - pts[i - 1]![0],
-      pts[i]![1] - pts[i - 1]![1],
-    );
-  }
-  // Clamp: a fan-out trunk anchor is rounded independently of the polyline's
-  // last vertex, so it can land a sub-rounding hair past the end. lengthAtPoint
-  // still resolves it (1-unit segment tolerance) but to an arc length beyond
-  // total, which would make tier 1 skip the delta=0 candidate and every
-  // positive delta, ejecting an uncrowded chip one slide step left.
-  const anchorLen = Math.min(total, lengthAtPoint(pts, anchorX, anchorY));
-  const boxAt = (px: number, py: number): ChipBox => ({
-    x: px,
-    y: py,
-    halfW,
-    halfH,
-  });
-  // A candidate is clear when it clears every placed chip box, every foreign
-  // flow line (arrival cluster narrowed to the entry band), every foreign
-  // card box, and its own endpoint cards' port bands.
-  const isClear = (px: number, py: number): boolean => {
-    const box = boxAt(px, py);
-    return (
-      !field.entersForeignCard(box, exempt) &&
-      !field.entersOwnPortBand(box, exempt) &&
-      !field.overlapsChip(box) &&
-      !field.onForeignLine(box, flowKey, target, entryBand, ownIds)
-    );
-  };
-  const seat = (px: number, py: number, tier: RateSeatTier): RateSeat => {
-    const box = field.seat(boxAt(px, py));
-    return { dx: px - anchorX, dy: py - anchorY, tier, box };
-  };
-  const hardClearAt = (px: number, py: number): boolean => {
-    const box = boxAt(px, py);
-    return (
-      !field.entersForeignCard(box, exempt) &&
-      !field.entersOwnPortBand(box, exempt) &&
-      !field.overlapsChip(box)
-    );
-  };
-  // How many foreign strokes inside this box RUN ALONGSIDE the chip's own
-  // stroke instead of crossing it -- the braid term (Z2). A foreign window
-  // counts when it is at least BIND_RUN long and BOTH its ends lie within
-  // BIND_NEAR of the own polyline: a stroke that crosses the box from side to
-  // side leaves the own line by the box half-height at its ends and does not
-  // count however close it passes at the crossing itself, because a line
-  // running UNDER a chip is unambiguous; one that hugs the own line for a
-  // stretch is the one that steals the chip's ownership, and two gas lanes
-  // drawn with the same dash pattern differ only in an item-derived tint. Same
-  // unit as the crossing count -- (edge, segment) pairs -- so the two terms
-  // read on one scale. The own line comes from `pts`, which this function
-  // already holds; the field exposes only the foreign side.
-  const bindingAt = (box: ChipBox): number => {
-    let bound = 0;
-    for (const [x0, y0, x1, y1] of field.foreignLineWindows(
-      box,
-      flowKey,
-      target,
-      entryBand,
-      ownIds,
-    )) {
-      if (
-        Math.hypot(x1 - x0, y1 - y0) >= BIND_RUN &&
-        pointToPolylineDistance([x0, y0], pts) <= BIND_NEAR &&
-        pointToPolylineDistance([x1, y1], pts) <= BIND_NEAR
-      ) {
-        bound++;
-      }
-    }
-    return bound;
-  };
-  // The least-bad score of a candidate that already clears the HARD invariants,
-  // in precedence order: how many foreign strokes cross its box, how deep it
-  // lies on its own card, how many of those strokes braid with its own, how many
-  // junction dots it swallows.
-  type GrazeScore = {
-    score: number;
-    intrusion: number;
-    binding: number;
-    dots: number;
-  };
-  const better = (a: GrazeScore, b: GrazeScore): boolean =>
-    a.score !== b.score
-      ? a.score < b.score
-      : a.intrusion !== b.intrusion
-        ? a.intrusion < b.intrusion
-        : a.binding !== b.binding
-          ? a.binding < b.binding
-          : a.dots < b.dots;
-  // Unbeatable in this tier: one crossing (zero is impossible where the scorers
-  // run -- tier 1 would already have taken it), within the card budget, no
-  // braid, no dot buried. Every term has to appear or the walk would stop on a
-  // candidate a lower term could still improve on.
-  const unbeatable = (s: GrazeScore): boolean =>
-    s.score <= 1 && s.intrusion === 0 && s.binding === 0 && s.dots === 0;
-  // Score a hard-clear candidate, returning it only when it beats the
-  // incumbent. The two cheap terms are evaluated first and the candidate is
-  // dropped at the first one it has already lost on, so the braid count -- a
-  // second full sweep over every foreign segment, on top of the crossing
-  // count's -- is only ever paid by a candidate still in the running.
-  const scoreIfBetter = (
-    box: ChipBox,
-    best: GrazeScore | null,
-  ): GrazeScore | null => {
-    const score = field.foreignLineCrossings(
-      box,
-      flowKey,
-      target,
-      entryBand,
-      ownIds,
-    );
-    if (best !== null && score > best.score) return null;
-    const intrusion = field.ownCardIntrusion(box, exempt);
-    if (best !== null && score === best.score && intrusion > best.intrusion) {
-      return null;
-    }
-    const cand = {
-      score,
-      intrusion,
-      binding: bindingAt(box),
-      dots: field.dotsCovered(box),
-    };
-    return best === null || better(cand, best) ? cand : null;
-  };
-  if (online) {
-    // Every seat the on-line tiers may take, in the order they prefer them:
-    // the anchor, the clear-span centre, then the arc-length grid nearest
-    // offset first, forward before backward, barrier-crossing points dropped.
-    // Tier 1 and the graze tier both walk this list.
-    const onLine = onLineCandidates(
-      pts,
-      total,
-      anchorLen,
-      opts?.clearSpan,
-      crossesBarrier,
-    );
-    // Tier 1: the slide over the FULLY clear points of the own line. Tier 1b
-    // (graze, in the scan below) is reached when nothing on the line is fully
-    // clear. In a braided corridor a parallel foreign line within a chip
-    // half-height poisons every tier-1 candidate at once, yet the own line is
-    // otherwise empty -- the chip belongs on it, icon and tint disambiguate the
-    // graze.
-    //
-    // The tier SCORES its candidates instead of taking the first clear one, on
-    // two soft terms: the junction-dot keep-off (#50) and the own-card intrusion
-    // the box spends past its port strip (F1). Dots rank ABOVE intrusion, and
-    // both rank below staying fully clear:
-    //   - the fewest dots buried always wins. That is a change of shape from the
-    //     original keep-off, which took the first dot-free candidate and fell
-    //     back to the first clear one: minimising the count also improves the
-    //     line where NO candidate is dot-free. Its ranking is what was measured
-    //     -- putting intrusion first instead buys a handful of shallow card laps
-    //     by burying four more junction dots (a fan-out split dot under its own
-    //     short-leg branch chip is the recurring shape), and a hidden split reads
-    //     as an ordinary corner;
-    //   - among candidates that tie on dots, the shallowest intrusion wins, so
-    //     the slide keeps walking rather than parking the box on the card the
-    //     moment it is otherwise clear.
-    // The walk stops at the first candidate that is unbeatable on both (no dot,
-    // within budget), so an uncrowded chip still costs one candidate and still
-    // seats on its anchor. The acceptance set is unchanged -- every fully clear
-    // point is still a candidate -- so no chip is pushed to the sidestep, graze,
-    // nudge or escape tiers by either term (the issue-#9 blowback this rule must
-    // not cause); both terms can only reorder WITHIN tier 1, on the own line.
-    const tierOf = (px: number, py: number): RateSeatTier =>
-      px === anchorX && py === anchorY ? "anchor" : "slide";
-    let bestOnLine: {
-      px: number;
-      py: number;
-      dots: number;
-      intrusion: number;
-    } | null = null;
-    for (const [px, py] of onLine) {
-      if (
-        bestOnLine !== null &&
-        bestOnLine.dots === 0 &&
-        bestOnLine.intrusion === 0
-      ) {
-        break;
-      }
-      if (!isClear(px, py)) continue;
-      const box = boxAt(px, py);
-      const dots = field.dotsCovered(box);
-      const intrusion = field.ownCardIntrusion(box, exempt);
-      if (
-        bestOnLine === null ||
-        dots < bestOnLine.dots ||
-        (dots === bestOnLine.dots && intrusion < bestOnLine.intrusion)
-      ) {
-        bestOnLine = { px, py, dots, intrusion };
-      }
-    }
-    if (bestOnLine !== null) {
-      return seat(
-        bestOnLine.px,
-        bestOnLine.py,
-        tierOf(bestOnLine.px, bestOnLine.py),
-      );
-    }
-    // The reach both sidestep tiers share, built once and walked twice below:
-    // the fully clear step (tier 1c) and the scored step (tier 1b'). It is HALF
-    // the reserved half-width, a containment bound rather than a taste call --
-    // an offset past halfW / 2 leaves the own line in only the outer half of the
-    // box, and past halfW it leaves the box altogether, so the chip reads as an
-    // orphan floating beside its line (the issue-#9 defect this whole ladder
-    // exists to prevent). Derived from
-    // the box THIS chip reserves, so a collapsed chip -- or one whose estimated
-    // box is narrower than the worst case -- steps only as far as its own box
-    // still holds the line. Both directions are probed nearest-first so the free
-    // side wins, positive x breaking a tie, and the last step is clamped FLUSH to
-    // the bound even when the pitch does not divide it.
-    const sidestepMax = Math.min(SIDESTEP_MAX, halfW) / 2;
-    const sidestepXs: number[] = [];
-    for (let step = 1; ; step++) {
-      const off = Math.min(step * SIDESTEP_PITCH, sidestepMax);
-      sidestepXs.push(anchorX + off, anchorX - off);
-      if (off >= sidestepMax) break;
-    }
-    // Tier 1b (graze), least-bad: no candidate on the line is fully clear, so
-    // every remaining on-line seat crosses at least one foreign line (a
-    // zero-crossing hard-clear point would already have been taken by tier 1).
-    // Taking the FIRST hard-clear candidate parks the chip at the anchor, which
-    // on a dense plan is the thick of the fan. Walk the same
-    // candidates in the same order, score each by its foreign-line crossings, and
-    // seat at the minimum. Strict less-than keeps the nearest-first,
-    // forward-first preference on ties (an all-equal line still seats at the
-    // anchor).
-    // Own-card intrusion (F1), own-line binding (Z2) and junction dots (#50)
-    // enter as STRICT TIEBREAKS under the crossing count, never above it, in that
-    // order: a seat that occludes one more flow line to keep its box off its own
-    // card would trade a ratcheted defect for a softer one; a seat that took one
-    // more crossing to shed a braid would do the same; and a seat that buries its
-    // box on the card to spare a decorative dot would trade the readable state
-    // for a cosmetic one. So each term only chooses between candidates every term
-    // above it already ties. Binding sits under intrusion and above dots because
-    // an unreadable OWNER is worse than a hidden marker and better than a chip
-    // lying on a card: all three are legibility, and that is their order of harm.
-    // The early exit has to name all four or the lower terms would never get to
-    // compare: the walk stops only on a candidate unbeatable on every one of them
-    // (a single crossing, within the intrusion budget, no braid, no dot).
-    let bestGraze: { px: number; py: number; s: GrazeScore } | null = null;
-    for (const [px, py] of onLine) {
-      if (bestGraze !== null && unbeatable(bestGraze.s)) break;
-      if (!hardClearAt(px, py)) continue;
-      const s = scoreIfBetter(boxAt(px, py), bestGraze?.s ?? null);
-      if (s !== null) bestGraze = { px, py, s };
-    }
-    // A horizontal step off a HORIZONTAL leg is a slide ALONG the own line, which
-    // costs the chip nothing; off a VERTICAL leg the same step is PERPENDICULAR
-    // to it, and buys its clearance by moving the chip off the line it labels.
-    // Only the second needs a gate, and on a vertical leg the gate has to be
-    // measured in the box the step STARTS FROM -- the anchor's -- because a step
-    // moves that box and nothing else. A blockage the least-bad on-line seat
-    // carries can sit hundreds of units away on a different leg, where no step
-    // here reaches it.
-    //
-    // Parallel is judged on the dominant axis, so a chamfer diagonal counts as
-    // the leg it turns into rather than as its own direction.
-    const ownSegVerticalAt = (px: number, py: number): boolean => {
-      let best = Infinity;
-      let vertical = false;
-      for (let i = 1; i < pts.length; i++) {
-        const a = pts[i - 1]!;
-        const b = pts[i]!;
-        const d = pointSegDistance([px, py], a, b);
-        if (d >= best) continue;
-        best = d;
-        vertical = Math.abs(b[1] - a[1]) > Math.abs(b[0] - a[0]);
-      }
-      return vertical;
-    };
-    const anchorBox = boxAt(anchorX, anchorY);
-    const ownVertical = ownSegVerticalAt(anchorX, anchorY);
-    // What qualifies for tier 1c on a vertical leg: a foreign stroke inside the
-    // anchor's box running PARALLEL to the own line -- a neighbour sharing the
-    // corridor, which no motion ALONG the line can get out of the box because
-    // the box travels beside it the whole way (the issue-#28 twin-corridor shape
-    // this tier was written for). A stroke that merely CROSSES does not qualify:
-    // sliding walks the box off it, and a line running UNDER a chip is
-    // unambiguous to the reader anyway -- the same reading the braid term is
-    // built on. Ungated, tier 1c stepped a chip flush off a short bend-column
-    // vertical whenever a long clear leg happened to be crossed often enough,
-    // which is the orphan shape bought against a crossing that confused nobody.
-    const parallelAtAnchor = field
-      .foreignLineWindows(anchorBox, flowKey, target, entryBand, ownIds)
-      .some(([x0, y0, x1, y1]) => {
-        const dx = Math.abs(x1 - x0);
-        const dy = Math.abs(y1 - y0);
-        return Math.hypot(dx, dy) >= BIND_RUN && dy > dx === ownVertical;
-      });
-    // Tier 1c (sidestep): nothing along the own line is fully clear, but a
-    // horizontal step can seat the box clear of everything. Free on a horizontal
-    // leg, where it is a slide; on a vertical leg it is taken only against the
-    // parallel neighbour above, and the walk is skipped otherwise so the graze
-    // tier below keeps the chip on its line. A null bestGraze opens the gate
-    // either way: no point on the line clears even the HARD invariants, so there
-    // is no on-line seat to prefer and the alternative is the offline escape
-    // cascade, which leaves the line by more than a step does. That ordering is
-    // why this walk sits below the graze scorer rather than above it.
-    if (bestGraze === null || !ownVertical || parallelAtAnchor) {
-      // The fully clear step is SCORED, not first-hit: a step that clears every
-      // foreign line can still park the box on the chip's own card, which is the
-      // one soft term tier 1 walked its whole line to avoid. Crossings and braids
-      // are zero for all of these by definition (that is what fully clear means),
-      // so only the own-card depth and the junction dots can separate them, in that
-      // precedence; the enumeration order breaks the rest, keeping the nearest step
-      // and the positive side. The walk stops at the first unbeatable step (off the
-      // card, no dot), so the common case still costs one probe.
-      let bestStep: { px: number; intrusion: number; dots: number } | null =
-        null;
-      for (const px of sidestepXs) {
-        if (
-          bestStep !== null &&
-          bestStep.intrusion === 0 &&
-          bestStep.dots === 0
-        ) {
-          break;
-        }
-        if (!isClear(px, anchorY)) continue;
-        const box = boxAt(px, anchorY);
-        const intrusion = field.ownCardIntrusion(box, exempt);
-        const dots = field.dotsCovered(box);
-        if (
-          bestStep === null ||
-          intrusion < bestStep.intrusion ||
-          (intrusion === bestStep.intrusion && dots < bestStep.dots)
-        ) {
-          bestStep = { px, intrusion, dots };
-        }
-      }
-      if (bestStep !== null) return seat(bestStep.px, anchorY, "sidestep");
-    }
-    // Tier 1b' (scored sidestep), GATED on a braid the on-line seat could not
-    // shed. Where the least-bad on-line candidate still has a foreign stroke
-    // running alongside its own, no motion ALONG the line can help -- the two
-    // strokes share the corridor for its whole length -- but a horizontal step
-    // can improve everything ranked AROUND the braid. So the same offsets are
-    // walked again under the HARD invariants only, scored on the same four terms,
-    // and one is taken only if it strictly beats the on-line seat: ties keep the
-    // chip on its line, which is the issue-#9 preference the graze tier exists to
-    // protect.
-    //
-    // What the step cannot buy is the braid itself, and that is arithmetic, not
-    // ranking: a foreign stroke at gap g from the own line only leaves the box
-    // once the offset exceeds halfW - g, a braid has g <= BIND_NEAR (8) by
-    // definition, and the reach is halfW / 2 -- 112 needed against 60 allowed for
-    // the 120 half-width, and the per-chip seat box shrinks BOTH sides of that
-    // comparison (ruling R12), so it never closes. So the braid is the GATE, and
-    // what the step sheds is a FAR crossing the wide box straddles, own-card
-    // depth, or a buried junction dot.
-    //
-    // Two things this must not become. It is not nearest-first, and it keeps the
-    // BEST offset rather than the first improving one: the strokes a step can
-    // shed are the ones near the box's far edge, so a near offset often changes
-    // nothing while a farther one still inside the cap sheds more -- a walk that
-    // stopped at the first improvement would seat short of it. And it is not
-    // ungated: the graze walk is already ~97 candidates against every segment of
-    // every edge, and a second pass over ~16 offsets on every chip that reaches
-    // this tier would multiply the cost of a synchronous layout pass for the
-    // chips that have nothing to gain. A braid in the ANCHOR's box is what pays
-    // for the second pass -- the anchor's, not the graze seat's, because the
-    // anchor is where the step happens. Scored against a graze seat on a
-    // DIFFERENT leg, a step into the open beats it on every occlusion term by
-    // construction (there is nothing where it lands to occlude), and none of the
-    // four terms can see that it left its line to get there; the strict-improvement
-    // rule below only protects the line while the two candidates are comparable,
-    // which off a vertical leg they are not.
-    //
-    // Its reach is sidestepMax, the containment bound the fully clear tier now
-    // shares (SIDESTEP_MAX derives it): at an offset within half the reserve the
-    // own line stays in the inner half of the drawn box; past it the chip reads
-    // as an orphan floating beside its line. Measured before the bound reached tier 1c: the
-    // one corpus seat this tier moved to a flush 120 (multi6 e:18) shed both its
-    // strokes and became exactly that orphan. Shedding a 3-unit braid needs
-    // almost the whole reserve, so under this bound neither tier can separate the
-    // tightest braids at all -- that is the R11/R12 trade, and the per-chip seat
-    // box does not buy it back, because it narrows the reach in step with the box.
-    const stepBraid = ownVertical
-      ? bindingAt(anchorBox) > 0
-      : bestGraze !== null && bestGraze.s.binding > 0;
-    if (bestGraze !== null && stepBraid) {
-      let stepped: { px: number; s: GrazeScore } | null = null;
-      for (const px of sidestepXs) {
-        if (!hardClearAt(px, anchorY)) continue;
-        const s = scoreIfBetter(boxAt(px, anchorY), stepped?.s ?? bestGraze.s);
-        if (s !== null) stepped = { px, s };
-      }
-      if (stepped !== null) return seat(stepped.px, anchorY, "sidestep");
-    }
-    if (bestGraze !== null) return seat(bestGraze.px, bestGraze.py, "graze");
-    return null;
-  }
-  // The whole own line is chip- or card-blocked. Escapes off the line follow
-  // the ratified priority order: chip/chip and chip/card clearance are HARD,
-  // staying on the line and clearing foreign lines are preferences that yield.
-  // Tier 2: a SHORT bidirectional vertical nudge off the anchor that clears
-  // chips, cards, AND foreign lines (cap NUDGE_CAP_STEPS): the parallel-edge
-  // chip lifts a step or two and stays fully clean.
-  for (let k = 1; k <= NUDGE_CAP_STEPS; k++) {
-    for (const dy of [k * CHIP_NUDGE_STEP, -k * CHIP_NUDGE_STEP]) {
-      if (isClear(anchorX, anchorY + dy)) {
-        return seat(anchorX, anchorY + dy, "nudge");
-      }
-    }
-  }
-  // Tier 3: cascade against CHIPS AND CARDS only (foreign lines waived),
-  // bidirectionally, nearest escape first (ties prefer down). Cards are
-  // finite, so a clear slot always exists within a few card heights; the cap
-  // only bounds the search. This upholds the two HARD invariants -- no two
-  // chips overlap, no chip on a foreign card -- at the cost of the chip
-  // grazing a foreign line (ratcheted) and sitting off its own polyline
-  // (ratcheted). The own-port band is hard here too, so an escape never
-  // parks on its own port.
-  for (let k = 0; k <= LAST_RESORT_CAP_STEPS; k++) {
-    const deltas = k === 0 ? [0] : [k * CHIP_NUDGE_STEP, -k * CHIP_NUDGE_STEP];
-    for (const delta of deltas) {
-      if (hardClearAt(anchorX, anchorY + delta)) {
-        return seat(anchorX, anchorY + delta, "escape");
-      }
-    }
-  }
-  // Bounded search exhausted (never expected: cards are finite). Park at the
-  // anchor; the caller's DEV warning fires on this tier.
-  return seat(anchorX, anchorY, "exhausted");
 }
 
 // The card border, in graph units per side: the 1px frame a rendered card draws
@@ -1546,19 +225,15 @@ function cardBorder(type: string | undefined): number {
   return type === "recipe" ? CARD_BORDER : 0;
 }
 
-// The raw card rects a chip's box must stay clear of, so a chip never sits on
-// top of a foreign node (the P3 hard invariant). Every node type is included --
-// recipe / product / loop cards and group slabs -- mirroring the chip/card
-// audit; the per-edge exemption the seating pass applies is the same one the
-// audit applies.
+// The raw card rects the chip/card audit scores against, one per node: recipe /
+// product / loop cards and group slabs alike.
 //
 // These are DRAWN border boxes, the same frame drawnPortsOf reconstructs the
 // polylines in: the model box grown by CARD_GROWTH, which is zero for every
 // kind but the recipe card, whose 1px border makes it 242 wide against the
 // model's 240 (see CARD_BORDER). The audit collects the rendered card rect
 // straight off the DOM, so measuring the model box here would leave the two
-// frames two units apart on every recipe -- a chip could clear a card in the
-// seating pass and overlap its drawn border in the browser.
+// frames two units apart on every recipe.
 //
 // One kind grows further: an environment recipe's frame rectangle (plates and
 // haze beyond the card box, ENV_FRAME_EXTENTS) is an obstacle too, or a chip
@@ -1602,47 +277,37 @@ export function cardRectsFor(
   });
 }
 
-// One drawn junction dot and the family it belongs to. The three families are
-// drawn by two different components -- BusEdge draws the fan-out trunk's split
-// dot from the path builders, ItemEdge draws the fan-in merge dot and the
-// declined-fan-out divergence dot from the stamps below -- but they are one
-// obstacle class to the seating phases, so the collected set keeps the family
-// only as a label.
-type JunctionDotKind = "fanout" | "fanin" | "divergence";
-export type JunctionDot = { x: number; y: number; kind: JunctionDotKind };
+// A reconstructed edge polyline, as the crossing-cue pass reads it: the owning
+// edge's id, the FLOW it belongs to (same item|source is one visual line, so a
+// pair of them crossing is not a crossing at all) and its segments.
+type EdgeSegments = {
+  id: string;
+  flowKey: string;
+  segs: ReadonlyArray<readonly [number, number, number, number]>;
+};
 
-// Every edge-data field the seating phases stamp. Picking them off the types
-// that declare them makes a rename at the declaration a build error here.
-const SEAT_PATCH_KEYS = [
-  "labelDx",
-  "labelDy",
-  "chipIconOnly",
-  "faninJunctionX",
-  "faninJunctionY",
-  "faninChipHidden",
-  "faninChipHiddenAtY",
-  "itemChipHidden",
-  "itemChipHiddenAt",
+// Every edge-data field this pass stamps. Picking them off the types that
+// declare them makes a rename at the declaration a build error here.
+const STAMP_KEYS = [
   "fanoutJunctionX",
   "fanoutJunctionY",
+  "faninJunctionX",
+  "faninJunctionY",
+  "chipX",
+  "chipY",
   "crossingCues",
-  "fanoutAggDx",
-  "fanoutAggDy",
-  "fanoutBranchDx",
-  "fanoutBranchDy",
-  "fanoutBranchIconOnly",
-  "fanoutBranchHidden",
-  "fanoutBranchHiddenAt",
 ] as const;
-type SeatPatchKey = (typeof SEAT_PATCH_KEYS)[number];
-type PickSeatKeys<T> = Pick<T, Extract<SeatPatchKey, keyof T>>;
-type SeatPatch = Partial<
-  PickSeatKeys<ItemEdgeData> & PickSeatKeys<FanoutBusEdgeData>
+type StampKey = (typeof STAMP_KEYS)[number];
+type PickStampKeys<T> = Pick<T, Extract<StampKey, keyof T>>;
+type StampPatch = Partial<
+  PickStampKeys<ItemEdgeData> &
+    PickStampKeys<FanoutBusEdgeData> &
+    PickStampKeys<FaninBusEdgeData>
 >;
 
-// The drag-end re-seat: strip every stamp the pass owns and run it again on
-// the moved nodes. The routing hints earlier passes wrote stay, as the live
-// edge paths keep reading them. An untouched edge comes back by reference.
+// The drag-end re-run: strip every stamp the pass owns and run it again on the
+// moved nodes. The routing hints earlier passes wrote stay, as the live edge
+// paths keep reading them. An untouched edge comes back by reference.
 export function reseatChips(
   nodes: ReadonlyArray<RFAnyNode>,
   edges: ReadonlyArray<Edge>,
@@ -1650,9 +315,9 @@ export function reseatChips(
   const clean = edges.map((edge) => {
     if (edge.data === undefined) return edge;
     const data: Record<string, unknown> = edge.data;
-    if (!SEAT_PATCH_KEYS.some((key) => key in data)) return edge;
+    if (!STAMP_KEYS.some((key) => key in data)) return edge;
     const stripped = { ...data };
-    for (const key of SEAT_PATCH_KEYS) delete stripped[key];
+    for (const key of STAMP_KEYS) delete stripped[key];
     return { ...edge, data: stripped };
   });
   return deconflictChipAnchors(nodes, clean);
@@ -1663,218 +328,32 @@ export function deconflictChipAnchors(
   edges: ReadonlyArray<Edge>,
 ): Edge[] {
   const byId = nodeIndexOf(nodes);
-
-  // Reconstructed edge polylines, obstacles for the bus / rate seats: a chip
-  // must not sit on a FOREIGN edge's line (the reader would bind the rate to
-  // the wrong flow). Edges of one flow -- same (item, source), i.e. a trunk's
-  // members sharing a lane or a fanout's slices sharing their common
-  // trajectory -- are one visual line, so a chip may sit on its own flow's
-  // siblings. Reconstruction mirrors the render components (same builders,
-  // same hints), so the avoided lines are the drawn ones. Item edges also
-  // cache their parsed points and clear-segment anchor here, so the rate-chip
-  // phase below neither rebuilds the path nor re-parses the `d` string. Every
-  // geometry cache below is keyed by EDGE ID, not by position in the edges
-  // array: the drawn shape is a function of one edge alone, so nothing that
-  // reads it back has to know where that edge sat in the input.
   const flowKeyOf = (edge: Edge): string =>
     busFlowKey(edgeItem(edge), edge.source);
+
+  // One drawn shape per edge, from the same seam the renderers draw through:
+  // the hint spread, the fan-out discriminant and the parse of `d` all resolve
+  // there. Item edges keep their vertex list for the divergence pass below;
+  // every edge contributes its segments to the crossing-cue pass.
   const edgeSegments: EdgeSegments[] = [];
   // The edges-array index of each edgeSegments entry, parallel to it: the
-  // crossing-cue pass below reads it to key each edge's stamped-cue list,
-  // while the segment list skips edges with unresolvable endpoints.
+  // crossing-cue pass keys each edge's stamped cue list by it, while the
+  // segment list skips edges with unresolvable endpoints.
   const edgeIndexOfSegment: number[] = [];
-  type ItemGeom = {
-    pts: ReadonlyArray<readonly [number, number]>;
-    lx: number;
-    ly: number;
-  };
-  const itemGeomById = new Map<string, ItemGeom>();
-  // Fan-out members cache their reconstructed geometry (points + the two chip
-  // anchors) so the fan-out seating phase below neither rebuilds the path nor
-  // re-parses the `d` -- the lockstep mirror of itemGeomById for rate chips.
-  type FanoutGeom = {
-    pts: ReadonlyArray<readonly [number, number]>;
-    // The member's OWN horizontal leg (see the slice below): the run the
-    // branch chip's seat slides over and the branch short-leg rule measures.
-    branchPts: ReadonlyArray<readonly [number, number]>;
-    // Where the branch seat starts from: the midpoint of that leg. It is NOT
-    // branchAnchor -- the point BusEdge adds the stamped offsets to, which for
-    // a member whose descent outgrows its leg sits on the shared column -- and
-    // every tier that leaves the line (sidestep, nudge, escape) moves relative
-    // to the anchor it was handed, so an off-leg anchor parks those seats on
-    // the column however tightly the slide is confined.
-    branchSeatAnchor: { x: number; y: number };
-    junction: { x: number; y: number };
-    trunkAnchor: { x: number; y: number };
-    branchAnchor: { x: number; y: number };
-    owner: boolean;
-  };
-  const fanoutGeomById = new Map<string, FanoutGeom>();
-  // Item edges whose clear window cannot hold their own rate chip: the chip
-  // renders icon-only.
-  const shortLegByIndex = new Set<number>();
-  // FAN-OUT members whose branch chip renders icon-only, either because its own
-  // leg lacks the usable width or because the member sits in a contested
-  // corridor. Decided once, here: the seat below reserves the collapsed box so
-  // the narrower chip can slide clear of the trunk's split dot, and the emit
-  // loop stamps the same verdict, so the box that was reserved is the box that
-  // gets drawn.
-  const branchIconOnlyByIndex = new Set<number>();
-  // The longest clear run of each item edge / fan-out branch leg (null when
-  // the port bands blanket it): the collapse verdict and the seat's preferred
-  // candidate both read it.
-  const clearSpanById = new Map<string, XSpan | null>();
-  // Final-leg points of each item edge pinned to a shared fan-out column: the
-  // stretch of its polyline its rate chip may seat on (see the slice below).
-  const fanoutLegPtsById = new Map<
+  const itemPtsById = new Map<
     string,
     ReadonlyArray<readonly [number, number]>
   >();
-  // The drawn card rects a chip's box must stay clear of (see cardRectsFor);
-  // the clearance field consumes the same array.
-  const cards: CardRect[] = cardRectsFor(nodes, byId);
-  const cardsById = new Map(cards.map((c) => [c.id, c] as const));
-  // The card exemption for an edge's chips: its own source / target cards get a
-  // port-adjacent zone (issue #10, exempt while the chip centre stays in the port
-  // strip), their containing groups (one parentId level, same as the audit's
-  // containersAt) stay wholly exempt. The source zone hugs the source card's
-  // right edge (out-port), the target zone its left edge (in-port).
-  const cardExemptFor = (edge: Edge): CardExemption => {
-    const source = byId.get(edge.source);
-    const target = byId.get(edge.target);
-    const whole = new Set<string>();
-    const zones = new Map<string, PortZoneSide>();
-    if (source !== undefined) {
-      if (source.parentId !== undefined) whole.add(source.parentId);
-      zones.set(source.id, "source");
-    }
-    if (target !== undefined) {
-      if (target.parentId !== undefined) whole.add(target.parentId);
-      zones.set(target.id, "target");
-    }
-    return { whole, zones };
-  };
-  // The x-ranges of an edge's own endpoint port bands.
-  const ownPortBandXs = (edge: Edge): XSpan[] => {
-    const out: XSpan[] = [];
-    for (const [id, side] of cardExemptFor(edge).zones) {
-      const card = cardsById.get(id);
-      if (card === undefined) continue;
-      const band = portKeepOutRect(card, side);
-      out.push({ lo: band.left, hi: band.right });
-    }
-    return out;
-  };
-  // Measure a chip's clear window on its line and return whether the chip's
-  // natural box fits it.
-  const measureWindow = (
-    id: string,
-    pts: ReadonlyArray<readonly [number, number]>,
-    bands: ReadonlyArray<XSpan>,
-    text: ChipText | undefined,
-  ): boolean => {
-    const span = largestClearSpan(pts, bands);
-    clearSpanById.set(id, span);
-    return span !== null && span.hi - span.lo >= chipNaturalWidth(text);
-  };
+  // The drawn target row of each reconstructed edge, for the fan-in dot below:
+  // that dot sits on the target row of the trunk it marks.
+  const targetYById = new Map<string, number>();
   edges.forEach((edge, index) => {
     if (edge.type !== "item" && edge.type !== "bus") return;
     const ends = drawnPortsOf(edge, byId);
     if (ends === null) return;
-    const { sourceX: sx } = ends;
-    // One drawn shape per edge, from the same seam the renderers draw through:
-    // the hint spread, the fan-out discriminant and the parse of `d` all resolve
-    // there, so this reconstruction cannot answer a different polyline than the
-    // one on screen.
+    targetYById.set(edge.id, ends.targetY);
     const drawn = drawnEdge(ends, edge.type, edge.data);
-    if (drawn.shape === "fanout") {
-      // drawnEdge's branch leg is the whole suffix after the junction, which
-      // still runs DOWN the column every member of the trunk shares before it
-      // turns into this member's own horizontal run, and chamferFanoutPath
-      // anchors the branch chip on the midpoint of the branch's longest part --
-      // that shared column whenever the descent outgrows the leg, which is
-      // where two members three rows apart stack their chips on one line. Keep
-      // only the horizontal run into the target port, clipped past the split
-      // dot's keep-off: the seat slides along the points it is given, so on
-      // this run it can neither start nor slide back onto the column (the
-      // pinned item members below are confined the same way). The run is the
-      // last segment of every fan-out shape -- straight trunk, small-dy
-      // diagonal and branching member alike.
-      const branchSuffix = drawn.branchPts;
-      const branchLeg = clipRunLeft(
-        branchSuffix.slice(branchSuffix.length - 2),
-        drawn.junction.x + DOT_KEEPOFF,
-      );
-      const branchPts = branchLeg ?? branchSuffix;
-      fanoutGeomById.set(edge.id, {
-        pts: drawn.pts,
-        branchPts,
-        branchSeatAnchor: branchSeatAnchorOf(drawn.branchAnchor, branchLeg),
-        junction: drawn.junction,
-        trunkAnchor: drawn.trunkAnchor,
-        branchAnchor: drawn.branchAnchor,
-        // Deliberately STRICTER than isTrunkOwner, which reads absent as owner:
-        // routeFanoutEdges always stamps the field in production, so the two
-        // rules only diverge on hand-built fixtures. Unifying them is
-        // render-visible and out of scope here.
-        owner: (edge.data as BusEdgeData | undefined)?.busChipOwner === true,
-      });
-      // The branch gate reads the member's own leg, never the trunk-including
-      // polyline, and its window also subtracts the split dot's keep-off: the
-      // chip must fit between the split and the target's furniture. A
-      // contested corridor collapses the chip too: the wide box reaches the
-      // sibling trunk's column from every seat there.
-      const bands = ownPortBandXs(edge);
-      bands.push({ lo: -Infinity, hi: drawn.junction.x + DOT_KEEPOFF });
-      if (
-        !measureWindow(edge.id, branchPts, bands, branchChipText(edge)) ||
-        (edge.data as FanoutBusEdgeData).fanoutContested === true
-      )
-        branchIconOnlyByIndex.add(index);
-    } else {
-      itemGeomById.set(edge.id, {
-        pts: drawn.pts,
-        lx: drawn.labelAnchor.x,
-        ly: drawn.labelAnchor.y,
-      });
-      // A member pinned to a fan-out trunk's SHARED column draws its vertical
-      // on the same line as every sibling, and the split dot sits at its top.
-      // Its chip belongs on the horizontal run that is the member's ALONE, so
-      // the window is banded off at the column exactly as a formed fan-out
-      // branch's is: no seat may slide back onto the shared vertical, and the
-      // collapse below then fires only when that run is narrower than the chip.
-      const bands = ownPortBandXs(edge);
-      const itemData = edge.data as ItemEdgeData | undefined;
-      if (itemData?.fanoutColumn === true && itemData.bendX !== undefined) {
-        // The DRAWN column: a jog that had to clear a blocked source leg
-        // replaces it outright (srcColX), exactly as chamferStepPath resolves
-        // it, so the band never sits on a line this member does not draw. The
-        // hints are read directly here because the column is a routing stamp,
-        // not a point on the drawn polyline.
-        const drawnBx =
-          routingHintsFromData(edge.data).srcColX ??
-          forwardStepGeometry(sx, ends.targetX, itemData.bendX).bx;
-        const keepOff = drawnBx + DOT_KEEPOFF;
-        bands.push({ lo: -Infinity, hi: keepOff });
-        // The seat slides along the points it is given, so a pinned member is
-        // seated on that own run alone. Without this a crowded chip could slide
-        // back over the bend onto the column every sibling draws, which is the
-        // stack the whole formation exists to avoid (the fan-out branch seat
-        // confines itself to branchLegAfterJunction for the same reason). The
-        // run is the last segment -- the horizontal into the target port -- or,
-        // when jogForwardLegs bent the approach, the cleared horizontal at
-        // legY, which is where chamferStepPath anchors such a member. Either is
-        // clipped to start past the column's keep-off.
-        const own =
-          itemData.legY === undefined
-            ? drawn.pts.slice(drawn.pts.length - 2)
-            : horizontalRunAt(drawn.pts, itemData.legY);
-        const clipped = clipRunLeft(own, keepOff);
-        if (clipped !== null) fanoutLegPtsById.set(edge.id, clipped);
-      }
-      if (!measureWindow(edge.id, drawn.pts, bands, rateChipText(edge)))
-        shortLegByIndex.add(index);
-    }
+    if (drawn.shape === "item") itemPtsById.set(edge.id, drawn.pts);
     const segs: Array<readonly [number, number, number, number]> = [];
     for (let i = 1; i < drawn.pts.length; i++) {
       segs.push([
@@ -1884,16 +363,11 @@ export function deconflictChipAnchors(
         drawn.pts[i]![1],
       ]);
     }
-    edgeSegments.push({
-      id: edge.id,
-      flowKey: flowKeyOf(edge),
-      target: edge.target,
-      segs,
-    });
+    edgeSegments.push({ id: edge.id, flowKey: flowKeyOf(edge), segs });
     edgeIndexOfSegment.push(index);
   });
 
-  // Phase 0c -- crossing cues (unmarked-same-item-crossing). Where two
+  // CROSSING CUES (unmarked-same-item-crossing). Where two
   // reconstructed polylines of DIFFERENT flows (different item|source)
   // properly cross, the pair reads as a bare X -- and a bare X of two
   // strokes is indistinguishable from a join, which is exactly the confusion
@@ -2009,191 +483,15 @@ export function deconflictChipAnchors(
     }
   }
 
-  // Accumulate the per-member exemptions of a trunk into one union (containers
-  // merge into `whole`, endpoint zones into `zones`). A shared source port
-  // resolves to the same zone across members, so overwriting is a no-op there.
-  type MutCardExemption = {
-    whole: Set<string>;
-    zones: Map<string, PortZoneSide>;
-  };
-  const mergeExemptionInto = (
-    into: MutCardExemption,
-    from: CardExemption,
-  ): void => {
-    for (const id of from.whole) into.whole.add(id);
-    for (const [id, z] of from.zones) into.zones.set(id, z);
-  };
+  // The row tolerance the divergence derivation compares against: every
+  // comparison is in the DRAWN frame (drawnPortsOf, the same reconstruction the
+  // polylines came from), so a unit of slack is a real collinearity tolerance
+  // rather than a budget already spent on a frame mismatch.
+  const ROW_EPS = 1;
 
-  // The target entry band of an edge: the padded-left gutter of its consumer
-  // card, mirroring paddedObstacles' overhangs. The arrival-cluster exemption
-  // holds only while a rate chip's centre sits here (the narrowed rate-chip
-  // rule), so both the fan-out branch phase and the item phase build it. The
-  // non-null assertion holds because every caller has already skipped an edge
-  // whose target is missing from byId.
-  const entryBandOf = (edge: Edge): EntryBand => {
-    const target = byId.get(edge.target)!;
-    const tx = absoluteLeft(target, byId);
-    const targetTop = absoluteTop(target, byId);
-    return {
-      left: tx - OBSTACLE_PAD_LEFT,
-      right: tx,
-      top: targetTop - OBSTACLE_PAD_Y,
-      bottom: targetTop + nodeHeight(target) + OBSTACLE_PAD_Y,
-    };
-  };
-
-  // Phase 0 -- junction-dot geometry. Every junction dot the render layer draws
-  // resolves here, before the first chip seats. Two families come straight off
-  // the path builders the reconstruction above already ran (the lane members'
-  // branch dots, the fan-out trunks' split dots); the other two are derived
-  // below (the fan-in merge dots, the declined fan-outs' divergence dots). All
-  // four are pure functions of the reconstructed polylines and touch no seating
-  // state, so resolving them up front moves no dot -- it only makes the whole
-  // dot set known to every phase that follows.
-
-  // Phase 0a -- fan-in markers: fan-in is structurally unmodeled (every trunk
-  // key is (item, source), never (item, target)), so where 2+ forward same-item
-  // edges enter ONE target in-port their final legs run collinear at the port y
-  // with no junction dot. Stamp ONE merge dot on the shared run (drawn by the
-  // elected owner's ItemEdge), and suppress any NON-OWNER member whose own rate
-  // chip would sit ON that shared run. Its only input is the reconstructed
-  // polylines above -- a dual-role edge's fan-out geometry included -- so it
-  // resolves before any chip seats; the item phase reads the suppression back
-  // at seat time, where a member that SLID onto the run is still caught. It is
-  // presentational only: no edge is retyped and a fan-out member keeps its
-  // fan-out role.
-  //
-  // Every comparison below is in the DRAWN frame: the port coordinates come from
-  // drawnPortsOf, the same reconstruction the polylines above were built from,
-  // so FANIN_EPS is a real collinearity tolerance rather than a budget already
-  // spent on the frame mismatch. Taking the raw model port instead left every
-  // recipe target off by the recipe row drift (and the run's right bound off by
-  // targetDx), which sat exactly at the eps: the sub-pixel rounding of a
-  // fractional layout y was then enough to tip a genuine merge out of detection.
-  const FANIN_EPS = 1;
-  type FaninMember = {
-    index: number;
-    id: string;
-    source: string;
-    joinX: number;
-    isItem: boolean;
-    anchorX: number;
-    anchorY: number;
-  };
-  const faninGroups = new Map<string, FaninMember[]>();
-  const faninTargetByKey = new Map<string, { tx: number; ty: number }>();
-  // (item, target) ports that ALSO receive a same-item edge outside the marker's
-  // scope (a backward rail, or any non-collinear approach). A
-  // dot there would mark only the collinear members' merge and misstate where
-  // the card's input row is fed from, so such a port gets NO marker at all.
-  const faninExcludedKeys = new Set<string>();
-  edges.forEach((edge, index) => {
-    const item = edgeItem(edge);
-    if (item === undefined) return;
-    // The drawn target port, from the same reconstruction the polylines came
-    // from. Null only when an endpoint is missing from the node map, the case
-    // the geometry pass above skipped too.
-    const ends = drawnPortsOf(edge, byId);
-    if (ends === null) return;
-    const { targetX: tx, targetY: ty } = ends;
-    const key = item + "|" + edge.target;
-    const itemGeom = itemGeomById.get(edge.id);
-    const fanGeom = fanoutGeomById.get(edge.id);
-    let pts: ReadonlyArray<readonly [number, number]>;
-    let anchorX = 0;
-    let anchorY = 0;
-    let isItem = false;
-    if (itemGeom !== undefined) {
-      pts = itemGeom.pts;
-      anchorX = itemGeom.lx;
-      anchorY = itemGeom.ly;
-      isItem = true;
-    } else if (fanGeom !== undefined) {
-      pts = fanGeom.pts;
-    } else {
-      // Any other bus member approaches off its own column, not along the
-      // port-y run.
-      faninExcludedKeys.add(key);
-      return;
-    }
-    if (pts.length < 2) {
-      faninExcludedKeys.add(key);
-      return;
-    }
-    const first = pts[0]!;
-    const last = pts[pts.length - 1]!;
-    if (last[0] <= first[0]) {
-      // Backward rail: enters through the gutter, not along the shared run.
-      faninExcludedKeys.add(key);
-      return;
-    }
-    const secondLast = pts[pts.length - 2]!;
-    if (Math.abs(secondLast[1] - ty) > FANIN_EPS) {
-      // Final leg not at the port y: feeds the port off the shared run.
-      faninExcludedKeys.add(key);
-      return;
-    }
-    const list = faninGroups.get(key) ?? [];
-    list.push({
-      index,
-      id: edge.id,
-      source: edge.source,
-      joinX: secondLast[0],
-      isItem,
-      anchorX,
-      anchorY,
-    });
-    faninGroups.set(key, list);
-    faninTargetByKey.set(key, { tx, ty });
-  });
-  const faninJunctionByIndex = new Map<number, { x: number; y: number }>();
-  const faninChipHiddenByIndex = new Set<number>();
-  // Per NON-OWNER item member of a fan-in group: the merge x and port y of its
-  // shared run. The item phase reads this to decide, AT SEAT TIME, whether the
-  // member's own chip landed ON the shared run (where the owner's own chip
-  // already reads) and should hide -- a member chip that slides onto the run
-  // cannot be caught by its anchor alone.
-  const faninMemberRunByIndex = new Map<
-    number,
-    { mergeX: number; tx: number; ty: number }
-  >();
-  for (const [key, members] of faninGroups) {
-    if (members.length < 2) continue;
-    // Mixed-feed port: an out-of-scope same-item edge (backward rail,
-    // non-collinear approach) also enters this port, so a dot on the
-    // collinear members' join would mark a partial merge. No marker.
-    if (faninExcludedKeys.has(key)) continue;
-    // Fan-in needs 2+ DISTINCT incoming flows. Same-(item, source) edges are one
-    // flow (a parallel bundle already drawn as one visual line), not a merge, so
-    // require distinct sources before marking a junction.
-    if (new Set(members.map((m) => m.source)).size < 2) continue;
-    // The owner draws the marker via its ItemEdge, so it must be an item edge.
-    const itemMembers = members.filter((m) => m.isItem);
-    if (itemMembers.length === 0) continue;
-    const { tx, ty } = faninTargetByKey.get(key)!;
-    // The merge point: where the LAST member joins the shared run (the rightmost
-    // final-leg start). The dot marks it; the run [mergeX, tx] is where all
-    // members are collinear at the port y.
-    const mergeX = Math.max(...members.map((m) => m.joinX));
-    const runLen = tx - mergeX;
-    if (runLen <= 2 * CHAMFER) continue; // no real shared run to mark
-    const owner = itemMembers.reduce((a, b) => (a.id <= b.id ? a : b));
-    faninJunctionByIndex.set(owner.index, { x: mergeX, y: ty });
-    for (const m of itemMembers) {
-      // The OWNER is exempt from the shared-run hide: it is the member that
-      // draws the merge dot, and since the summed aggregate that used to label
-      // this run was removed (#39, #45), hiding the owner too would leave the
-      // merged run carrying no number at all. Its chip seats under the ordinary
-      // member rules; only its non-owner siblings yield the run, their rates
-      // still readable on their own pre-merge legs.
-      if (m.index === owner.index) continue;
-      faninMemberRunByIndex.set(m.index, { mergeX, tx, ty });
-    }
-  }
-
-  // Phase 0b -- declined fan-outs (#43): N >= 2 same-(item, source) item edges
-  // into >= 2 distinct targets whose gap fell outside routeFanoutEdges' span
-  // band stay plain ItemEdges. They leave the shared out-port coincident and
+  // DIVERGENCE DOTS for declined fan-outs (#43): N >= 2 same-(item, source)
+  // item edges into >= 2 distinct targets whose gap fell outside
+  // routeTrunkEdges' span band stay plain ItemEdges. They leave the shared out-port coincident and
   // peel off one at a time, so the reader sees ONE line and takes a member's
   // rate for the whole flow. Mark the split with a junction dot on one owner
   // edge -- the counterpart of the fan-in merge dot above, and of the dot a real
@@ -2202,16 +500,8 @@ export function deconflictChipAnchors(
   // aggregate chip rides along: a total would sit a few pixels from the source
   // card's own output row, which already states it (#39), and a declined
   // fan-out's shared prefix is too short to hold the box anyway. Presentational
-  // only -- no edge is retyped and no chip moves.
+  // only -- no edge is retyped.
   const fanoutJunctionByIndex = new Map<number, { x: number; y: number }>();
-  // Keep-off points for the DECLINED group's dot-less corners: every bending
-  // member's own peel-off column, whether or not the group renders a dot (the
-  // non-owner peel-offs never do, and a group whose first bend hugs the port
-  // renders none at all). A chip parked on one of those corners reads as the
-  // junction the reader never gets to see, so they carry the same keep-off
-  // rect geometry as the drawn dots -- but through the same dot set and the
-  // same weakest-preference rank, never as a hard term (R13).
-  const divergenceKeepoffs: Array<{ x: number; y: number }> = [];
   type DivergenceMember = {
     index: number;
     id: string;
@@ -2225,19 +515,18 @@ export function deconflictChipAnchors(
   const divergenceGroups = new Map<string, DivergenceMember[]>();
   edges.forEach((edge, index) => {
     if (edge.type !== "item") return;
-    const geom = itemGeomById.get(edge.id);
-    if (geom === undefined) return;
-    const pts = geom.pts;
+    const pts = itemPtsById.get(edge.id);
+    if (pts === undefined) return;
     if (pts.length < 2) return;
     const sx = pts[0]![0];
     const sy = pts[0]![1];
     // A backward member leaves through its own detour rail rather than sharing
     // a forward prefix, so it neither carries the dot nor counts as a target of
-    // the split (the fan-in marker draws the same line at its own end).
+    // the split.
     if (pts[pts.length - 1]![0] <= sx) return;
     let bendX: number | undefined;
     for (let i = 1; i < pts.length; i++) {
-      if (Math.abs(pts[i]![1] - sy) > FANIN_EPS) {
+      if (Math.abs(pts[i]![1] - sy) > ROW_EPS) {
         bendX = pts[i - 1]![0];
         break;
       }
@@ -2257,12 +546,6 @@ export function deconflictChipAnchors(
     // no visible divergence at all, so it gets no dot.
     const bends = members.filter((m) => m.bendX !== undefined);
     if (bends.length === 0) continue;
-    // EVERY bending member's own peel-off column carries a keep-off, dotted or
-    // not: only the first peel-off can ever render the dot, and the port-hug
-    // guard below can suppress even that -- but each column is still where one
-    // line visibly becomes two, and a chip standing on it impersonates the
-    // junction (the #43 reopen).
-    for (const m of bends) divergenceKeepoffs.push({ x: m.bendX!, y: m.sy });
     const junctionX = Math.min(...bends.map((m) => m.bendX!));
     // The owner is elected among the BENDING members only: the column above is
     // one of their peel-offs, and a straight member whose target stops short of
@@ -2276,451 +559,118 @@ export function deconflictChipAnchors(
     fanoutJunctionByIndex.set(owner.index, { x: junctionX, y: owner.sy });
   }
 
-  // The distinct dots, in one keep-off set. Every member of a fan-out trunk
-  // draws the same split dot, so the set is deduped per (family, point).
-  const dotKeepoffs: JunctionDot[] = [];
-  const seenDots = new Set<string>();
-  const addDot = (p: { x: number; y: number }, kind: JunctionDotKind): void => {
-    const key = kind + "|" + p.x + "|" + p.y;
-    if (seenDots.has(key)) return;
-    seenDots.add(key);
-    dotKeepoffs.push({ x: p.x, y: p.y, kind });
-  };
-  for (const g of fanoutGeomById.values()) addDot(g.junction, "fanout");
-  for (const p of faninJunctionByIndex.values()) addDot(p, "fanin");
-  // The declined groups' peel-off corners ARE the divergence dot set: every
-  // bending member's column is stamped below, and the first peel-off's entry
-  // is the drawn dot's own point (the group's min bendX at the source-port y
-  // every group member shares), so stamping the map's entries here as well
-  // only added keys this loop already carries.
-  for (const p of divergenceKeepoffs) addDot(p, "divergence");
-
-  // The shared clearance field: every phase seats into `field.placed`, so a
-  // later phase yields to everything an earlier phase placed. It carries the
-  // dot set as a third static obstacle class beside the edge polylines and the
-  // card rects -- hence its construction here, after phase 0, rather than
-  // before: the dots are known and fixed by now, and every seat that follows
-  // consults them through the one field.
-  const field = makeClearanceField(edgeSegments, cards, dotKeepoffs);
-
-  // Phase 3 -- fan-out trunk chips: each fan-out trunk draws one aggregate chip
-  // on its owner (the summed rate + xN, seated on the shared trunk segment) and
-  // one branch chip per member (that member's share, seated on its branch leg).
-  // They seat here -- before the free item rate chips -- through seatRateChip's
-  // tier ladder (slide / graze / sidestep / nudge / escape), so both slide
-  // along their own drawn polyline before stepping or nudging
-  // off it. Aggregates settle before branches (the trunk's one truth first,
-  // mirroring drop-before-rise). The aggregate has no single consumer gutter, so
-  // it passes an INVERTED (empty) entry band that no point can fall inside (no
-  // arrival-cluster exemption -- it clears every foreign line); a branch uses its
-  // own target's entry band. An all-zero band would spuriously match a chip
-  // centred exactly at the graph origin, so left > right guarantees no match.
-  const fanoutAggDxByIndex = new Map<number, number>();
-  const fanoutAggDyByIndex = new Map<number, number>();
-  const fanoutBranchDxByIndex = new Map<number, number>();
-  const fanoutBranchDyByIndex = new Map<number, number>();
-  const NEVER_BAND: EntryBand = {
-    left: Infinity,
-    right: -Infinity,
-    top: Infinity,
-    bottom: -Infinity,
-  };
-  const fanoutEdges = edges
-    .map((edge, index) => ({ edge, index }))
-    .filter((e) => fanoutGeomById.has(e.edge.id))
-    .sort((a, b) =>
-      a.edge.id < b.edge.id ? -1 : a.edge.id > b.edge.id ? 1 : 0,
-    );
-  // Card exemption for a trunk's AGGREGATE chip: the union over every member of
-  // the trunk. The aggregate spans the shared trunk feeding ALL the members'
-  // targets, and its wide box necessarily reaches into the target column, so it
-  // must clear every one of those target cards (and the shared source) rather
-  // than only the owner's own -- otherwise a sibling member's target reads as a
-  // foreign card and shoves the aggregate off the trunk and down onto a branch.
-  const trunkExempt = new Map<string, MutCardExemption>();
-  // Trunk-aware own-flow set for each trunk's AGGREGATE chip: the edge ids of
-  // every member. The aggregate rides the shared trunk, whose flowKey (item|
-  // source) a SEPARATE direct edge off the same source can share without being a
-  // trunk member; keyed by id, that direct edge reads foreign so the aggregate
-  // steps clear of it rather than binding to it (issue #28, finding 1).
-  const trunkMemberIds = new Map<string, Set<string>>();
-  for (const { edge } of fanoutEdges) {
-    const key = (edge.data as BusEdgeData).trunkKey;
-    let set = trunkExempt.get(key);
-    if (set === undefined) {
-      set = { whole: new Set<string>(), zones: new Map() };
-      trunkExempt.set(key, set);
-    }
-    mergeExemptionInto(set, cardExemptFor(edge));
-    let ids = trunkMemberIds.get(key);
-    if (ids === undefined) {
-      ids = new Set<string>();
-      trunkMemberIds.set(key, ids);
-    }
-    ids.add(edge.id);
-  }
-  for (const { edge, index } of fanoutEdges) {
-    const geom = fanoutGeomById.get(edge.id)!;
-    if (!geom.owner) continue;
-    // Multi-member trunks draw no aggregate chip (issue #39), so seat none.
-    if (((edge.data as BusEdgeData).busMemberCount ?? 1) > 1) continue;
-    // The aggregate seats on the SHARED TRUNK sub-polyline only (source port ->
-    // junction), never the owner's private branch leg: the tier-1 slide runs
-    // horizontally along [source port, trunkEnd]. trunkEnd sits a keep-off left
-    // of the junction so the chip clears the junction dot -- a full chip half-box
-    // when the trunk is long enough, but never more than half the trunk, so a
-    // short in-corridor trunk keeps its whole [source, midpoint] span rather than
-    // collapsing to the source port (which would force a vertical nudge onto the
-    // branch leg, the very slide this truncation prevents). The render anchor is
-    // the trunk midpoint, always <= trunkEnd, so an uncrowded aggregate seats
-    // there on the horizontal. Offsets stay relative to the render trunkAnchor so
-    // BusEdge adds them to the same point.
-    const [sx, sy] = geom.pts[0]!;
-    const keepoff = Math.min(CHIP_HALF_W_WIDE, (geom.junction.x - sx) / 2);
-    const trunkEndX = Math.max(sx, geom.junction.x - keepoff);
-    const trunkPts: ReadonlyArray<readonly [number, number]> = [
-      [sx, sy],
-      [trunkEndX, geom.trunkAnchor.y],
-    ];
-    const seat = seatRateChip(
-      {
-        field,
-        path: {
-          pts: trunkPts,
-          anchorX: geom.trunkAnchor.x,
-          anchorY: geom.trunkAnchor.y,
-        },
-        flowKey: flowKeyOf(edge),
-        target: edge.target,
-        exempt:
-          trunkExempt.get((edge.data as BusEdgeData).trunkKey) ??
-          cardExemptFor(edge),
-        entryBand: NEVER_BAND,
-      },
-      {
-        ownIds: trunkMemberIds.get((edge.data as BusEdgeData).trunkKey),
-        text: aggregateChipText(edge),
-      },
-    );
-    if (seat.tier === "exhausted" && import.meta.env.DEV) {
-      // Dev/test-only tripwire, tree-shaken out of production builds (parity with
-      // the item phase and the render hook in src/pipeline/driver.ts).
-      console.warn(
-        `chip seating: fan-out aggregate cascade for ${edge.id} exhausted its ` +
-          "cap; chip parked at its anchor (chip/card hard invariants abandoned)",
-      );
-    }
-    if (seat.dx !== 0) fanoutAggDxByIndex.set(index, seat.dx);
-    if (seat.dy !== 0) fanoutAggDyByIndex.set(index, seat.dy);
-  }
-  const fanoutBranchHiddenByIndex = new Set<number>();
-  const fanoutBranchHiddenAtByIndex = new Map<
-    number,
-    { x: number; y: number }
-  >();
-  // Target in-port y of a fan-out member: the top-to-bottom key its branch chip
-  // stacks by when several members share one junction column.
-  const branchEntryY = (edge: Edge): number => edgePortsModel(edge, byId)!.ty;
-  // Seat the branch chips within each trunk TOP-TO-BOTTOM by their target's
-  // in-port y, not edge-id order which can invert the visible stack when members
-  // share one junction column (issue #28, the multi6 fan-out lane): the first
-  // branch seated on a contested column claims it and later branches yield, so
-  // seating in branch order makes the column read in branch order. Trunks stay
-  // grouped by trunkKey and ordered among themselves as before; only the
-  // within-trunk seat sequence changes, edge id breaking ties for determinism.
-  const branchOrder = [...fanoutEdges].sort((a, b) => {
-    const ka = (a.edge.data as BusEdgeData).trunkKey;
-    const kb = (b.edge.data as BusEdgeData).trunkKey;
-    if (ka !== kb) return ka < kb ? -1 : 1;
-    const ya = branchEntryY(a.edge);
-    const yb = branchEntryY(b.edge);
-    if (ya !== yb) return ya - yb;
-    return a.edge.id < b.edge.id ? -1 : a.edge.id > b.edge.id ? 1 : 0;
+  // FAN-IN CONVERGENCE DOT for a trunk drawn entirely from FAR members. A
+  // fan-in member reaching its target from the next layer back is retyped bus
+  // and BusEdge draws the trunk's merge dot; a member further back stays a
+  // plain item edge pinned to the trunk's column (faninColumn beside bendX),
+  // and where every member is such a one no BusEdge exists to draw it. The
+  // members still converge -- they all run into the same port along the same
+  // row -- so the reader sees several lines become one with nothing marking
+  // the merge, the very confusion the dot exists to prevent. One elected member
+  // carries it, the mirror of the declined-fan-out divergence dot above.
+  //
+  // The dot sits where the retyped shape would put it: one chamfer past the
+  // trunk's column on the target row (chamferFaninPath's junction). Members
+  // that jog may already run collinear left of it, from their source-side jog
+  // columns on; the dot still marks the trunk column, not that earlier
+  // coincidence. The point lies on every member's own final run, so each
+  // member's renderer can
+  // corroborate the stamp against the line it drew.
+  const faninJunctionByIndex = new Map<number, { x: number; y: number }>();
+  type FaninMember = { index: number; id: string; x: number; y: number };
+  const faninGroups = new Map<string, FaninMember[]>();
+  edges.forEach((edge, index) => {
+    if (edge.type !== "item") return;
+    const column = (edge.data as { faninColumn?: boolean } | undefined)
+      ?.faninColumn;
+    const bendX = routingHintsFromData(edge.data).bendX;
+    if (column !== true || bendX === undefined) return;
+    const ty = targetYById.get(edge.id);
+    if (ty === undefined) return;
+    // One trunk is one (item, target port) with one column, the same key
+    // routeTrunkEdges pinned the column by.
+    const key = `${edgeItem(edge) ?? ""}|${edge.target}|${bendX}`;
+    const list = faninGroups.get(key) ?? [];
+    list.push({ index, id: edge.id, x: bendX + CHAMFER, y: ty });
+    faninGroups.set(key, list);
   });
-  // Seated branch centre-ys per trunk, the barriers a later same-trunk branch's
-  // on-line slide may not cross (issue #28, finding 2). All members of one trunk
-  // share the junction column, so a trunk key IS a column key here. Only chips
-  // that actually seat (not hidden) enter it, since a hidden branch draws no
-  // chip to invert against.
-  const seatedBranchYByTrunk = new Map<string, number[]>();
-  for (const { edge, index } of branchOrder) {
-    const geom = fanoutGeomById.get(edge.id)!;
-    const trunkKey = (edge.data as BusEdgeData).trunkKey;
-    // The branch chip slides over its OWN horizontal leg only
-    // (geom.branchPts) -- the mirror of the aggregate seat's trunk-prefix
-    // truncation above. On the fuller polyline the slide could walk back
-    // across the junction onto the shared trunk, where the box reads as a
-    // trunk label and buries the split dot from the left, or up the shared
-    // column, where every member's chip stacks on one line. The branch anchor
-    // the offsets are stamped against is NOT always on that leg (it is the
-    // longest branch part's midpoint, so it sits on the column for a member
-    // whose descent outgrows its leg); the arc resolver then falls back to
-    // the leg's own midpoint, and the seat moves ONTO the leg, which is the
-    // point.
-    const seat = seatRateChip(
-      {
-        field,
-        path: {
-          pts: geom.branchPts,
-          anchorX: geom.branchSeatAnchor.x,
-          anchorY: geom.branchSeatAnchor.y,
-        },
-        flowKey: flowKeyOf(edge),
-        target: edge.target,
-        exempt: cardExemptFor(edge),
-        entryBand: entryBandOf(edge),
-      },
-      {
-        barrierYs: seatedBranchYByTrunk.get(trunkKey),
-        // A branch chip that renders collapsed (stamped below) reserves the
-        // square icon box here rather than the wide one no full seat could
-        // have cleared.
-        iconOnly: branchIconOnlyByIndex.has(index),
-        text: branchChipText(edge),
-        clearSpan: clearSpanById.get(edge.id),
-      },
-    );
-    if (seat.tier === "exhausted" && import.meta.env.DEV) {
-      // The hide below covers the exhausted tier too, but exhausting the
-      // bounded cascade is a seating regression, never an intentional hide, so
-      // it keeps its tripwire (parity with the aggregate and item phases).
-      console.warn(
-        `chip seating: fan-out branch cascade for ${edge.id} exhausted its ` +
-          "cap; branch chip hidden (chip/card hard invariants abandoned)",
-      );
-    }
-    // A branch chip that cannot seat ON its own polyline is hidden rather than
-    // parked off-line: a narrow-corridor fan-out cannot host two chip
-    // boxes side by side, so once the owner's aggregate covers the short path
-    // an off-line seat would float in empty canvas. The rate it would have
-    // shown remains on the edge tooltip and on the target card's input row,
-    // which reveals its rate on hover or selection.
-    // The hide is stamped with the branch anchor it was decided at, so BusEdge
-    // can drop it once a node drag moves the live anchor away from the stamp.
-    // Release the seat the off-line tiers reserved so the phantom box never
-    // blocks a later chip.
-    if (
-      seat.tier === "nudge" ||
-      seat.tier === "escape" ||
-      seat.tier === "exhausted"
-    ) {
-      field.unseat(seat.box);
-      fanoutBranchHiddenByIndex.add(index);
-      fanoutBranchHiddenAtByIndex.set(index, geom.branchAnchor);
-      continue;
-    }
-    // The chip seated on its column: record its centre-y as a barrier for the
-    // next same-trunk branch so a pushed later branch cannot slide across it.
-    const seatedYs = seatedBranchYByTrunk.get(trunkKey) ?? [];
-    seatedYs.push(seat.box.y);
-    seatedBranchYByTrunk.set(trunkKey, seatedYs);
-    // The seat is relative to the leg anchor above; BusEdge draws the chip at
-    // chamferFanoutPath's branchAnchor, so carry the offsets back to that frame.
-    const dx = seat.dx + geom.branchSeatAnchor.x - geom.branchAnchor.x;
-    const dy = seat.dy + geom.branchSeatAnchor.y - geom.branchAnchor.y;
-    if (dx !== 0) fanoutBranchDxByIndex.set(index, dx);
-    if (dy !== 0) fanoutBranchDyByIndex.set(index, dy);
+  for (const members of faninGroups.values()) {
+    if (members.length < 2) continue;
+    const owner = members.reduce((a, b) => (a.id <= b.id ? a : b));
+    faninJunctionByIndex.set(owner.index, { x: owner.x, y: owner.y });
   }
 
-  // Phase 4 -- item rate chips: each item edge's clear-segment anchor (cached
-  // from the reconstruction above, exactly where ItemEdge renders it) goes
-  // through seatRateChip's tier ladder: slide along the own polyline (fully
-  // clear, then graze), the horizontal sidestep, the short fully-clear nudge,
-  // then the chips-and-cards escape cascade.
-  // SCARCITY FIRST: an edge is seated before another whose own polyline offers
-  // MORE clear on-line seats than its own does. Each seat consumes a window for
-  // everyone else, so seating a rich edge first can spend the only window a poor
-  // one had and leave it with no on-line seat at all -- which is how battery5's
-  // e:1 lost its whole 345-unit approach leg to e:12's chip and had to step off
-  // its line. Taking the poorest first spends the scarce windows on the edges
-  // that have nowhere else to go, and leaves the rich ones their many
-  // alternatives. The counts are all read BEFORE any item chip is placed, so
-  // they describe the edges and not the order, and the edge id breaks every tie:
-  // the sort is a total order on fixed keys and stays deterministic.
-  const labelDyByIndex = new Map<number, number>();
-  const labelDxByIndex = new Map<number, number>();
-  const itemChipHiddenByIndex = new Set<number>();
-  const itemChipHiddenAtByIndex = new Map<number, { x: number; y: number }>();
-  const seatOpts = (edge: Edge, index: number): RateSeatOpts => ({
-    iconOnly: shortLegByIndex.has(index),
-    text: rateChipText(edge),
-    clearSpan: clearSpanById.get(edge.id),
-  });
-  const items = edges
-    .map((edge, index) => ({ edge, index }))
-    .filter((e) => e.edge.type === "item");
-  const windowsByIndex = new Map<number, number>();
-  for (const { edge, index } of items) {
-    const geom = itemGeomById.get(edge.id);
-    if (geom === undefined) continue;
-    windowsByIndex.set(
-      index,
-      clearOnLineSeats(
-        {
-          field,
-          path: {
-            pts: fanoutLegPtsById.get(edge.id) ?? geom.pts,
-            anchorX: geom.lx,
-            anchorY: geom.ly,
-          },
-          flowKey: flowKeyOf(edge),
-          target: edge.target,
-          exempt: cardExemptFor(edge),
-          entryBand: entryBandOf(edge),
-        },
-        seatOpts(edge, index),
-      ),
+  // CARD-CLEAR SEAT of an item chip. The rule seat is the centre of the
+  // polyline's longest horizontal run for a 1-to-1 chip, and one port stub off
+  // the port on its own named run for a far trunk member; either can stand over
+  // a card, where the box reads as that card's own label rather than as the
+  // line's rate. A far member's named run is the one that gets too short for
+  // its box: a jogged leg starts just past the card it dodged, so the seat one
+  // stub back from the port hangs off the run's near end and over that card.
+  //
+  // Both fall back the same way: cardClearRunAnchor slides the box along the
+  // member's OWN runs, longest first, to the nearest card-clear position, a
+  // deterministic function of the runs and the raw card rects. Only the rects
+  // need the node list, which is why the slide is computed here and handed to
+  // the drawer as a point; the drawer keeps it only while it still lies on a
+  // horizontal run of the live polyline. A rule seat that is already clear is
+  // left alone, and so is a member no run of which can hold a clear box -- it
+  // keeps the named seat, which at least states which port the rate belongs to.
+  const chipSeatByIndex = new Map<number, { x: number; y: number }>();
+  {
+    const cards = cardRectsFor(
+      nodes.filter((node) => node.type !== "group"),
+      byId,
     );
-  }
-  items.sort((a, b) => {
-    const wa = windowsByIndex.get(a.index) ?? 0;
-    const wb = windowsByIndex.get(b.index) ?? 0;
-    if (wa !== wb) return wa - wb;
-    return a.edge.id < b.edge.id ? -1 : a.edge.id > b.edge.id ? 1 : 0;
-  });
-  for (const { edge, index } of items) {
-    const geom = itemGeomById.get(edge.id);
-    const target = byId.get(edge.target);
-    if (geom === undefined || target === undefined) continue;
-    const entryBand = entryBandOf(edge);
-    const seat = seatRateChip(
-      {
-        field,
-        path: {
-          pts: fanoutLegPtsById.get(edge.id) ?? geom.pts,
-          anchorX: geom.lx,
-          anchorY: geom.ly,
-        },
-        flowKey: flowKeyOf(edge),
-        target: edge.target,
-        exempt: cardExemptFor(edge),
-        entryBand,
-      },
-      // A short-leg item chip renders collapsed at every zoom (chipIconOnly,
-      // stamped below from the same set), so it reserves the square icon box
-      // rather than the wide worst case it never draws.
-      seatOpts(edge, index),
-    );
-    if (seat.tier === "exhausted" && import.meta.env.DEV) {
-      // Dev/test-only tripwire, tree-shaken out of production builds (parity
-      // with the render hook in src/pipeline/driver.ts). Never expected: cards
-      // are finite, so the cascade should always find free space.
-      console.warn(
-        `chip seating: last-resort cascade for ${edge.id} exhausted its cap; ` +
-          "chip parked at its anchor (chip/card hard invariants abandoned)",
+    const boxHitsCard = (x: number, y: number, halfW: number): boolean =>
+      !chipBoxClearsCards(x, y, halfW, cards);
+    edges.forEach((edge, index) => {
+      if (edge.type !== "item") return;
+      const pts = itemPtsById.get(edge.id);
+      if (pts === undefined || pts.length < 2) return;
+      const ports = drawnPortsOf(edge, byId);
+      if (ports === null) return;
+      const halfW = chipSeatHalfW(rateChipText(edge), false);
+      const [ruleX, ruleY] = itemAnchor(
+        pts,
+        { ...routingHintsFromData(edge.data), memberHalfW: halfW },
+        ports.sourceX,
+        ports.targetX,
       );
-    }
-    // A rate chip belongs on the line it labels, and a seat that leaves the
-    // line is judged by DISTANCE, not by which tier produced it. Up to one
-    // chip pitch the box still reads as sitting beside its own line
-    // -- the #28 sidestep and the one-pitch step both land inside that reach,
-    // and a chip pitch is the separation the whole pass is built on. Past a
-    // pitch the line runs a full box-height clear of the box and the chip
-    // names nothing where it sits (the issue-#9 shape), so hide it the way a
-    // fan-out branch chip with no on-line seat hides: the rate stays on this
-    // edge's tooltip and on the target card's input row, which reveals its
-    // rate on hover or selection. The measure is the
-    // geometry audit's own -- the seated CENTRE against the drawn polyline --
-    // so a slide ALONG the line, however long, never counts. One exemption:
-    // a chip whose own line is too short to hold even its collapsed box steps
-    // off by ruling R15 and has no on-line seat to return to, so hiding it
-    // would cost a chip the line could never have carried. (`exhausted` parks
-    // the chip AT its anchor, on its line, so it falls under the threshold on
-    // its own; the DEV tripwire above is that tier's signal.) Release the
-    // reserved box so the phantom never blocks a later chip, and stamp the
-    // anchor the hide was decided at so a drag that moves the geometry drops
-    // the hide.
-    const offOwnLine = pointToPolylineDistance(
-      [seat.box.x, seat.box.y],
-      geom.pts,
-    );
-    if (offOwnLine > CHIP_PITCH_Y && !shortLegByIndex.has(index)) {
-      field.unseat(seat.box);
-      itemChipHiddenByIndex.add(index);
-      itemChipHiddenAtByIndex.set(index, { x: geom.lx, y: geom.ly });
-      continue;
-    }
-    // A non-owner fan-in member whose own chip SEATED on the shared run (at the
-    // port y, between the merge and the port) crowds the run the owner's chip
-    // reads on: release its box and hide it (ItemEdge draws no rate chip, the exact
-    // rate stays on the edge's hover tooltip and on the target card's input
-    // row, which reveals its rate on hover or selection). A member
-    // seated on its own PRE-merge leg (off the run) keeps its chip. Anchor-based
-    // hiding cannot catch a member that SLID onto the run, so this reads the
-    // seated centre.
-    const run = faninMemberRunByIndex.get(index);
-    if (run !== undefined) {
-      const seatX = seat.box.x;
-      const seatY = seat.box.y;
-      if (
-        Math.abs(seatY - run.ty) <= FANIN_EPS &&
-        seatX >= run.mergeX - FANIN_EPS &&
-        seatX <= run.tx + FANIN_EPS
-      ) {
-        field.unseat(seat.box);
-        faninChipHiddenByIndex.add(index);
-        continue;
-      }
-    }
-    if (seat.dx !== 0) labelDxByIndex.set(index, seat.dx);
-    if (seat.dy !== 0) labelDyByIndex.set(index, seat.dy);
+      if (!boxHitsCard(ruleX, ruleY, halfW)) return;
+      const [x, y] = cardClearRunAnchor(pts, halfW, cards);
+      if (x === ruleX && y === ruleY) return;
+      if (boxHitsCard(x, y, halfW)) return;
+      chipSeatByIndex.set(index, { x, y });
+    });
   }
 
-  // Stamp every phase's verdicts onto one patch object, then decide by the
-  // patch: an edge nothing seated is returned BY REFERENCE (the routing passes
+  // Stamp both passes' verdicts onto one patch object, then decide by the
+  // patch: an edge nothing stamped is returned BY REFERENCE (the routing passes
   // and their tests read that identity as "untouched"), and every other edge
-  // gets exactly the keys that were set. Each stamp is written once and read
-  // once. The shape this replaced listed all seventeen keys a second time in a
-  // hand-kept untouched-edge guard, so a stamp added to the writer and
-  // forgotten in the guard was dropped from the emitted edge without a sound.
+  // gets exactly the keys that were set.
   return edges.map((edge, index) => {
-    const patch: SeatPatch = {};
-    // Indexing SeatPatch by every listed key is what makes a key no type
-    // declares a build error.
-    const stamp = <K extends SeatPatchKey>(
-      key: K,
-      value: SeatPatch[K],
-    ): void => {
-      if (value !== undefined) patch[key] = value;
-    };
-    stamp("labelDy", labelDyByIndex.get(index));
-    stamp("labelDx", labelDxByIndex.get(index));
-    if (shortLegByIndex.has(index)) patch.chipIconOnly = true;
-    stamp("fanoutAggDx", fanoutAggDxByIndex.get(index));
-    stamp("fanoutAggDy", fanoutAggDyByIndex.get(index));
-    stamp("fanoutBranchDx", fanoutBranchDxByIndex.get(index));
-    stamp("fanoutBranchDy", fanoutBranchDyByIndex.get(index));
-    if (branchIconOnlyByIndex.has(index)) patch.fanoutBranchIconOnly = true;
-    if (fanoutBranchHiddenByIndex.has(index)) patch.fanoutBranchHidden = true;
-    stamp("fanoutBranchHiddenAt", fanoutBranchHiddenAtByIndex.get(index));
-    const faninJunction = faninJunctionByIndex.get(index);
-    if (faninJunction !== undefined) {
-      patch.faninJunctionX = faninJunction.x;
-      patch.faninJunctionY = faninJunction.y;
-    }
+    const patch: StampPatch = {};
     const fanoutJunction = fanoutJunctionByIndex.get(index);
     if (fanoutJunction !== undefined) {
       patch.fanoutJunctionX = fanoutJunction.x;
       patch.fanoutJunctionY = fanoutJunction.y;
     }
+    const faninJunction = faninJunctionByIndex.get(index);
+    if (faninJunction !== undefined) {
+      patch.faninJunctionX = faninJunction.x;
+      patch.faninJunctionY = faninJunction.y;
+    }
+    const seat = chipSeatByIndex.get(index);
+    if (seat !== undefined) {
+      patch.chipX = seat.x;
+      patch.chipY = seat.y;
+    }
     // Crossing cues read by ItemEdge AND BusEdge (the field lives on the shared
     // ItemEdgeData payload both render). Absolute graph points; the renderers
     // drop any whose own polyline has since moved off them.
-    stamp("crossingCues", crossingCuesByIndex.get(index));
-    // The hide is stamped with the port y it was decided at, so ItemEdge can
-    // drop it once a node drag moves the live port away from the stamp (the
-    // fanoutBranchHiddenAt staleness pattern).
-    if (faninChipHiddenByIndex.has(index)) {
-      patch.faninChipHidden = true;
-      patch.faninChipHiddenAtY = faninMemberRunByIndex.get(index)!.ty;
-    }
-    // The off-line hide (a seat more than one chip pitch off its own polyline)
-    // carries the label anchor it was decided at, the fanoutBranchHiddenAt
-    // staleness pattern on the item phase's own anchor.
-    if (itemChipHiddenByIndex.has(index)) {
-      patch.itemChipHidden = true;
-      stamp("itemChipHiddenAt", itemChipHiddenAtByIndex.get(index));
-    }
+    const cues = crossingCuesByIndex.get(index);
+    if (cues !== undefined) patch.crossingCues = cues;
     if (Object.keys(patch).length === 0) return edge;
     return { ...edge, data: { ...edge.data, ...patch } };
   });
@@ -2734,40 +684,14 @@ export type ContentRect = {
   height: number;
 };
 
-// The edge-data fields contentBounds needs to place a chip: which families the
-// edge draws, their anchors' inputs, their seated nudges, and their hides. Flat
-// and all-optional rather than the BusEdgeData / ItemEdgeData types, because
-// this reader takes one uniform view over every edge type. Picked from the
-// two declaring types rather than restated, so renaming a field there breaks
-// this build instead of silently leaving a reader behind. Each hide is Picked
-// together with the anchor it was decided at: a hide only holds while its stamp
-// still matches the live anchor, so the reader needs them both.
+// The edge-data fields contentBounds needs to know which chip families an edge
+// draws. Picked from the declaring type rather than restated, so renaming a
+// field there breaks this build instead of silently leaving a reader behind.
 type ChipAnchorData = Partial<
-  Pick<
-    ItemEdgeData,
-    | "labelDx"
-    | "labelDy"
-    | "chipIconOnly"
-    | "faninChipHidden"
-    | "faninChipHiddenAtY"
-    | "itemChipHidden"
-    | "itemChipHiddenAt"
-  > &
-    Pick<
-      FanoutBusEdgeData,
-      | "busMemberCount"
-      | "busChipOwner"
-      | "fanoutAggDx"
-      | "fanoutAggDy"
-      | "fanoutBranchDx"
-      | "fanoutBranchDy"
-      | "fanoutBranchIconOnly"
-      | "fanoutBranchHidden"
-      | "fanoutBranchHiddenAt"
-    >
-  // `fanout` is the only name this view declares itself: FanoutBusEdgeData
-  // types it `true`, so the Pick cannot take it as optional.
-> & { fanout?: boolean };
+  Pick<FanoutBusEdgeData, "busMemberCount" | "busChipOwner">
+  // `fanout` and `fanin` are the only names this view declares itself: the two
+  // payload types type them `true`, so the Pick cannot take either as optional.
+> & { fanout?: boolean; fanin?: boolean };
 
 // One seated chip's drawn box, at the anchor its render component draws and
 // the size its seat reserved: halfW is the same per-family chipSeatHalfW the
@@ -2788,9 +712,9 @@ export type SeatedChipBox = {
 };
 
 // Every chip family, anchored exactly as its render component anchors it:
-// rebuild the polyline with the same builder and hints, then apply the nudge
-// the seating pass stamped. contentBounds folds these into the camera frame;
-// the suites read them individually.
+// rebuild the polyline with the same builder and hints, then read the rule
+// anchor off it. contentBounds folds these into the camera frame; the suites
+// read them individually.
 export function seatedChipBoxes(
   nodes: ReadonlyArray<RFAnyNode>,
   edges: ReadonlyArray<Edge>,
@@ -2825,81 +749,48 @@ export function seatedChipBoxes(
     if (ends === null) continue;
     const drawn = drawnEdge(ends, edge.type, edge.data);
     if (drawn.shape === "item") {
-      // Staleness parity with ItemEdge: the hide was taken at the target port
-      // row, so it is checked against this reconstruction's own target y. A
-      // chip the renderer brings back mid-drag has to be drawn here too.
-      if (
-        data?.faninChipHidden === true &&
-        faninHideLive(data.faninChipHiddenAtY, ends.targetY)
-      ) {
-        continue;
-      }
-      // Staleness parity with ItemEdge's off-line hide (a seat more than one
-      // chip pitch off its own polyline), per-axis against the live label
-      // anchor; an absent stamp still hides.
-      if (
-        data?.itemChipHidden === true &&
-        anchorStampLive(data.itemChipHiddenAt, drawn.labelAnchor)
-      ) {
-        continue;
-      }
       push(
         edge,
         "label",
-        drawn.labelAnchor.x + (data?.labelDx ?? 0),
-        drawn.labelAnchor.y + (data?.labelDy ?? 0),
-        chipSeatHalfW(rateChipText(edge), data?.chipIconOnly === true),
+        drawn.labelAnchor.x,
+        drawn.labelAnchor.y,
+        chipSeatHalfW(rateChipText(edge), false),
       );
-    } else if (drawn.shape === "fanout") {
-      // A multi-member trunk renders no aggregate chip (issue #39), so it
-      // draws none.
-      if (isTrunkOwner(data) && (data?.busMemberCount ?? 1) === 1) {
-        push(
-          edge,
-          "fanout-agg",
-          drawn.trunkAnchor.x + (data?.fanoutAggDx ?? 0),
-          drawn.trunkAnchor.y + (data?.fanoutAggDy ?? 0),
-          chipSeatHalfW(aggregateChipText(edge), false),
-        );
-      }
-      // Staleness parity with BusEdge: the hide was taken at this member's own
-      // branch anchor, checked against the one this reconstruction rebuilt.
-      // (BusEdge also un-hides when its fan path is null; here the branch
-      // already resolved a fan-out path, so that arm cannot arise.)
-      const branchHidden =
-        data?.fanoutBranchHidden === true &&
-        anchorStampLive(data.fanoutBranchHiddenAt, drawn.branchAnchor);
-      if (!branchHidden) {
-        push(
-          edge,
-          "fanout-branch",
-          drawn.branchAnchor.x + (data?.fanoutBranchDx ?? 0),
-          drawn.branchAnchor.y + (data?.fanoutBranchDy ?? 0),
-          chipSeatHalfW(
-            branchChipText(edge),
-            data?.fanoutBranchIconOnly === true,
-          ),
-        );
-      }
+      continue;
     }
+    // Every trunk draws one aggregate chip, on its owner, and every member its
+    // own rate on the stretch that is its alone.
+    if (isTrunkOwner(data)) {
+      push(
+        edge,
+        "fanout-agg",
+        drawn.trunkAnchor.x,
+        drawn.trunkAnchor.y,
+        chipSeatHalfW(aggregateChipText(edge), false),
+      );
+    }
+    push(
+      edge,
+      "fanout-branch",
+      drawn.branchAnchor.x,
+      drawn.branchAnchor.y,
+      chipSeatHalfW(branchChipText(edge), false),
+    );
   }
   return out;
 }
 
 // Content bounding box (flow coords) covering both the node cards AND every
-// seated edge-label chip, for the camera fit. React Flow's fitView frames node
-// cards only, so a chip that cascaded below the deepest lane band, or nudged
-// past a border card's edge, lands outside the framed region and clips at the
-// viewport rim. This unions the node cards with each chip's reconstructed
-// seated box: the anchor comes from the same path builder the render component
-// calls, plus the de-confliction offset stamped on edge data, so every unioned
-// box is a drawn box. Padding instead by the largest nudge recorded anywhere
-// framed all four sides as if one cascaded chip existed at every corner, which
-// depressed the fit zoom on dense plans, and still missed chips whose anchor
-// sits on a routed leg outside the cards. Pure and deterministic: it reads only
-// the seated offsets the render components already consume, never re-seating.
-// Recomputing the anchors here, rather than reading a stamped absolute centre,
-// keeps the rect right after a node drag. Null for an empty graph.
+// chip box, for the camera fit. React Flow's fitView frames node cards only, so
+// a chip standing on a routed leg outside the cards lands outside the framed
+// region and clips at the viewport rim. This unions the node cards with each
+// chip's box at its RULE anchor: the anchor comes from the same path builder
+// the render component calls, so every unioned box is a drawn box. Padding
+// instead by a worst-case pad framed all four sides as if the widest chip
+// existed at every corner, which depressed the fit zoom on dense plans. Pure
+// and deterministic, and recomputing the anchors here rather than reading a
+// stamped centre keeps the rect right after a node drag. Null for an empty
+// graph.
 export function contentBounds(
   nodes: ReadonlyArray<RFAnyNode>,
   edges: ReadonlyArray<Edge>,
@@ -2920,14 +811,14 @@ export function contentBounds(
     bottom = Math.max(bottom, t + nodeHeight(n));
   }
 
-  // The frame is deliberately the WIDEST box: the camera must not clip a chip
-  // that draws wider than its seat reserved, so every centre unions the
-  // worst-case half-extents, not the per-family reservation.
+  // One chip box each, at the rule anchor its render component draws it at. The
+  // half-width is the box that chip's own text draws, the same reservation the
+  // anchor rule seats by -- not the widest box a chip may ever take.
   for (const chip of seatedChipBoxes(nodes, edges)) {
-    left = Math.min(left, chip.x - CHIP_HALF_W_WIDE);
-    right = Math.max(right, chip.x + CHIP_HALF_W_WIDE);
-    top = Math.min(top, chip.y - CHIP_HALF_H);
-    bottom = Math.max(bottom, chip.y + CHIP_HALF_H);
+    left = Math.min(left, chip.x - chip.halfW);
+    right = Math.max(right, chip.x + chip.halfW);
+    top = Math.min(top, chip.y - chip.halfH);
+    bottom = Math.max(bottom, chip.y + chip.halfH);
   }
 
   return { x: left, y: top, width: right - left, height: bottom - top };

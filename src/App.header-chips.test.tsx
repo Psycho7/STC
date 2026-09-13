@@ -152,7 +152,7 @@ test("loadFromHash shows SOLVING during navigation then returns to READY", async
   });
 
   // Hold the next layout so the SOLVING window stays open long enough to assert.
-  const gate = deferred<{ nodes: []; edges: [] }>();
+  const gate = deferred<{ nodes: []; edges: []; gaps: [] }>();
   vi.mocked(layoutRenderPlan).mockImplementationOnce(() => gate.promise);
 
   window.location.hash = await encodedCrystalHash();
@@ -162,7 +162,7 @@ test("loadFromHash shows SOLVING during navigation then returns to READY", async
     expect(screen.getByTestId("header-strip").textContent).toContain("SOLVING");
   });
 
-  gate.resolve({ nodes: [], edges: [] });
+  gate.resolve({ nodes: [], edges: [], gaps: [] });
 
   await waitFor(() => {
     expect(screen.getByTestId("header-strip").textContent).toContain("READY");

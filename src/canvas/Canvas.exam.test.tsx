@@ -70,6 +70,19 @@ const MOVED_NODES: Node[] = [
   },
 ];
 
+// One inter-layer gap with its three zones, the shape layerModel's pre-pass
+// returns. Values are arbitrary and distinct so a zone swapped for another
+// fails rather than passing by coincidence.
+const GAP = {
+  index: 0,
+  left: 100,
+  right: 400,
+  sourceZone: { left: 100, right: 200 },
+  columnZone: { left: 200, right: 300 },
+  targetZone: { left: 300, right: 400 },
+  columns: 1,
+};
+
 function canvasTree(nodes: Node[], edges: Edge[]) {
   return (
     <LocaleProvider locale="en">
@@ -107,6 +120,36 @@ describe("exam camera hook", () => {
     expect(typeof window.__stcExam?.fitView).toBe("function");
     expect(typeof window.__stcExam?.contentBounds).toBe("function");
     expect(typeof window.__stcExam?.chipReservations).toBe("function");
+    expect(typeof window.__stcExam?.gapZones).toBe("function");
+  });
+
+  // The gap reserves travel from the layout through App to the hook untouched;
+  // the browser-side geometry audit has no other way to see them.
+  test("gapZones reports the gaps the canvas was given", () => {
+    window.history.replaceState(null, "", "/?exam=1");
+    render(
+      <LocaleProvider locale="en">
+        <ItemPackProvider value={PACK}>
+          <Canvas nodes={HOVER_NODES} edges={[]} gaps={[GAP]} />
+        </ItemPackProvider>
+      </LocaleProvider>,
+    );
+    expect(window.__stcExam?.gapZones()).toEqual([
+      {
+        index: 0,
+        left: 100,
+        right: 400,
+        sourceZone: { left: 100, right: 200 },
+        columnZone: { left: 200, right: 300 },
+        targetZone: { left: 300, right: 400 },
+      },
+    ]);
+  });
+
+  test("gapZones is empty when the canvas was given no gaps", () => {
+    window.history.replaceState(null, "", "/?exam=1");
+    renderCanvas(HOVER_NODES, []);
+    expect(window.__stcExam?.gapZones()).toEqual([]);
   });
 
   // The provenance pair a capture stamps into its scene document. The pack

@@ -353,9 +353,8 @@ The first two print nothing on a clean run: empty output is the clean answer, no
 and no console error, rather than a command that misfired.
 
 The third line is the layout-feature census: junction dots are the only feature the ledger
-records by their own kind. Icon-only chips are not in it (the chip record carries no icon-only
-flag) and neither are fan-out columns (nothing records them), so read the census as one count,
-not as an inventory of what the layout did.
+records by their own kind. Fan-out columns are not in it (nothing records them), so read the
+census as one count, not as an inventory of what the layout did.
 
 ### 6. Run the workflow
 
@@ -377,7 +376,10 @@ Three phases:
 
 - **Evaluate**: one agent per plan, given the images, the coverage ledger and the conventions
   doc, and nothing else. It returns typed findings, each with a pixel rect per evidence entry, a
-  `claimType`, and a `falsifier` naming the probe op that would disprove it.
+  `claimType`, and a `falsifier` naming the probe op that would disprove it. Chip placement is
+  one of the things it judges against that doc: every chip on a horizontal run of the line it
+  labels, and every trunk chip in the reserve zone beside the port it labels rather than out
+  among the junction columns or lapping the neighbouring card.
 - **Triage** (code, no agent): validates every finding, joins it to the measurements by
   footprint, and routes it. A geometric finding with an independent measurement at the
   place it marked is CORROBORATED and skips refutation; a stated mechanism, an absence
@@ -580,7 +582,7 @@ A ledger of what was captured and measured, with no verdicts in it.
 | A rotating plan reported SKIPPED by the geometry audit                               | Read it as "hard checks passed". The zero-tolerance assertions all ran; the skip only says the ratchet tables pin no baseline for that id                                                                                                                                                                                                                           |
 | A `-dirty` commit stamp                                                              | The server is serving uncommitted work. Say so in the report; findings from it cannot be pinned to a commit anyone else can check out                                                                                                                                                                                                                               |
 | Raw geometry measurements are not defects                                            | `geometry-audit.spec.ts` permits large nonzero per-scenario counts of every measurement kind behind written rulings; a machine finding is that spec failing, never a row of `scene.json`                                                                                                                                                                            |
-| The exam's counts and the ratchet baselines are different numbers                    | Measurements are taken at `targetZoom`, baselines at the app's fit camera, and chips counter-scale; never compare the two, and never read a difference as a regression                                                                                                                                                                                              |
+| The exam's counts and the ratchet baselines are different numbers                    | Measurements are taken at `targetZoom` and baselines at the app's fit camera, which draws a different set of chips through the LOD bands; never compare the two, and never read a difference as a regression                                                                                                                                                        |
 | `hoverEngaged: false` is a capture miss, not a product defect                        | Read `engagedElsewhere` and `samples`, then re-probe `engagedElsewhere.id` through `--arg id=`, or reframe with `--zoom`/`--center`, or reach for `--eval`; the probe picks its own sample fractions and no flag names a point                                                                                                                                      |
 | Only `decision.noResponse` is a hover defect                                         | The probe emits its own rule in `decision.rule`: an empty `observedDimmed` against a non-empty `expectedDimmed` is a real "hover produced no response". A set DIFFERENCE between the two is NOT a defect - the app lights whole bus trunk groups while `expectedDimmed` is the graph's ego-network - so `decision.differs` is reported precisely so nobody files it |
 | `00-fit.png` is shot at the app's fit zoom, not `targetZoom`                         | Chips are LOD-hidden below `lodGates.labelMinZoom`; compare `fit.zoom` against `lodGates` before believing anything the fit overview does not show                                                                                                                                                                                                                  |

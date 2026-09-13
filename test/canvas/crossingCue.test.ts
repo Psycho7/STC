@@ -6,8 +6,9 @@
 //   (a) a genuine right-angle crossing between two same-item edges stamps
 //       the exact intersection on BOTH edges of the pair, each cue naming
 //       the other edge as its partner;
-//   (b) LOAD-BEARING NEGATIVE: a fan-in pair joining collinearly at the port y
-//       stamps NOTHING -- a merge is a merge, never a crossing cue;
+//   (b) LOAD-BEARING NEGATIVE: a routed fan-in trunk, whose members join on one
+//       shared leg into the port, stamps NOTHING -- a merge is a merge, never a
+//       crossing cue;
 //   (d) the pair stamps BOTH edges regardless of who paints above: which edge
 //       of a pair is "above" is not a rest-time constant -- selecting a node
 //       lifts it (React Flow's elevateNodesOnSelect puts a selected
@@ -30,26 +31,27 @@ import Fraction from "fraction.js";
 import type { Edge } from "@xyflow/react";
 
 import { deconflictChipAnchors } from "../../src/canvas/chipSeating";
+import { routeTrunkEdges } from "../../src/canvas/busRouting";
 import { drawnPortsOf } from "../../src/canvas/nodeGeometry";
 import {
   crossingPartnerBits,
   liveCrossingCues,
+  CUE_STALE_EPS,
   type CrossingCue,
   type CrossingCuePartner,
 } from "../../src/canvas/crossings";
-import { HIDE_STALE_EPS } from "../../src/canvas/dimensions";
 import { measureRecipe } from "../../src/canvas/recipeGeometry";
 import { type DrawnPorts } from "../../src/canvas/edgePath";
 import type { RFAnyNode } from "../../src/canvas/layout";
 import { mkRecipe, recipeNode, orderedRecipeNode } from "./busRouting.testkit";
 
-// The stamped fields this suite reads: the cue list under test, plus the
-// fan-in marker's x, asserted as the PREMISE of the collinear negative (the
-// fixture only proves "a merge gets no cue" when the merge actually formed --
-// the owner carries the dot stamp).
+// The stamped fields this suite reads: the cue list under test, plus the fan-in
+// discriminant, asserted as the PREMISE of the collinear negative (the fixture
+// only proves "a merge gets no cue" when the trunk actually formed).
 type CueData = {
   crossingCues?: Array<CrossingCue>;
-  faninJunctionX?: number;
+  fanin?: boolean;
+  faninColumn?: boolean;
 };
 
 // The DRAWN ports of an edge, the frame the seating pass reconstructs its
@@ -284,12 +286,12 @@ describe("deconflictChipAnchors: crossing cues", () => {
     expect(dataOf(out, e1).crossingCues).toBeUndefined();
   });
 
-  it("stamps nothing for a fan-in pair joining collinearly at the port y", () => {
-    // The fan-in fixture from the marker suite: srcA bends into the port, srcB
-    // runs straight at the port y, and the two final legs overlap collinearly
-    // on the shared run -- the geometry a merge dot MARKS, and exactly the
-    // geometry a crossing cue must not touch (a cued merge would deny the
-    // merge).
+  it("stamps nothing for a routed fan-in trunk merging into one port", () => {
+    // The fan-in fixture from the marker suite, put through the trunk pass:
+    // both members descend the trunk's shared column and run collinearly on
+    // the aggregate leg into the port -- the geometry the merge dot MARKS, and
+    // exactly the geometry a crossing cue must not touch (a cued merge would
+    // deny the merge).
     const tgtRecipe = mkRecipe("tgt", ["s"], []);
     const tgt = orderedRecipeNode("tgt", 1000, 100, ["s"]);
     const ty = 100 + measureRecipe(tgtRecipe).inHandleYs[0]!;
@@ -301,17 +303,18 @@ describe("deconflictChipAnchors: crossing cues", () => {
     const nodes: RFAnyNode[] = [srcA, srcB, tgt];
     const eA = "e:1:srcA->tgt:s";
     const eB = "e:2:srcB->tgt:s";
-    const out = deconflictChipAnchors(nodes, [
+    const routed = routeTrunkEdges(nodes, [
       rateEdge(eA, "srcA", "tgt", "s", new Fraction(4)),
       rateEdge(eB, "srcB", "tgt", "s", new Fraction(1)),
     ]);
+    const out = deconflictChipAnchors(nodes, routed);
 
-    // Premise: the fan-in actually formed here -- the owner carries the merge
-    // dot stamp, so the negative below is about a REAL join, not a fixture
-    // that secretly has no merge at all. The dot sits at the straight
-    // member's drawn source-right endpoint (600 + 240 + 5).
-    const owner = dataOf(out, eA);
-    expect(owner.faninJunctionX).toBe(845);
+    // Premise: the fan-in trunk actually formed here, so the negative below is
+    // about a REAL merge, not a fixture that secretly has none. srcA sits two
+    // layers back, so it joins the trunk as a far member pinned to the same
+    // column; srcB, one layer back, is drawn as the fan-in member it is.
+    expect(dataOf(out, eB).fanin).toBe(true);
+    expect(dataOf(out, eA).faninColumn).toBe(true);
 
     // The load-bearing negative: no cue anywhere in the group.
     for (const e of out) {
@@ -375,7 +378,7 @@ describe("deconflictChipAnchors: crossing cues", () => {
     const movedState = stateOf(
       [partnerEdge],
       [
-        { id: "A1", x: 0 + HIDE_STALE_EPS + 5, y: 0 },
+        { id: "A1", x: 0 + CUE_STALE_EPS + 5, y: 0 },
         { id: "A2", x: 1000, y: 0 },
       ],
     );
@@ -411,7 +414,7 @@ describe("deconflictChipAnchors: crossing cues", () => {
         [twoPartners],
         stateOf(bothEdges, [
           { id: "A1", x: 0, y: 0 },
-          { id: "A2", x: 1000 + HIDE_STALE_EPS * 2, y: 0 },
+          { id: "A2", x: 1000 + CUE_STALE_EPS * 2, y: 0 },
           a3Still,
         ]),
       ),
@@ -421,8 +424,8 @@ describe("deconflictChipAnchors: crossing cues", () => {
         [twoPartners],
         stateOf(bothEdges, [
           { id: "A1", x: 0, y: 0 },
-          { id: "A2", x: 1000 + HIDE_STALE_EPS * 2, y: 0 },
-          { id: "A3", x: 1400 + HIDE_STALE_EPS * 2, y: 0 },
+          { id: "A2", x: 1000 + CUE_STALE_EPS * 2, y: 0 },
+          { id: "A3", x: 1400 + CUE_STALE_EPS * 2, y: 0 },
         ]),
       ),
     ).toEqual([false]);

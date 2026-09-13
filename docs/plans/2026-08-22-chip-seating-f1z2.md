@@ -1,5 +1,7 @@
 # Chip Seating F1+Z2 Implementation Plan
 
+> **Superseded** by the chip placement rule (issue #131): chips are anchored where the path is drawn, and the seating pass this document designs no longer exists.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Fix the F1 (chips ride onto cards) and Z2 (corridor braids / stranded bus chips / band escapes) seating families from the 2026-08-22 render exam, and land a bus-chip-inclusive seating census ratchet so the fixes are measurable and cannot regress.

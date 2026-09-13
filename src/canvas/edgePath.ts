@@ -15,6 +15,9 @@
 // rightward into its Left handle, in every case, so the ArrowClosed marker
 // (orient=auto) points right.
 
+import { DOT_KEEPOFF } from "./dimensions";
+import { CHIP_HALF_H, CHIP_HALF_W_WIDE, chipHalfWidthsOf } from "./chipMetrics";
+
 // Minimum straight run leaving a source's Right handle and entering a target's
 // Left handle. Keeps the arrow head from sprouting directly out of a corner.
 export const PORT_STUB = 24;
@@ -146,19 +149,42 @@ export type ObstacleRect = {
 //           one stub out of the source port. railXLeft is the target-side column
 //           and overrides entryX when present, absent -> entryX, or one stub
 //           before the target port.
-//   junctionX: shared junction column for a fan-out trunk member
-//           (routeFanoutEdges). Every member of one (item, source) fan-out
-//           shares this column: their trunk segments (source port out to the
-//           junction) overlap into one line, and each branches off it up / down
-//           to its own target. Absent -> the corridor midpoint (a plain step).
+//   junctionX: shared junction column for a trunk member (routeTrunkEdges).
+//           Every member of one (item, source) fan-out shares this column:
+//           their trunk segments (source port out to the junction) overlap into
+//           one line, and each branches off it up / down to its own target. A
+//           fan-in member reads it mirrored: each member descends this column
+//           to the target row and they share the aggregate leg from there into
+//           the port. Absent -> the corridor midpoint (a plain step).
+//   faninJoinX: the fan-in column a DUAL member (a fan-out member whose target
+//           port also carries a fan-in trunk) hands its flow over at. The drawn
+//           polyline is unchanged -- the member's own stretch simply ends
+//           there, so its chip anchor is the middle of the run at the target
+//           row BETWEEN the two columns instead of the whole final leg. Absent
+//           -> the whole leg, byte-identical for a plain fan-out member.
+//   faninColumn: this forward item edge's bendX is a SHARED fan-in column
+//           (routeTrunkEdges pinned every far member of one (item, target-port)
+//           fan-in to it). The mirror of fanoutColumn below: here the FINAL leg
+//           at the target row is the one the members share (it is the trunk's
+//           aggregate leg), so the label anchor moves onto the middle of this
+//           member's own SOURCE horizontal instead. Absent -> the bend-column
+//           anchor. The drawn path never changes.
 //   fanoutColumn: this forward item edge's bendX is a SHARED fan-out column
-//           (routeFanoutEdges pinned every same-(item, source-port) member to
+//           (routeTrunkEdges pinned every same-(item, source-port) member to
 //           it), not a staggered one of its own. Present -> the step's label
 //           anchor moves off the shared vertical onto the middle of this
 //           member's own final horizontal leg, so the members' chips spread
 //           along their legs instead of stacking on the one column. Absent ->
 //           the bend-column anchor, byte-identical for direct callers. The
 //           drawn path never changes.
+//   chipX / chipY: the card-clear seat deconflictChipAnchors found for a 1-to-1
+//           chip whose rule seat (the longest run's centre) stood over a card.
+//           The pass knows the card rects and this module does not, so the
+//           slide is computed there and handed back as a point; it is used only
+//           while it still lies on a horizontal run of the polyline this call
+//           built, so a drag that moves the line out from under it falls back
+//           to the rule seat instead of floating the chip. Absent -> the rule
+//           seat, byte-identical for direct callers.
 //   chamferBudget: per-bend corridor room available for enlarging a forward
 //           step's corner bevels (assignBendColumns). Half the stagger pitch, so
 //           an edge's fattened chamfer never reaches a sibling column's vertical.
@@ -176,7 +202,11 @@ export type RoutingHints = {
   railXRight?: number;
   railXLeft?: number;
   junctionX?: number;
+  faninJoinX?: number;
+  faninColumn?: boolean;
   fanoutColumn?: boolean;
+  chipX?: number;
+  chipY?: number;
   chamferBudget?: number;
 };
 
@@ -193,15 +223,19 @@ const HINT_KEYS = [
   "railXRight",
   "railXLeft",
   "junctionX",
+  "faninJoinX",
+  "chipX",
+  "chipY",
   "chamferBudget",
 ] as const satisfies ReadonlyArray<keyof RoutingHints>;
 
 // The hints carried as flags rather than coordinates, extracted the same way
 // but type-checked as booleans (an absent or non-boolean value is dropped, so a
 // stray string cannot switch a shape on).
-const FLAG_HINT_KEYS = ["fanoutColumn"] as const satisfies ReadonlyArray<
-  keyof RoutingHints
->;
+const FLAG_HINT_KEYS = [
+  "fanoutColumn",
+  "faninColumn",
+] as const satisfies ReadonlyArray<keyof RoutingHints>;
 
 export function routingHintsFromData(data: unknown): RoutingHints {
   const d = data as Record<string, unknown> | undefined;
@@ -369,9 +403,8 @@ export function parsePathPoints(
 // Walks the segments accumulating length until the fraction of the total is
 // covered, then interpolates within the covering segment. Coordinates come back
 // through r() so anchors stay as stable as the path coordinates they derive
-// from. The chip de-confliction pass uses off-midpoint fractions to slide a
-// blocked label along its own line; it probes dozens of candidates per path and
-// hoists the parse to one parsePathPoints call per edge.
+// from. The anchor rule reads the 0.5 fraction to break a tie between two runs
+// of equal length; callers that probe a path repeatedly parse once above.
 export function pathPointAtPts(
   pts: ReadonlyArray<readonly [number, number]>,
   frac: number,
@@ -398,34 +431,290 @@ export function pathPointAtPts(
   return [r(pts[0]![0]), r(pts[0]![1])];
 }
 
+// One maximal HORIZONTAL run of a polyline: the x-interval [lo, hi] at row y
+// spanned by consecutive vertices that all sit on that row. Adjacent horizontal
+// segments at one y merge into a single run, so a run is the stretch a chip can
+// actually stand on, not an emitted segment.
+export type HorizontalRun = { lo: number; hi: number; y: number };
+
+export function horizontalRuns(
+  pts: ReadonlyArray<readonly [number, number]>,
+): HorizontalRun[] {
+  const runs: HorizontalRun[] = [];
+  let i = 1;
+  while (i < pts.length) {
+    const [x0, y0] = pts[i - 1]!;
+    const [x1, y1] = pts[i]!;
+    if (y1 !== y0) {
+      i++;
+      continue;
+    }
+    let lo = Math.min(x0, x1);
+    let hi = Math.max(x0, x1);
+    let j = i + 1;
+    while (j < pts.length && pts[j]![1] === y0) {
+      lo = Math.min(lo, pts[j]![0]);
+      hi = Math.max(hi, pts[j]![0]);
+      j++;
+    }
+    runs.push({ lo, hi, y: y0 });
+    i = j;
+  }
+  return runs;
+}
+
+// THE anchor rule for a chip that labels a whole polyline (every 1-to-1 edge:
+// forward step, small-dy diagonal, straight line, backward detour, and a far
+// trunk member routed as a plain item edge): the CENTRE of the polyline's
+// LONGEST horizontal run. Ties -- two runs of equal length, which the symmetric
+// forward step produces whenever the two horizontals come out the same -- go to
+// the run whose centre is nearest the polyline's arc-length midpoint, so the
+// chip lands on the middle of the line rather than at one end.
+//
+// The centre of a horizontal run is on the drawn polyline by construction, and
+// the rule reads the polyline alone: no branch of the builder gets a special
+// anchor, so there is no boundary a one-pixel disagreement between the live
+// handles and an offline port model can teleport the chip across. A polyline
+// with no horizontal run at all (never emitted here: every shape leaves its
+// source port along one) falls back to the arc midpoint.
+export function longestRunAnchor(
+  pts: ReadonlyArray<readonly [number, number]>,
+): [x: number, y: number] {
+  const runs = horizontalRuns(pts);
+  if (runs.length === 0) return pathPointAtPts(pts, 0.5);
+  const [mx, my] = pathPointAtPts(pts, 0.5);
+  let best = runs[0]!;
+  let bestLen = -1;
+  let bestGap = Infinity;
+  for (const run of runs) {
+    const len = run.hi - run.lo;
+    const cx = (run.lo + run.hi) / 2;
+    const gap = Math.hypot(cx - mx, run.y - my);
+    if (len > bestLen || (len === bestLen && gap < bestGap)) {
+      best = run;
+      bestLen = len;
+      bestGap = gap;
+    }
+  }
+  return [r((best.lo + best.hi) / 2), r(best.y)];
+}
+
+// The chip box a chip of half-width halfW draws when anchored at (x, y), as an
+// axis-aligned rect. One derivation for the card-clear slide below and for the
+// suites that measure the same box.
+export function chipBoxAt(
+  x: number,
+  y: number,
+  halfW: number,
+): { left: number; right: number; top: number; bottom: number } {
+  return {
+    left: x - halfW,
+    right: x + halfW,
+    top: y - CHIP_HALF_H,
+    bottom: y + CHIP_HALF_H,
+  };
+}
+
+// Do two rects overlap in their strict interiors? Touching edges are not an
+// intersection: a chip box flush against a card border still reads as beside
+// the card, and the slide below seats exactly flush.
+function rectsOverlap(
+  a: { left: number; right: number; top: number; bottom: number },
+  b: { left: number; right: number; top: number; bottom: number },
+): boolean {
+  return (
+    a.right > b.left + BOX_EPS &&
+    a.left < b.right - BOX_EPS &&
+    a.bottom > b.top + BOX_EPS &&
+    a.top < b.bottom - BOX_EPS
+  );
+}
+
+// Tolerance for the card-clear box tests. The anchors and the card rects are
+// sums of the same fractional layout coordinates, so a seat computed to stand
+// exactly flush against a card edge must not read back as intersecting it.
+const BOX_EPS = 1e-6;
+
+// The runs of a polyline in the order the card-clear rule tries them: longest
+// first, ties by the run centre nearest the polyline's arc midpoint -- the same
+// order longestRunAnchor picks its single winner in, so the first run of this
+// list IS that winner and a chip that needs no slide never moves.
+function runsByPreference(
+  pts: ReadonlyArray<readonly [number, number]>,
+): HorizontalRun[] {
+  const [mx, my] = pathPointAtPts(pts, 0.5);
+  return horizontalRuns(pts)
+    .map((run) => ({
+      run,
+      len: run.hi - run.lo,
+      gap: Math.hypot((run.lo + run.hi) / 2 - mx, run.y - my),
+    }))
+    .sort((a, b) => b.len - a.len || a.gap - b.gap)
+    .map((entry) => entry.run);
+}
+
+// THE card-clear rule for a 1-to-1 chip (rule 5 of the placement model): the
+// chip stands at the centre of its longest horizontal run, but a run may pass
+// over a card, and a box standing on a card reads as that card's own label.
+// So: on the chosen run, if the box at the run centre intersects a card, slide
+// it ALONG that run to the nearest position whose box clears every card;
+// if no position on the run clears, take the next-longest run and repeat; if no
+// run clears, keep the longest run's centre.
+//
+// The candidate positions are a deterministic function of the run and the card
+// rects -- the box seated flush against each blocking card's left or right edge
+// -- with no scoring, no field and no windows: for every card the box could
+// stand on, the two places it just clears it, filtered to the ones that clear
+// every other card too, nearest to the centre winning (ties to the smaller x).
+// The anchor stays within the run, so the chip never leaves its own line.
+//
+// `cards` are the RAW drawn card rects (recipe / product / loop boxes, no
+// padding); container slabs are not cards. The caller supplies them because
+// this module sees one edge at a time and never the node list.
+// Does a chip box at (x, y) enter any of these cards? The seating pass asks it
+// of a RULE seat before deciding to slide, and the slide below asks it of every
+// candidate, so both read the same definition of "on a card".
+export function chipBoxClearsCards(
+  x: number,
+  y: number,
+  halfW: number,
+  cards: ReadonlyArray<{
+    left: number;
+    right: number;
+    top: number;
+    bottom: number;
+  }>,
+): boolean {
+  return !cards.some((card) => rectsOverlap(chipBoxAt(x, y, halfW), card));
+}
+
+export function cardClearRunAnchor(
+  pts: ReadonlyArray<readonly [number, number]>,
+  halfW: number,
+  cards: ReadonlyArray<{
+    left: number;
+    right: number;
+    top: number;
+    bottom: number;
+  }>,
+): [x: number, y: number] {
+  const runs = runsByPreference(pts);
+  if (runs.length === 0) return pathPointAtPts(pts, 0.5);
+  const clears = (x: number, y: number, blockers: typeof cards): boolean =>
+    chipBoxClearsCards(x, y, halfW, blockers);
+
+  for (const run of runs) {
+    const centre = (run.lo + run.hi) / 2;
+    // Only the cards this run's chip ROW can meet matter; the rest can never
+    // be hit however far the box slides along it.
+    const blockers = cards.filter(
+      (card) =>
+        card.bottom > run.y - CHIP_HALF_H + BOX_EPS &&
+        card.top < run.y + CHIP_HALF_H - BOX_EPS,
+    );
+    if (clears(centre, run.y, blockers)) return [r(centre), r(run.y)];
+    const seats = blockers
+      .flatMap((card) => [card.left - halfW, card.right + halfW])
+      .filter((x) => x >= run.lo && x <= run.hi && clears(x, run.y, blockers))
+      .sort((a, b) => Math.abs(a - centre) - Math.abs(b - centre) || a - b);
+    const seat = seats[0];
+    if (seat !== undefined) return [r(seat), r(run.y)];
+  }
+  const [x, y] = longestRunAnchor(pts);
+  return [x, y];
+}
+
+// Is a point ON a horizontal run of this polyline? The gate the stamped
+// card-clear seat passes before the drawer uses it: the pass that computed it
+// read the same geometry, so at rest it always holds, and a drag that moves
+// the line out from under the stamp drops back to the rule seat rather than
+// floating the chip off its own line.
+function onHorizontalRun(
+  runs: ReadonlyArray<HorizontalRun>,
+  x: number,
+  y: number,
+): boolean {
+  return runs.some(
+    (run) =>
+      Math.abs(run.y - y) <= BOX_EPS &&
+      x >= run.lo - BOX_EPS &&
+      x <= run.hi + BOX_EPS,
+  );
+}
+
+// THE chip anchor of an item-shaped polyline, the one rule every arm of
+// chamferStepPath exits through. Three cases, in order:
+//
+//   far fan-out member (fanoutColumn, and a dual far member carrying both
+//     flags): its LAST horizontal run -- its own leg into the target -- seated
+//     one port stub back from the target port, the same seat a retyped fan-out
+//     member takes on the same leg. Everything left of it is the column its
+//     siblings share, where every member's chip would stack.
+//   far fan-in member (faninColumn alone): its FIRST horizontal run -- its own
+//     source stub -- seated one port stub out of the source port. The stub
+//     stands in the gap's source chip reserve, which was widened for exactly
+//     this box; the run at the target row is the trunk's aggregate leg, shared
+//     with every sibling.
+//   everything else (1-to-1 forward, rail, straight line, diagonal): the
+//     longest run's centre.
+//
+// The card-clear seat the seating pass slid the chip to wins over all three,
+// for a far member as much as for a 1-to-1 chip: a named run can be shorter
+// than the box it has to carry (a jogged member's leg starts just past the card
+// it dodged), and a box hanging off the end of such a run reads as the label of
+// whatever it hangs over. The stamp is only taken while it still lies on a
+// horizontal run of the live polyline, so a dragged node drops back to the rule
+// seat. The far-member seats read the member's own chip box (memberHalfW),
+// defaulting to the worst case for a direct caller that reserves none.
+export function itemAnchor(
+  pts: ReadonlyArray<readonly [number, number]>,
+  args: RoutingHints & ChipBoxes,
+  sx: number,
+  tx: number,
+): [x: number, y: number] {
+  const runs = horizontalRuns(pts);
+  const halfW = args.memberHalfW ?? CHIP_HALF_W_WIDE;
+  const first = runs[0];
+  const last = runs[runs.length - 1];
+  if (
+    args.chipX !== undefined &&
+    args.chipY !== undefined &&
+    onHorizontalRun(runs, args.chipX, args.chipY)
+  ) {
+    return [r(args.chipX), r(args.chipY)];
+  }
+  if (args.fanoutColumn === true && last !== undefined) {
+    return [r(reserveSeatX(tx, null, halfW, last.lo, last.hi)), r(last.y)];
+  }
+  if (args.faninColumn === true && first !== undefined) {
+    return [r(reserveSeatX(sx, null, halfW, first.lo, first.hi)), r(first.y)];
+  }
+  return longestRunAnchor(pts);
+}
+
 // chamferStepPath: forward step, small-dy diagonal, narrow-gap degradation, and
 // backward S/C detour, all sharing the same chamfer convention. Returns the SVG
-// path plus the label anchor on the polyline's PREFERRED CLEAR SEGMENT (2B):
-// every forward shape -- the full step, the small-dy diagonal, and the
-// same-rail straight line -- anchors at the bend column (bx, mid(sy, ty)) (or,
-// when the final leg is jogged around a card, on the jog-descent vertical), and
-// a backward detour anchors on its source-side rail vertical, apex included, so
-// the anchor is CONTINUOUS across every branch boundary: a one-pixel port-model
-// disagreement between the live handles and the seating reconstruction cannot
-// teleport it. The corridor legs are vertically long and horizontally clear, so
-// a chip there sits off the card rows the target-side horizontal midpoint used
-// to cross, and a downward de-confliction nudge slides ALONG the vertical,
-// keeping the chip on its own line. Every returned anchor lies on the drawn
-// polyline. The final segment is always a rightward horizontal into target.
-//
-// The anchor is derived from the SAME branch geometry that builds the `d` (the
-// bend column bx, the jog descentX, the rail column xr are all in hand), never
-// re-parsed, so render and reconstruction agree by construction.
+// path plus the chip anchor longestRunAnchor puts on it -- the centre of the
+// polyline's longest horizontal run, one rule for every branch below, read off
+// the path this call just built. The final segment is always a rightward
+// horizontal into the target.
 export function chamferStepPath(
   args: {
     sourceX: number;
     sourceY: number;
     targetX: number;
     targetY: number;
-  } & RoutingHints,
+  } & RoutingHints &
+    ChipBoxes,
 ): [path: string, labelX: number, labelY: number] {
   const { sourceX: sx, sourceY: sy, targetX: tx, targetY: ty, bendX } = args;
   const gap = tx - sx;
+  // One exit for every branch: the emitted path plus its rule anchor.
+  const anchored = (d: string): [string, number, number] => {
+    const pts = parsePathPoints(d);
+    const [x, y] = itemAnchor(pts, args, sx, tx);
+    return [d, x, y];
+  };
 
   // Backward: the target sits at or left of the source (ELK breaks cycles by
   // reversing edges, so targetX can be <= sourceX). Route right out of the
@@ -447,21 +736,6 @@ export function chamferStepPath(
     const xr = args.railXRight ?? base.xr;
     const xl = args.railXLeft ?? base.xl;
     const railY = args.railY ?? base.railY;
-    // Backward chip anchor: on the rail's HORIZONTAL run (at railY), one stub in
-    // from the source-side corner but never past the run midpoint, so it rides
-    // the clean source half clear of the target entry gutter at xl. The rail is
-    // held a wide gap off any container slab (clampBackwardRails, CONTAINER_RAIL_GAP),
-    // so a chip here no longer hugs a slab border the way the source-vertical
-    // midpoint (sy..railY) could when the rail clamps just outside a loop box (#29).
-    // Both detour branches below share this anchor, so it stays CONTINUOUS across
-    // the apex/full boundary -- a one-pixel port-model disagreement between the
-    // live handles and the seating reconstruction cannot teleport it.
-    const railRunSourceX = xr - CHAMFER;
-    const railRunTargetX = xl + CHAMFER;
-    const labelX = Math.max(
-      (railRunSourceX + railRunTargetX) / 2,
-      railRunSourceX - PORT_STUB,
-    );
     // Small detour height: the rail sits within a chamfer of the source level,
     // so a full chamfered column would invert and backtrack (a zigzag spike).
     // Collapse each column to a single apex bevel (peak out at the column x, no
@@ -477,13 +751,7 @@ export function chamferStepPath(
         ` L ${r(xl)},${r((railY + ty) / 2)}` +
         ` L ${r(xl + CHAMFER)},${r(ty)}` +
         ` L ${r(tx)},${r(ty)}`;
-      // Anchor on the rail horizontal run (labelX, railY) -- shared with the full
-      // rail below so it is CONTINUOUS across this branch boundary. A one-pixel
-      // disagreement between the live handle coordinates and the seating pass's
-      // offline port model can flip which branch each side takes; a discontinuous
-      // anchor then applies the seat's offsets to a far-away point and strands the
-      // chip off its line (and inside a card).
-      return [d, r(labelX), r(railY)];
+      return anchored(d);
     }
     // Right column exits leftward (-1, -1) onto the rail, left column enters
     // leftward (+1, +1) off it; the leftward rail run is the implicit segment
@@ -493,13 +761,7 @@ export function chamferStepPath(
       chamferColumn(xr, sy, railY, CHAMFER, -1, -1) +
       chamferColumn(xl, railY, ty, CHAMFER, 1, 1) +
       ` L ${r(tx)},${r(ty)}`;
-    // Clear-segment anchor: the rail's leftward horizontal run, source side
-    // (labelX, railY). The chip rides this rail leg -- held a wide gap off any
-    // container slab -- so it sits off the source vertical whose midpoint can hug
-    // a loop-box border; a de-confliction slide runs ALONG the rail, and the
-    // source-side clamp keeps it clear of the target entry gutter at xl where the
-    // arrival chips crowd.
-    return [d, r(labelX), r(railY)];
+    return anchored(d);
   }
 
   // Forward. forwardStepGeometry scales the stub+chamfer budget down
@@ -513,57 +775,15 @@ export function chamferStepPath(
   const { chamfer, bx: stepBx } = forwardStepGeometry(sx, tx, bendX);
   const bx = args.srcColX ?? stepBx;
 
-  // Shared fan-out column (fanoutColumn): every member of one (item, source
-  // port) formation draws its vertical at the SAME bx, so the bend-column
-  // anchor below would stack all their chips on the one line. Such a member
-  // anchors at the middle of its own final horizontal leg instead -- the run
-  // from the bend's outgoing chamfer to the target port, which is the member's
-  // alone. Clamped to the leg so a degenerate (or unclamped srcColX) column
-  // cannot push the anchor off the drawn polyline.
-  const legAnchorX = (cornerChamfer: number): number =>
-    (Math.min(bx + cornerChamfer, tx) + tx) / 2;
-  const fanoutLeg = args.fanoutColumn === true;
-
-  // Same rail: a plain straight line, no vertical offset at all. The anchor
-  // sits at the bend column (on the line by construction), NOT the geometric
-  // midpoint: the three forward shapes (straight, small-dy diagonal, full
-  // step) all anchor at (bx, mid(sy, ty)) so the anchor is CONTINUOUS across
-  // their branch boundaries. Live handle coordinates and the seating pass's
-  // offline port model can disagree by a pixel; if that pixel flips the branch,
-  // a discontinuous anchor applies the seat's labelDx/labelDy to a point
-  // hundreds of units away and strands the chip off its line (the food-tundra
-  // own-card chip defect). Unhinted callers see no change: the default bend
-  // column IS the corridor midpoint.
-  if (sy === ty) {
-    const d = `M ${r(sx)},${r(sy)} L ${r(tx)},${r(ty)}`;
-    return [d, r(fanoutLeg ? legAnchorX(chamfer) : bx), r(sy)];
-  }
-
-  // Small dy: a vertical run plus two chamfers will not fit between the rails, so
-  // join the two horizontal runs with a single diagonal (no vertical segment).
-  // Anchor at the diagonal's midpoint (bx, mid(sy, ty)) -- the same bend-column
-  // rule as the full step below (anchor continuity, see the same-rail comment).
-  // The diagonal still closes on a long horizontal at ty, so a blocked small-dy
-  // leg carries a stamped legY (jogForwardLegs) and skips this branch for the
-  // jog shape below; absent the hint the diagonal is byte-identical.
-  if (args.legY === undefined && Math.abs(ty - sy) <= 2 * chamfer) {
-    const d =
-      `M ${r(sx)},${r(sy)}` +
-      ` L ${r(bx - chamfer)},${r(sy)}` +
-      ` L ${r(bx + chamfer)},${r(ty)}` +
-      ` L ${r(tx)},${r(ty)}`;
-    return fanoutLeg
-      ? [d, r(legAnchorX(chamfer)), r(ty)]
-      : [d, r(bx), r((sy + ty) / 2)];
-  }
-
-  // Normal forward step: H run, chamfer, V run, chamfer, H run into target.
-  // When the final leg at the target y would cross an intervening card,
+  // The jog: when a leg at the target y would cross an intervening card,
   // jogForwardLegs stamps a clear legY: bend to it, run the long horizontal
   // there (clear of the card), then descend / ascend to the target y in the
   // target's entry gutter (descentX) before the final rightward stub. The bend
   // column already sits in a node-free corridor, so its vertical is clear at any
-  // legY. Absent the hint the leg runs straight at ty, byte-identical.
+  // legY. The hint comes FIRST, before the straight-line and diagonal
+  // shortcuts: a same-row or small-dy edge cannot dodge a card in either of
+  // those shapes, and jogForwardLegs only stamps one it proved clear. Absent
+  // the hint the shapes below stand, byte-identical.
   if (args.legY !== undefined) {
     const descentX = args.jogDescentX ?? args.entryX ?? tx - PORT_STUB;
     const jog =
@@ -571,24 +791,27 @@ export function chamferStepPath(
       chamferColumn(bx, sy, args.legY, chamfer) +
       chamferColumn(descentX, args.legY, ty, chamfer) +
       ` L ${r(tx)},${r(ty)}`;
-    // A member pinned to a shared fan-out column anchors on the JOG's clear
-    // horizontal (the run at legY from the bend to the descent column) instead:
-    // the descent vertical is fine for a lone edge, but here the run this member
-    // shares with its siblings is the bend vertical, and a chip that slid back
-    // to it would stand on every sibling's stroke. The run at legY is this
-    // member's alone. Falls through to the descent anchor when the jog leaves no
-    // horizontal between the two chamfers (a descent column right beside the
-    // bend).
-    const runLo = bx + chamfer;
-    const runHi = descentX - chamfer;
-    if (fanoutLeg && runHi > runLo) {
-      return [jog, r((runLo + runHi) / 2), r(args.legY)];
-    }
-    // Clear-segment anchor: the jog-descent vertical (descentX) run midpoint --
-    // the corridor leg carrying the edge down into the target after the leg has
-    // cleared the intervening card.
-    return [jog, r(descentX), r((args.legY + ty) / 2)];
+    return anchored(jog);
   }
+
+  // Same rail: a plain straight line, no vertical offset at all -- one long
+  // horizontal run, which is also where its chip anchors.
+  if (sy === ty) {
+    return anchored(`M ${r(sx)},${r(sy)} L ${r(tx)},${r(ty)}`);
+  }
+
+  // Small dy: a vertical run plus two chamfers will not fit between the rails, so
+  // join the two horizontal runs with a single diagonal (no vertical segment).
+  if (Math.abs(ty - sy) <= 2 * chamfer) {
+    const d =
+      `M ${r(sx)},${r(sy)}` +
+      ` L ${r(bx - chamfer)},${r(sy)}` +
+      ` L ${r(bx + chamfer)},${r(ty)}` +
+      ` L ${r(tx)},${r(ty)}`;
+    return anchored(d);
+  }
+
+  // Normal forward step: H run, chamfer, V run, chamfer, H run into target.
   // Enlarge the two corner bevels toward MAX_CHAMFER when the bend carries a
   // corridor budget (P6 PCB-style long chamfers). Cap by half the shorter
   // adjacent leg -- the source-side horizontal (bx - sx), the target-side
@@ -596,10 +819,7 @@ export function chamferStepPath(
   // overruns its own legs, and by the stamped budget so it never reaches a
   // sibling column's vertical. Absent the budget the base chamfer stands and the
   // path is byte-identical. The half-leg cap already shrinks in a narrow
-  // corridor, so it composes with the narrow-gap scaling above. The anchor rides
-  // the bend column at the run midpoint, which stays on the polyline for any
-  // chamfer (it is the mid of the vertical run, or of the collapsed diagonal when
-  // the cap reaches half the vertical leg).
+  // corridor, so it composes with the narrow-gap scaling above.
   // The budget's sibling-envelope invariant was proven for the stagger column at
   // bendX (half the stagger pitch keeps a fattened bevel off the neighbour's
   // vertical). A srcColX hint replaces the column outright with a jog-cleared
@@ -614,18 +834,90 @@ export function chamferStepPath(
           Math.min(bx - sx, tx - bx, Math.abs(ty - sy)) / 2,
           args.chamferBudget,
         );
-  const d =
+  return anchored(
     `M ${r(sx)},${r(sy)}` +
-    chamferColumn(bx, sy, ty, stepChamfer) +
-    ` L ${r(tx)},${r(ty)}`;
-  if (fanoutLeg) return [d, r(legAnchorX(stepChamfer)), r(ty)];
-  // Clear-segment anchor: the bend-column vertical (bx) run midpoint. The old
-  // geometric midpoint often landed on the target-side horizontal, which cuts
-  // across foreign card rows; this vertical corridor leg is clear of them.
-  return [d, r(bx), r((sy + ty) / 2)];
+      chamferColumn(bx, sy, ty, stepChamfer) +
+      ` L ${r(tx)},${r(ty)}`,
+  );
 }
 
-// chamferFanoutPath: one member of a fan-out trunk (routeFanoutEdges). N members
+// The half-widths of a trunk member's two chips. drawnEdge reads them off the
+// edge payload; a direct caller that omits them reserves the worst-case box.
+export type ChipBoxes = { aggHalfW?: number; memberHalfW?: number };
+
+// Where one TRUNK chip stands on the horizontal run that is its own: the
+// reserve model lays every gap out as
+//   [card | RESERVE_CARD_PAD | chip | RESERVE_COLUMN_PAD | columns | ... ]
+// (layerModel widens each gap to fit exactly that), so a trunk chip seats with
+// its BOX one PORT_STUB out of the port it labels -- RESERVE_CARD_PAD is that
+// stub -- which lands it inside the reserve zone the gap was widened for.
+//   portX     the port end of the run, the end the chip is measured from
+//   inwardX   the column end of the run: a junction dot ON this chip's row, to
+//             be cleared by DOT_KEEPOFF (the column-side pad, same value).
+//             Null when the trunk's dot sits on another row, where the chip
+//             clears it in y and owes it nothing in x.
+//   halfW     half the box this chip draws
+// The dot clearance wins on a run too short for both, and the result is finally
+// clamped onto [min, max] of the run itself, so the anchor is ON the drawn
+// polyline in every degenerate corridor.
+function reserveSeatX(
+  portX: number,
+  inwardX: number | null,
+  halfW: number,
+  runLo: number,
+  runHi: number,
+): number {
+  // The port is one END of the run, so which way the chip steps inward off it
+  // is decided by which end it is.
+  const away = portX <= Math.min(runLo, runHi) ? 1 : -1;
+  const fromPort = portX + away * (PORT_STUB + halfW);
+  const seat =
+    inwardX === null
+      ? fromPort
+      : away > 0
+        ? Math.min(fromPort, inwardX - (DOT_KEEPOFF + halfW))
+        : Math.max(fromPort, inwardX + DOT_KEEPOFF + halfW);
+  return clamp(seat, Math.min(runLo, runHi), Math.max(runLo, runHi));
+}
+
+// Chip anchor of a DUAL member -- a fan-out member whose target port also
+// carries a fan-in trunk (faninJoinX, the fan-in column). The run from this
+// member's own fan-out column across to the fan-in junction is the last stretch
+// that belongs to it alone: everything right of that junction is the aggregate
+// leg every fan-in member shares. Null when there is no such hand-over, or when
+// the two columns leave no run between them (the member then keeps the ordinary
+// fan-out anchor). The drawn polyline is unchanged either way.
+function dualAnchorOf(
+  args: RoutingHints,
+  jx: number,
+  ty: number,
+): { x: number; y: number } | null {
+  if (args.faninJoinX === undefined) return null;
+  const joinX = args.faninJoinX + CHAMFER;
+  const ownRunLo = jx + CHAMFER;
+  if (joinX <= ownRunLo) return null;
+  return { x: r((ownRunLo + joinX) / 2), y: r(ty) };
+}
+
+// The junction column a fan-out / fan-in member is actually DRAWN on: the
+// routing pass's shared column, clamped into the corridor (one stub + chamfer
+// inside each port) so both the trunk segment and the branch leg stay well
+// formed. When the corridor is too tight to host a distinct column, the
+// midpoint stands in and the member draws a plain step. Both builders below
+// share it, and so does routeTrunkEdges, which has to test the runs this
+// column produces before it commits a member to the trunk shape.
+export function fanJunctionX(
+  sx: number,
+  tx: number,
+  junctionX: number | undefined,
+): number {
+  const lo = sx + PORT_STUB + CHAMFER;
+  const hi = tx - PORT_STUB - CHAMFER;
+  const mid = (sx + tx) / 2;
+  return lo < hi ? clamp(junctionX ?? mid, lo, hi) : mid;
+}
+
+// chamferFanoutPath: one member of a fan-out trunk (routeTrunkEdges). N members
 // share a source PORT (same item, same source unit) and fan out to N targets one
 // layer over. Every member is drawn with the SAME junction column, so their
 // shared trunk segment -- the horizontal from the source port out to the junction
@@ -646,7 +938,8 @@ export function chamferFanoutPath(
     sourceY: number;
     targetX: number;
     targetY: number;
-  } & RoutingHints,
+  } & RoutingHints &
+    ChipBoxes,
 ): {
   path: string;
   junction: { x: number; y: number };
@@ -654,43 +947,48 @@ export function chamferFanoutPath(
   branchAnchor: { x: number; y: number };
 } {
   const { sourceX: sx, sourceY: sy, targetX: tx, targetY: ty } = args;
-  // Junction column: the classifier's shared column, clamped into the corridor
-  // (one stub + chamfer inside each port) so both the trunk segment and the
-  // branch leg stay well formed. When the corridor is too tight to host a
-  // distinct column, fall back to the midpoint (a plain step).
-  const lo = sx + PORT_STUB + CHAMFER;
-  const hi = tx - PORT_STUB - CHAMFER;
-  const mid = (sx + tx) / 2;
-  const desired = args.junctionX ?? mid;
-  const jx = lo < hi ? clamp(desired, lo, hi) : mid;
+  const jx = fanJunctionX(sx, tx, args.junctionX);
   // The junction dot marks the split, so it must sit ON the drawn geometry.
   // The sharp corner (jx, sy) is cut away by the branch chamfer; the last
   // point every member still shares is one chamfer before the column, on the
   // trunk horizontal -- for a branching member, a small-dy diagonal, AND a
   // shared-y straight trunk alike, so all members of one trunk agree on it.
   const junction = { x: r(jx - CHAMFER), y: r(sy) };
-  // Aggregate chip rides the shared trunk horizontal, centered on the run from
-  // the source port to the junction DOT (jx - CHAMFER, above), not the cut
-  // corner. Centering on the dot-terminated run keeps the anchor at or left of
-  // the seating pass's keep-off-truncated slide end (keepoff is at most half
-  // the source-to-dot span) up to r()'s rounding, whose sub-pixel overhang the
-  // seat clamps away, so an uncrowded aggregate seats at its anchor with no
-  // stamped offset.
-  const trunkAnchor = { x: r((sx + jx - CHAMFER) / 2), y: r(sy) };
+  // Aggregate chip rides the shared trunk horizontal, seated a port stub out of
+  // the source port and clear of the split dot at the run's far end.
+  const aggHalfW = args.aggHalfW ?? CHIP_HALF_W_WIDE;
+  const memberHalfW = args.memberHalfW ?? CHIP_HALF_W_WIDE;
+  const trunkAnchor = {
+    x: r(reserveSeatX(sx, junction.x, aggHalfW, sx, junction.x)),
+    y: r(sy),
+  };
 
-  // Shared-y member: a straight trunk with no branch vertical. The branch chip
-  // has no vertical to ride, so it falls back to the trunk midpoint.
+  // The member's own chip rides the LAST horizontal leg, the run from the
+  // branch's outgoing chamfer into the target port -- for a branching member, a
+  // small-dy diagonal and a shared-y straight trunk alike -- seated a port stub
+  // back from the target port. A dual member hands its flow over at the fan-in
+  // column, so its own run ends there instead.
+  const legLo = Math.min(jx + CHAMFER, tx);
+  const branchAnchor = dualAnchorOf(args, jx, ty) ?? {
+    x: r(
+      reserveSeatX(
+        tx,
+        // The split dot sits on the SOURCE row, so it constrains this leg only
+        // when the member runs at that row (a shared-y straight trunk).
+        sy === ty ? junction.x : null,
+        memberHalfW,
+        legLo,
+        tx,
+      ),
+    ),
+    y: r(ty),
+  };
+
+  // Shared-y member: a straight trunk with no branch vertical.
   if (sy === ty) {
     const d = `M ${r(sx)},${r(sy)} L ${r(tx)},${r(ty)}`;
-    return {
-      path: d,
-      junction,
-      trunkAnchor,
-      branchAnchor: { x: r(mid), y: r(sy) },
-    };
+    return { path: d, junction, trunkAnchor, branchAnchor };
   }
-
-  const branchAnchor = { x: r(jx), y: r((sy + ty) / 2) };
 
   // Small dy: a vertical run plus two chamfers will not fit, so join the two
   // horizontals with a single diagonal at the junction column.
@@ -705,6 +1003,94 @@ export function chamferFanoutPath(
 
   // Normal branch: trunk horizontal, chamfer, branch vertical, chamfer, final
   // rightward stub into the target.
+  const d =
+    `M ${r(sx)},${r(sy)}` +
+    chamferColumn(jx, sy, ty, CHAMFER) +
+    ` L ${r(tx)},${r(ty)}`;
+  return { path: d, junction, trunkAnchor, branchAnchor };
+}
+
+// chamferFaninPath: one member of a fan-in trunk (routeTrunkEdges), the mirror
+// of chamferFanoutPath above. N members feed one target PORT (same item, same
+// target unit) from N sources one layer back. Every member is drawn with the
+// SAME junction column, so their final legs -- the horizontal from the junction
+// into the target port -- overlap into one line and the trunk's aggregate leg
+// visually draws once. Each member reaches that column along its own source
+// stub and turns down (or up) it to the target row.
+//
+// The polyline family is the fan-out's, so the shape is built by the same
+// clamp and the same chamfered column; what differs is which parts are shared
+// and therefore where the three points sit:
+//   junction     (jx + CHAMFER, ty) -- the first vertex every member shares,
+//                one chamfer past the column on the target row;
+//   trunkAnchor  the middle of the aggregate leg, junction to the target port,
+//                where the owner's aggregate chip seats;
+//   branchAnchor the middle of this member's own source stub, where its own
+//                rate chip seats.
+// Same degenerate guards as chamferFanoutPath: a shared-y member draws a
+// straight line with no descent, a small-dy member a single diagonal. Pure.
+export function chamferFaninPath(
+  args: {
+    sourceX: number;
+    sourceY: number;
+    targetX: number;
+    targetY: number;
+  } & RoutingHints &
+    ChipBoxes,
+): {
+  path: string;
+  junction: { x: number; y: number };
+  trunkAnchor: { x: number; y: number };
+  branchAnchor: { x: number; y: number };
+} {
+  const { sourceX: sx, sourceY: sy, targetX: tx, targetY: ty } = args;
+  const jx = fanJunctionX(sx, tx, args.junctionX);
+  // The merge dot sits on the drawn geometry at the point the members first
+  // coincide: the outgoing chamfer's end on the target row, which every
+  // branching, small-dy and shared-y member alike emits (or, for a straight
+  // member, lies on).
+  const junction = { x: r(jx + CHAMFER), y: r(ty) };
+  // Aggregate chip rides the shared leg from the merge dot into the target
+  // port, seated a port stub back from that port -- the fan-out trunk seat read
+  // from the other end. Member chip rides this member's own stub, from its
+  // source port out to the column's incoming chamfer, a port stub out of it.
+  const aggHalfW = args.aggHalfW ?? CHIP_HALF_W_WIDE;
+  const memberHalfW = args.memberHalfW ?? CHIP_HALF_W_WIDE;
+  const legLo = Math.min(junction.x, tx);
+  const trunkAnchor = {
+    x: r(reserveSeatX(tx, junction.x, aggHalfW, legLo, tx)),
+    y: r(ty),
+  };
+  const stubHi = Math.max(jx - CHAMFER, sx);
+  const branchAnchor = {
+    x: r(
+      reserveSeatX(
+        sx,
+        // The merge dot sits on the TARGET row, so it constrains this stub only
+        // when the member runs at that row (a shared-y straight member).
+        sy === ty ? junction.x : null,
+        memberHalfW,
+        sx,
+        stubHi,
+      ),
+    ),
+    y: r(sy),
+  };
+
+  if (sy === ty) {
+    const d = `M ${r(sx)},${r(sy)} L ${r(tx)},${r(ty)}`;
+    return { path: d, junction, trunkAnchor, branchAnchor };
+  }
+
+  if (Math.abs(ty - sy) <= 2 * CHAMFER) {
+    const d =
+      `M ${r(sx)},${r(sy)}` +
+      ` L ${r(jx - CHAMFER)},${r(sy)}` +
+      ` L ${r(jx + CHAMFER)},${r(ty)}` +
+      ` L ${r(tx)},${r(ty)}`;
+    return { path: d, junction, trunkAnchor, branchAnchor };
+  }
+
   const d =
     `M ${r(sx)},${r(sy)}` +
     chamferColumn(jx, sy, ty, CHAMFER) +
@@ -729,9 +1115,8 @@ export function chamferFanoutPath(
 // index 0 is always strictly left of the junction (the corridor clamps the
 // junction column a stub-plus-chamfer out), so the scan starts past it.
 //
-// Exported for the seating pass, whose branch seat slices the same leg, and
-// for the short-leg suite, which measures a member's leg extent with this
-// slice so its premise reads the leg the branch rule gates on.
+// Exported for the trunk suites, which read a member's own leg extent through
+// the same slice the drawn shape carries.
 export function branchLegAfterJunction(
   pts: ReadonlyArray<readonly [number, number]>,
   junction: { x: number; y: number },
@@ -751,26 +1136,54 @@ export function branchLegAfterJunction(
   return [[junction.x, junction.y] as const, ...rest];
 }
 
+// The sub-polyline a fan-in member's OWN chip draws on: the prefix up to the
+// trunk's junction point (source port -> column -> junction), the mirror of
+// branchLegAfterJunction above. Everything past the junction is the aggregate
+// leg every member of the trunk draws, so a chip allowed to slide there would
+// read as the trunk's total and bury the merge dot from the right. The scan
+// walks back from the end while the vertices sit right of the junction; the
+// junction is appended when the prefix does not already end on it (a shared-y
+// member draws a straight line with no vertex of its own at that x).
+//
+// Exported for the trunk suites, which read a member's own stub through the
+// same slice the drawn shape carries.
+export function stubBeforeJunction(
+  pts: ReadonlyArray<readonly [number, number]>,
+  junction: { x: number; y: number },
+): ReadonlyArray<readonly [number, number]> {
+  let i = pts.length - 1;
+  while (i > 0 && pts[i]![0] > junction.x) i--;
+  const head = pts.slice(0, i + 1);
+  const tail = head[head.length - 1];
+  if (
+    tail !== undefined &&
+    head.length >= 2 &&
+    Math.abs(tail[0] - junction.x) <= 1 &&
+    Math.abs(tail[1] - junction.y) <= 1
+  ) {
+    return head;
+  }
+  return [...head, [junction.x, junction.y] as const];
+}
+
 // The DRAWN edge: given one edge's drawn ports, its type and its stamped data,
 // the polyline the canvas paints and every anchor that rides it. The one place
 // that resolves the routing hints, the fan-out discriminant, the parse of `d`
-// into vertices, and the fan-out branch-leg slice --
-// so the renderers (endpoints from React Flow props) and the chip-seating
-// reconstruction (endpoints from drawnPortsOf) cannot disagree about any of it.
-// A new routing hint threaded through RoutingHints and routingHintsFromData
-// therefore reaches render and deconflictChipAnchors at once, by construction
-// rather than by convention.
+// into vertices, the chip boxes the anchor rule seats by, and the fan-out
+// branch-leg slice -- so the renderers (endpoints from React Flow props) and
+// the bookkeeping pass's reconstruction (endpoints from drawnPortsOf) cannot
+// disagree about any of it. A new routing hint threaded through RoutingHints
+// and routingHintsFromData therefore reaches render and deconflictChipAnchors
+// at once, by construction rather than by convention.
 //
-// Frame: DRAWN, never model. Comparing any of these coordinates against a model
-// rect is wrong by the port drift, exactly at the thresholds the ratchets live
-// on. `pts` is the parse of `path`, so no caller re-parses; every returned
-// anchor lies on `pts`. Pure, total, deterministic: an unrecognised type or
-// unstamped data yields the item shape with the builders' default hints, the
-// same way an unrecognised edge passes a routing pass through unchanged.
-//
-// What stays outside: the seat offsets (labelDx/Dy, fanoutBranch*),
-// the hide flags and the dot families are stamps on edge data. This answers
-// where the line and its anchors are, never where a chip ended up.
+// The anchors here ARE where the chips draw: no later pass moves, collapses or
+// hides one. Frame: DRAWN, never model. Comparing any of these coordinates
+// against a model rect is wrong by the port drift, exactly at the thresholds
+// the ratchets live on. `pts` is the parse of `path`, so no caller re-parses;
+// every returned anchor lies on a horizontal segment of `pts`. Pure, total,
+// deterministic: an unrecognised type or unstamped data yields the item shape
+// with the builders' default hints, the same way an unrecognised edge passes a
+// routing pass through unchanged.
 export type DrawnPorts = {
   sourceX: number;
   sourceY: number;
@@ -795,6 +1208,18 @@ export type DrawnEdge =
       junction: Anchor;
       trunkAnchor: Anchor;
       branchAnchor: Anchor;
+    }
+  | {
+      shape: "fanin";
+      path: string;
+      pts: ReadonlyArray<readonly [number, number]>;
+      // The member's OWN stretch, source port up to the merge dot. Named as
+      // the fan-out arm's branchPts is, because both answer the same question:
+      // which part of this polyline is not shared with the rest of the trunk.
+      branchPts: ReadonlyArray<readonly [number, number]>;
+      junction: Anchor;
+      trunkAnchor: Anchor;
+      branchAnchor: Anchor;
     };
 
 export function drawnEdge(
@@ -805,8 +1230,30 @@ export function drawnEdge(
   const hints = routingHintsFromData(data);
   const d = data as Record<string, unknown> | undefined;
 
+  if (edgeType === "bus" && d?.fanin === true) {
+    const fan = chamferFaninPath({
+      ...ports,
+      ...hints,
+      ...chipHalfWidthsOf(d),
+    });
+    const pts = parsePathPoints(fan.path);
+    return {
+      shape: "fanin",
+      path: fan.path,
+      pts,
+      branchPts: stubBeforeJunction(pts, fan.junction),
+      junction: fan.junction,
+      trunkAnchor: fan.trunkAnchor,
+      branchAnchor: fan.branchAnchor,
+    };
+  }
+
   if (edgeType === "bus" && d?.fanout === true) {
-    const fan = chamferFanoutPath({ ...ports, ...hints });
+    const fan = chamferFanoutPath({
+      ...ports,
+      ...hints,
+      ...chipHalfWidthsOf(d),
+    });
     const pts = parsePathPoints(fan.path);
     return {
       shape: "fanout",
@@ -819,7 +1266,11 @@ export function drawnEdge(
     };
   }
 
-  const [path, labelX, labelY] = chamferStepPath({ ...ports, ...hints });
+  const [path, labelX, labelY] = chamferStepPath({
+    ...ports,
+    ...hints,
+    ...chipHalfWidthsOf(d),
+  });
   return {
     shape: "item",
     path,

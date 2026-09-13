@@ -20,7 +20,8 @@
 import type { Edge } from "@xyflow/react";
 
 import { CHIP_BOX_HEIGHT, CHIP_BOX_WIDTH } from "./dimensions";
-import { edgeRate, type BusEdgeData } from "./busRouting";
+import type { BusEdgeData } from "./busRouting";
+import { edgeRate } from "./nodeGeometry";
 import { formatRatePerMin } from "../data/rate-format";
 
 // Chip half-extents, in graph units. A chip draws at its natural CSS size at
@@ -145,8 +146,9 @@ export function rateChipText(edge: Edge): ChipText | undefined {
 }
 
 // The chip text a fan-out trunk's AGGREGATE chip draws: the trunk total (falling
-// back to this member's own rate, as BusEdge does) plus the unit. Only seated on
-// a single-member trunk, where the total IS that member's rate (issue #39).
+// back to this member's own rate, as BusEdge does) plus the unit. Every trunk
+// draws one, on its owner; on a single-member trunk the total IS that member's
+// rate.
 export function aggregateChipText(edge: Edge): ChipText | undefined {
   const total = (edge.data as BusEdgeData | undefined)?.busTotalRate;
   return total === undefined
@@ -161,6 +163,24 @@ export function aggregateChipText(edge: Edge): ChipText | undefined {
 // BusEdge formats the same rate the same way.
 export function branchChipText(edge: Edge): ChipText | undefined {
   return rateChipText(edge);
+}
+
+// The half-widths of the two chips one TRUNK MEMBER can draw -- its trunk's
+// aggregate and its own member rate -- taken off the edge payload alone. The
+// path builders' anchor rule needs them (a chip is seated by its box, not by
+// its centre) and they hold `data`, not the Edge the two builders above take,
+// so this wraps the payload in the minimal edge shape rather than restating
+// either rule. An un-rateable payload falls back to the worst-case box exactly
+// as chipSeatHalfW does.
+export function chipHalfWidthsOf(data: unknown): {
+  aggHalfW: number;
+  memberHalfW: number;
+} {
+  const edge = { id: "", source: "", target: "", data } as Edge;
+  return {
+    aggHalfW: chipSeatHalfW(aggregateChipText(edge), false),
+    memberHalfW: chipSeatHalfW(branchChipText(edge), false),
+  };
 }
 
 // One row per chip an edge CAN draw, keyed by the FlowChip testId, carrying the

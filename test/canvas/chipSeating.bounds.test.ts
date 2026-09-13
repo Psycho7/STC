@@ -2,7 +2,7 @@
 // cards AND every drawn chip box, without inflating the frame beyond them --
 // an over-wide rect depresses the fit zoom (issue #16), an under-wide one clips
 // a chip at the viewport rim. These tests pin both directions: the rect equals
-// the exact union of the cards with each chip's reconstructed seated box.
+// the exact union of the cards with each chip's box at its RULE anchor.
 
 import { describe, it, expect } from "vitest";
 import Fraction from "fraction.js";
@@ -15,10 +15,12 @@ import {
   routingHintsFromData,
 } from "../../src/canvas/edgePath";
 import {
-  CHIP_BOX_HEIGHT,
-  CHIP_BOX_WIDTH,
-  HIDE_STALE_EPS,
-} from "../../src/canvas/dimensions";
+  aggregateChipText,
+  branchChipText,
+  chipSeatHalfW,
+  rateChipText,
+  CHIP_HALF_H,
+} from "../../src/canvas/chipMetrics";
 import {
   absoluteLeft,
   absoluteTop,
@@ -31,9 +33,6 @@ import { pack } from "../../src/data/load";
 import type { Plan } from "../../src/data/plan";
 import { solveFromPlan } from "../../src/pipeline/solveForRender";
 import { layoutSolved } from "../../src/canvas/layoutSolved";
-
-const CHIP_HALF_W = CHIP_BOX_WIDTH / 2;
-const CHIP_HALF_H = CHIP_BOX_HEIGHT / 2;
 
 // Two product cards a corridor apart: 148 x 78 at x = 0 and x = 600, so the
 // node box spans (0, 0) - (748, 78) and a forward step path runs between them.
@@ -48,187 +47,98 @@ const SX = NODE_W;
 const SY = NODE_H / 2;
 const TX = 600;
 const TY = NODE_H / 2;
+const PORTS = { sourceX: SX, sourceY: SY, targetX: TX, targetY: TY };
+
+// The union of the node box with one chip box.
+const framing = (
+  cx: number,
+  cy: number,
+  halfW: number,
+): { x: number; y: number; width: number; height: number } => {
+  const l = Math.min(0, cx - halfW);
+  const r = Math.max(TX + NODE_W, cx + halfW);
+  const t = Math.min(0, cy - CHIP_HALF_H);
+  const b = Math.max(NODE_H, cy + CHIP_HALF_H);
+  return { x: l, y: t, width: r - l, height: b - t };
+};
 
 describe("contentBounds: chip extents", () => {
-  it("frames the real seated chip box, not a global-max pad", () => {
-    // One item edge whose chip cascaded 900 units DOWN from its anchor. The
-    // frame must grow downward by that chip's box and nowhere else: the old
-    // global-max pad grew all four sides by 900, costing ~2.5x of fit zoom.
-    const data = { item: "ore", rate: new Fraction(1), labelDy: 900 };
+  it("frames the chip box its text draws, at its rule anchor", () => {
+    // A rate chip on a straight corridor: the anchor is the centre of the one
+    // horizontal run, and the framed box is the box THIS chip draws -- not the
+    // widest box a chip may ever take, which would inflate the frame.
+    const data = { item: "ore", rate: new Fraction(1) };
     const edges: Edge[] = [
       { id: "e1", type: "item", source: "a", target: "b", data },
     ];
     const [, lx, ly] = chamferStepPath({
-      sourceX: SX,
-      sourceY: SY,
-      targetX: TX,
-      targetY: TY,
+      ...PORTS,
       ...routingHintsFromData(data),
     });
-    const chipTop = ly + 900 - CHIP_HALF_H;
-    const chipBottom = ly + 900 + CHIP_HALF_H;
-    const boxLeft = Math.min(0, lx - CHIP_HALF_W);
-    const boxRight = Math.max(TX + NODE_W, lx + CHIP_HALF_W);
-    const boxTop = Math.min(0, chipTop);
-    const boxBottom = Math.max(NODE_H, chipBottom);
+    const halfW = chipSeatHalfW(rateChipText(edges[0]!), false);
 
-    expect(contentBounds(NODES, edges)).toEqual({
-      x: boxLeft,
-      y: boxTop,
-      width: boxRight - boxLeft,
-      height: boxBottom - boxTop,
-    });
-  });
-});
-
-// The two stamped hides (a fan-in member's rate chip, a fan-out member's branch
-// chip) are decided at a stamped anchor and never recomputed on drag, so both
-// renderers drop a hide whose stamp has drifted past HIDE_STALE_EPS from the
-// live anchor and draw the chip again. The fit rect has to agree with them:
-// framing a chip the canvas hides depresses the fit zoom for nothing, and
-// skipping one it draws clips that chip at the viewport rim.
-describe("contentBounds: stale hides frame the chip again", () => {
-  // The bare node box, the rect when no chip reaches outside the cards.
-  const NODE_BOX = {
-    x: 0,
-    y: 0,
-    width: TX + NODE_W,
-    height: NODE_H,
-  };
-
-  const faninEdges = (hiddenAtY: number): Edge[] => {
-    const data = {
-      item: "ore",
-      rate: new Fraction(1),
-      labelDy: 900,
-      faninChipHidden: true,
-      faninChipHiddenAtY: hiddenAtY,
-    };
-    return [{ id: "e1", type: "item", source: "a", target: "b", data }];
-  };
-
-  it("skips a fan-in member chip whose stamp still matches the live port", () => {
-    // Stamp == the live target port y: the hide holds, ItemEdge draws no chip,
-    // so the 900-unit cascade below the cards frames nothing.
-    expect(contentBounds(NODES, faninEdges(TY))).toEqual(NODE_BOX);
+    expect(contentBounds(NODES, edges)).toEqual(framing(lx, ly, halfW));
   });
 
-  it("frames a fan-in member chip whose stamp has drifted off the live port", () => {
-    // A drag moved the port exactly HIDE_STALE_EPS off the stamp. The renderer
-    // treats that as stale (its test is >=) and draws the chip, so the rect has
-    // to grow down to it.
-    const edges = faninEdges(TY + HIDE_STALE_EPS);
+  it("frames a chip that stands outside the cards", () => {
+    // The same edge with its target card dragged far below and an early bend
+    // column, which makes the run INTO that card the longest horizontal: the
+    // chip rides it, well under the node box, and the frame has to grow down to
+    // it or the chip clips at the viewport rim.
+    const data = { item: "ore", rate: new Fraction(1), bendX: 200 };
+    const edges: Edge[] = [
+      { id: "e1", type: "item", source: "a", target: "b", data },
+    ];
+    const low = productNode("b", 600, 900, NODE_W, NODE_H);
+    const nodes: RFAnyNode[] = [left, low];
     const [, lx, ly] = chamferStepPath({
-      sourceX: SX,
-      sourceY: SY,
-      targetX: TX,
-      targetY: TY,
-      ...routingHintsFromData(edges[0]!.data),
+      ...PORTS,
+      targetY: 900 + NODE_H / 2,
+      ...routingHintsFromData(data),
     });
-    const boxLeft = Math.min(0, lx - CHIP_HALF_W);
-    const boxRight = Math.max(TX + NODE_W, lx + CHIP_HALF_W);
-    const boxTop = Math.min(0, ly + 900 - CHIP_HALF_H);
-    const boxBottom = Math.max(NODE_H, ly + 900 + CHIP_HALF_H);
+    const halfW = chipSeatHalfW(rateChipText(edges[0]!), false);
+    const bounds = contentBounds(nodes, edges)!;
 
-    expect(contentBounds(NODES, edges)).toEqual({
-      x: boxLeft,
-      y: boxTop,
-      width: boxRight - boxLeft,
-      height: boxBottom - boxTop,
-    });
+    expect(ly).toBe(900 + NODE_H / 2);
+    expect(bounds.y + bounds.height).toBe(
+      Math.max(900 + NODE_H, ly + CHIP_HALF_H),
+    );
+    expect(bounds.x).toBe(Math.min(0, lx - halfW));
   });
 
-  // A non-owner fan-out member (busChipOwner false, so no aggregate chip is
-  // framed) whose branch chip cascaded 900 units below its leg.
-  const fanoutEdges = (hiddenAt: { x: number; y: number }): Edge[] => {
-    const data = {
+  it("frames both chips of a trunk owner and one of a plain member", () => {
+    const base = {
       item: "ore",
       rate: new Fraction(1),
       fanout: true,
-      busChipOwner: false,
-      fanoutBranchDy: 900,
-      fanoutBranchHidden: true,
-      fanoutBranchHiddenAt: hiddenAt,
+      busTotalRate: new Fraction(3),
+      busMemberCount: 3,
+      junctionX: 400,
     };
-    return [{ id: "e1", type: "bus", source: "a", target: "b", data }];
-  };
-  const branchAnchorOf = (edges: Edge[]): { x: number; y: number } =>
-    chamferFanoutPath({
-      sourceX: SX,
-      sourceY: SY,
-      targetX: TX,
-      targetY: TY,
-      ...routingHintsFromData(edges[0]!.data),
-    }).branchAnchor;
-
-  it("skips a fan-out branch chip whose stamp still matches the live anchor", () => {
-    const live = branchAnchorOf(fanoutEdges({ x: 0, y: 0 }));
-    expect(contentBounds(NODES, fanoutEdges(live))).toEqual(NODE_BOX);
-  });
-
-  it("frames a fan-out branch chip whose stamp has drifted off the live anchor", () => {
-    // Drift on x alone is enough: BusEdge's rule is per-axis and strict, so a
-    // gap of exactly HIDE_STALE_EPS is already stale.
-    const live = branchAnchorOf(fanoutEdges({ x: 0, y: 0 }));
-    const edges = fanoutEdges({ x: live.x + HIDE_STALE_EPS, y: live.y });
-    const cy = live.y + 900;
-    const boxLeft = Math.min(0, live.x - CHIP_HALF_W);
-    const boxRight = Math.max(TX + NODE_W, live.x + CHIP_HALF_W);
-    const boxTop = Math.min(0, cy - CHIP_HALF_H);
-    const boxBottom = Math.max(NODE_H, cy + CHIP_HALF_H);
-
-    expect(contentBounds(NODES, edges)).toEqual({
-      x: boxLeft,
-      y: boxTop,
-      width: boxRight - boxLeft,
-      height: boxBottom - boxTop,
+    const edgeWith = (owner: boolean): Edge => ({
+      id: "e1",
+      type: "bus",
+      source: "a",
+      target: "b",
+      data: { ...base, busChipOwner: owner },
     });
-  });
-
-  // The item phase's own hide, stamped at the label anchor rather than a port y
-  // and dropped per axis like the branch one. The displaced offset is left on
-  // the edge so the stale arm has a cascade to frame.
-  const displacedEdges = (hiddenAt: { x: number; y: number }): Edge[] => {
-    const data = {
-      item: "ore",
-      rate: new Fraction(1),
-      labelDy: 900,
-      itemChipHidden: true,
-      itemChipHiddenAt: hiddenAt,
-    };
-    return [{ id: "e1", type: "item", source: "a", target: "b", data }];
-  };
-  const labelAnchorOf = (edges: Edge[]): { x: number; y: number } => {
-    const [, lx, ly] = chamferStepPath({
-      sourceX: SX,
-      sourceY: SY,
-      targetX: TX,
-      targetY: TY,
-      ...routingHintsFromData(edges[0]!.data),
+    const fan = chamferFanoutPath({
+      ...PORTS,
+      ...routingHintsFromData(base),
+      aggHalfW: chipSeatHalfW(aggregateChipText(edgeWith(true)), false),
+      memberHalfW: chipSeatHalfW(branchChipText(edgeWith(true)), false),
     });
-    return { x: lx, y: ly };
-  };
+    const memberHalfW = chipSeatHalfW(branchChipText(edgeWith(true)), false);
+    const aggHalfW = chipSeatHalfW(aggregateChipText(edgeWith(true)), false);
 
-  it("skips a displaced item chip whose stamp still matches the live anchor", () => {
-    const live = labelAnchorOf(displacedEdges({ x: 0, y: 0 }));
-    expect(contentBounds(NODES, displacedEdges(live))).toEqual(NODE_BOX);
-  });
-
-  it("frames a displaced item chip whose stamp has drifted off the anchor", () => {
-    const live = labelAnchorOf(displacedEdges({ x: 0, y: 0 }));
-    const edges = displacedEdges({ x: live.x + HIDE_STALE_EPS, y: live.y });
-    const cy = live.y + 900;
-    const boxLeft = Math.min(0, live.x - CHIP_HALF_W);
-    const boxRight = Math.max(TX + NODE_W, live.x + CHIP_HALF_W);
-    const boxTop = Math.min(0, cy - CHIP_HALF_H);
-    const boxBottom = Math.max(NODE_H, cy + CHIP_HALF_H);
-
-    expect(contentBounds(NODES, edges)).toEqual({
-      x: boxLeft,
-      y: boxTop,
-      width: boxRight - boxLeft,
-      height: boxBottom - boxTop,
-    });
+    // The member chip alone on a non-owner.
+    expect(contentBounds(NODES, [edgeWith(false)])).toEqual(
+      framing(fan.branchAnchor.x, fan.branchAnchor.y, memberHalfW),
+    );
+    // The owner adds the aggregate box on the trunk run.
+    const owned = contentBounds(NODES, [edgeWith(true)])!;
+    const agg = framing(fan.trunkAnchor.x, fan.trunkAnchor.y, aggHalfW);
+    expect(owned.x).toBe(Math.min(agg.x, fan.branchAnchor.x - memberHalfW));
   });
 });
 

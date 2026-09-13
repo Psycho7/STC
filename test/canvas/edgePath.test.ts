@@ -7,8 +7,10 @@ import { describe, it, expect } from "vitest";
 
 import {
   branchLegAfterJunction,
+  cardClearRunAnchor,
   chamferStepPath,
   chamferFanoutPath,
+  chamferFaninPath,
   drawnEdge,
   parsePathPoints,
   pathPointAtPts,
@@ -71,12 +73,13 @@ describe("chamferStepPath", () => {
       targetY: 100,
     });
     expect(d).toBe("M 0,0 L 92,0 L 100,8 L 100,92 L 108,100 L 200,100");
-    expect(lx).toBe(100);
-    expect(ly).toBe(50);
+    // Rule anchor: the centre of the longest horizontal run. The symmetric step
+    // draws two runs of 92, and their centres are the same distance from the
+    // arc midpoint (100, 50), so the tie falls to the first -- the source-side
+    // run at (46, 0).
+    expect(lx).toBe(46);
+    expect(ly).toBe(0);
     expectRightwardFinish(d);
-    // Bend column sits inside the corridor margins.
-    expect(lx).toBeGreaterThan(PORT_STUB + CHAMFER);
-    expect(lx).toBeLessThan(200 - PORT_STUB - CHAMFER);
   });
 
   it("honors an explicit bendX inside the corridor", () => {
@@ -88,18 +91,17 @@ describe("chamferStepPath", () => {
       bendX: 60,
     });
     expect(d).toBe("M 0,0 L 52,0 L 60,8 L 60,92 L 68,100 L 200,100");
-    // Clear-segment anchor: the bend-column vertical (x = bendX = 60) at its run
-    // midpoint y = (sourceY + targetY) / 2 = 50, on the segment 60,8 -> 60,92.
-    expect(lx).toBe(60);
-    expect(ly).toBe(50);
+    // An early bend leaves the TARGET-side run the longest (68..200 = 132
+    // against 0..52 = 52), so the chip rides its centre at (134, 100).
+    expect(lx).toBe(134);
+    expect(ly).toBe(100);
     expectRightwardFinish(d);
   });
 
-  it("anchors the label on the bend-column vertical even when the bend is early", () => {
-    // bendX 100 pushes the bend far left of the 600-wide corridor, so the old
-    // geometric midpoint drifted onto the long target-side horizontal rail
-    // (crossing card rows). The clear-segment anchor stays on the bend vertical
-    // (x = 100) at its run midpoint y = (0 + 40) / 2 = 20, on 100,8 -> 100,32.
+  it("anchors on the long target-side run when the bend is early", () => {
+    // bendX 100 pushes the bend far left of the 600-wide corridor: the run into
+    // the target (108..600 = 492) dwarfs the source stub (0..92), so the chip
+    // stands at its centre (354, 40).
     const [d, lx, ly] = chamferStepPath({
       sourceX: 0,
       sourceY: 0,
@@ -108,8 +110,8 @@ describe("chamferStepPath", () => {
       bendX: 100,
     });
     expect(d).toBe("M 0,0 L 92,0 L 100,8 L 100,32 L 108,40 L 600,40");
-    expect(lx).toBe(100);
-    expect(ly).toBe(20);
+    expect(lx).toBe(354);
+    expect(ly).toBe(40);
     expectRightwardFinish(d);
   });
 
@@ -122,8 +124,10 @@ describe("chamferStepPath", () => {
     });
     // No vertical segment: horizontal, diagonal, horizontal into target.
     expect(d).toBe("M 0,0 L 92,0 L 108,10 L 200,10");
-    expect(lx).toBe(100);
-    expect(ly).toBe(5);
+    // Two 92-long runs again, tied on distance to the arc midpoint: the
+    // source-side one takes it.
+    expect(lx).toBe(46);
+    expect(ly).toBe(0);
     expectRightwardFinish(d);
   });
 
@@ -144,9 +148,10 @@ describe("chamferStepPath", () => {
       jogDescentX: 276,
     });
     expect(d).toBe("M 0,0 L 142,0 L 158,12 L 268,12 L 284,10 L 300,10");
-    // Clear-segment anchor: the jog-descent vertical's midpoint.
-    expect(lx).toBe(276);
-    expect(ly).toBe(11);
+    // The anchor is the rule's, not the jog's: the centre of the longest
+    // horizontal run of the drawn shape, which here is the source run 0..142.
+    expect(lx).toBe(71);
+    expect(ly).toBe(0);
     expectRightwardFinish(d);
     // Without the hint the same edge keeps its diagonal, byte-identical.
     const [base] = chamferStepPath({
@@ -161,13 +166,11 @@ describe("chamferStepPath", () => {
 
   it("keeps the label anchor continuous across the small-dy branch boundary", () => {
     // The forward step flips between the diagonal (small-dy) and the full
-    // vertical-run shape at |dy| = 2 * chamfer. Live handle coordinates and the
-    // seating pass's offline port model can disagree by a pixel, so a dy that
-    // straddles the boundary must not teleport the anchor: the render applies
-    // the seat's labelDx/labelDy to ITS anchor, and an anchor jump of hundreds
-    // of units strands the chip inside a card (the food-tundra 30/min defect).
-    // Both sides of the boundary anchor on the bend column at the y midpoint --
-    // the diagonal's own midpoint, so the anchor stays on the path.
+    // vertical-run shape at |dy| = 2 * chamfer. Live handle coordinates and an
+    // offline port model can disagree by a pixel, so a dy that straddles the
+    // boundary must not teleport the anchor. One rule covers both shapes: the
+    // long run into the target wins on each side, and it moves by the pixel the
+    // target row moved.
     const base = {
       sourceX: 0,
       sourceY: 0,
@@ -179,17 +182,15 @@ describe("chamferStepPath", () => {
       ...base,
       targetY: 2 * CHAMFER + 1,
     });
-    expect(atX).toBe(60);
-    expect(atY).toBe(CHAMFER);
-    expect(pastX).toBe(60);
-    expect(pastY).toBe(CHAMFER + 0.5);
+    expect(atX).toBe(334);
+    expect(atY).toBe(2 * CHAMFER);
+    expect(pastX).toBe(334);
+    expect(pastY).toBe(2 * CHAMFER + 1);
   });
 
-  it("anchors a same-rail straight line on the bend column", () => {
-    // The same continuity across the sy === ty boundary: a one-pixel port-model
-    // disagreement flips between the straight line and the small-dy diagonal,
-    // so the straight line anchors at the bend column too (on the line by
-    // construction), not the geometric midpoint.
+  it("anchors a same-rail straight line on its one run", () => {
+    // A straight line draws a single horizontal run whatever the bend hint
+    // says, so the chip stands at its centre.
     const [d, lx, ly] = chamferStepPath({
       sourceX: 0,
       sourceY: 50,
@@ -198,16 +199,16 @@ describe("chamferStepPath", () => {
       bendX: 60,
     });
     expect(d).toBe("M 0,50 L 600,50");
-    expect(lx).toBe(60);
+    expect(lx).toBe(300);
     expect(ly).toBe(50);
   });
 
   it("keeps the backward anchor continuous across the apex-rail boundary", () => {
     // Backward mirror of the small-dy continuity: within 2 * CHAMFER of the
-    // source level the rail collapses to a single apex bevel. The anchor stays
-    // on the rail's horizontal run (labelX = xr - CHAMFER - PORT_STUB = 200 -
-    // CHAMFER, at railY), shared with the full rail's anchor rule, so it does not
-    // teleport across the branch boundary: x is identical and y tracks railY.
+    // source level the rail collapses to a single apex bevel. The rail run
+    // (-16..216 at railY) is the longest horizontal on both sides of the
+    // boundary, so the anchor does not teleport across it: x is identical and y
+    // tracks railY.
     const [, atX, atY] = chamferStepPath({
       sourceX: 200,
       sourceY: 0,
@@ -222,9 +223,9 @@ describe("chamferStepPath", () => {
       targetY: 100,
       railY: 2 * CHAMFER + 1,
     });
-    expect(atX).toBe(200 - CHAMFER);
+    expect(atX).toBe(100);
     expect(atY).toBe(2 * CHAMFER);
-    expect(pastX).toBe(200 - CHAMFER);
+    expect(pastX).toBe(100);
     expect(pastY).toBe(2 * CHAMFER + 1);
   });
 
@@ -238,8 +239,9 @@ describe("chamferStepPath", () => {
       targetY: 100,
     });
     expect(d).toBe("M 0,0 L 12,0 L 16,4 L 16,96 L 20,100 L 32,100");
-    expect(lx).toBe(16);
-    expect(ly).toBe(50);
+    // Both horizontals are 12 long; the source-side one wins the tie.
+    expect(lx).toBe(6);
+    expect(ly).toBe(0);
     expectRightwardFinish(d);
   });
 
@@ -253,21 +255,18 @@ describe("chamferStepPath", () => {
     expect(d).toBe(
       "M 200,0 L 216,0 L 224,8 L 224,42 L 216,50 L -16,50 L -24,58 L -24,92 L -16,100 L 0,100",
     );
-    // Clear-segment anchor: the rail's horizontal run (at railY = 50), one stub
-    // in from the source-side corner (xr - CHAMFER = 216), so labelX = 216 -
-    // PORT_STUB = 192, on the segment 216,50 -> -16,50.
-    expect(lx).toBe(192);
+    // Rule anchor: the rail's leftward run at railY = 50 is by far the longest
+    // horizontal (-16..216), so the chip stands at its centre.
+    expect(lx).toBe(100);
     expect(ly).toBe(50);
     expect(Number.isFinite(lx)).toBe(true);
     expect(Number.isFinite(ly)).toBe(true);
     expectRightwardFinish(d);
   });
 
-  it("clamps a short backward rail's anchor to the run midpoint, on the line", () => {
-    // Run length (railRunSourceX - railRunTargetX = sx - tx + 32 = 42) is below
-    // 2*PORT_STUB, so the one-stub-in anchor (railRunSourceX - PORT_STUB = 192)
-    // would fall left of the midpoint; the Math.max fallback clamps labelX to
-    // the midpoint (195), which still lies on the drawn horizontal run.
+  it("anchors a short backward rail on its own run, on the line", () => {
+    // The rail run is only 42 long here (174..216 at railY) but still the
+    // longest horizontal, so the chip centres on it at 195.
     const [d, lx, ly] = chamferStepPath({
       sourceX: 200,
       sourceY: 0,
@@ -294,10 +293,9 @@ describe("chamferStepPath", () => {
     expect(d).toBe(
       "M 200,0 L 216,0 L 224,8 L 224,42 L 216,50 L -32,50 L -40,58 L -40,92 L -32,100 L 0,100",
     );
-    // Clear-segment anchor: the rail's horizontal run, source side. entryX only
-    // moves the LEFT rail column (the run's target-side end), so the source-side
-    // anchor is unchanged from the no-hint case: (192, 50).
-    expect(lx).toBe(192);
+    // entryX moves the run's target-side end from -16 to -32, so the run's
+    // centre follows it from 100 to 92.
+    expect(lx).toBe(92);
     expect(ly).toBe(50);
     expectRightwardFinish(d);
   });
@@ -443,10 +441,10 @@ describe("chamferStepPath", () => {
     expectRightwardFinish(d);
   });
 
-  it("replaces the bend column with srcColX and anchors on that vertical", () => {
+  it("replaces the bend column with srcColX", () => {
     // srcColX (jogForwardLegs, blocked source leg) replaces the bend column
-    // outright. The forward step leaves sy at srcColX = 40, and the clear
-    // segment anchor rides that vertical at its run midpoint (0 + 100) / 2 = 50.
+    // outright: the forward step leaves sy at srcColX = 40, which makes the run
+    // into the target (48..200) the longest horizontal.
     const [d, lx, ly] = chamferStepPath({
       sourceX: 0,
       sourceY: 0,
@@ -455,8 +453,8 @@ describe("chamferStepPath", () => {
       srcColX: 40,
     });
     expect(d).toBe("M 0,0 L 32,0 L 40,8 L 40,92 L 48,100 L 200,100");
-    expect(lx).toBe(40);
-    expect(ly).toBe(50);
+    expect(lx).toBe(124);
+    expect(ly).toBe(100);
     expectRightwardFinish(d);
   });
 
@@ -473,9 +471,9 @@ describe("chamferStepPath", () => {
       chamferBudget: 24,
     });
     expect(d).toBe("M 0,0 L 76,0 L 100,24 L 100,76 L 124,100 L 200,100");
-    // Anchor still on the bend-column vertical run midpoint.
-    expect(lx).toBe(100);
-    expect(ly).toBe(50);
+    // Both runs measure 76: the source-side one takes the tie.
+    expect(lx).toBe(38);
+    expect(ly).toBe(0);
     expectRightwardFinish(d);
     // Each bevel leg equals MAX_CHAMFER, not the base CHAMFER.
     const pts = parsePoints(d);
@@ -556,8 +554,8 @@ describe("chamferStepPath", () => {
   it("uses srcColX UNCLAMPED, past the corridor margin", () => {
     // The default bend clamps to [sx+stub+chamfer, tx-stub-chamfer] = [32, 168].
     // srcColX = 10 sits left of that margin; the routing pass proved it clear, so
-    // it must be used as-is, not clamped back to 32. The bend vertical (and its
-    // anchor) land at x = 10.
+    // it must be used as-is, not clamped back to 32. The bend vertical lands at
+    // x = 10, leaving 18..200 as the longest run.
     const [d, lx] = chamferStepPath({
       sourceX: 0,
       sourceY: 0,
@@ -566,7 +564,7 @@ describe("chamferStepPath", () => {
       srcColX: 10,
     });
     expect(d).toBe("M 0,0 L 2,0 L 10,8 L 10,92 L 18,100 L 200,100");
-    expect(lx).toBe(10);
+    expect(lx).toBe(109);
     expectRightwardFinish(d);
   });
 });
@@ -588,10 +586,12 @@ describe("chamferFanoutPath", () => {
     // (jx, sy) itself is cut away by the chamfer, so a dot there would float
     // between the bends.
     expect(junction).toEqual({ x: 100 - CHAMFER, y: 0 });
-    // Aggregate chip rides the midpoint of the dot-terminated trunk run; the
-    // branch chip the branch mid.
-    expect(trunkAnchor).toEqual({ x: (100 - CHAMFER) / 2, y: 0 });
-    expect(branchAnchor).toEqual({ x: 100, y: 50 });
+    // Aggregate chip stands on the trunk run, its box a port stub out of the
+    // source port -- here the run is short, so the split dot's keep-off pulls it
+    // in to 92 - (DOT_KEEPOFF + 60). The member's chip stands on its LAST
+    // horizontal leg, its box a port stub back from the target port.
+    expect(trunkAnchor).toEqual({ x: 16, y: 0 });
+    expect(branchAnchor).toEqual({ x: 116, y: 100 });
     expectRightwardFinish(path);
   });
 
@@ -653,7 +653,10 @@ describe("chamferFanoutPath", () => {
       junctionX: 100,
     });
     expect(path).toBe("M 0,50 L 200,50");
-    expect(branchAnchor).toEqual({ x: 100, y: 50 });
+    // The member's leg starts one chamfer past the column; on a shared-y member
+    // the split dot lies on that same line, so its keep-off pushes the chip
+    // right of the port-stub seat.
+    expect(branchAnchor).toEqual({ x: 168, y: 50 });
     expectRightwardFinish(path);
   });
 
@@ -775,5 +778,210 @@ describe("drawnEdge", () => {
     for (const anchor of [fan.junction, fan.trunkAnchor, fan.branchAnchor]) {
       expect(distanceToPolyline(fan.path, anchor)).toBeLessThan(ON_LINE);
     }
+  });
+});
+
+// The chip anchor of every TRUNK shape, including the two degenerate arms each
+// builder guards (a shared-y straight member, a small-dy diagonal). The rule is
+// one sentence per chip -- the aggregate's box a port stub out of the port it
+// labels, the member's box a port stub back from its own port, neither closer
+// to the junction dot than the column-side pad -- and these pin it on each arm,
+// at the default (worst-case) chip box.
+describe("trunk chip anchors, per drawn shape", () => {
+  const PORTS = {
+    sourceX: 0,
+    sourceY: 0,
+    targetX: 200,
+    targetY: 100,
+  } as const;
+  const JX = 100;
+  // The default reserve when a caller hands in no chip box: CHIP_BOX_WIDTH / 2.
+  const HALF_W = 60;
+
+  it("seats a branching fan-out member's two chips", () => {
+    const fan = chamferFanoutPath({ ...PORTS, junctionX: JX });
+    // The trunk run (0 .. dot at 92) cannot hold the stub AND the box, so the
+    // dot's keep-off decides: the box ends DOT_KEEPOFF short of the dot.
+    expect(fan.trunkAnchor).toEqual({ x: 92 - 16 - HALF_W, y: 0 });
+    // The member's leg (108 .. 200) is measured from the target port.
+    expect(fan.branchAnchor).toEqual({ x: 200 - PORT_STUB - HALF_W, y: 100 });
+  });
+
+  it("seats a small-dy fan-out member's two chips on the two rows", () => {
+    const fan = chamferFanoutPath({
+      ...PORTS,
+      targetY: 2 * CHAMFER,
+      junctionX: JX,
+    });
+    expect(fan.path).toBe("M 0,0 L 92,0 L 108,16 L 200,16");
+    expect(fan.trunkAnchor).toEqual({ x: 92 - 16 - HALF_W, y: 0 });
+    expect(fan.branchAnchor).toEqual({
+      x: 200 - PORT_STUB - HALF_W,
+      y: 2 * CHAMFER,
+    });
+  });
+
+  it("seats a branching fan-in member's two chips", () => {
+    const fan = chamferFaninPath({ ...PORTS, junctionX: JX });
+    // The aggregate leg runs from the merge dot (108) into the port: too short
+    // for the stub seat, so the dot's keep-off decides from the other side.
+    expect(fan.trunkAnchor).toEqual({ x: 108 + 16 + HALF_W, y: 100 });
+    // The member's own stub runs out of the source port to the column.
+    expect(fan.branchAnchor).toEqual({ x: PORT_STUB + HALF_W, y: 0 });
+  });
+
+  it("seats a shared-y fan-in member's two chips on one line", () => {
+    const fan = chamferFaninPath({
+      ...PORTS,
+      sourceY: 50,
+      targetY: 50,
+      junctionX: JX,
+    });
+    expect(fan.path).toBe("M 0,50 L 200,50");
+    expect(fan.trunkAnchor).toEqual({ x: 108 + 16 + HALF_W, y: 50 });
+    // Both chips share the row here, so the member's box also keeps off the
+    // merge dot -- it gives up its port-stub seat to do it.
+    expect(fan.branchAnchor).toEqual({ x: 108 - 16 - HALF_W, y: 50 });
+  });
+
+  it("seats a small-dy fan-in member's two chips", () => {
+    const fan = chamferFaninPath({
+      ...PORTS,
+      targetY: 2 * CHAMFER,
+      junctionX: JX,
+    });
+    expect(fan.path).toBe("M 0,0 L 92,0 L 108,16 L 200,16");
+    expect(fan.trunkAnchor).toEqual({ x: 108 + 16 + HALF_W, y: 2 * CHAMFER });
+    expect(fan.branchAnchor).toEqual({ x: PORT_STUB + HALF_W, y: 0 });
+  });
+
+  it("seats a DUAL member on the run between the two columns", () => {
+    // A fan-out member whose target port also carries a fan-in trunk hands its
+    // flow over at the fan-in column: everything right of it is the aggregate
+    // leg the fan-in members share, so this member's own stretch is the run
+    // between the columns and its chip rides that run's middle.
+    const fan = chamferFanoutPath({
+      ...PORTS,
+      junctionX: JX,
+      faninJoinX: 160,
+    });
+    expect(fan.branchAnchor).toEqual({ x: (JX + CHAMFER + 168) / 2, y: 100 });
+    // The trunk chip is unaffected by the hand-over.
+    expect(fan.trunkAnchor).toEqual(
+      chamferFanoutPath({ ...PORTS, junctionX: JX }).trunkAnchor,
+    );
+  });
+
+  it("scales both chips down to the box they actually draw", () => {
+    // The anchors are measured from the chip BOX, so a narrow chip fits its
+    // port-stub seat on the very trunk run that pushed the worst-case box back
+    // onto the dot's keep-off.
+    const narrow = chamferFanoutPath({
+      ...PORTS,
+      junctionX: JX,
+      aggHalfW: 20,
+      memberHalfW: 20,
+    });
+    expect(narrow.trunkAnchor.x).toBe(PORT_STUB + 20);
+    expect(narrow.branchAnchor.x).toBe(200 - PORT_STUB - 20);
+  });
+});
+
+// The item-shape anchor as drawnEdge answers it -- the seam the renderers and
+// the bookkeeping pass both draw through. Three rules, plus the card-clear
+// stamp's gate.
+describe("drawnEdge: the item chip anchor", () => {
+  const PORTS = {
+    sourceX: 0,
+    sourceY: 0,
+    targetX: 1000,
+    targetY: 400,
+  } as const;
+  const HALF_W = 60;
+
+  const anchorOf = (data: Record<string, unknown>): [number, number] => {
+    const drawn = drawnEdge(PORTS, "item", data);
+    if (drawn.shape !== "item") throw new Error("expected the item shape");
+    return [drawn.labelAnchor.x, drawn.labelAnchor.y];
+  };
+
+  it("puts a far fan-in member one stub out of its source port", () => {
+    expect(anchorOf({ item: "s", bendX: 900, faninColumn: true })).toEqual([
+      PORT_STUB + HALF_W,
+      PORTS.sourceY,
+    ]);
+  });
+
+  it("puts a far fan-out member one stub back from its target port", () => {
+    expect(anchorOf({ item: "s", bendX: 100, fanoutColumn: true })).toEqual([
+      PORTS.targetX - PORT_STUB - HALF_W,
+      PORTS.targetY,
+    ]);
+  });
+
+  it("reads a DUAL far member as its fan-out side", () => {
+    const dual = anchorOf({
+      item: "s",
+      bendX: 100,
+      fanoutColumn: true,
+      faninColumn: true,
+    });
+    expect(dual).toEqual(
+      anchorOf({ item: "s", bendX: 100, fanoutColumn: true }),
+    );
+  });
+
+  it("puts every other item edge on the longest run's centre", () => {
+    const [, plainY] = anchorOf({ item: "s", bendX: 500 });
+    // The two horizontals of a symmetric step are equal, so the tie goes to the
+    // run nearest the arc midpoint; either way the anchor is a run centre, not
+    // a port seat.
+    expect([PORTS.sourceY, PORTS.targetY]).toContain(plainY);
+  });
+
+  it("takes a stamped card-clear seat only while it sits on a run", () => {
+    const [ruleX, ruleY] = anchorOf({ item: "s", bendX: 500 });
+    const slid = anchorOf({ item: "s", bendX: 500, chipX: 300, chipY: ruleY });
+    expect(slid).toEqual([300, ruleY]);
+    // Off every horizontal run -- what a drag in flight leaves behind -- the
+    // stamp is ignored and the rule seat stands.
+    expect(
+      anchorOf({ item: "s", bendX: 500, chipX: 300, chipY: ruleY + 37 }),
+    ).toEqual([ruleX, ruleY]);
+  });
+});
+
+describe("cardClearRunAnchor", () => {
+  // A two-run polyline: the long run at y 0 from x 0 to 400, then down to y 100
+  // and a short run to 500.
+  const PTS = parsePathPoints("M 0,0 L 400,0 L 400,100 L 500,100");
+  const HALF_W = 50;
+
+  it("keeps the run centre when no card is in the way", () => {
+    expect(cardClearRunAnchor(PTS, HALF_W, [])).toEqual([200, 0]);
+  });
+
+  it("slides the box along its run to the nearer clear side", () => {
+    // A card under the run centre: the box clears it on the left at 150 - 50
+    // and on the right at 260 + 50, and the left move is the shorter one.
+    const card = { left: 150, right: 260, top: -20, bottom: 20 };
+    expect(cardClearRunAnchor(PTS, HALF_W, [card])).toEqual([100, 0]);
+  });
+
+  it("falls to the next-longest run when nothing on this one clears", () => {
+    // A card spanning the whole long run: no seat on it clears, so the chip
+    // takes the short run at y 100 instead.
+    const card = { left: -100, right: 600, top: -20, bottom: 20 };
+    expect(cardClearRunAnchor(PTS, HALF_W, [card])).toEqual([450, 100]);
+  });
+
+  it("keeps the longest run's centre when no run clears at all", () => {
+    const wall = { left: -1000, right: 1000, top: -1000, bottom: 1000 };
+    expect(cardClearRunAnchor(PTS, HALF_W, [wall])).toEqual([200, 0]);
+  });
+
+  it("ignores a card the chip row cannot reach", () => {
+    const below = { left: 150, right: 260, top: 200, bottom: 300 };
+    expect(cardClearRunAnchor(PTS, HALF_W, [below])).toEqual([200, 0]);
   });
 });

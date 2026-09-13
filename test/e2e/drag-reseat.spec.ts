@@ -1,6 +1,8 @@
 // App re-seats every chip when a node drag ends. Drag the default plan's ore
-// input card down so its legs change shape: without the re-seat the stale
-// dogleg offsets would park the chips off their lines.
+// input card down so its legs change shape, then assert the placement rule
+// again on the plan that landed: every chip standing on a horizontal run of
+// its own new polyline, and no chip over its own card's port furniture. A
+// stale anchor shows as a chip off the run it was measured on.
 import { test, expect, type Page } from "@playwright/test";
 import {
   CENSUS_ZOOM,
@@ -10,7 +12,7 @@ import {
 import { SCENARIOS, scenarioHash } from "./scenarios";
 import {
   auditChipPortCover,
-  auditChipSeatValidity,
+  auditChipsOnOwnPath,
   toRawEdges,
   type ChipRect,
   type PortFurnitureRect,
@@ -18,6 +20,35 @@ import {
 import { collectGeometry } from "./collect";
 
 const DRAGGED_NODE = "u:in:copper_ore";
+
+// Park the dragged card in the middle of the pane before reaching for it. The
+// census camera centres the PLAN, which on a wide plan can leave this card
+// under the side panel, and a pointer-down there lands on the panel instead of
+// on the card: the drag then never starts. The zoom is unchanged, so every
+// chip the audits read is the same chip at the same size.
+async function centreOnDraggedCard(page: Page): Promise<void> {
+  await page.evaluate(
+    ([nodeId, zoom]: [string, number]) => {
+      const pane = document
+        .querySelector<HTMLElement>(".react-flow")!
+        .getBoundingClientRect();
+      const vp = document.querySelector<HTMLElement>(".react-flow__viewport")!;
+      const m = new DOMMatrixReadOnly(getComputedStyle(vp).transform);
+      const card = document
+        .querySelector<HTMLElement>(`.react-flow__node[data-id="${nodeId}"]`)!
+        .getBoundingClientRect();
+      const worldCx = (card.x + card.width / 2 - pane.x - m.e) / m.a;
+      const worldCy = (card.y + card.height / 2 - pane.y - m.f) / m.a;
+      window.__stcExam!.setViewport({
+        x: pane.width / 2 - worldCx * zoom,
+        y: pane.height / 2 - worldCy * zoom,
+        zoom,
+      });
+    },
+    [DRAGGED_NODE, CENSUS_ZOOM] as [string, number],
+  );
+  await waitForStableViewport(page);
+}
 // Far enough that every leg off the card re-bends, short enough to stay clear
 // of the card below it.
 const DRAG_DY_GRAPH = 60;
@@ -40,7 +71,7 @@ async function seatAudits(page: Page) {
       rawEdges,
       geom.portFurniture as PortFurnitureRect[],
     ),
-    invalid: auditChipSeatValidity(chips, geom.edges),
+    offRule: auditChipsOnOwnPath(chips, rawEdges),
   };
 }
 
@@ -56,11 +87,13 @@ for (const drag of DRAGS) {
       locale: "en",
     });
 
+    await centreOnDraggedCard(page);
+
     const before = await seatAudits(page);
     expect(before.portCover, "laid-out plan covers no port").toEqual([]);
     expect(
-      before.invalid,
-      "laid-out plan seats every chip on its line",
+      before.offRule,
+      "laid-out plan stands every chip on a horizontal run of its own line",
     ).toEqual([]);
 
     // Drag the tap by its top strip, in steps so React Flow sees a real drag
@@ -94,8 +127,8 @@ for (const drag of DRAGS) {
     expect(after.chipCount).toBe(before.chipCount);
     expect(after.portCover, "no chip covers a port after the drag").toEqual([]);
     expect(
-      after.invalid,
-      "every chip sits on its own line after the drag",
+      after.offRule,
+      "every chip stands on a horizontal run of its own line after the drag",
     ).toEqual([]);
   });
 }

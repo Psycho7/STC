@@ -154,7 +154,7 @@ export type SceneDoc = {
   // could not achieve it fails rather than writing this field, so a reader may
   // treat it as a measurement and not as a request.
   targetZoom: number;
-  lodGates: { labelMinZoom: number; chipIconOnlyMaxZoom: number };
+  lodGates: { labelMinZoom: number; iconOnlyMaxZoom: number };
   tiles: TileRecord[];
   elements: Record<string, SceneElementRecord>;
   edges: Array<{ id: string; d: string }>;
@@ -180,9 +180,8 @@ export type SceneDoc = {
 // The boundary eps the audits default to, passed explicitly to every audit call
 // below and to the chip-resolution test that repeats one of them, so the
 // agreement is in the code and not in two literals that happen to match.
-// auditChipsOnOwnPath is the exception: its third parameter is an off-path
-// DISTANCE tolerance in world units, not a boundary eps, so it keeps its own
-// default.
+// auditChipsOnOwnPath is the exception: its third parameter is a DISTANCE
+// tolerance in world units, not a boundary eps, so it keeps its own default.
 //
 // Not used when clipping a footprint. The eps exists to ignore a graze of a box
 // boundary while DETECTING; a footprint is a PLACE, and shrinking the place by
@@ -407,7 +406,7 @@ export function measurementsFor(
         kind: "chip-off-own-path",
         elementIds: idList(chipId, v.chipEdgeId),
         footprint: chipRect,
-        detail: `label chip of ${v.chipEdgeId} ("${v.chipLabel}") sits ${v.distance.toFixed(1)} world units off its own polyline`,
+        detail: `chip ${v.chipId} of ${v.chipEdgeId} ("${v.chipLabel}") sits ${v.distance.toFixed(1)} world units off every horizontal run of its own polyline`,
       });
     }
   }

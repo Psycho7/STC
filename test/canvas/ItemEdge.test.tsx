@@ -7,7 +7,7 @@ import ItemEdge, {
   LABEL_MIN_ZOOM,
   type ItemEdgeData,
 } from "../../src/canvas/ItemEdge";
-import { HIDE_STALE_EPS } from "../../src/canvas/dimensions";
+import { STAMP_ROW_EPS } from "../../src/canvas/dimensions";
 import { properCrossPoint } from "../../src/canvas/crossings";
 import { parsePathPoints } from "../../src/canvas/edgePath";
 import { itemColor } from "../../src/canvas/itemColor";
@@ -216,14 +216,10 @@ describe("canvas/ItemEdge icon-only collapse", () => {
     expect(label).toBeNull();
   });
 
-  it("collapses a chipIconOnly rate chip above the icon-only zoom", async () => {
-    // The seating pass stamps chipIconOnly on a leg too short for the full box,
-    // so the collapse must come from the edge data, not from the zoom gate:
-    // zoom 1 is well ABOVE CHIP_ICON_ONLY_MAX_ZOOM and would keep the digits.
-    renderEdge(
-      { item: "belt", rate: new Fraction(2, 1), chipIconOnly: true },
-      1,
-    );
+  it("keeps the icon and drops the digits in the icon-only band", async () => {
+    // The collapse is level of detail and nothing else: no placement rule can
+    // take a chip's digits away at a readable zoom.
+    renderEdge({ item: "belt", rate: new Fraction(2, 1) }, belowIconOnly);
     const label = await findLabel();
     expect(label).not.toBeNull();
     expect(label!.classList.contains("icon-only")).toBe(true);
@@ -233,17 +229,15 @@ describe("canvas/ItemEdge icon-only collapse", () => {
     expect(label!.getAttribute("title")).toContain("120/min");
   });
 
-  it("keeps a focused chipIconOnly chip's digits", async () => {
-    // Hover overrides the short-leg collapse the same way it overrides the zoom
-    // one, so no chip is permanently rate-less.
+  it("keeps a focused chip's digits inside the icon-only band", async () => {
+    // Hover overrides the LOD gate, so no chip is permanently rate-less.
     renderEdge(
       {
         item: "belt",
         rate: new Fraction(2, 1),
-        chipIconOnly: true,
         focused: true,
       },
-      1,
+      belowIconOnly,
     );
     const label = await findLabel();
     expect(label).not.toBeNull();
@@ -264,166 +258,12 @@ describe("canvas/ItemEdge icon-only collapse", () => {
     expect(icon).not.toBe(item);
     expect(iconPosition(item)).toBeUndefined();
 
-    renderEdge({ item, rate: new Fraction(2, 1), chipIconOnly: true }, 1);
+    renderEdge({ item, rate: new Fraction(2, 1) }, belowIconOnly);
     const label = await findLabel();
     expect(label).not.toBeNull();
     const spr = label!.querySelector<HTMLElement>(".ico.ico-16 .spr");
     expect(spr).not.toBeNull();
     expect(spr!.style.backgroundPosition).toBe(iconPosition(icon));
-  });
-});
-
-describe("canvas/ItemEdge fan-in marker", () => {
-  // The marker is stale-checked against the LIVE target port row AND the live
-  // polyline, so a fixture has to discover a real merge point from a plain
-  // render before it can seat a stamp on it: the start of the final leg into
-  // the port, which is where the last member of a real group joins the shared
-  // run. A stamp invented off that line is stale by the rule under test.
-  async function liveMergePoint(
-    nodes: Node[] = NODES,
-  ): Promise<{ x: number; y: number }> {
-    renderEdge({ item: "belt", rate: new Fraction(2, 1) }, 1, nodes);
-    await waitFor(() =>
-      expect(document.querySelector(".react-flow__edge-path")).not.toBeNull(),
-    );
-    const pts = parsePathPoints(
-      document
-        .querySelector<SVGPathElement>(".react-flow__edge-path")!
-        .getAttribute("d")!,
-    );
-    const join = pts[pts.length - 2]!;
-    cleanup();
-    return { x: join[0], y: join[1] };
-  }
-
-  // The same two cards with the target dragged sideways: a drag on x alone
-  // leaves the port ROW where it was, which is the case the row check cannot
-  // see and the live-line check can.
-  const draggedRight = (dx: number): Node[] => [
-    NODES[0]!,
-    { ...NODES[1]!, position: { x: NODES[1]!.position.x + dx, y: 0 } },
-  ];
-
-  it("draws the merge dot and the owner's own rate chip, never an aggregate", async () => {
-    const merge = await liveMergePoint();
-    // The legacy aggregate stamp rides along on purpose: the seating pass no
-    // longer emits these fields, and no render path may be left that could turn
-    // them back into a chip. The cast is what feeds them past the data type.
-    renderEdge(
-      {
-        item: "belt",
-        rate: new Fraction(1, 1),
-        faninJunctionX: merge.x,
-        faninJunctionY: merge.y,
-        faninSigmaX: 150,
-        faninSigmaY: merge.y,
-        faninTotalRate: new Fraction(5, 1),
-        faninMemberCount: 3,
-      } as ItemEdgeData,
-      1,
-    );
-    await waitFor(() =>
-      expect(
-        document.querySelector('[data-testid="fanin-junction-e1"]'),
-      ).not.toBeNull(),
-    );
-    // The owner is an ordinary member chip: its OWN rate, not a total.
-    const label = document.querySelector<HTMLElement>(
-      '[data-testid="item-edge-label-e1"]',
-    );
-    expect(label).not.toBeNull();
-    expect(label!.textContent).toBe("60/min");
-    expect(document.querySelector(".flow-chip.sigma")).toBeNull();
-    expect(
-      document.querySelector('[data-testid="bus-edge-fanin-e1-drop"]'),
-    ).toBeNull();
-  });
-
-  // Read the polyline of the render that is already mounted, without tearing it
-  // down the way liveMergePoint has to.
-  function mountedPts(): ReadonlyArray<readonly [number, number]> {
-    return parsePathPoints(
-      document
-        .querySelector<SVGPathElement>(".react-flow__edge-path")!
-        .getAttribute("d")!,
-    );
-  }
-
-  it("keeps the merge dot through a sideways drag that stays under the threshold", async () => {
-    const merge = await liveMergePoint();
-    const dx = HIDE_STALE_EPS - 4;
-    renderEdge(
-      {
-        item: "belt",
-        rate: new Fraction(1, 1),
-        faninJunctionX: merge.x,
-        faninJunctionY: merge.y,
-      },
-      1,
-      draggedRight(dx),
-    );
-    await waitFor(() =>
-      expect(document.querySelector(".react-flow__edge-path")).not.toBeNull(),
-    );
-    const pts = mountedPts();
-    // Premise: the drag moved the line sideways and left the port ROW alone, so
-    // the row check cannot see it and only the live-line check is under test.
-    expect(pts[pts.length - 1]![1]).toBe(merge.y);
-    expect(pts[pts.length - 2]![0]).toBeGreaterThan(merge.x);
-    expect(
-      document.querySelector('[data-testid="fanin-junction-e1"]'),
-    ).not.toBeNull();
-  });
-
-  it("drops the merge dot when a sideways drag slides the line off the stamp", async () => {
-    const merge = await liveMergePoint();
-    // A step path bends at the midpoint between the two ports, so the line only
-    // travels half the drag, and the chamfered corner just before the port stays
-    // nearer to the abandoned stamp than the final leg does. Hence a drag
-    // several times the eps to put every piece of the line past it.
-    const dx = HIDE_STALE_EPS * 4;
-    renderEdge(
-      {
-        item: "belt",
-        rate: new Fraction(1, 1),
-        faninJunctionX: merge.x,
-        faninJunctionY: merge.y,
-      },
-      1,
-      draggedRight(dx),
-    );
-    await waitFor(() =>
-      expect(document.querySelector(".react-flow__edge-path")).not.toBeNull(),
-    );
-    const pts = mountedPts();
-    expect(pts[pts.length - 1]![1], "the port row did not move").toBe(merge.y);
-    expect(
-      document.querySelector('[data-testid="fanin-junction-e1"]'),
-    ).toBeNull();
-  });
-
-  it("drops the owner's chip below the label zoom, leaving the dot alone", async () => {
-    // Accepted consequence of removing the gate-exempt aggregate: at a dense
-    // plan's fit zoom a fan-in port shows the dot and no number. The target
-    // card's input row still states the rate.
-    const merge = await liveMergePoint();
-    renderEdge(
-      {
-        item: "belt",
-        rate: new Fraction(1, 1),
-        faninJunctionX: merge.x,
-        faninJunctionY: merge.y,
-      },
-      LABEL_MIN_ZOOM - 0.05,
-    );
-    await waitFor(() =>
-      expect(
-        document.querySelector('[data-testid="fanin-junction-e1"]'),
-      ).not.toBeNull(),
-    );
-    expect(
-      document.querySelector('[data-testid="item-edge-label-e1"]'),
-    ).toBeNull();
   });
 });
 
@@ -485,7 +325,7 @@ describe("canvas/ItemEdge declined fan-out dot", () => {
     renderEdge({ item: "belt", rate: new Fraction(1, 1) }, 1, SPLIT_ROW_NODES);
     const { sourceY, targetY } = await portRows();
     // Premise: the two rows are far enough apart to tell the axes apart.
-    expect(Math.abs(targetY - sourceY)).toBeGreaterThan(HIDE_STALE_EPS);
+    expect(Math.abs(targetY - sourceY)).toBeGreaterThan(STAMP_ROW_EPS);
     cleanup();
 
     renderEdge(
@@ -510,7 +350,7 @@ describe("canvas/ItemEdge declined fan-out dot", () => {
     // not survive because the other end happens to agree with it.
     renderEdge({ item: "belt", rate: new Fraction(1, 1) }, 1, SPLIT_ROW_NODES);
     const { sourceY, targetY } = await portRows();
-    expect(Math.abs(targetY - sourceY)).toBeGreaterThanOrEqual(HIDE_STALE_EPS);
+    expect(Math.abs(targetY - sourceY)).toBeGreaterThanOrEqual(STAMP_ROW_EPS);
     cleanup();
 
     renderEdge(
@@ -532,7 +372,7 @@ describe("canvas/ItemEdge declined fan-out dot", () => {
 
     // Drag the source past the stamp, but not by more than the eps: the stamp
     // is off the end of the line now and still close enough to count.
-    const dx = PEEL_OFF_DX + HIDE_STALE_EPS - 8;
+    const dx = PEEL_OFF_DX + STAMP_ROW_EPS - 8;
     renderEdge(
       {
         item: "belt",
@@ -554,7 +394,7 @@ describe("canvas/ItemEdge declined fan-out dot", () => {
     const { sourceX, sourceY } = await portRows();
     cleanup();
 
-    const dx = PEEL_OFF_DX + HIDE_STALE_EPS * 2;
+    const dx = PEEL_OFF_DX + STAMP_ROW_EPS * 2;
     renderEdge(
       {
         item: "belt",
@@ -568,6 +408,75 @@ describe("canvas/ItemEdge declined fan-out dot", () => {
     const pts = await portRows();
     expect(pts.sourceY, "the drag left the source row alone").toBe(sourceY);
     expect(await fanoutDot()).toBeNull();
+  });
+});
+
+describe("canvas/ItemEdge fan-in convergence dot", () => {
+  // A fan-in trunk drawn entirely from far members has no BusEdge to draw its
+  // merge dot, so the seating pass stamps it on one member item edge. It marks
+  // the TARGET row, the mirror of the divergence dot above.
+  const SPLIT_ROW_NODES: Node[] = [
+    { id: "src", position: { x: 0, y: 0 }, data: { label: "src" } },
+    { id: "tgt", position: { x: 300, y: 160 }, data: { label: "tgt" } },
+  ];
+
+  // The last vertex of the drawn polyline: the target port, whose row the stamp
+  // must sit on and whose final run it must stand on.
+  async function targetPort(): Promise<{ x: number; y: number }> {
+    await waitFor(() =>
+      expect(document.querySelector(".react-flow__edge-path")).not.toBeNull(),
+    );
+    const pts = parsePathPoints(
+      document
+        .querySelector<SVGPathElement>(".react-flow__edge-path")!
+        .getAttribute("d")!,
+    );
+    const last = pts[pts.length - 1]!;
+    return { x: last[0], y: last[1] };
+  }
+
+  const faninDot = (): HTMLElement | null =>
+    document.querySelector<HTMLElement>('[data-testid^="fanin-junction-"]');
+
+  it("draws the dot for a stamp on the live TARGET port row", async () => {
+    renderEdge({ item: "belt", rate: new Fraction(1, 1) }, 1, SPLIT_ROW_NODES);
+    const { x, y } = await targetPort();
+    cleanup();
+
+    renderEdge(
+      {
+        item: "belt",
+        rate: new Fraction(1, 1),
+        faninJunctionX: x - 20,
+        faninJunctionY: y,
+      },
+      1,
+      SPLIT_ROW_NODES,
+    );
+    await targetPort();
+    const dot = faninDot();
+    expect(dot).not.toBeNull();
+    expect(dot!.getAttribute("data-testid")).toBe("fanin-junction-e1");
+    expect(dot!.getAttribute("data-family")).toBe("fanin");
+  });
+
+  it("drops the dot for a stamp off the target row", async () => {
+    renderEdge({ item: "belt", rate: new Fraction(1, 1) }, 1, SPLIT_ROW_NODES);
+    const { x, y } = await targetPort();
+    cleanup();
+
+    renderEdge(
+      {
+        item: "belt",
+        rate: new Fraction(1, 1),
+        faninJunctionX: x - 20,
+        faninJunctionY: y - 4 * STAMP_ROW_EPS,
+      },
+      1,
+      SPLIT_ROW_NODES,
+    );
+    await targetPort();
+    expect(faninDot()).toBeNull();
   });
 });
 
@@ -734,7 +643,7 @@ describe("canvas/ItemEdge crossing cues", () => {
     // a stroke that no longer crosses there.
     const moved = {
       edgeId: "eP",
-      source: { x: 500 + HIDE_STALE_EPS * 2, y: 100 },
+      source: { x: 500 + STAMP_ROW_EPS * 2, y: 100 },
       target: { x: 900, y: 100 },
     };
     await renderPair(moved);
@@ -918,11 +827,10 @@ describe("canvas/ItemEdge label placement", () => {
     return label.style.transform;
   }
 
-  it("anchors the label on its clear corridor (bend-vertical) segment", async () => {
-    // Nodes at different y so the drawn path bends: the forward step has a
-    // vertical bend column. The clear-segment anchor (2B) rides that vertical,
-    // NOT the geometric midpoint (which drifts onto a horizontal) and NOT the
-    // target y.
+  it("anchors the label on a horizontal run of its own polyline", async () => {
+    // Nodes at different y so the drawn path bends. The chip is a horizontal
+    // box, so it stands on the centre of the longest HORIZONTAL run -- never on
+    // the bend column, where the box would cut across the line it labels.
     const nodes: Node[] = [
       { id: "src", position: { x: 0, y: 0 }, data: { label: "src" } },
       { id: "tgt", position: { x: 300, y: 100 }, data: { label: "tgt" } },
@@ -975,12 +883,9 @@ describe("canvas/ItemEdge label placement", () => {
     }
     // The anchor lies on the polyline...
     expect(host).not.toBeNull();
-    // ...and specifically on a VERTICAL segment (the preferred corridor leg).
-    expect(host![0][0]).toBe(host![1][0]);
-    // The old behavior pinned y to targetY (the path's final point); the
-    // clear-segment anchor must not sit at the target level.
-    const targetY = Number(d.match(/(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)$/)![2]);
-    expect(ay).not.toBe(targetY);
+    // ...and specifically on a HORIZONTAL segment, at its centre.
+    expect(host![0][1]).toBe(host![1][1]);
+    expect(ax).toBeCloseTo((host![0][0] + host![1][0]) / 2, 1);
   });
 
   it("falls back to the smoothstep midpoint", async () => {

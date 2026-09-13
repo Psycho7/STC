@@ -36,12 +36,34 @@
 //      deterministic for a given node map.
 
 import type { Edge } from "@xyflow/react";
+import Fraction from "fraction.js";
 
 import { RECIPE_WIDTH, loopBoxDimensions } from "./dimensions";
 import { measureRecipe } from "./recipeGeometry";
 import { orderByItem } from "./orderByItem";
 import type { DrawnPorts } from "./edgePath";
 import type { RFAnyNode } from "./layout";
+
+// Read a Fraction rate off an edge's data, or undefined when it is absent or not
+// a Fraction (older fixtures may omit it). Exported because the chip-seating
+// pass reads the same field to predict a chip's drawn text, and two readers of
+// one loosely typed field would be free to disagree about what counts as a rate.
+export function edgeRate(edge: Edge): Fraction | undefined {
+  // Deliberately weaker than ItemEdgeData: older fixtures carry a non-Fraction
+  // rate, so the guard below has to see `unknown` rather than a claimed type.
+  const rate = (edge.data as { rate?: unknown } | undefined)?.rate;
+  return rate instanceof Fraction ? rate : undefined;
+}
+
+// Key of one FLOW: the (item, source unit) pair leaving a single out-port. A
+// recipe out-port carries exactly one item, so item plus source id names the
+// port, and every edge sharing the key draws as one physical line. Trunks (routeTrunkEdges) key on it -- that is the `trunkKey` they stamp --
+// and chip seating reuses it to decide which lines a chip may legitimately sit
+// on. Built here so the callers cannot drift on the separator or on how a
+// missing item is spelled.
+export function flowKeyOf(item: string | undefined, source: string): string {
+  return (item ?? "?") + "|" + source;
+}
 
 // The id -> node index every geometry accessor here takes. Last id wins on a
 // duplicate, matching the loops this replaces.
@@ -190,7 +212,7 @@ export function edgeTargetSide(edge: Edge): PortSide {
 // if React Flow changes its handle-anchoring rule.
 // This table stays unexported on purpose: every copy below is a negative
 // control, rebuilding the drawn port from the model side so a suite can catch
-// this module quietly agreeing with itself. Four copies live in four suites:
+// this module quietly agreeing with itself. Two copies live in two suites:
 //   test/canvas/portDrift.test.ts        the whole table, the designated unit
 //                                        control -- it runs drawnPortsOf beside
 //                                        its copy, so a stale one fails loudly
@@ -198,10 +220,6 @@ export function edgeTargetSide(edge: Edge): PortSide {
 //                                        control -- it measures the rendered
 //                                        DOM and never calls this module, so a
 //                                        stale copy there stays silent
-//   test/canvas/sidestepGate.test.ts     the recipe and product rows, for the
-//                                        real-plan reconstruction
-//   test/canvas/busRouting.chips.test.ts the recipe row inline, in the
-//                                        branch-confinement reconstruction
 // Every other unit suite calls drawnPortsOf rather than copying the numbers.
 type PortDrift = { sourceDx: number; targetDx: number; dy: number };
 

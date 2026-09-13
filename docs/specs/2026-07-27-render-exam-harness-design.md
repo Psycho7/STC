@@ -270,7 +270,7 @@ Therefore:
   planId, hash, url, locale, status: "complete"|"partial",
   viewport: {width, height, deviceScaleFactor, screenshotScale: "css"},
   fit: {zoom, x, y}, contentRect: {world rect},
-  targetZoom, lodGates: {labelMinZoom, chipIconOnlyMaxZoom},   // imported, not literal
+  targetZoom, lodGates: {labelMinZoom, iconOnlyMaxZoom},   // imported, not literal
   tiles: [{
     file, kind: "fit"|"tile"|"corrective", row, col,
     viewportTransform: {x, y, zoom},

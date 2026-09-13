@@ -1,5 +1,7 @@
 # Short-Leg Legibility Implementation Plan
 
+> **Superseded** by the chip placement rule (issue #131): chips are anchored where the path is drawn, and the seating pass this document designs no longer exists.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Close issues #42, #41, and #43: recipe-row item names stop colliding after truncation, chips stop burying their own endpoint cards on short legs, and coincident fan-outs get a visible divergence marker.

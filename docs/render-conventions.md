@@ -113,37 +113,64 @@ Every edge leaving one source port shares a single junction column, marked with
 a dot where the flow splits. Members heading one layer over branch off the
 column straight into their target. Members reaching further ride the same
 column and then run their own leg across to their target, bending around any
-card on the way. Each member carries its own rate chip on its own leg, never on
-the shared column, and no aggregate rides the shared run.
+card on the way.
 
-The column keeps enough room for the nearest member's leg to hold that
-member's chip, shifting toward the source port when the corridor is tight;
-where even that cannot free a chip-wide leg, the chip collapses to icon-only.
-
-Several such fan-outs can be forced into one corridor, and the columns are then
-spread across it to keep them apart. Where that spread still leaves them closer
-together than a chip is wide, the corridor is contested: no seat anywhere on such
-a column clears the sibling's stroke, so those branch chips seat and render
-icon-only, the same collapsed render a short-leg branch gets. Their rates stay on
-the target cards.
+A fan-out carries two kinds of chip, on the two stretches the structure has.
+The elected owner draws one aggregate chip on the shared trunk, between the
+source port and the split dot, and it states the whole port's total. Each
+member draws its own rate on its own leg, never on the shared column: the
+column belongs to every member, so a chip parked there names none of them.
 
 Fan-in merges are the mirror image. Several same-item edges joining one target
-port share a run marked with a dot, and the member that draws the dot keeps its
-own rate chip on that run. A merge carries no aggregate sigma chip: the owner's
-own member chip is the only rate on it.
+port reach a shared column, turn onto the target row, and run one shared leg
+into the port, marked with a dot where they converge. Each member keeps its own
+rate chip on its own source stub, left of the column, and the aggregate chip
+rides the shared leg right of the dot. A merge whose members all reach it from
+further back draws no aggregate at all -- there is no near member to carry it,
+and the target card states the total.
+
+The columns of one corridor are spread apart so that no two dots' keep-offs
+overlap, and the gap they run in is widened before routing to hold them plus
+the chips on either side (see the reserve model under Rate chips). Several
+fan-outs forced into one corridor therefore stand apart rather than braiding.
 
 ## Rate chips
 
-No chip anywhere shows a bare summed total. Every rate chip states one edge's
-rate: a fan-out branch chip keeps the plain rate and unit the item edges beside
-it carry. Totals live on the node cards' rows, which reveal their rates on
-hover or selection. A total on a chip and the same total on a card come from one
-formatter, so they should read alike; members rounded independently can still
-sum a cent off that number.
+Every rate chip states a rate for the stretch of line it stands on. An item
+edge's chip states that edge's rate; a trunk's aggregate chip states the whole
+port's total, which is the flow the shared stretch under it carries. Totals also
+live on the node cards' rows, which reveal their rates on hover or selection, and
+a total on a chip and the same total on a card come from one formatter, so they
+should read alike; members rounded independently can still sum a cent off that
+number.
 
 Chips, machine cards, boundary cards, product-chip captions and the totals lines
 all draw from one formatter, so a plan shows one rate unit throughout. A mix
 inside a single plan, `/min` beside `/MIN`, is a defect and not a style.
+
+Where a chip stands is a rule on the drawn line, not a search for free space,
+and the rule is one per chip kind:
+
+- a plain item edge's chip stands at the centre of the longest horizontal run of
+  its own polyline, slid along that run to the nearest position whose box clears
+  every card;
+- a trunk's aggregate chip stands one port stub out of the port it labels, on
+  the shared stretch;
+- a trunk member's chip stands one port stub in from its own end of the stretch
+  that is the member's alone -- a fan-out member's leg into its target, a fan-in
+  member's stub out of its source.
+
+So every chip sits on a horizontal run of the line it labels, and a chip on a
+vertical or on a chamfered corner is a defect. A chip whose box lies on a card
+is a defect too: it reads as that card's own label.
+
+Trunk chips stand in reserved room. Before any line is routed, each gap between
+two layers is widened to hold a chip zone flush against the cards on each side
+and the junction columns between them, with a port stub of pad on the card side
+of a chip and a dot keep-off on the column side. A trunk chip therefore stands
+beside the port it labels, inside its own side's zone, clear of its dot and
+clear of the columns; a trunk chip out among the columns, or lapping the
+neighbouring card, is a defect.
 
 Every chip draws at one fixed size: a 20px-tall box, the same in graph units at
 every zoom, so zooming out shrinks a chip with the plan instead of holding it at
@@ -152,21 +179,13 @@ up a chip draws in full (icon, rate and unit), between 0.35 and 0.5 it draws as
 its item icon alone, and below 0.35 it is not drawn at all. A hover-lit chip is
 the one exception -- it keeps its digits and stays drawn at any zoom. So a fit
 view of a mid-density plan showing icon-only squares is the level of detail
-working, not a missing rate.
+working, not a missing rate. Nothing else takes a chip away or collapses it: no
+chip is hidden for lack of room.
 
-A seating pass places each chip on the line it labels, sliding it along that line
-past cards, dots and other chips. A chip never covers its own endpoint card's
-port glyph, port handle or row text: the furniture band straddling the port is
-a keep-out, so an on-line chip sits in the corridor stretch between its two
-ports' furniture. On a corridor too narrow for the chip's own box the chip
-renders icon-only, whose square box fits stretches the text cannot. A chip that
-had to move is still bound to its own polyline; dragging a card re-seats every chip when the
-drag ends, so a dropped plan obeys the same rules (mid-drag, chips ride the
-live line with their last seat offsets); one that reads as belonging to a neighbouring line is a defect.
-A decision the pass recorded against an anchor -- a hidden chip, a junction dot --
-survives a drag only while that anchor still matches the live geometry, and
-comes back or disappears as soon as it does not; a decision recorded with no
-anchor stands until the next re-seat.
+Dragging a card re-seats every chip when the drag ends, so a dropped plan obeys
+the same rules; mid-drag, chips ride the live line. A decision recorded against
+an anchor -- a junction dot -- survives a drag only while that anchor still
+matches the live geometry, and comes back as soon as it does.
 
 ## Intentional behaviours
 
@@ -175,26 +194,16 @@ Do not report these as defects.
 - A card at rest shows no row rates: each row's rate is an overlay that appears
   only while the pointer is over the card or the card is selected, and below
   the low-zoom band the overlay stays hidden even then.
-- Every rate chip is hidden below zoom 0.35, the trunk's aggregate chip
-  included. A fit shot of a dense plan therefore shows no chips, and card detail
-  fades at low zoom by design.
+- Every rate chip is hidden below zoom 0.35, a trunk's aggregate chip included.
+  A fit shot of a dense plan therefore shows no chips, and card detail fades at
+  low zoom by design.
 - Between zoom 0.35 and 0.5 every chip renders icon-only. A digit-less square
   chip is the level of detail, not a missing rate: the rate stays on the hover
   title and the aria label, and hovering the edge restores the digits.
-- A chip on a leg too short for its box renders icon-only at any zoom, fan-out
-  branch chips and item-edge chips alike, and so does a fan-out branch chip on a
-  contested corridor. These too keep the rate on the hover title and the aria
-  label.
-- A fan-out branch chip, or a fan-in member chip that would land on the shared
-  run, may be deliberately hidden. The rate remains on the edge's hover tooltip
-  and on the target card's input row, which reveals it on hover or selection.
-- A plain item edge may draw no chip at all: a bare stroke with no chip on it,
-  not even an icon-only square, is the seating pass hiding a chip whose only
-  remaining seat was more than one chip pitch off the line it labels (a
-  crowded corridor, a foreign stroke or a neighbouring chip on every on-line
-  seat). The rate stays on the edge's hover tooltip and on the target card's
-  input row, which reveals it on hover or selection. A step of a pitch or less
-  still reads as sitting beside its line and still draws.
+- A trunk chip standing a little way out from its port, with empty corridor
+  between it and the junction dot, is the reserve model: the chip is seated
+  against the room the gap was widened for, not centred on the stretch it
+  labels.
 - Mid-drag, a fan-in merge dot can vanish while the merged run still shows one
   member's rate. The dot hides as soon as its stamped x leaves the owner's live
   polyline, while a non-owner member's chip hide is pinned to the port ROW

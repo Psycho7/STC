@@ -52,9 +52,10 @@ import {
   clampBackwardRails,
   jogForwardLegs,
   parseElkEdgeIndex,
-  routeFanoutEdges,
+  routeTrunkEdges,
 } from "./busRouting";
 import { deconflictChipAnchors } from "./chipSeating";
+import { widenLayerGaps, type GapRecord } from "./layerModel";
 // Type-only: ItemEdge.tsx declares the canvas edge payload this module stamps.
 // Erased at compile time, so it adds no runtime or bundler edge, and ItemEdge
 // imports none of layout / busRouting / chipSeating, so there is no cycle.
@@ -144,6 +145,9 @@ export type LayoutInput = {
   // interior gets laid out by the SCC renderer in a later pass.
   // TODO: swap the placeholder for the real size once SCC interior layout exists.
   interiorByLoopId?: ReadonlyMap<SccId, LoopInteriorSize>;
+  // Run the gap-widening pre-pass? Defaults to true. False lays the plan out on
+  // ELK's own gaps, which is the before side of the width census.
+  widenGaps?: boolean;
 };
 
 // An ELK port output with a transport kind tacked on. ELK happily carries
@@ -945,7 +949,32 @@ function splitPortRef(ref: string): [string, string] {
 export type RoutingPass = (
   nodes: ReadonlyArray<RFAnyNode>,
   edges: ReadonlyArray<RFEdge>,
+  ctx?: RoutingCtx,
 ) => RFEdge[];
+
+// What the layout hands every routing pass beside the nodes and edges: the gap
+// records the pre-pass produced, so a pass that needs a corridor reads the zone
+// it was widened for instead of re-deriving one from the node columns. Optional
+// on the signature because every pass predating it ignores the argument.
+export type RoutingCtx = { readonly gaps: ReadonlyArray<GapRecord> };
+
+// The one pre-pass: it runs BEFORE every routing pass and is the only step that
+// moves a node after ELK. It widens each inter-layer gap to the chip reserves the
+// gap owes, so every pass below routes through corridors that already have room
+// for the chips they will carry. Pinned ahead of ROUTING_PASSES by
+// test/canvas/layout-pass-order.test.ts.
+export const LAYOUT_PREPASS: {
+  readonly name: string;
+  readonly run: typeof widenLayerGaps;
+  readonly because: string;
+} = {
+  name: "widenLayerGaps",
+  run: widenLayerGaps,
+  because:
+    "Consumes no stamp and produces no edge: it reads the ELK placement and " +
+    "moves nodes. Every routing pass below reads the widened positions, so it " +
+    "cannot run after any of them.",
+};
 
 // The post-layout routing passes, in the order layoutRenderPlan runs them.
 // ARRAY ORDER IS THE CONTRACT: each entry consumes the stamps every earlier
@@ -960,14 +989,17 @@ export const ROUTING_PASSES: ReadonlyArray<{
   readonly run: RoutingPass;
   readonly because: string;
 }> = [
-  // Consolidate N >= 2 same-source-port edges in one layer gap onto a shared
-  // junction column (a fan-out trunk, retyped bus).
+  // Put every trunk of the layer model -- fan-out and fan-in alike -- on one
+  // shared junction column, taken from its gap's reserved column zone (members
+  // reaching the neighbouring layer retyped bus, the ones further away pinned to
+  // the same column, backward ones given it as their rail column).
   {
-    name: "routeFanoutEdges",
-    run: routeFanoutEdges,
+    name: "routeTrunkEdges",
+    run: routeTrunkEdges,
     because:
-      "Consumes no stamp: it reads the placed nodes alone. It writes the " +
-      'type: "bus" retype and the junction column every pass below keys on.',
+      "Consumes no stamp: it reads the placed nodes and the pre-pass's gap " +
+      'records alone. It writes the type: "bus" retype and the junction ' +
+      "column every pass below keys on.",
   },
   // Stake out per-target entry-gutter columns so backward rails into one node
   // stay parallel.
@@ -975,8 +1007,10 @@ export const ROUTING_PASSES: ReadonlyArray<{
     name: "assignEntryColumns",
     run: assignEntryColumns,
     because:
-      "Reads the bus retype from routeFanoutEdges, so a fan-out member is " +
-      "excluded from its target's gutter columns. Writes entryX.",
+      "Reads the bus retype from routeTrunkEdges, so a fan-out member is " +
+      "excluded from its target's gutter columns and a fan-in member counts " +
+      "as one, and the fan-in columns it must not seat a gutter column on. " +
+      "Writes entryX.",
   },
   // Stagger the remaining item edges' bend columns so their verticals fan out
   // (clamped clear of gutters).
@@ -984,8 +1018,8 @@ export const ROUTING_PASSES: ReadonlyArray<{
     name: "assignBendColumns",
     run: assignBendColumns,
     because:
-      'Reads the bus retype from routeFanoutEdges (it fans only still-"item" ' +
-      "edges) and leaves the bendX routeFanoutEdges pinned on a far member " +
+      'Reads the bus retype from routeTrunkEdges (it fans only still-"item" ' +
+      "edges) and leaves the bendX routeTrunkEdges pinned on a far member " +
       "alone. Writes bendX for everything else.",
   },
   // Bend a blocked forward final leg to a clear y so it does not cross an
@@ -995,7 +1029,9 @@ export const ROUTING_PASSES: ReadonlyArray<{
     run: jogForwardLegs,
     because:
       "Reads each edge's FINAL bendX from assignBendColumns, because the leg " +
-      "it jogs starts at that column.",
+      "it jogs starts at that column, and the entry columns assignEntryColumns " +
+      "already staked at the target, because a jog descent takes the next free " +
+      "slot left of them.",
   },
   // Move the backward detour rails clear of the cards they span.
   {
@@ -1003,7 +1039,8 @@ export const ROUTING_PASSES: ReadonlyArray<{
     run: clampBackwardRails,
     because:
       "Reads entryX from assignEntryColumns, which fixes the rail's left end " +
-      "before the rail level is clamped.",
+      "before the rail level is clamped, and the rail columns routeTrunkEdges " +
+      "pre-stamped on a trunk's backward members, which it keeps as given.",
   },
   // Stack crowded chips (entry, bus, midpoint) so none coincide.
   {
@@ -1023,18 +1060,28 @@ const elk = new ELK();
 export async function layoutRenderPlan(input: LayoutInput): Promise<{
   nodes: RFAnyNode[];
   edges: RFEdge[];
+  gaps: ReadonlyArray<GapRecord>;
 }> {
   const elkGraph = renderPlanToElkGraph(input);
   const laid = (await elk.layout(elkGraph)) as ElkGraph;
-  const { nodes, edges } = fromElkRenderLayout(laid, input);
-  // Left fold over the passes: every pass sees the SAME nodes array
-  // fromElkRenderLayout returned (final absolute positions), never a re-derived
-  // one, plus the previous pass's output edges.
+  const placed = fromElkRenderLayout(laid, input);
+  // Gap widening first, so the passes below see the final positions. With the
+  // pre-pass switched off the nodes stay exactly where ELK put them and there
+  // are no gap records to read -- the census measures that baseline.
+  const widened =
+    input.widenGaps === false
+      ? { nodes: placed.nodes, gaps: [] as GapRecord[] }
+      : LAYOUT_PREPASS.run(placed.nodes, placed.edges);
+  const { nodes, gaps } = widened;
+  // Left fold over the passes: every pass sees the SAME nodes array the
+  // pre-pass returned (final absolute positions), never a re-derived one, plus
+  // the previous pass's output edges.
   return {
     nodes,
+    gaps,
     edges: ROUTING_PASSES.reduce<RFEdge[]>(
-      (routed, pass) => pass.run(nodes, routed),
-      edges,
+      (routed, pass) => pass.run(nodes, routed, { gaps }),
+      placed.edges,
     ),
   };
 }

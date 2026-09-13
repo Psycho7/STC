@@ -19,6 +19,7 @@ import { TargetsPanel } from "./components/TargetsPanel";
 import { InputsPanel } from "./components/InputsPanel";
 import type { RFAnyNode } from "./canvas/layout";
 import { layoutSolved } from "./canvas/layoutSolved";
+import type { GapRecord } from "./canvas/layerModel";
 import { reseatChips } from "./canvas/chipSeating";
 import { buildRealizedRateByItem } from "./canvas/realizedRateByItem";
 import {
@@ -262,6 +263,9 @@ function AppInner() {
   }, [plan]);
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
+  // The layout's inter-layer gap reserves, kept only to hand to the canvas for
+  // the exam hook. Nothing the app draws reads them.
+  const [gaps, setGaps] = useState<ReadonlyArray<GapRecord>>([]);
   // The seating pass is layout-time, so a drop re-seats every chip.
   const handleNodeDragStop = useCallback(
     (liveNodes: Node[]) => {
@@ -388,6 +392,7 @@ function AppInner() {
         setCatalystDraw(solved.full.catalystDraw);
         setNodes(laid.nodes as Node[]);
         setEdges(laid.edges);
+        setGaps(laid.gaps);
         setUnderDelivered(solved.underDelivered);
         setLayoutGeneration((g) => g + 1);
         setPlanEpoch((e) => e + 1);
@@ -408,7 +413,7 @@ function AppInner() {
         }
       }
     },
-    [setNodes, setEdges],
+    [setNodes, setEdges, setGaps],
   );
 
   // Recover from a damaged share link: drop the hash and load the default plan
@@ -470,6 +475,7 @@ function AppInner() {
       setCatalystDraw(solved.full.catalystDraw);
       setNodes(laid.nodes as Node[]);
       setEdges(laid.edges);
+      setGaps(laid.gaps);
       setUnderDelivered(solved.underDelivered);
       setLayoutGeneration((g) => g + 1);
       setMutationError(null);
@@ -817,6 +823,7 @@ function AppInner() {
             <Canvas
               nodes={nodes}
               edges={edges}
+              gaps={gaps}
               status={status}
               layoutGeneration={layoutGeneration}
               onNodesChange={onNodesChange}

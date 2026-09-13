@@ -2,7 +2,6 @@ import { useStore, type EdgeProps } from "@xyflow/react";
 import { useMemo } from "react";
 import {
   FlowChip,
-  HoverTitlePath,
   JunctionDot,
   LABEL_MIN_ZOOM,
   MaskedEdge,
@@ -13,26 +12,31 @@ import {
 } from "./ItemEdge";
 import { isTrunkOwner, type BusEdgeData } from "./busRouting";
 import { drawnEdge } from "./edgePath";
-import { anchorStampLive } from "./dimensions";
 import { useI18n } from "../data/i18n-context";
 import { formatRateExactPerMin, formatRatePerMin } from "../data/rate-format";
 
 // The junction dot markup and its zoom-clamped radius are shared with ItemEdge
-// (the fan-in merge dot reuses them); junctionRadius is re-exported so existing
+// (the divergence dot reuses them); junctionRadius is re-exported so existing
 // importers that reach for it via BusEdge keep working.
 export { junctionRadius };
 
-// BusEdge renders a fan-out trunk member via chamferFanoutPath: exit the source
-// rightward to the trunk's shared junction column, then branch up (or down) that
-// column to the target and enter it with a final rightward stub. Every member of
-// one trunk shares the same junction column, so their trunk segments overlap and
-// the trunk visually draws once without any cross-edge coordination. Every member
-// draws its own junction dot at the branch point.
+// BusEdge renders a TRUNK member, fan-out or fan-in, through the matching path
+// builder:
+//   fan-out (chamferFanoutPath) exit the source rightward to the trunk's shared
+//           junction column, branch up (or down) that column to the target and
+//           enter it with a final rightward stub;
+//   fan-in  (chamferFaninPath) the mirror -- run out of the source to the
+//           trunk's shared merge column, descend it to the target row, and
+//           finish on the leg every member of the trunk shares into the port.
+// Every member of one trunk is drawn with the same column, so the shared part
+// overlaps into one line and the trunk draws once without any cross-edge
+// coordination, and every member draws the trunk's junction dot at the point
+// they all coincide (the split for a fan-out, the merge for a fan-in).
 // Stroke reuses ItemEdge's strokeForKind; the markerEnd arrow stays at the
-// target. A lone-member trunk labels itself with the rate chip (icon +
-// rate/min), reusing ItemEdge's flow-chip markup and zoom gate so a bus member
-// reads the same as a plain item edge near what it feeds. A fan-out member's
-// branch chip shows that member's own rate.
+// target. Two chips: the trunk's ONE aggregate, drawn by the elected owner on
+// the shared stretch, and each member's own rate on the stretch that is its
+// alone -- which for a fan-out member is its branch leg into the target and for
+// a fan-in member its stub out of the source.
 export default function BusEdge({
   id,
   sourceX,
@@ -46,13 +50,9 @@ export default function BusEdge({
   const edgeData = data as (ItemEdgeData & BusEdgeData) | undefined;
   const zoom = useStore((state) => state.transform[2]);
   const i18n = useI18n();
-  // The fan-out member's own stamps (junction / fanout* offsets), read off the
-  // `fanout` discriminant.
-  const fanoutData = edgeData?.fanout === true ? edgeData : undefined;
-  // A fan-out member draws the short in-corridor trunk (source port -> shared
-  // junction column -> branch to the target). It exposes one aggregate chip
-  // anchor (the trunk segment) and one per-member chip anchor (the branch leg).
-  // drawnEdge resolves the routing hints and the branch-leg slice.
+  // Either shape exposes one aggregate chip anchor (the shared stretch) and one
+  // per-member chip anchor (the member's own stretch). drawnEdge resolves the
+  // routing hints, the shape and the own-stretch slice.
   // Memoized on the endpoints and edge data: the geometry does not depend on
   // zoom, and the zoom subscription above re-renders every edge each zoom tick.
   const drawn = useMemo(
@@ -60,16 +60,16 @@ export default function BusEdge({
     [sourceX, sourceY, targetX, targetY, edgeData],
   );
   // This component renders the "bus" edge type alone (Canvas's edgeTypes map),
-  // and routeFanoutEdges is its only producer, so drawnEdge always answers the
-  // fan-out shape. An edge that is bus-typed without the stamp draws nothing
-  // rather than being forced into a shape its data does not describe.
-  const fan = drawn.shape === "fanout" ? drawn : null;
+  // and routeTrunkEdges is its only producer, so drawnEdge answers one of the
+  // two trunk shapes. An edge that is bus-typed without either stamp draws
+  // nothing rather than being forced into a shape its data does not describe.
+  const fan =
+    drawn.shape === "fanout" || drawn.shape === "fanin" ? drawn : null;
   const path = drawn.path;
-  // Aggregate chip anchor: the trunk-segment midpoint. Per-member chip anchor:
-  // the branch-leg midpoint. Each carries its own de-confliction offset
-  // (fanoutAgg* / fanoutBranch*).
-  const aggX = (fan?.trunkAnchor.x ?? 0) + (fanoutData?.fanoutAggDx ?? 0);
-  const aggY = (fan?.trunkAnchor.y ?? 0) + (fanoutData?.fanoutAggDy ?? 0);
+  // Aggregate chip anchor: the rule seat on the stretch the trunk shares. The
+  // path builder put it there; nothing moves it afterwards.
+  const aggX = fan?.trunkAnchor.x ?? 0;
+  const aggY = fan?.trunkAnchor.y ?? 0;
 
   const { stroke, style: mergedStyle } = edgeStrokeStyle(
     edgeData?.transportKind,
@@ -86,14 +86,13 @@ export default function BusEdge({
     edgeData !== undefined &&
     (zoom >= LABEL_MIN_ZOOM || edgeData.focused === true);
 
-  // Drop chip: drawn only on a SINGLE-member trunk, where it is that edge's
-  // plain rate label at the junction. A multi-member trunk draws no aggregate:
-  // the summed total restated the source card's own rate while reading as one
-  // more flow, so the members' own chips and the card rates carry the
-  // information (issue #39). The junction dot still marks the trunk.
+  // Drop chip: the trunk's ONE aggregate, drawn by the elected owner on the
+  // shared trunk segment. It shows the whole port's total -- on a single-member
+  // trunk that is simply that edge's own rate. The gap the trunk runs through
+  // was widened for this chip before routing, so it has room beside the
+  // members' own chips.
   const isOwner = isTrunkOwner(edgeData);
   const totalRate = edgeData?.busTotalRate ?? edgeData?.rate;
-  const memberCount = edgeData?.busMemberCount ?? 1;
   // Per-member (branch) chip gate: zoom-gated, except that a hover-lit member is
   // exempt -- the hover asks for this member's rate, so the zoom gate must not
   // swallow the answer.
@@ -128,44 +127,24 @@ export default function BusEdge({
       ? rateLabel(itemName, `${totalExactStr}${unit}`)
       : "";
 
-  // Branch chip: each member draws its own, showing that member's rate. A member
-  // flagged fanoutBranchHidden draws no branch chip at all: the seating pass
-  // found no chip/card-clear point on its own polyline, and an off-line chip
-  // would float in empty canvas (the rate stays on the target card's row and
-  // this edge's hover tooltip below). The hide was taken at this member's own
-  // branch anchor, so it is checked against the anchor rebuilt from the live
-  // props -- and only when there is one: a null fan path leaves nothing to
-  // compare, and a stamped hide with no live anchor drops.
-  const hiddenAt = fanoutData?.fanoutBranchHiddenAt;
-  const branchHidden =
-    fanoutData?.fanoutBranchHidden === true &&
-    (hiddenAt === undefined ||
-      (fan !== null && anchorStampLive(hiddenAt, fan.branchAnchor)));
-  const memberChipHidden = branchHidden;
   // Branch chip text: this member's own rate plus the unit, the same reading
   // as the plain item edges beside it. The trunk total prints on the aggregate
   // chip alone.
   const plainRate = `${memberRateStr}${unit}`;
-  const riseText =
-    showMemberChip && memberRateStr && !memberChipHidden ? plainRate : "";
+  const riseText = showMemberChip && memberRateStr ? plainRate : "";
   const riseLabel =
     edgeData && memberRateStr ? rateLabel(itemName, plainRate) : "";
   const riseTitle =
     edgeData && memberRateStr
       ? rateLabel(itemName, `${memberExactStr}${unit}`)
       : "";
-  // Per-member chip anchor: the branch-leg midpoint plus its offset.
-  const branchX =
-    (fan?.branchAnchor.x ?? 0) + (fanoutData?.fanoutBranchDx ?? 0);
-  const branchY =
-    (fan?.branchAnchor.y ?? 0) + (fanoutData?.fanoutBranchDy ?? 0);
+  // Per-member chip anchor: the rule seat on the stretch that is this member's
+  // alone.
+  const branchX = fan?.branchAnchor.x ?? 0;
+  const branchY = fan?.branchAnchor.y ?? 0;
 
   // One chip on the trunk segment (where the flow enters the trunk) and one on
   // the branch leg (where it leaves toward the target).
-  // `compact` collapses a chip to its item sprite at every zoom: the seating
-  // pass stamps it on a fan-out branch whose leg is shorter than one chip box,
-  // where the full box has no seat that keeps it off the trunk's split dot. The
-  // rate stays readable on the chip's label and title.
   const renderChip = (
     suffix: string,
     x: number,
@@ -173,7 +152,6 @@ export default function BusEdge({
     text: string,
     label: string,
     title: string,
-    compact = false,
   ) => (
     <FlowChip
       testId={`bus-edge-label-${id}-${suffix}`}
@@ -186,7 +164,6 @@ export default function BusEdge({
       title={title}
       dimmed={edgeData?.dimmed}
       focused={edgeData?.focused}
-      compact={compact}
       zoom={zoom}
     />
   );
@@ -203,21 +180,19 @@ export default function BusEdge({
         transportKind={edgeData?.transportKind}
         markerEnd={markerEnd}
       />
-      {/* A hidden branch chip was this
-          member's only exact-rate tooltip carrier, so keep the rate reachable
-          on the edge itself: a transparent hover path over the same geometry
-          carries the native SVG tooltip. */}
-      {memberChipHidden && riseTitle ? (
-        <HoverTitlePath d={path} title={riseTitle} />
-      ) : null}
-      {/* Junction dot at the branch point, reusing the shared JunctionDot
+      {/* Junction dot where the trunk's members coincide -- the split for a
+          fan-out, the merge for a fan-in -- reusing the shared JunctionDot
           markup. It sits BELOW the flow chips in the shared edgelabel-renderer
-          layer, so the aggregate chip's digits win. Fan-out members always
-          branch (N >= 2), so every member draws one. */}
+          layer, so the aggregate chip's digits win. Every member of a trunk
+          draws it at the same point, coincident by construction. */}
       {fan !== null ? (
         <JunctionDot
-          testId={`bus-junction-${id}`}
-          family="fanout"
+          testId={
+            fan.shape === "fanin"
+              ? `fanin-junction-${id}`
+              : `bus-junction-${id}`
+          }
+          family={fan.shape === "fanin" ? "fanin" : "fanout"}
           x={fan.junction.x}
           y={fan.junction.y}
           color={stroke}
@@ -225,19 +200,11 @@ export default function BusEdge({
           zoom={zoom}
         />
       ) : null}
-      {isOwner && memberCount === 1 && dropText
+      {isOwner && dropText
         ? renderChip("drop", aggX, aggY, dropText, dropLabel, dropTitle)
         : null}
       {riseText
-        ? renderChip(
-            "rise",
-            branchX,
-            branchY,
-            riseText,
-            riseLabel,
-            riseTitle,
-            fanoutData?.fanoutBranchIconOnly === true,
-          )
+        ? renderChip("rise", branchX, branchY, riseText, riseLabel, riseTitle)
         : null}
     </>
   );

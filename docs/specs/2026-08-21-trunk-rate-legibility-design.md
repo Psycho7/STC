@@ -1,5 +1,7 @@
 # Trunk-rate legibility and seating-frame follow-ups
 
+> **Superseded** by the chip placement rule (issue #131): chips are anchored where the path is drawn, and the seating pass this document designs no longer exists.
+
 Design for the campaign closing issues #39, #45 and #50, plus the contract pin
 tests and the three seating-frame follow-ups deferred from PR #47. Rulings in
 this document were made by the user on 2026-08-21; the second batch followed a

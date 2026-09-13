@@ -55,46 +55,28 @@ export const CHIP_BOX_HEIGHT = 20;
 export const GLYPH_SIZE = 8;
 export const GLYPH_SIDE_OFFSET = GLYPH_SIZE + 2;
 
-// How far a stamped hide anchor may drift from the live one before the hide is
-// treated as stale and the chip comes back. The seating pass stamps the anchor
-// a hide was decided at, and nodes stay mouse-draggable with a re-seat only at
-// the drop, so a drag in flight moves the geometry out from under a decision
-// nothing recomputes yet: past
-// this threshold a floating marker or a wrongly hidden chip is worse than an
-// unmarked merge, and the renderers drop the hide. The threshold sits well
-// above the ~1-unit port-model disagreement between the seating pass's
-// reconstruction and React Flow's measured handles, and well below any drag
-// that frees real seating room -- half the height of a chip box. Note the
+// How far a stamped divergence dot may drift from the live port row before the
+// stamp is treated as stale and the dot is dropped. The bookkeeping pass stamps
+// the dot at the source-port row it was derived on, and nodes stay
+// mouse-draggable with a re-run only at the drop, so a drag in flight moves the
+// geometry out from under a decision nothing recomputes yet: past this
+// threshold a floating marker is worse than an unmarked split, and the renderer
+// drops it. The threshold sits well above the ~1-unit port-model disagreement
+// between the pass's reconstruction and React Flow's measured handles, and well
+// below any drag that moves a row -- half the height of a chip box. Note the
 // coupling: changing the chip-box height moves this threshold with it.
-export const HIDE_STALE_EPS = CHIP_BOX_HEIGHT / 2;
+// Exported for the divergence-dot suite, which drags a node exactly to the
+// threshold and one unit inside it.
+export const STAMP_ROW_EPS = CHIP_BOX_HEIGHT / 2;
 
-// The two shapes of the staleness question, stated here beside the threshold
-// that sizes them so no caller restates the rule. Both answer the same thing:
-// does the anchor a decision was stamped at still describe the live geometry?
-// An ABSENT stamp answers yes -- nothing contradicts the seating decision, so
-// the decision stands -- and this is the only place that default is stated.
-// faninHideLive is the 1-D form for a decision anchored to a port row (the
-// fan-in hide and both junction-dot families compare a stamped y against the
-// live port y). anchorStampLive is the 2-D form for a decision anchored to a
-// point, and it is per-axis rather than Euclidean because what the stamp
-// records is "this chip box was clear here": a box is a rectangle, so
-// rectangular drift is what invalidates it.
-export function faninHideLive(
+// Does the port row a stamp was taken on still describe the live geometry? An
+// ABSENT stamp answers yes -- nothing contradicts the decision, so it stands --
+// and this is the only place that default is stated.
+export function portRowStampLive(
   stampY: number | undefined,
   liveY: number,
 ): boolean {
-  return stampY === undefined || Math.abs(stampY - liveY) < HIDE_STALE_EPS;
-}
-
-export function anchorStampLive(
-  stamp: { x: number; y: number } | undefined,
-  liveAnchor: { x: number; y: number },
-): boolean {
-  return (
-    stamp === undefined ||
-    (Math.abs(stamp.x - liveAnchor.x) < HIDE_STALE_EPS &&
-      Math.abs(stamp.y - liveAnchor.y) < HIDE_STALE_EPS)
-  );
+  return stampY === undefined || Math.abs(stampY - liveY) < STAMP_ROW_EPS;
 }
 
 // Horizontal chip-box metrics, the x-axis analogs of CHIP_BOX_HEIGHT, in the

@@ -1,5 +1,7 @@
 # Chip port clearance (#82) and the OFF-mode fan-out fix
 
+> **Superseded** by the chip placement rule (issue #131): chips are anchored where the path is drawn, and the seating pass this document designs no longer exists.
+
 Campaign doc, 2026-09-06. Branch `fix/off-fanout-port-clearance`. Two parts,
 executed in order; every measurement cited below is a committed baseline cell
 or a run log kept with the session.
