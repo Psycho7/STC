@@ -231,7 +231,6 @@ describe("canvas/elide real-budget battery", () => {
   const ROW_FONT: TextWidthFont = { fontSize: 12, weight: 400 };
   const RATE_FONT: TextWidthFont = { fontSize: 12, weight: 700 };
   const TITLE_FONT: TextWidthFont = { fontSize: 17, weight: 600 };
-  const PRODUCTS_FONT: TextWidthFont = { fontSize: 11, weight: 500 };
   const est = (t: string, font: TextWidthFont) => estimateTextWidth(t, font);
 
   // Mirrors RecipeNode.elideRowLabel: half of the 300px card body minus
@@ -242,9 +241,9 @@ describe("canvas/elide real-budget battery", () => {
   const rowBudget = (rate: string, hasSprite = true): number =>
     150 - 14 - (hasSprite ? 25 : 0) - 5 - est(rate, RATE_FONT);
 
-  // Header budgets from the pinned grid columns (ruling R3).
+  // Header budget from the pinned grid columns (ruling R3).
   const headerContentWidth =
-    RECIPE_HEAD_TITLE_COL - 2 * RECIPE_HEAD_BLOCK_PAD_X; // 185
+    RECIPE_HEAD_TITLE_COL - 2 * RECIPE_HEAD_BLOCK_PAD_X; // 231
 
   const elideRow = (name: string, rate: string): string =>
     elideName(name, rowBudget(rate), (t) => est(t, ROW_FONT), "row-12");
@@ -417,14 +416,14 @@ describe("canvas/elide real-budget battery", () => {
   });
 
   it("elides the title surface through the same tiers at the pinned header budget", () => {
-    const budget = headerContentWidth; // 201 - 2*8, from dimensions.ts
+    const budget = headerContentWidth; // 247 - 2*8, from dimensions.ts
     const visible = [
       "Cuprium Bottle(Jincao Solution)",
       "Cuprium Bottle(Yazhen Solution)",
     ].map((n) => elideName(n, budget, (t) => est(t, TITLE_FONT), "title-17"));
     expect(new Set(visible).size).toBe(2);
-    expect(visible[0]).toBe(`Cuprium${ELLIPSIS}(Jinca`);
-    expect(visible[1]).toBe(`Cuprium${ELLIPSIS}(Yazhe`);
+    expect(visible[0]).toBe(`Cuprium B${ELLIPSIS}(Jincao `);
+    expect(visible[1]).toBe(`Cuprium B${ELLIPSIS}(Yazhen `);
     // The zh gate pair fits the whole title column (the jsdom title test
     // covers the chip-bearing, narrower budget).
     expect(
@@ -438,12 +437,12 @@ describe("canvas/elide real-budget battery", () => {
   });
 
   it("keeps the ru module titles distinct at the real x2.50 chip budget", () => {
-    // The round-2 finding: at the chip-bearing title budget both module
-    // names read the same trailing-window string. The stem-first rule
-    // windows the tail whose base survives whole from its START, and the
-    // other name (wide stem letters push its window below the floor) goes
-    // back raw, where CSS keeps the develop look. Budget derived exactly
-    // as RecipeNode derives it for the "x2.50" chip.
+    // The round-2 finding: at a narrower chip-bearing title budget both
+    // module names read the same trailing-window string. At the current
+    // budget the stem "Modul" survives whole beside the ellipsis, so the
+    // stem-first rule windows both tails from their START and the stems
+    // upak- / form- carry the distinction. Budget derived exactly as
+    // RecipeNode derives it for the "x2.50" chip.
     const CHIP_FONT: TextWidthFont = { fontSize: 12, weight: 700 };
     const badge = "x2.50";
     const budget =
@@ -459,22 +458,13 @@ describe("canvas/elide real-budget battery", () => {
     const visible = [upak, form].map((n) =>
       elideName(n, budget, (t) => est(t, TITLE_FONT), "title-17"),
     );
-    expect(budget).toBeCloseTo(121.6416, 3);
-    expect(visible[0]).toBe(`\u041c\u043e\u0434\u0443${ELLIPSIS}\u0443\u043f\u0430\u043a`);
-    expect(visible[1]).toBe(form);
-    expect(new Set(visible).size).toBe(2);
-  });
-
-  it("elides the products surface whole-tail at the pinned header budget", () => {
-    const budget = headerContentWidth;
-    const visible = [
-      "Cuprium Bottle(Jincao Solution)",
-      "Cuprium Bottle(Yazhen Solution)",
-    ].map((n) =>
-      elideName(n, budget, (t) => est(t, PRODUCTS_FONT), "products-11"),
+    expect(budget).toBeCloseTo(167.6416, 3);
+    expect(visible[0]).toBe(
+      `\u041c\u043e\u0434\u0443\u043b\u044c${ELLIPSIS}\u0443\u043f\u0430\u043a\u043e`,
     );
-    expect(visible[0]).toBe(`Cupriu${ELLIPSIS}(Jincao Solution)`);
-    expect(visible[1]).toBe(`Cupriu${ELLIPSIS}(Yazhen Solution)`);
+    expect(visible[1]).toBe(
+      `\u041c\u043e\u0434\u0443\u043b\u044c${ELLIPSIS}\u0444\u043e\u0440\u043c\u043e`,
+    );
     expect(new Set(visible).size).toBe(2);
   });
 });

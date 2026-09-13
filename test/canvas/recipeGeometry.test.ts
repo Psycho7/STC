@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import type { Recipe } from "@aef/schema";
 import { measureRecipe } from "../../src/canvas/recipeGeometry";
 import {
-  RECIPE_FOOTER_HEIGHT,
   RECIPE_HEADER_HEIGHT,
   RECIPE_ROWS_TOP_PAD,
   RECIPE_ROW_HEIGHT,
@@ -10,11 +9,12 @@ import {
   recipeHeight,
 } from "../../src/canvas/dimensions";
 
-// The model is pinned to the rendered DOM (canvas.css): .rn-head is height:80px,
-// .rn-side has a 6px top/bottom pad, .rn-row is 22px, .rn-footer is 26px. A row
-// mid-line therefore sits at header + side pad + i*row + half-row; the browser
-// (zoom 1) puts the real handle center one further pixel down (the node's own
-// 1px border, which the model leaves out on both height and handle Y).
+// The model is pinned to the rendered DOM (canvas.css): .rn-head is height:56px,
+// .rn-side has a 6px top/bottom pad, .rn-row is 22px, and there is no footer.
+// A row mid-line therefore sits at header + side pad + i*row + half-row; the
+// browser (zoom 1) puts the real handle center one further pixel down (the
+// node's own 1px border, which the model leaves out on both height and
+// handle Y).
 const rowMid = (i: number) =>
   RECIPE_HEADER_HEIGHT +
   RECIPE_ROWS_TOP_PAD +
@@ -60,25 +60,22 @@ describe("measureRecipe", () => {
     expect(g.inHandleYs).toHaveLength(3);
     expect(g.inHandleYs[0]).toBe(rowMid(0));
     expect(g.inHandleYs[2]).toBe(rowMid(2));
-    // Concrete pinned values (80 + 6 + i*22 + 11) so a constant change re-pins.
-    expect(g.inHandleYs).toEqual([97, 119, 141]);
+    // Concrete pinned values (56 + 6 + i*22 + 11) so a constant change re-pins.
+    expect(g.inHandleYs).toEqual([73, 95, 117]);
   });
 
   it("outHandleYs uses the same row spacing as inHandleYs", () => {
     const g = measureRecipe(fakeRecipe(0, 2));
     expect(g.outHandleYs).toEqual([rowMid(0), rowMid(1)]);
-    expect(g.outHandleYs).toEqual([97, 119]);
+    expect(g.outHandleYs).toEqual([73, 95]);
   });
 
-  it("height counts header, both side pads, the taller side's rows, and footer", () => {
-    // 1x1: 80 header + 12 side pads + 22 row + 26 footer = 140.
+  it("height counts header, both side pads, and the taller side's rows", () => {
+    // 1x1: 56 header + 12 side pads + 22 row = 90.
     expect(measureRecipe(fakeRecipe(1, 1)).height).toBe(
-      RECIPE_HEADER_HEIGHT +
-        RECIPE_ROWS_TOP_PAD * 2 +
-        RECIPE_ROW_HEIGHT +
-        RECIPE_FOOTER_HEIGHT,
+      RECIPE_HEADER_HEIGHT + RECIPE_ROWS_TOP_PAD * 2 + RECIPE_ROW_HEIGHT,
     );
-    expect(measureRecipe(fakeRecipe(1, 1)).height).toBe(140);
+    expect(measureRecipe(fakeRecipe(1, 1)).height).toBe(90);
   });
 
   it("empty handle arrays when a recipe has no ports of that side", () => {

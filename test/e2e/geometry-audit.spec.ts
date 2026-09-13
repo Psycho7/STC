@@ -144,7 +144,6 @@ test.describe("DOM geometry audit", () => {
           const {
             chips,
             rows,
-            multPairs,
             recipeNodeCount,
             containerRect,
             flowChipZ,
@@ -211,32 +210,12 @@ test.describe("DOM geometry audit", () => {
             }
           }
 
-          // (c) The machine-multiplier chip and the rate block never overlap. The
-          // promoted header cell replaced the old absolute .rn-mult-badge overlay
-          // (audit issue 5); the two boxes must stay disjoint on every node that
-          // shows a chip.
-          const chipCollisions: string[] = [];
-          for (const pair of multPairs) {
-            const hit = overlapPx(pair.chip, pair.rate);
-            if (hit !== null) {
-              chipCollisions.push(
-                `${pair.nodeId}: mult-chip ${fmtRect(pair.chip)} overlaps ` +
-                  `rate-block ${fmtRect(pair.rate)} by ` +
-                  `${hit.dx.toFixed(1)}x${hit.dy.toFixed(1)}px`,
-              );
-            }
-          }
-
           // Handle centring is a per-node CSS invariant independent of chip layout;
           // assert it first so that if a scenario also has chip overlaps, reaching
           // the overlap assertion still confirms the handles were centred.
           expect(
             offCenter,
             `${scenario.id}: ${offCenter.length} off-centre handle(s) among ${rows.length} rows in ${recipeNodeCount} recipe node(s):\n${offCenter.join("\n")}`,
-          ).toEqual([]);
-          expect(
-            chipCollisions,
-            `${scenario.id}: ${chipCollisions.length} mult-chip/rate-block overlap(s) among ${multPairs.length} chipped node(s):\n${chipCollisions.join("\n")}`,
           ).toEqual([]);
           expect(
             overlaps,

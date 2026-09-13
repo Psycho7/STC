@@ -26,7 +26,7 @@
 //      port cannot be resolved (non-recipe node, absent item, missing order,
 //      item not in that side's rows, or no handle y at that index). On a
 //      recipe node that centre fallback is exactly distinguishable from any
-//      real row: rows sit at 97 + 22i and the centre at 59 + 11 * maxRows,
+//      real row: rows sit at 73 + 22i and the centre at 34 + 11 * maxRows,
 //      which have no common solution. driftedPortY below depends on that
 //      discriminator, so the fallback value must not change and must not be
 //      pre-drifted.
@@ -125,7 +125,7 @@ export function portOffsetY(
 
 // Did portOffsetY resolve `y` to an actual row on this node, rather than the
 // centre fallback? Exact on recipe nodes by the discriminator in item 4 of the
-// header contract (rows at 97 + 22i can never equal the centre 59 + 11 *
+// header contract (rows at 73 + 22i can never equal the centre 34 + 11 *
 // maxRows); the canonical statement of that proof lives there, and callers that
 // need "resolved vs fallback" must go through this predicate instead of
 // restating the numbers.

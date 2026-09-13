@@ -27,19 +27,9 @@ export type RowCenter = {
   handleCenterY: number | null;
 };
 
-// Per recipe node that shows a machine-multiplier chip: the chip's box and the
-// adjacent rate-block box. Audit issue 5 was the old absolute .rn-mult-badge
-// overlapping the rate figures; the promoted header cell must keep them apart.
-export type MultPair = {
-  nodeId: string;
-  chip: AuditChipRect;
-  rate: AuditChipRect;
-};
-
 export type AuditData = {
   chips: AuditChipRect[];
   rows: RowCenter[];
-  multPairs: MultPair[];
   recipeNodeCount: number;
   // The React Flow pane's client rect: the visible viewport every chip must sit
   // inside at fit zoom (the camera-fit content-bounds assertion).
@@ -70,35 +60,12 @@ export function collectAudit(): AuditData {
     };
   });
 
-  const toRect = (el: HTMLElement, label: string): AuditChipRect => {
-    const r = el.getBoundingClientRect();
-    return {
-      label,
-      x: r.x,
-      y: r.y,
-      right: r.right,
-      bottom: r.bottom,
-      width: r.width,
-      height: r.height,
-    };
-  };
-
   const recipeNodes = Array.from(
     document.querySelectorAll<HTMLElement>(".react-flow__node-recipe"),
   );
   const rows: RowCenter[] = [];
-  const multPairs: MultPair[] = [];
   for (const node of recipeNodes) {
     const nodeId = node.getAttribute("data-id") ?? "(node)";
-    const chipEl = node.querySelector<HTMLElement>(".rn-mult-chip");
-    const rateEl = node.querySelector<HTMLElement>(".rn-rate-block");
-    if (chipEl !== null && rateEl !== null) {
-      multPairs.push({
-        nodeId,
-        chip: toRect(chipEl, "mult-chip"),
-        rate: toRect(rateEl, "rate-block"),
-      });
-    }
     for (const row of Array.from(
       node.querySelectorAll<HTMLElement>(".rn-row"),
     )) {
@@ -132,7 +99,6 @@ export function collectAudit(): AuditData {
   return {
     chips,
     rows,
-    multPairs,
     recipeNodeCount: recipeNodes.length,
     containerRect: {
       x: rfRect.x,

@@ -24,7 +24,6 @@ import {
   CONTAINER_CAPTION_BAND,
   PRODUCT_HEIGHT,
   PRODUCT_WIDTH,
-  RECIPE_FOOTER_HEIGHT,
   RECIPE_HEADER_HEIGHT,
   RECIPE_ROWS_TOP_PAD,
   RECIPE_ROW_HEIGHT,
@@ -196,10 +195,6 @@ describe("the recipe card's box is declared the same in TS and in CSS", () => {
 
   it("sizes .rn-row at RECIPE_ROW_HEIGHT", () => {
     expect(cssPx(".rn-row", "height")).toBe(RECIPE_ROW_HEIGHT);
-  });
-
-  it("sizes .rn-footer at RECIPE_FOOTER_HEIGHT", () => {
-    expect(cssPx(".rn-footer", "height")).toBe(RECIPE_FOOTER_HEIGHT);
   });
 
   it("pads .rn-side by RECIPE_ROWS_TOP_PAD above and below the rows", () => {

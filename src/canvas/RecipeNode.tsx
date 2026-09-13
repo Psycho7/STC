@@ -63,11 +63,6 @@ const TITLE_FONT: MeasuredFont = {
   weight: 600,
   family: "--font-ui",
 };
-const PRODUCTS_FONT: MeasuredFont = {
-  fontSize: 11,
-  weight: 500,
-  family: "--font-ui",
-};
 const CHIP_FONT: MeasuredFont = {
   fontSize: 12,
   weight: 700,
@@ -153,11 +148,11 @@ type RecipeNodeType = Node<RecipeNodeData, "recipe">;
 // Per-row rate label: items per cycle over cycle time, times the machine speed
 // (the solver runs a machine at speed/time executions per second, so the
 // per-machine port rate is qty * speed / time), times the `scale` factor. The
-// render-pipeline path passes the solved rational multiplicity so rows and the
-// header show the aggregate flow across all machines (matching the edge chips);
-// scale=1 yields the per-machine figure. Exact Fraction math keeps non-integer
-// speeds and multiplicities free of float junk; rates here are non-negative, so
-// serializing .n/.d is safe.
+// render-pipeline path passes the solved rational multiplicity so rows show
+// the aggregate flow across all machines (matching the edge chips); scale=1
+// yields the per-machine figure. Exact Fraction math keeps non-integer
+// speeds and multiplicities free of float junk; rates here are non-negative,
+// so serializing .n/.d is safe.
 function rowRateText(
   stoich: Stoich,
   recipeTime: number,
@@ -202,8 +197,8 @@ export default function RecipeNode({
   const geom = measureRecipe(recipe);
   // Aggregate scale across all machines. The render-pipeline path supplies a
   // rational `multiplicity`; the older boot path an integer `multiplier`; a
-  // node with neither runs a single machine. Rows and the header multiply by
-  // this so the node's numbers match its incident edge chips.
+  // node with neither runs a single machine. Rows multiply by this so the
+  // node's numbers match its incident edge chips.
   const perMachine = new Fraction(1);
   const scale: Fraction = multiplicity
     ? rationalFromString(multiplicity)
@@ -220,12 +215,6 @@ export default function RecipeNode({
   // node.
   const machineName =
     producerId !== undefined ? i18n.displayName(producerId) : "";
-  // Secondary line: every produced item, in declaration order. A recipe can
-  // have multiple outputs, so all of them are listed; the line ellipsizes and
-  // the title attribute keeps the full list hoverable.
-  const productNames = recipe.out
-    .map((p) => i18n.displayName(p.item))
-    .join(" ·\u00A0");
   // Same speed factor the solver applies (multiplier.ts); a missing machine
   // record (corrupt fixture) falls back to 1, the only value the pack uses.
   const speed =
@@ -246,10 +235,9 @@ export default function RecipeNode({
     badgeText = `x${multiplier}`;
   }
 
-  // Visible header strings: the elision helper owns them against the pinned
-  // header budgets (title minus the chip and its gap when one rides the
-  // line; products at the recipe block's full content width), and the title
-  // attributes keep the full names for hover.
+  // Visible header string: the elision helper owns it against the pinned
+  // header budget (title minus the chip and its gap when one rides the
+  // line), and the title attribute keeps the full name for hover.
   const visibleMachineName = elideName(
     machineName,
     headerContentWidth() -
@@ -262,32 +250,6 @@ export default function RecipeNode({
     widthFnFor(TITLE_FONT),
     "title-17",
   );
-  const visibleProductNames = recipe.out
-    .map((p) =>
-      elideName(
-        i18n.displayName(p.item),
-        headerContentWidth(),
-        widthFnFor(PRODUCTS_FONT),
-        "products-11",
-      ),
-    )
-    .join(" \u00b7\u00a0");
-
-  // Header rate column. The primary value is the aggregate (per-machine x
-  // scale); the secondary line keeps the per-machine figure so the aggregate
-  // stays reconcilable to one machine's throughput. Empty string hides the
-  // value when there is no primary output. Uses recipe.out[0] (declared
-  // primary), not the reordered side-column top, for the same reason as the
-  // header product.
-  const primaryOut = recipe.out[0];
-  const rateValText =
-    primaryOut !== undefined
-      ? rowRateText(primaryOut, recipe.time, speed, scale)
-      : "";
-  const perMachineText =
-    primaryOut !== undefined
-      ? rowRateText(primaryOut, recipe.time, speed, perMachine)
-      : "";
 
   return (
     <div
@@ -300,7 +262,7 @@ export default function RecipeNode({
         minHeight: geom.height,
       }}
     >
-      {/* Header: a 28px machine icon slot plus the machine title line. */}
+      {/* Header: the machine icon block plus the machine title line. */}
       <div className="rn-head">
         <div className="rn-machine-block">
           <div className="machine-icon" data-machine-icon={machineIconKey}>
@@ -309,8 +271,7 @@ export default function RecipeNode({
         </div>
         <div className="rn-recipe-block">
           {/* Title: machine name plus the machine-count multiplier chip. The
-              chip is critical info, so it survives at every zoom band (the
-              rate figures drop at zoom-low; this line does not). */}
+              chip is critical info, so it survives at every zoom band. */}
           <div className="machine-title">
             <span className="cn" title={machineName}>
               {visibleMachineName}
@@ -319,21 +280,6 @@ export default function RecipeNode({
               <span className="rn-mult-chip">{badgeText}</span>
             ) : null}
           </div>
-          {productNames !== "" ? (
-            <div className="rn-products" title={productNames}>
-              {visibleProductNames}
-            </div>
-          ) : null}
-        </div>
-        <div className="rn-rate-block">
-          <div className="rate-val">{rateValText}</div>
-          <div className="rate-lbl">{i18n.t("node.upm")}</div>
-          {rateValText !== "" ? (
-            <div className="rate-sub">
-              <span className="rate-sub-val">{perMachineText}</span>
-              <span className="rate-sub-ea">{i18n.t("node.each")}</span>
-            </div>
-          ) : null}
         </div>
       </div>
 
@@ -434,13 +380,6 @@ export default function RecipeNode({
             );
           })}
         </div>
-      </div>
-
-      {/* Footer: left half shows cycle time; right half (.pwr) is reserved for
-          power. */}
-      <div className="rn-footer">
-        <div className="cycle">{i18n.t("node.cycle", { time: recipe.time })}</div>
-        <div className="pwr" />
       </div>
     </div>
   );
