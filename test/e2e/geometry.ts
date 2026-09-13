@@ -934,6 +934,13 @@ export function auditDotsUnderChips(
 export type PortedNode = NodeRect & {
   inPorts: ReadonlyArray<string>;
   outPorts: ReadonlyArray<string>;
+  // Items on the card's catalyst rows, which carry a `cat:<item>` port of their
+  // own. They sit below every in: row, so no in: port's y depends on them and
+  // their own row index is inPorts.length + the item's index here.
+  catPorts: ReadonlyArray<string>;
+  // Catalyst rows on the card. They add a row of height each, so every height
+  // rebuilt here counts them alongside inPorts.
+  catalystRows: number;
 };
 
 type PortDrift = { sourceDx: number; targetDx: number; dy: number };
@@ -1002,6 +1009,41 @@ export type EndpointParity = {
   delta: number;
 };
 
+// Row index of one edge endpoint on a recipe card. A source resolves in
+// outPorts; a target resolves in inPorts, except a catalyst edge, which lands on
+// the row's own `cat:<item>` port -- catalyst rows sit below every in: row, so
+// that index is inPorts.length + the item's index in catPorts. -1 when the item
+// names no row on that side.
+//
+// Nothing in the DOM says which port kind an edge landed on: React Flow stamps
+// the edge id on the path and no handle id anywhere, and the id itself encodes
+// only source, target, and item. One card CAN carry the same item on an in: row
+// and on a catalyst row (a phase transmuter cycling the gas it also consumes),
+// which leaves two candidate rows for the two edges that arrive. The audit then
+// takes the candidate the drawn endpoint is nearer to, so it still proves the
+// endpoint sits on a legitimate row within the tolerance while being unable to
+// tell those two rows apart on that one card.
+function rowIndexOf(
+  node: PortedNode,
+  end: "source" | "target",
+  item: string,
+  drawnY: number,
+  driftDy: number,
+): number {
+  if (end === "source") return node.outPorts.indexOf(item);
+
+  const inRow = node.inPorts.indexOf(item);
+  const catAt = node.catPorts.indexOf(item);
+  if (catAt < 0) return inRow;
+
+  const catRow = node.inPorts.length + catAt;
+  if (inRow < 0) return catRow;
+
+  const offBy = (row: number): number =>
+    Math.abs(node.top + recipeRowY(row) + driftDy - drawnY);
+  return offBy(catRow) < offBy(inRow) ? catRow : inRow;
+}
+
 // Rebuild both endpoints of every edge the way chipSeating's edgeEndpoints does
 // -- the MODEL port (card origin + node width + the row's mid-line, or the card
 // centre when the item resolves to no row) shifted by PORT_DRIFT -- and compare
@@ -1047,10 +1089,14 @@ export function auditEndpointParity(
       const drift = driftOf(node.type);
       const isRecipe = node.type === "recipe";
       const modelWidth = isRecipe ? RECIPE_WIDTH : node.right - node.left;
-      const ports = end === "source" ? node.outPorts : node.inPorts;
-      const rowIndex = isRecipe ? ports.indexOf(edge.item) : -1;
+      const rowIndex = isRecipe
+        ? rowIndexOf(node, end, edge.item, drawn[1], drift.dy)
+        : -1;
       const modelHeight = isRecipe
-        ? recipeHeight(node.inPorts.length, node.outPorts.length)
+        ? recipeHeight(
+            node.inPorts.length + node.catalystRows,
+            node.outPorts.length,
+          )
         : node.bottom - node.top;
       // portOffsetY falls back to the card's vertical centre for an unresolved
       // item / node kind, and driftedPortY leaves that fallback undrifted.
@@ -1098,6 +1144,15 @@ export type CardFrameMismatch = {
 // card's border, so the two frames have to be the same box, and this states it
 // against the DOM.
 //
+// One kind grows further: an environment recipe's obstacle is that model box
+// grown by `cardGrowth` PLUS the environment frame extents -- the plates and
+// haze beyond the card box, ENV_FRAME_EXTENTS in src/canvas/dimensions.ts,
+// added per node by cardRectsFor in src/canvas/chipSeating.ts so no chip seats
+// on a plate. This criterion still compares the DRAWN card box against the
+// model box plus cardGrowth alone: the frame element draws at negative insets
+// outside the card's layout, so the plain comparison is what keeps proving
+// the DOM box did not grow.
+//
 // Recipes only. A product or group card rebuilds its model width from the DOM
 // (nothing else knows it), so it would agree by construction -- the same blind
 // spot auditEndpointParity's product side documents. Recipes rebuild off the
@@ -1115,7 +1170,8 @@ export function auditCardFrames(
     if (n.type !== "recipe") continue;
     const seatingWidth = RECIPE_WIDTH + growth;
     const seatingHeight =
-      recipeHeight(n.inPorts.length, n.outPorts.length) + growth;
+      recipeHeight(n.inPorts.length + n.catalystRows, n.outPorts.length) +
+      growth;
     const drawnWidth = n.right - n.left;
     const drawnHeight = n.bottom - n.top;
     if (

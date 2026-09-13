@@ -96,7 +96,7 @@ describe("junction dots: fan-out trunk (BusEdge split dot)", () => {
       ...routingHintsFromData(dataOf(routed, "e:2")),
     }).junction;
 
-    expect(upJunction).toEqual({ x: 392, y: 198 });
+    expect(upJunction).toEqual({ x: 362, y: 174 });
     // Every member draws the same dot: the trunk splits once.
     expect(downJunction).toEqual(upJunction);
     // The dot sits on the source row, out along the shared trunk.
@@ -146,12 +146,12 @@ describe("junction dots: fan-in merge (stamped on the owner item edge)", () => {
     ]);
 
     const owner = dataOf(out, "e:1:srcA->tgt"); // smallest id of the group
-    expect(owner.faninJunctionX).toBe(905);
+    expect(owner.faninJunctionX).toBe(845);
     // On the DRAWN port row, so the dot sits on the run it marks: the model row
     // y plus the recipe handle drift, which is what the members are drawn along.
     expect(owner.faninJunctionY).toBe(drawnPortsFor(srcA, tgt).targetY);
-    expect(owner.faninJunctionY).toBe(198);
-    expect(ty).toBe(197);
+    expect(owner.faninJunctionY).toBe(174);
+    expect(ty).toBe(173);
     // One dot per merge: the non-owner carries none.
     expect(dataOf(out, "e:2:srcB->tgt").faninJunctionX).toBeUndefined();
   });
@@ -183,9 +183,9 @@ describe("junction dots: declined fan-out divergence (stamped on the owner)", ()
 
     const out = deconflictChipAnchors(nodes, edges);
     const owner = dataOf(out, "e:b"); // smallest id among the BENDING members
-    expect(owner.fanoutJunctionX).toBe(312.5);
+    expect(owner.fanoutJunctionX).toBe(252.5);
     expect(owner.fanoutJunctionY).toBe(drawnPortsFor(src, straight).sourceY);
-    expect(owner.fanoutJunctionY).toBe(98);
+    expect(owner.fanoutJunctionY).toBe(74);
     // One dot per split: the non-owner carries none.
     expect(dataOf(out, "e:a").fanoutJunctionX).toBeUndefined();
   });

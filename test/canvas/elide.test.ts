@@ -235,51 +235,47 @@ describe("canvas/elide", () => {
 
 // Real-budget battery: the production estimator against budgets derived
 // from the pinned card geometry exactly the way RecipeNode derives them.
-// The refinement-round review found every helper test ran at 96-208px
-// while the real row budget is ~86px (the REAL label box on a rate-150
-// sprite row; the helper's estimate-derived budget is 81.2px on those rows
-// and 89.5px on rate-60 rows). This battery pins the production regime.
+// The rate left the flow as an overlay over the label tail, so the full
+// inner row width minus its own padding and the sprite line is the
+// label's: 81px on a sprite row (106px without one). This battery pins
+// the production regime.
 describe("canvas/elide real-budget battery", () => {
   const ROW_FONT: TextWidthFont = { fontSize: 12, weight: 400 };
-  const RATE_FONT: TextWidthFont = { fontSize: 12, weight: 700 };
   const TITLE_FONT: TextWidthFont = { fontSize: 17, weight: 600 };
-  const PRODUCTS_FONT: TextWidthFont = { fontSize: 11, weight: 500 };
   const est = (t: string, font: TextWidthFont) => estimateTextWidth(t, font);
 
-  // Mirrors RecipeNode.elideRowLabel: half of the 300px card body minus
+  // Mirrors RecipeNode.elideRowLabel: half of the 240px card body minus
   // the row's 14px horizontal padding, minus the 20px sprite and one 5px
-  // gap when a sprite renders, minus one more gap and the upper-bound
-  // rate estimate in the number face. rowBudget("150") = 81.196 ->
-  // bucket 81; rowBudget("60") = 89.464 -> bucket 89.
-  const rowBudget = (rate: string, hasSprite = true): number =>
-    150 - 14 - (hasSprite ? 25 : 0) - 5 - est(rate, RATE_FONT);
+  // gap when a sprite renders. Nothing is reserved for the rate.
+  // rowBudget(true) = 81; rowBudget(false) = 106.
+  const rowBudget = (hasSprite = true): number =>
+    120 - 14 - (hasSprite ? 25 : 0);
 
-  // Header budgets from the pinned grid columns (ruling R3).
+  // Header budget from the pinned grid columns (ruling R3).
   const headerContentWidth =
-    RECIPE_HEAD_TITLE_COL - 2 * RECIPE_HEAD_BLOCK_PAD_X; // 185
+    RECIPE_HEAD_TITLE_COL - 2 * RECIPE_HEAD_BLOCK_PAD_X; // 171
 
-  const elideRow = (name: string, rate: string): string =>
-    elideName(name, rowBudget(rate), (t) => est(t, ROW_FONT), "row-12");
+  const elideRow = (name: string): string =>
+    elideName(name, rowBudget(), (t) => est(t, ROW_FONT), "row-12");
 
-  it("keeps the parenthesis-bottle goal pairs distinct at the 86px row budget", () => {
+  it("keeps the parenthesis-bottle goal pairs distinct at the 81px row budget", () => {
     // The review's headline defect: the two copper bottles may never read
     // the same. Exact expected strings document the window policy (lead
-    // window for Latin/CJK brackets, trailing window for Cyrillic) and the
-    // even head/window split: the Latin head carries one code point past
-    // its floor here, and the three non-Latin cases sit at their floors
-    // because a wide glyph costs a full em and the next step does not fit.
+    // window for Latin/CJK brackets, trailing window for Cyrillic): at the
+    // narrower card every pair windows -- the Latin and CJK pairs keep a
+    // partial bracket window, the Cyrillic pair its distinguishing end.
     const cases: ReadonlyArray<readonly [number, readonly string[], string[]]> =
       [
         [
-          86,
+          81,
           [
             "Cuprium Bottle(Jincao Solution)",
             "Cuprium Bottle(Yazhen Solution)",
           ],
-          [`Cupri${ELLIPSIS}(Jin`, `Cupri${ELLIPSIS}(Yaz`],
+          [`Cupr${ELLIPSIS}(Jin`, `Cupr${ELLIPSIS}(Yaz`],
         ],
         [
-          86,
+          81,
           [
             "\u041a\u0443\u043f\u0440\u0438\u0435\u0432\u0430\u044f \u0431\u0443\u0442\u044b\u043b\u043a\u0430(\u0420\u0430\u0441\u0442\u0432\u043e\u0440 \u0446\u0437\u0438\u043d\u044c\u0446\u0430\u043e)",
             "\u041a\u0443\u043f\u0440\u0438\u0435\u0432\u0430\u044f \u0431\u0443\u0442\u044b\u043b\u043a\u0430(\u0420\u0430\u0441\u0442\u0432\u043e\u0440 \u044f\u0447\u0436\u044d\u043d\u044f)",
@@ -290,7 +286,7 @@ describe("canvas/elide real-budget battery", () => {
           ],
         ],
         [
-          86,
+          81,
           [
             "\u8d64\u9285\u30dc\u30c8\u30eb(\u9326\u8349\u30a8\u30ad\u30b9)",
             "\u8d64\u9285\u30dc\u30c8\u30eb(\u82bd\u91dd\u30a8\u30ad\u30b9)",
@@ -301,7 +297,7 @@ describe("canvas/elide real-budget battery", () => {
           ],
         ],
         [
-          86,
+          81,
           [
             "\u8d64\u94dc\u74f6(\u9526\u8349\u6eb6\u6db2)",
             "\u8d64\u94dc\u74f6(\u82bd\u9488\u6eb6\u6db2)",
@@ -321,136 +317,104 @@ describe("canvas/elide real-budget battery", () => {
     }
   });
 
-  it("keeps the four-bottle families and the residue goal families distinct at the derived row budgets", () => {
-    const families: ReadonlyArray<readonly [string, readonly string[]]> = [
-      // multi6 rows carry the bottles at rate 150 (budget 81.196).
+  it("keeps the four-bottle families and the residue goal families distinct at the row budget", () => {
+    const families: ReadonlyArray<readonly string[]> = [
+      // The multi6 bottle rows.
       [
-        "150",
-        [
-          "Cuprium Bottle(Jincao Solution)",
-          "Cuprium Bottle(Yazhen Solution)",
-          "Ferrium Bottle(Jincao Solution)",
-          "Ferrium Bottle(Yazhen Solution)",
-        ],
+        "Cuprium Bottle(Jincao Solution)",
+        "Cuprium Bottle(Yazhen Solution)",
+        "Ferrium Bottle(Jincao Solution)",
+        "Ferrium Bottle(Yazhen Solution)",
       ],
       [
-        "150",
-        [
-          "\u041a\u0443\u043f\u0440\u0438\u0435\u0432\u0430\u044f \u0431\u0443\u0442\u044b\u043b\u043a\u0430(\u0420\u0430\u0441\u0442\u0432\u043e\u0440 \u0446\u0437\u0438\u043d\u044c\u0446\u0430\u043e)",
-          "\u041a\u0443\u043f\u0440\u0438\u0435\u0432\u0430\u044f \u0431\u0443\u0442\u044b\u043b\u043a\u0430(\u0420\u0430\u0441\u0442\u0432\u043e\u0440 \u044f\u0447\u0436\u044d\u043d\u044f)",
-          // The plain bottle stays raw (its window would fall below the
-          // floor) and is still distinct from the windowed solutions.
-          "\u041a\u0443\u043f\u0440\u0438\u0435\u0432\u0430\u044f \u0431\u0443\u0442\u044b\u043b\u043a\u0430",
-        ],
+        "\u041a\u0443\u043f\u0440\u0438\u0435\u0432\u0430\u044f \u0431\u0443\u0442\u044b\u043b\u043a\u0430(\u0420\u0430\u0441\u0442\u0432\u043e\u0440 \u0446\u0437\u0438\u043d\u044c\u0446\u0430\u043e)",
+        "\u041a\u0443\u043f\u0440\u0438\u0435\u0432\u0430\u044f \u0431\u0443\u0442\u044b\u043b\u043a\u0430(\u0420\u0430\u0441\u0442\u0432\u043e\u0440 \u044f\u0447\u0436\u044d\u043d\u044f)",
+        // The plain bottle stays raw (its window would fall below the
+        // floor) and is still distinct from the windowed solutions.
+        "\u041a\u0443\u043f\u0440\u0438\u0435\u0432\u0430\u044f \u0431\u0443\u0442\u044b\u043b\u043a\u0430",
       ],
-      // Bracket family at rate 300: whole-tail tier.
-      ["300", ["Canned Citrome [C]", "Canned Citrome [B]"]],
-      // The ru residue families from the validation round, at their real
-      // co-rendering rates.
+      // Bracket family: whole-tail tier.
+      ["Canned Citrome [C]", "Canned Citrome [B]"],
+      // The ru residue families from the validation round; the budget no
+      // longer varies with the rate, so the old per-rate entries collapse
+      // into one per family.
       [
-        "60",
-        [
-          "\u041c\u0435\u043b\u043a\u043e\u043c\u043e\u043b\u043e\u0442\u0430\u044f \u043e\u0440\u0438\u0434\u0436\u0435\u043e\u0434\u0430",
-          "\u041c\u0435\u043b\u043a\u043e\u043c\u043e\u043b\u043e\u0442\u044b\u0439 \u043e\u0440\u0438\u0434\u0436\u0438\u043d\u0438\u0439",
-        ],
+        "\u041c\u0435\u043b\u043a\u043e\u043c\u043e\u043b\u043e\u0442\u0430\u044f \u043e\u0440\u0438\u0434\u0436\u0435\u043e\u0434\u0430",
+        "\u041c\u0435\u043b\u043a\u043e\u043c\u043e\u043b\u043e\u0442\u044b\u0439 \u043e\u0440\u0438\u0434\u0436\u0438\u043d\u0438\u0439",
       ],
       [
-        "120",
-        [
-          "\u041c\u0435\u043b\u043a\u043e\u043c\u043e\u043b\u043e\u0442\u0430\u044f \u043e\u0440\u0438\u0434\u0436\u0435\u043e\u0434\u0430",
-          "\u041c\u0435\u043b\u043a\u043e\u043c\u043e\u043b\u043e\u0442\u044b\u0439 \u043e\u0440\u0438\u0434\u0436\u0438\u043d\u0438\u0439",
-        ],
+        "\u041a\u0443\u043f\u0440\u0438\u0435\u0432\u0430\u044f \u0434\u0435\u0442\u0430\u043b\u044c",
+        "\u041a\u0443\u043f\u0440\u0438\u0435\u0432\u0430\u044f \u0440\u0443\u0434\u0430",
       ],
       [
-        "300",
-        [
-          "\u041a\u0443\u043f\u0440\u0438\u0435\u0432\u0430\u044f \u0434\u0435\u0442\u0430\u043b\u044c",
-          "\u041a\u0443\u043f\u0440\u0438\u0435\u0432\u0430\u044f \u0440\u0443\u0434\u0430",
-        ],
+        "\u041f\u0438\u0440\u0440\u043e\u043b\u0438\u0442\u043e\u0432\u0430\u044f \u0434\u0435\u0442\u0430\u043b\u044c",
+        "\u041f\u0438\u0440\u0440\u043e\u043b\u0438\u0442\u043e\u0432\u044b\u0439 \u043a\u043e\u043c\u043f\u043e\u043d\u0435\u043d\u0442",
       ],
+      // ja sandleaf: the short two fit whole, the powder windows into its
+      // bracket-free base -- all three distinct either way.
       [
-        "30",
-        [
-          "\u041f\u0438\u0440\u0440\u043e\u043b\u0438\u0442\u043e\u0432\u0430\u044f \u0434\u0435\u0442\u0430\u043b\u044c",
-          "\u041f\u0438\u0440\u0440\u043e\u043b\u0438\u0442\u043e\u0432\u044b\u0439 \u043a\u043e\u043c\u043f\u043e\u043d\u0435\u043d\u0442",
-        ],
-      ],
-      // ja sandleaf at rate 600: the powder windows, the seed stays raw
-      // (whole tail does not fit, window below the CJK floor) -- distinct.
-      [
-        "600",
-        [
-          "\u30b5\u30f3\u30c9\u30ea\u30fc\u30d5\u7c89\u672b",
-          "\u30b5\u30f3\u30c9\u30ea\u30fc\u30d5\u306e\u7a2e",
-          "\u30b5\u30f3\u30c9\u30ea\u30fc\u30d5",
-        ],
+        "\u30b5\u30f3\u30c9\u30ea\u30fc\u30d5\u7c89\u672b",
+        "\u30b5\u30f3\u30c9\u30ea\u30fc\u30d5\u306e\u7a2e",
+        "\u30b5\u30f3\u30c9\u30ea\u30fc\u30d5",
       ],
     ];
-    for (const [rate, names] of families) {
-      const visible = names.map((n) => elideRow(n, rate));
-      expect(
-        new Set(visible).size,
-        `@rate ${rate}: ${visible.join(" | ")}`,
-      ).toBe(names.length);
+    for (const names of families) {
+      const visible = names.map((n) => elideRow(n));
+      expect(new Set(visible).size, `${visible.join(" | ")}`).toBe(
+        names.length,
+      );
     }
   });
 
-  it("pins the heavy-xira residue pair at the rate-30 row budget", () => {
-    // Measured residue of the refinement-round-2 leading-window rule: the
-    // base "Tyazhelyy" survives whole at the 89.464px rate-30/60 budgets,
-    // so both tails window from the stem "ksir-" and the two outputs are
-    // IDENTICAL -- the pair's distinction lives in the endings (-agen /
-    // -anit) the leading window discards. They never co-render at equal
-    // rates anywhere in the corpus (zero probe collisions before and
-    // after; recorded in the plan), and at the 81.196px budgets both stay
-    // raw, so the raw strings differ. Pinned exactly so a direction
-    // change cannot pass silently.
+  it("pins the heavy-xira residue pair whole at the row budget", () => {
+    // At the narrower card the pair leaves the leading-window regime that
+    // made the two outputs IDENTICAL (both windowed from the stem "ksir-",
+    // discarding the distinguishing endings): both names now fit the row
+    // budget whole. Pinned exactly, so a policy or budget change that
+    // reintroduces the collision cannot pass silently.
     const gen =
       "\u0422\u044f\u0436\u0435\u043b\u044b\u0439 \u043a\u0441\u0438\u0440\u0430\u0433\u0435\u043d";
     const nit =
       "\u0422\u044f\u0436\u0435\u043b\u044b\u0439 \u043a\u0441\u0438\u0440\u0430\u043d\u0438\u0442";
-    expect(elideRow(gen, "30")).toBe(
-      `\u0422\u044f\u0436\u0435${ELLIPSIS}\u043a\u0441\u0438\u0440`,
+    expect(elideRow(gen)).toBe(
+      "\u0422\u044f\u0436\u0435\u043b\u044b\u0439 \u043a\u0441\u0438\u0440\u0430\u0433\u0435\u043d",
     );
-    expect(elideRow(nit, "30")).toBe(
-      `\u0422\u044f\u0436\u0435${ELLIPSIS}\u043a\u0441\u0438\u0440`,
+    expect(elideRow(nit)).toBe(
+      "\u0422\u044f\u0436\u0435\u043b\u044b\u0439 \u043a\u0441\u0438\u0440\u0430\u043d\u0438\u0442",
     );
-    // At the rate-150 budget both fall back raw (the window misses the
-    // floor) and the full names differ.
-    expect(elideRow(gen, "150")).toBe(gen);
-    expect(elideRow(nit, "150")).toBe(nit);
   });
 
   it("returns no-suffix and guarded names raw at the row budget", () => {
     // No suffix to preserve (CSS tail ellipsis stays the fallback)...
-    const raw: ReadonlyArray<readonly [string, string]> = [
-      ["300", "Ferrium Powder"],
-      ["300", "\u4f18\u8d28\u67d1\u5b9e\u7f50\u5934"],
+    const raw: ReadonlyArray<string> = [
+      "\u4f18\u8d28\u67d1\u5b9e\u7f50\u5934",
       // ...and the measured guards: a multi-word base whose last word is
       // the shared generic noun (en powders), and an all-ideograph CJK
       // name with no kana boundary (ja powders) -- both are distinct under
       // the raw clip and must not be windowed.
-      ["60", "Dense Originium Powder"],
-      ["60", "Dense Crystal Powder"],
-      ["120", "\u9ad8\u5bc6\u5ea6\u7d50\u6676\u7c89\u672b"],
-      ["120", "\u9ad8\u5bc6\u5ea6\u6e90\u77f3\u7c89\u672b"],
+      "Dense Originium Powder",
+      "Dense Crystal Powder",
+      "Ferrium Powder",
+      "\u9ad8\u5bc6\u5ea6\u7d50\u6676\u7c89\u672b",
+      "\u9ad8\u5bc6\u5ea6\u6e90\u77f3\u7c89\u672b",
     ];
-    for (const [rate, name] of raw) {
-      expect(elideRow(name, rate), `${name} @rate ${rate}`).toBe(name);
+    for (const name of raw) {
+      expect(elideRow(name), name).toBe(name);
     }
   });
 
   it("elides the title surface through the same tiers at the pinned header budget", () => {
-    const budget = headerContentWidth; // 201 - 2*8, from dimensions.ts
+    const budget = headerContentWidth; // 187 - 2*8, from dimensions.ts
     const visible = [
       "Cuprium Bottle(Jincao Solution)",
       "Cuprium Bottle(Yazhen Solution)",
     ].map((n) => elideName(n, budget, (t) => est(t, TITLE_FONT), "title-17"));
     expect(new Set(visible).size).toBe(2);
-    expect(visible[0]).toBe(`Cuprium${ELLIPSIS}(Jinca`);
-    expect(visible[1]).toBe(`Cuprium${ELLIPSIS}(Yazhe`);
-    // The zh gate pair fits the whole title column (the jsdom title test
-    // covers the chip-bearing, narrower budget).
+    expect(visible[0]).toBe(`Cupriu${ELLIPSIS}(Jinca`);
+    expect(visible[1]).toBe(`Cupriu${ELLIPSIS}(Yazhe`);
+    // The zh gate pair keeps its distinguishing parenthesis tail whole
+    // beside a floor head (the jsdom title test covers the chip-bearing,
+    // narrower budget).
     expect(
       elideName(
         "\u51c0\u6c34\u8282\u70b9(\u6c61\u6c34\u63a5\u5165\u53e3)",
@@ -458,16 +422,14 @@ describe("canvas/elide real-budget battery", () => {
         (t) => est(t, TITLE_FONT),
         "title-17",
       ),
-    ).toBe("\u51c0\u6c34\u8282\u70b9(\u6c61\u6c34\u63a5\u5165\u53e3)");
+    ).toBe(`\u51c0\u6c34${ELLIPSIS}(\u6c61\u6c34\u63a5\u5165\u53e3)`);
   });
 
   it("keeps the ru module titles distinct at the real x2.50 chip budget", () => {
-    // The round-2 finding: at the chip-bearing title budget both module
-    // names read the same trailing-window string. The stem-first rule
-    // windows the tail whose base survives whole from its START, and the
-    // other name (wide stem letters push its window below the floor) goes
-    // back raw, where CSS keeps the develop look. Budget derived exactly
-    // as RecipeNode derives it for the "x2.50" chip.
+    // The round-2 finding: at a wider card's chip-bearing title budget both
+    // module names once read the same windowed string. At the current
+    // narrower budget both fit whole, the stronger guarantee. Budget
+    // derived exactly as RecipeNode derives it for the "x2.50" chip.
     const CHIP_FONT: TextWidthFont = { fontSize: 12, weight: 700 };
     const badge = "x2.50";
     const budget =
@@ -483,24 +445,9 @@ describe("canvas/elide real-budget battery", () => {
     const visible = [upak, form].map((n) =>
       elideName(n, budget, (t) => est(t, TITLE_FONT), "title-17"),
     );
-    expect(budget).toBeCloseTo(121.6416, 3);
-    expect(visible[0]).toBe(
-      `\u041c\u043e\u0434\u0443${ELLIPSIS}\u0443\u043f\u0430\u043a`,
-    );
+    expect(budget).toBeCloseTo(107.6416, 3);
+    expect(visible[0]).toBe(upak);
     expect(visible[1]).toBe(form);
-    expect(new Set(visible).size).toBe(2);
-  });
-
-  it("elides the products surface whole-tail at the pinned header budget", () => {
-    const budget = headerContentWidth;
-    const visible = [
-      "Cuprium Bottle(Jincao Solution)",
-      "Cuprium Bottle(Yazhen Solution)",
-    ].map((n) =>
-      elideName(n, budget, (t) => est(t, PRODUCTS_FONT), "products-11"),
-    );
-    expect(visible[0]).toBe(`Cupriu${ELLIPSIS}(Jincao Solution)`);
-    expect(visible[1]).toBe(`Cupriu${ELLIPSIS}(Yazhen Solution)`);
     expect(new Set(visible).size).toBe(2);
   });
 });

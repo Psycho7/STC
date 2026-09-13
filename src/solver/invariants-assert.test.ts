@@ -83,6 +83,10 @@ describe("assertInvariants", () => {
     expect(recorded.nettedPacks.length).toBe(1);
     expect(recorded.assertedArgs.length).toBe(1);
     expect(recorded.assertedArgs[0]!.pack).toBe(recorded.nettedPacks[0]);
-    expect(recorded.assertedArgs[0]!.pack).not.toBe(pack);
+    // The catalyst split moved the shipped pack's self-consumers into the
+    // `catalyst` field, so netting is the identity on it: the netted pack IS
+    // the shipped pack, and the assertion above still proves the pipeline
+    // hands the checker the pack it solved on.
+    expect(recorded.assertedArgs[0]!.pack).toBe(pack);
   });
 });
