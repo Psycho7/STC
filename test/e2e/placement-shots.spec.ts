@@ -17,16 +17,13 @@ test.describe("placement screenshot harness", () => {
         `${scenario.id} payload within hash cap`,
       ).toBeLessThanOrEqual(MAX_HASH_PAYLOAD_LEN);
 
-      // English so labels and their text metrics stay stable; lanes on because
-      // the audit corpus polices the bus machinery, and the app default (off
-      // since the bus-lanes flip) is a product decision this suite does not
-      // re-test. Settled on both counts: the webfonts move text-driven layout,
-      // and the cold-load re-fit lands about a debounce after the first fit,
-      // longer than the two matching frames toHaveScreenshot waits for.
+      // English so labels and their text metrics stay stable. Settled on both
+      // counts: the webfonts move text-driven layout, and the cold-load re-fit
+      // lands about a debounce after the first fit, longer than the two
+      // matching frames toHaveScreenshot waits for.
       await bootExamPage(page, {
         url: `/#${hash}`,
         locale: "en",
-        busLanes: "on",
         readiness: "nodes",
         settle: "both",
       });

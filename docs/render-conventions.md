@@ -54,7 +54,7 @@ corridor, never along the box border: its two verticals hold a fixed gap off
 the side borders of whatever container each endpoint sits inside, and its rail
 escapes only the cards it actually spans -- one connected band of them --
 rather than flying over every card that shares its x-range. A return stroke
-and a slab or band border drawn as one line is a defect. One column may still
+and a slab border drawn as one line is a defect. One column may still
 share that line: a forward tap's jog descent, dropping into its consumer, may
 share an entry-gutter line with a container border. That column is a tap
 approach, not a return riding the frame.
@@ -62,45 +62,12 @@ approach, not a return riding the frame.
 Where two strokes of DIFFERENT flows properly cross, the stroke passing under
 shows a gap: a short break is cut out of that stroke around the crossing, the
 other stroke runs through it unbroken, and whatever lies beneath the pair (a
-slab tint, a band tint) shows through the break untouched, so the crossing
+slab tint) shows through the break untouched, so the crossing
 reads as two flows crossing, not as a join. A
 merge never looks like that -- it shows a dot or a shared run -- and a bare X
 of two continuous strokes is a defect: it is indistinguishable from a merge,
 which is exactly the confusion the dot exists to prevent. Crossings inside one
-flow (a trunk's overlapping lane runs, a fan-out's shared run) are one visual
-line and carry no gap.
-
-## Bus lanes
-
-Bus lanes sit behind the `aef.busLanes` setting, which is off by default. A
-plan opened in a browser that has never touched the topbar toggle draws no
-lanes and no BUS bands: long edges stay individual strokes. The fan-out
-junction columns described under "Fan-out and fan-in" are not part of the
-toggle: a junction column is not a lane (it carries no lane y and draws no
-band), so same-source edges still share their junction column in both modes --
-though with lanes on, the members whose span reaches past the lane threshold
-are the lane's rather than the column's. Six e2e specs and the geometry audit
-cover the setting
-explicitly; the render-exam capture still switches it on before loading, so
-the exam never sees the lanes-off render -- a known coverage gap. Both modes
-are correct renders of the same plan.
-
-Long edges route through shared horizontal lanes, drawn as faint tinted bands
-labelled BUS above and below the block of nodes. A member drops into its lane,
-runs along it, and rises at the column where it turns towards its target. Every
-member of one trunk shares a lane y, so their runs overlap and the trunk draws as
-a single stroke without any cross-edge coordination.
-
-A multi-member trunk carries no aggregate total. Its members' rise chips spread
-along the lane, and a junction dot marks the point each member branches off at.
-
-A lone lane trunk draws no junction dot: nothing branches at its corner. What it
-labels depends on how far it runs. On a long lone run only the rise chip draws,
-down at the consumer end, and it survives the zoom gate the other chips are held
-to; a drop chip restating that same rate a screen away reads as a second flow. On
-a short lone run both the rise and the drop chip draw. And the drop chip returns
-whenever the rise chip is hidden by the seating pass, so the trunk is never left
-unlabelled.
+flow (a fan-out's shared run) are one visual line and carry no gap.
 
 ## Fan-out and fan-in
 
@@ -130,13 +97,10 @@ own member chip is the only rate on it.
 ## Rate chips
 
 No chip anywhere shows a bare summed total. Every rate chip states one edge's
-rate. The single exception is a lane member's chip on a multi-member trunk,
-which reads as that member's share of the trunk ("30/270"); a lone member is
-its own total and keeps the plain rate and unit. A fan-out branch chip is not
-that exception: it keeps the plain rate and unit the item edges beside it
-carry. Totals otherwise live on the node cards' rows. A trunk total on a chip
-and the same total on a card come from one formatter, so they should read
-alike; members rounded independently can still sum a cent off that number.
+rate: a fan-out branch chip keeps the plain rate and unit the item edges beside
+it carry. Totals live on the node cards' rows. A total on a chip and the same
+total on a card come from one formatter, so they should read alike; members
+rounded independently can still sum a cent off that number.
 
 Chips, machine cards, boundary cards, product-chip captions and the totals lines
 all draw from one formatter, so a plan shows one rate unit throughout. A mix
@@ -158,15 +122,7 @@ live line with their last seat offsets); one that reads as belonging to a neighb
 A decision the pass recorded against an anchor -- a hidden chip, a junction dot --
 survives a drag only while that anchor still matches the live geometry, and
 comes back or disappears as soon as it does not; a decision recorded with no
-anchor stands until the next re-seat. A
-lane chip first tries a bite-sized lift off its lane -- under one chip
-half-height, so the lane stroke still runs inside the box the chip paints and
-keeps saying which trunk the rate belongs to -- and that much clears a thin
-obstacle such as a foreign stroke. A neighbouring chip needs more than a bite:
-for one of those the lane chip may step exactly one lane pitch beside its lane,
-which still reads as sitting beside it. A rise that would need more than one
-pitch is hidden instead (see Intentional behaviours). A junction dot sitting on
-the lane buys no lift at all.
+anchor stands until the next re-seat.
 
 ## Intentional behaviours
 
@@ -183,13 +139,10 @@ Do not report these as defects.
   adjacent rows of one card, a member chip on a merged fan-in run): it draws
   at its natural size and stays on its line rather than leaving it. A capped
   chip keeps its digits down to the same zoom as every other chip; they are
-  simply drawn smaller. Low zoom is a third cause: below zoom 0.32 the two chips
-  exempt from the 0.35 gate (the bus drop chip and a lone member's long-run rise
-  chip) render icon-only as well. All of them keep the rate on the hover title
-  and the aria label. A digit-less square chip is intentional, not a missing
-  rate.
-- A lane rise chip may cover its own junction dot. The dot is decorative, a rate
-  chip lifted clear of the lane it labels is not.
+  simply drawn smaller. Low zoom is a third cause: below zoom 0.32 the chip
+  exempt from the 0.35 gate (the trunk's aggregate chip) renders icon-only as
+  well. All of them keep the rate on the hover title and the aria label. A
+  digit-less square chip is intentional, not a missing rate.
 - A fan-out branch chip, or a fan-in member chip that would land on the shared
   run, may be deliberately hidden. The rate remains on the target card's input
   row and on the edge's hover tooltip.
@@ -205,14 +158,6 @@ Do not report these as defects.
   polyline, while a non-owner member's chip hide is pinned to the port ROW
   alone, so a source dragged horizontally slides the line out from under the dot
   without changing any row. Both stamps are restored by the reseat at drag-stop.
-- A member of a multi-member lane trunk may draw no rise chip at all. The
-  seating pass hides a rise chip when the trunk's run has no room for it at one
-  chip's separation from its neighbours, and when its seat would have to leave
-  the lane by more than one pitch and float in empty canvas. A lane with three
-  members and one share chip is that hide, not a missing label; the rate stays
-  on the edge's hover tooltip and on the target card's input row. Only a lone
-  trunk is guaranteed a label, by the drop chip that returns when its rise is
-  hidden.
 - The short break in a stroke at a crossing (see Edges) is not-a-break. No flow
   is interrupted there: the passing-under edge is continuous in the model, and
   the gap exists only to say "crossing, not a merge". Likewise the stroke that

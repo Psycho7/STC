@@ -35,9 +35,7 @@ function recipeNodeOf(
 describe("layoutSolved on a self-consuming recipe", () => {
   it("draws the self-consumed input row with no incoming edge", async () => {
     const solved = solveForRender({ targets });
-    const { nodes, edges } = await layoutSolved(solved, {
-      busLanesEnabled: false,
-    });
+    const { nodes, edges } = await layoutSolved(solved);
 
     const node = recipeNodeOf(nodes);
     // The raw in-game stoichiometry: gas in, a fifth of the output looped back.
@@ -67,7 +65,6 @@ describe("layoutSolved on a self-consuming recipe", () => {
       // map; this control passes it on purpose to show what it costs.
       recipeById: solved.full.nettedRecipeById,
       itemById: new Map(pack.items.map((i) => [i.id, i])),
-      busLanesEnabled: false,
     });
 
     const node = recipeNodeOf(nodes);

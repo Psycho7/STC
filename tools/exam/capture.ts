@@ -124,7 +124,7 @@ const CORRECTIVE_RESERVE = 8;
 
 // Element families a reviewer must read whole in a single shot: half a chip in
 // one tile and half in another is two unreadable halves. Everything else (edge
-// paths, bus bands, group slabs) may legitimately span shots.
+// paths, group slabs) may legitimately span shots.
 //
 // Exhaustive over the collector's kinds on purpose. A Set lookup would default a
 // kind nobody classified to the permissive class, silently weakening coverage
@@ -135,7 +135,6 @@ const KIND_CLASS: Record<SceneElement["kind"], "point" | "extended"> = {
   junction: "point",
   glyph: "point",
   edge: "extended",
-  band: "extended",
   group: "extended",
 };
 
@@ -271,16 +270,13 @@ export async function bootPage(
     consoleErrors.push(`pageerror: ${err.message}`);
   });
 
-  // Bus lanes default OFF for a missing key; the exam corpus opts in exactly as
-  // the e2e specs do, so the capture shows the lanes, bands and captions the
-  // audits ratchet. --locale is a free string on the CLI, and the app ignores a
-  // stored value outside the two it ships: seeding nothing for one of those
-  // leaves the page on the app's own default, which is what it does today.
+  // --locale is a free string on the CLI, and the app ignores a stored value
+  // outside the two it ships: seeding nothing for one of those leaves the page
+  // on the app's own default, which is what it does today.
   await bootExamPage(page, {
     url: examUrl(opts.baseUrl, opts.hash),
     locale:
       opts.locale === "en" || opts.locale === "zh" ? opts.locale : undefined,
-    busLanes: "on",
     readiness: "ready",
     settle: "both",
   });

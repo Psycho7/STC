@@ -1,8 +1,6 @@
-// Edge-span census. Two parts:
-//   1. computeEdgeSpans unit test on a synthetic 3-node fixture (one container
-//      child) that pins the absolute-position resolution and the floor-at-0.
-//   2. A repro-plan census that runs the real decode -> pipeline -> ELK layout
-//      chain and asserts every long non-bus edge has a clear direct corridor.
+// Edge-span census: computeEdgeSpans on a synthetic 3-node fixture (one
+// container child), pinning the absolute-position resolution, the floor-at-0 and
+// the long-edge threshold every span fixture is written against.
 
 import { describe, it, expect } from "vitest";
 import {
@@ -11,16 +9,11 @@ import {
   type SpanNode,
   type SpanEdge,
 } from "./edgeSpans";
-import { directCorridorClear } from "../../src/canvas/busRouting";
-import { loadPlan } from "../../src/data/plan";
-import { solveFromPlan } from "../../src/pipeline/solveForRender";
-import { layoutSolved } from "../../src/canvas/layoutSolved";
-import { pack } from "../../src/data/load";
 
 describe("computeEdgeSpans", () => {
   it("pins the current long-edge threshold at 820 so span fixtures stay valid", () => {
-    // Every span fixture in the bus-routing suites is written against this
-    // number; a spacing change that moves it has to move them too.
+    // Every span fixture in the routing suites is written against this number;
+    // a spacing change that moves it has to move them too.
     expect(SPAN_THRESHOLD).toBe(820);
   });
 
@@ -41,92 +34,5 @@ describe("computeEdgeSpans", () => {
     ];
 
     expect(computeEdgeSpans(nodes, edges)).toEqual([450, 0]);
-  });
-});
-
-// The repro fragment (gzip + urlsafe-base64 plan JSON), sans leading '#'. Decoded
-// through the same loadPlan -> solve -> render -> layout chain
-// the app runs at mount time.
-const REPRO_FRAGMENT =
-  "v1.H4sIAAAAAAAAAxXMyw6CMBAF0H-566pYHtL-gTsTl4SQMjM1jbwsZUX4d8PurM6OxdEXtoFM7IMMfCE30M07SnMM8-B6KGRXDYXCU1FpU9RejK9Kzb3OdFmbMmeumTLT5-zJPNAqpJAGgQUUkosfSStssyMkGZ8MC_ltYelWimFJXdGdfXRJXhLfQrA7pm2ExR0KLNN8Wmc4jvb4A_HsvUGyAAAA";
-
-// Decode the repro fragment and run it through the solver + render pipeline;
-// both census tests lay out the same solved plan.
-async function solvedReproPlan() {
-  const outcome = await loadPlan(REPRO_FRAGMENT, pack);
-  if (outcome.kind === "error") {
-    throw new Error(
-      `repro fragment failed to load: ${JSON.stringify(outcome.error)}`,
-    );
-  }
-  return solveFromPlan(outcome.plan, pack);
-}
-
-describe("edge-span census: repro plan", () => {
-  it("every long non-bus edge has a provably clear direct corridor", async () => {
-    const solved = await solvedReproPlan();
-    // Time the layout + bus-routing pass (routeBusEdges runs inside
-    // layoutRenderPlan) for the census log only. Nothing asserts on it: a
-    // wall-clock bound is a machine-load coin flip inside a unit suite.
-    const layoutStart = performance.now();
-    const laid = await layoutSolved(solved);
-    const layoutMs = performance.now() - layoutStart;
-
-    // Full-census spans (all edges) for the record.
-    const spans = computeEdgeSpans(laid.nodes, laid.edges);
-    const sortedDesc = [...spans].sort((a, b) => b - a);
-    const longSpans = sortedDesc.filter((s) => s > SPAN_THRESHOLD);
-
-    // Bus lanes carry the crossing routes; the criterion applies to the
-    // free-routed (non-bus) remainder. Retype pass sets edge.type === "bus".
-    const busEdges = laid.edges.filter((e) => e.type === "bus");
-    const nonBusEdges = laid.edges.filter((e) => e.type !== "bus");
-
-    // A non-bus edge may now legitimately span past the threshold: Task 12
-    // deliberately leaves a single-member trunk whose DIRECT corridor is clear
-    // as a plain item edge rather than detouring it onto a bus lane. The
-    // criterion below is the successor to the old "zero long non-bus edges":
-    // any layout satisfying the old zero-count satisfies this one vacuously,
-    // and it additionally admits exactly the long edges whose direct corridor
-    // is provably clear (recomputed with the same gate routeBusEdges demotes
-    // on). A blocked long non-bus edge -- what the old zero-count guarded
-    // against -- still fails, and the check stays fully structural.
-    const longNonBus = nonBusEdges.filter(
-      (e) => (computeEdgeSpans(laid.nodes, [e])[0] ?? 0) > SPAN_THRESHOLD,
-    );
-    const blocked = longNonBus.filter(
-      (e) => !directCorridorClear(laid.nodes, laid.edges, e),
-    );
-
-    // Census log (surfaces in the commit body): total edges, bus count, long
-    // count over the full census, long non-bus count, blocked count, max span.
-    console.log(
-      `[edge-span census] total=${spans.length} bus=${busEdges.length} long(>${SPAN_THRESHOLD})=${longSpans.length} longNonBus=${longNonBus.length} blocked=${blocked.length} max=${Math.round(sortedDesc[0] ?? 0)} layoutMs=${Math.round(layoutMs)} longSpans=${JSON.stringify(longSpans.map((s) => Math.round(s)))}`,
-    );
-
-    // Criterion: no free-routed (non-bus) edge spans past the threshold with a
-    // blocked corridor -- every long item edge that survived is one demotion left
-    // as plain because its direct route is clear.
-    expect(blocked.map((e) => e.id)).toEqual([]);
-  });
-
-  it("busLanesEnabled: false yields zero LANE edges but keeps fan-out trunks", async () => {
-    const solved = await solvedReproPlan();
-
-    const on = await layoutSolved(solved);
-    const off = await layoutSolved(solved, { busLanesEnabled: false });
-
-    // The default arm proves the fixture exercises the toggle at all.
-    expect(on.edges.some((e) => e.type === "bus")).toBe(true);
-    // The OFF arm drops only the lane pass.
-    expect(
-      off.edges.some((e) => e.data !== undefined && "laneY" in e.data),
-    ).toBe(false);
-    // Fan-out trunks still form with lanes off.
-    expect(
-      off.edges.some(
-        (e) => (e.data as { fanout?: boolean } | undefined)?.fanout === true,
-      ),
-    ).toBe(true);
   });
 });

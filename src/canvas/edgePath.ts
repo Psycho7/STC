@@ -1,11 +1,10 @@
 // Custom orthogonal edge-path builder for the blueprint canvas.
 //
 // Replaces React Flow's getSmoothStepPath with a chamfered variant: every turn
-// is a 45-degree corner cut instead of a rounded arc, edges leave and enter
-// ports through a minimum straight stub, and bus members exit horizontally
-// before diving to their lane. Routing semantics (which edges exist, their
-// lanes and taps) are decided elsewhere; this module only decides how a given
-// (source, target[, lane]) pair is drawn as a polyline.
+// is a 45-degree corner cut instead of a rounded arc, and edges leave and enter
+// ports through a minimum straight stub. Routing semantics (which edges exist)
+// are decided elsewhere; this module only decides how a given (source, target)
+// pair is drawn as a polyline.
 //
 // Every function is pure (no React, no Date/random, no input mutation) and
 // rounds coordinates to two decimals so pinned test strings stay stable.
@@ -32,28 +31,11 @@ export const MAX_CHAMFER = 24;
 
 // Gap budget for a full symmetric forward shape: one PORT_STUB plus one CHAMFER
 // on each side. Below it the forward builders scale their stub and chamfer down
-// proportionally (chamferStepPath, chamferBusPath) and the shape degenerates --
-// no distinct bend / drop / rise column. The routing passes predict that
-// degeneration (whether a member claims a gutter column, whether a bus column
-// needs clearing), so they must read this same constant: the drawer owns the
-// threshold.
+// proportionally (chamferStepPath) and the shape degenerates -- no distinct
+// bend column. The routing passes predict that degeneration (whether a member
+// claims a gutter column), so they must read this same constant: the drawer
+// owns the threshold.
 export const FORWARD_STEP_BUDGET = 2 * (PORT_STUB + CHAMFER);
-
-// Base bus drop column: one stub + chamfer off the source's Right port (its
-// right edge at sourceRight). The single definition every consumer shares --
-// chamferBusPath's default, routeBusEdges' rise-chip spread, clearBusColumns'
-// dodge base, and busBandRegions' run fold -- so the drop basis can never
-// drift between the drawer and the routing passes.
-export function busDropBase(sourceRight: number): number {
-  return sourceRight + PORT_STUB + CHAMFER;
-}
-
-// Base bus rise column: the staggered entryX when the entry-gutter pass staked
-// one out, else one stub + chamfer inside the target's Left port (its left edge
-// at targetLeft). Shared by the same consumers as busDropBase, same rationale.
-export function busRiseBase(targetLeft: number, entryX?: number): number {
-  return entryX ?? targetLeft - PORT_STUB - CHAMFER;
-}
 
 // Round to two decimals so degraded/scaled geometry does not produce long
 // floating tails in the emitted `d` string (keeps pinned tests stable).
@@ -155,16 +137,10 @@ export type ObstacleRect = {
 //           clear; the drawer's [lo, hi] clamp could push it back into the
 //           blocked band). Absent -> the clamped bendX / midpoint default.
 //   entryX: entry-gutter column x (assignEntryColumns), the vertical run into
-//           the target's Left port for backward rails and bus rises. Absent ->
+//           the target's Left port for backward rails. Absent ->
 //           one stub before the port.
 //   railY:  backward-detour rail y (clampBackwardRails) clearing spanned cards.
 //           Absent -> midway between the endpoints.
-//   dropX:  obstacle-cleared bus drop column (clearBusColumns), the vertical run
-//           from the source down to the lane. Absent -> one stub+chamfer inside
-//           the source port.
-//   riseX:  obstacle-cleared bus rise column (clearBusColumns), the vertical run
-//           from the lane up to the target port. Overrides entryX when present.
-//           Absent -> entryX, or one stub+chamfer inside the target port.
 //   railXRight/railXLeft: obstacle-cleared backward-rail verticals
 //           (clampBackwardRails). railXRight is the source-side column, absent ->
 //           one stub out of the source port. railXLeft is the target-side column
@@ -197,8 +173,6 @@ export type RoutingHints = {
   srcColX?: number;
   entryX?: number;
   railY?: number;
-  dropX?: number;
-  riseX?: number;
   railXRight?: number;
   railXLeft?: number;
   junctionX?: number;
@@ -216,8 +190,6 @@ const HINT_KEYS = [
   "srcColX",
   "entryX",
   "railY",
-  "dropX",
-  "riseX",
   "railXRight",
   "railXLeft",
   "junctionX",
@@ -352,7 +324,7 @@ function clearRailYBand(
 // side each horizontal leg leaves on (-1 = left, +1 = right): the entry point is
 // (x + entryDir*chamfer, y0) and the exit point (x + exitDir*chamfer, y1). The
 // defaults (-1, +1) enter from the left and exit to the right, matching the
-// forward step and the wide bus drop/rise. The backward detour columns pass
+// forward step. The backward detour columns pass
 // (-1, -1) and (+1, +1) so both legs stay on one side. When the vertical run is
 // too short to fit two chamfers (|y1 - y0| <= 2*chamfer) the column collapses to
 // a two-point diagonal (a flat horizontal when y0 === y1), skipping the run.
@@ -377,25 +349,6 @@ function chamferColumn(
     ` L ${r(x)},${r(y1 - dir * chamfer)}` +
     ` L ${r(x + exitDir * chamfer)},${r(y1)}`
   );
-}
-
-// Join a point list into an SVG path string, rounding every coordinate and
-// skipping consecutive duplicates (degenerate hairpin legs can land two points
-// on the same vertex, and a repeated point would be a stray zero-length
-// segment in the emitted `d`).
-function pathFromPoints(pts: ReadonlyArray<readonly [number, number]>): string {
-  let path = "";
-  let px = NaN;
-  let py = NaN;
-  for (const [x, y] of pts) {
-    const rx = r(x);
-    const ry = r(y);
-    if (rx === px && ry === py) continue;
-    path += path === "" ? `M ${rx},${ry}` : ` L ${rx},${ry}`;
-    px = rx;
-    py = ry;
-  }
-  return path;
 }
 
 // Every "x,y" coordinate pair of an absolute "M x,y L x,y ..." path string
@@ -533,7 +486,7 @@ export function chamferStepPath(
       return [d, r(labelX), r(railY)];
     }
     // Right column exits leftward (-1, -1) onto the rail, left column enters
-    // leftward (+1, +1) off it; the leftward lane run is the implicit segment
+    // leftward (+1, +1) off it; the leftward rail run is the implicit segment
     // between the right column's exit and the left column's entry.
     const d =
       `M ${r(sx)},${r(sy)}` +
@@ -669,138 +622,11 @@ export function chamferStepPath(
   return [d, r(bx), r((sy + ty) / 2)];
 }
 
-// chamferBusPath: a bus-trunk member. Exits the source rightward, chamfers down
-// into the shared lane, runs along it, then chamfers up (or down) at the rise
-// column and enters the target with a final rightward stub. Returns the drop and
-// rise columns (where BusEdge draws its two chips) and the junction point (where
-// BusEdge draws its dot, on the lane just before the rise chamfer).
-//
-// Accepts the full RoutingHints so callers can spread routingHintsFromData; a
-// bus run reads only the bus-relevant hints (entryX, dropX, riseX) and ignores
-// the rest (bendX / legY / railY apply to the forward step and backward rail).
-export function chamferBusPath(
-  args: {
-    sourceX: number;
-    sourceY: number;
-    targetX: number;
-    targetY: number;
-    laneY: number;
-  } & RoutingHints,
-): {
-  path: string;
-  dropX: number;
-  riseX: number;
-  junction: { x: number; y: number };
-} {
-  const { sourceX: sx, sourceY: sy, targetX: tx, targetY: ty, laneY } = args;
-  const gap = tx - sx;
-  // Budget for a full symmetric shape: a stub plus a chamfer on each side.
-  const budget = FORWARD_STEP_BUDGET;
-
-  // Backward: target at or left of source. Drop one stub+chamfer inside the
-  // source, run the lane leftward, rise one stub+chamfer inside the target. The
-  // lane run reverses (riseX < dropX) but the final stub into the target still
-  // finishes rightward. laneDir flips the junction to the lane's leftward side.
-  if (gap <= 0) {
-    // Drop column, the run that dives off the source into the lane.
-    // clearBusColumns may move it clear of a foreign card / gutter (dropX);
-    // absent that hint it falls back to the shared base (busDropBase).
-    const dropX = args.dropX ?? busDropBase(sx);
-    // Rise column, the run that climbs the target's Left-port gutter off the
-    // lane. The entry-gutter pass stakes it out as a per-edge staggered column
-    // (see assignEntryColumns) so two rises into one node never coincide, and
-    // clearBusColumns may then move it clear of a foreign card / gutter (riseX,
-    // which overrides the stagger). Absent that hint it falls back to the
-    // shared base (busRiseBase, which itself prefers the stagger), keeping
-    // every direct caller and its pinned test byte for byte identical.
-    const riseX = args.riseX ?? busRiseBase(tx, args.entryX);
-    const laneDir = -1;
-    const path =
-      `M ${r(sx)},${r(sy)}` +
-      chamferColumn(dropX, sy, laneY, CHAMFER, -1, -1) +
-      chamferColumn(riseX, laneY, ty, CHAMFER, 1, 1) +
-      ` L ${r(tx)},${r(ty)}`;
-    return {
-      path,
-      dropX: r(dropX),
-      riseX: r(riseX),
-      junction: { x: r(riseX - laneDir * CHAMFER), y: r(laneY) },
-    };
-  }
-
-  // Narrow forward gap: too little room for two full stub+chamfer columns and a
-  // lane run between them, so scale the chamfer by gap/budget (same idiom as the
-  // forward step) and collapse both columns onto the corridor midpoint
-  // (dropX === riseX), drawing a hairpin at x = mid: chamfer in, straight down
-  // to the lane apex, straight back up the same column, chamfer out. The up-leg
-  // exactly overlaps the down-leg along x = mid, so it strokes as one line
-  // (an offset bevel there would read as a zero-area spur). Each chamfer is
-  // dropped when its vertical leg is too short to fit one (same guard as
-  // chamferColumn), going straight into/out of the column instead.
-  if (gap < budget) {
-    const scale = gap / budget;
-    const chamfer = CHAMFER * scale;
-    const mid = (sx + tx) / 2;
-    const dirDown = laneY > sy ? 1 : -1; // source level -> lane apex
-    const dirUp = ty > laneY ? 1 : -1; // lane apex -> target level
-    const pts: Array<readonly [number, number]> = [[sx, sy]];
-    if (Math.abs(laneY - sy) > 2 * chamfer) {
-      pts.push([mid - chamfer, sy], [mid, sy + dirDown * chamfer]);
-    } else {
-      pts.push([mid, sy]);
-    }
-    pts.push([mid, laneY]);
-    if (Math.abs(ty - laneY) > 2 * chamfer) {
-      pts.push([mid, ty - dirUp * chamfer], [mid + chamfer, ty]);
-    } else {
-      pts.push([mid, ty]);
-    }
-    pts.push([tx, ty]);
-    return {
-      path: pathFromPoints(pts),
-      dropX: r(mid),
-      riseX: r(mid),
-      // The junction dot sits on the actual hairpin apex vertex.
-      junction: { x: r(mid), y: r(laneY) },
-    };
-  }
-
-  // Wide forward gap: full symmetric drop-lane-rise. Drop and rise columns sit
-  // one stub plus one chamfer inside each port, so the horizontal run
-  // leaving/entering the handle is exactly PORT_STUB long. Normally the lane is
-  // below both endpoints (drop down, rise up); when targetY is at or below the
-  // lane the rise simply chamfers the other way. chamferColumn derives each turn
-  // direction from its own y0 -> y1.
-  // Drop column: clearBusColumns may move it clear of a foreign card / gutter
-  // (dropX); absent that hint it falls back to the shared base (busDropBase),
-  // keeping direct callers and pinned tests byte for byte identical.
-  const dropX = args.dropX ?? busDropBase(sx);
-  // Rise column: the entry-gutter pass may stagger it (see assignEntryColumns)
-  // and clearBusColumns may then move it clear of a foreign card / gutter (riseX,
-  // which overrides the stagger); absent that hint it falls back to the shared
-  // base (busRiseBase, which itself prefers the stagger), keeping direct callers
-  // and pinned tests byte for byte identical.
-  const riseX = args.riseX ?? busRiseBase(tx, args.entryX);
-  const laneDir = 1;
-  const path =
-    `M ${r(sx)},${r(sy)}` +
-    chamferColumn(dropX, sy, laneY, CHAMFER) +
-    chamferColumn(riseX, laneY, ty, CHAMFER) +
-    ` L ${r(tx)},${r(ty)}`;
-  return {
-    path,
-    dropX: r(dropX),
-    riseX: r(riseX),
-    junction: { x: r(riseX - laneDir * CHAMFER), y: r(laneY) },
-  };
-}
-
 // chamferFanoutPath: one member of a fan-out trunk (routeFanoutEdges). N members
 // share a source PORT (same item, same source unit) and fan out to N targets one
 // layer over. Every member is drawn with the SAME junction column, so their
 // shared trunk segment -- the horizontal from the source port out to the junction
-// -- overlaps into one line and the trunk visually draws once (exactly as a bus
-// lane draws once from its members' overlapping lane runs). Each member then
+// -- overlaps into one line and the trunk visually draws once. Each member then
 // branches off the junction, up or down its own column to its target port, and
 // finishes with the rightward stub into the Left handle.
 //
@@ -924,8 +750,8 @@ export function branchLegAfterJunction(
 
 // The DRAWN edge: given one edge's drawn ports, its type and its stamped data,
 // the polyline the canvas paints and every anchor that rides it. The one place
-// that resolves the routing hints, the bus / fan-out discriminants, the lane-row
-// fallback, the parse of `d` into vertices, and the fan-out branch-leg slice --
+// that resolves the routing hints, the fan-out discriminant, the parse of `d`
+// into vertices, and the fan-out branch-leg slice --
 // so the renderers (endpoints from React Flow props) and the chip-seating
 // reconstruction (endpoints from drawnPortsOf) cannot disagree about any of it.
 // A new routing hint threaded through RoutingHints and routingHintsFromData
@@ -939,7 +765,7 @@ export function branchLegAfterJunction(
 // unstamped data yields the item shape with the builders' default hints, the
 // same way an unrecognised edge passes a routing pass through unchanged.
 //
-// What stays outside: the seat offsets (labelDx/Dy, fanoutBranch*, busChipDy),
+// What stays outside: the seat offsets (labelDx/Dy, fanoutBranch*),
 // the hide flags and the dot families are stamps on edge data. This answers
 // where the line and its anchors are, never where a chip ended up.
 export type DrawnPorts = {
@@ -966,15 +792,6 @@ export type DrawnEdge =
       junction: Anchor;
       trunkAnchor: Anchor;
       branchAnchor: Anchor;
-    }
-  | {
-      shape: "lane";
-      path: string;
-      pts: ReadonlyArray<readonly [number, number]>;
-      laneY: number;
-      dropX: number;
-      riseX: number;
-      junction: Anchor;
     };
 
 export function drawnEdge(
@@ -996,27 +813,6 @@ export function drawnEdge(
       junction: fan.junction,
       trunkAnchor: fan.trunkAnchor,
       branchAnchor: fan.branchAnchor,
-    };
-  }
-
-  if (edgeType === "bus") {
-    // Narrow on `"laneY" in` (the discriminant the lane bands and the census
-    // helpers use) rather than a cast: this bus edge is the lane variant only
-    // because the fan-out arm above did not claim it. A member whose lane is
-    // unstamped rides its own target row.
-    const laneY =
-      d !== undefined && "laneY" in d && typeof d.laneY === "number"
-        ? d.laneY
-        : ports.targetY;
-    const lane = chamferBusPath({ ...ports, laneY, ...hints });
-    return {
-      shape: "lane",
-      path: lane.path,
-      pts: parsePathPoints(lane.path),
-      laneY,
-      dropX: lane.dropX,
-      riseX: lane.riseX,
-      junction: lane.junction,
     };
   }
 

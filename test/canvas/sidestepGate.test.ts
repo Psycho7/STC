@@ -60,11 +60,6 @@ const driftOf = (
 // its own polyline is a chip the reader no longer reads as bound to its line.
 const OFF_PATH_TOL = 1;
 
-// chipSeating's CHIP_HALF_H, mirrored (the module does not export it): half the
-// box a chip paints at max counter-scale. A bus chip lifted this far off its
-// lane has the lane stroke on its box edge, not inside it.
-const CHIP_HALF_H = (2 * 24) / 2;
-
 // No card exemption and an INVERTED entry band no point can fall inside, so the
 // unit fixtures below see only the strokes they declare.
 const NO_EXEMPT: CardExemption = { whole: new Set(), zones: new Map() };
@@ -90,13 +85,9 @@ type OffPathHit = { id: string; distance: number };
 // Solve, render and lay out a scenario, then measure every item edge's SEATED
 // rate-chip centre against its own drawn polyline -- the node-land twin of the
 // e2e off-path audit, on the same plans.
-async function offPathChips(
-  targets: ItemTarget[],
-  busLanesEnabled: boolean,
-): Promise<OffPathHit[]> {
+async function offPathChips(targets: ItemTarget[]): Promise<OffPathHit[]> {
   const { nodes, edges } = await layoutSolved(
     solveForRender({ targets, pack }),
-    { busLanesEnabled },
   );
   const byId = new Map(nodes.map((n) => [n.id, n]));
   const hits: OffPathHit[] = [];
@@ -146,12 +137,10 @@ describe("the landing plan's sewage chip stays on its own line", () => {
     { itemId: "iron_powder", ratePerSec: { num: "1", denom: "4" } },
   ];
 
-  for (const busLanesEnabled of [true, false]) {
-    it(`seats every rate chip on its polyline with lanes ${busLanesEnabled ? "on" : "off"}`, async () => {
-      const hits = await offPathChips(targets, busLanesEnabled);
-      expect(named(hits)).toEqual([]);
-    }, 60_000);
-  }
+  it("seats every rate chip on its polyline", async () => {
+    const hits = await offPathChips(targets);
+    expect(named(hits)).toEqual([]);
+  }, 60_000);
 });
 
 describe("rot-bottled_food_4 keeps its bend-column chips on their lines", () => {
@@ -162,12 +151,10 @@ describe("rot-bottled_food_4 keeps its bend-column chips on their lines", () => 
     { itemId: "bottled_food_4", ratePerSec: { num: "1", denom: "2" } },
   ];
 
-  for (const busLanesEnabled of [true, false]) {
-    it(`seats every rate chip on its polyline with lanes ${busLanesEnabled ? "on" : "off"}`, async () => {
-      const hits = await offPathChips(targets, busLanesEnabled);
-      expect(named(hits)).toEqual([]);
-    }, 60_000);
-  }
+  it("seats every rate chip on its polyline", async () => {
+    const hits = await offPathChips(targets);
+    expect(named(hits)).toEqual([]);
+  }, 60_000);
 });
 
 describe("seatRateChip: the vertical leg's sidestep gate", () => {
@@ -233,66 +220,8 @@ describe("battery5: no chip takes the only line another edge has", () => {
     { itemId: "proc_battery_5", ratePerSec: { num: "1", denom: "2" } },
   ];
 
-  // With lanes on this plan also carries the one seat the browser off-path
-  // audit ratified for it (CHIP_OFFPATH_BASELINE_ON.battery5 = 1): e:14
-  // "Sewage" anchors on a corridor vertical with a foreign stroke running
-  // PARALLEL to it inside the chip's box, so no motion along the line sheds the
-  // neighbour and the sidestep tier steps the box a bounded 16 units off -- less
-  // than the painted half-width, so the chip's own line still runs inside its
-  // box. This suite only started seeing it once it stopped laying the plan out
-  // against the solver's netted recipe map, which drops the self-consumed rows
-  // of the two phase_trans recipes and moves every port below them.
-  const RATIFIED_OFF_PATH = [
-    "e:14:u:class:q:5->u:class:q:9:liquid_sewage 16.00px",
-  ];
-
-  for (const busLanesEnabled of [true, false]) {
-    it(`seats every rate chip on its polyline with lanes ${busLanesEnabled ? "on" : "off"}`, async () => {
-      const hits = await offPathChips(targets, busLanesEnabled);
-      expect(named(hits)).toEqual(busLanesEnabled ? RATIFIED_OFF_PATH : []);
-    }, 60_000);
-  }
-});
-
-describe("multi6: a bus rise chip keeps the lane stroke inside its box", () => {
-  // e:80's rise chip sits a chamfer from its own trunk's junction dot, and it
-  // stays seated on its lane: a bite is the most a lane chip lifts for a thin
-  // obstacle, and a bite is under a max-scale half-height, so the lane stroke
-  // still runs inside the box the chip paints. A neighbouring chip is what costs
-  // a full CHIP_PITCH_Y lift, and a dot costs nothing. At a pitch -- exactly two
-  // max-scale half-heights -- the stroke lands ON the box edge, which is why a
-  // rise needing more than one pitch is hidden rather than cast adrift (the e2e
-  // seat-validity census reported such a chip 48.0 off its own line). Covering
-  // the dot is the accepted cost of keeping the chip on its lane.
-  const targets: ItemTarget[] = [
-    { itemId: "bottled_food_5", ratePerSec: { num: "1", denom: "2" } },
-    { itemId: "bottled_rec_hp_5", ratePerSec: { num: "1", denom: "2" } },
-    { itemId: "proc_battery_3", ratePerSec: { num: "1", denom: "2" } },
-    { itemId: "equip_script_2", ratePerSec: { num: "1", denom: "2" } },
-    { itemId: "glass_enr_cmpt", ratePerSec: { num: "1", denom: "2" } },
-    { itemId: "copper_enr_cmpt", ratePerSec: { num: "1", denom: "2" } },
-  ];
-
-  it("lifts no rise chip past the depth its own box covers", async () => {
-    const { edges } = await layoutSolved(solveForRender({ targets, pack }), {
-      busLanesEnabled: true,
-    });
-
-    // Premise: this plan really does draw lane bus chips, e:80's among them.
-    const rises = edges.filter(
-      (e) => e.type === "bus" && (e.data as EdgeData).laneY !== undefined,
-    );
-    expect(rises.length).toBeGreaterThan(0);
-    expect(rises.some((e) => e.id.startsWith("e:80:"))).toBe(true);
-
-    // Every stamped lift is strictly inside the half-height the chip's box
-    // covers, so the lane stroke it is anchored to runs through that box.
-    const lifted = rises
-      .map((e) => ({
-        id: e.id,
-        dy: ((e.data as EdgeData).busChipDy as number | undefined) ?? 0,
-      }))
-      .filter((r) => Math.abs(r.dy) >= CHIP_HALF_H);
-    expect(lifted).toEqual([]);
+  it("seats every rate chip on its polyline", async () => {
+    const hits = await offPathChips(targets);
+    expect(named(hits)).toEqual([]);
   }, 60_000);
 });

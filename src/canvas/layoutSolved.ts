@@ -21,20 +21,13 @@ import type { Edge } from "@xyflow/react";
 import { layoutRenderPlan, type RFAnyNode } from "./layout";
 import type { SolveForRenderOutput } from "../pipeline/solveForRender";
 
-export type LayoutSolvedOptions = {
-  // Omitted means the app default: lanes on. Passed straight through.
-  busLanesEnabled?: boolean | undefined;
-};
-
 export async function layoutSolved(
   solved: SolveForRenderOutput,
-  { busLanesEnabled }: LayoutSolvedOptions = {},
 ): Promise<{ nodes: RFAnyNode[]; edges: Edge[] }> {
   const { plan, pack } = solved;
   return layoutRenderPlan({
     plan,
     recipeById: new Map(pack.recipes.map((r) => [r.id, r])),
     itemById: new Map(pack.items.map((i) => [i.id, i])),
-    ...(busLanesEnabled === undefined ? {} : { busLanesEnabled }),
   });
 }

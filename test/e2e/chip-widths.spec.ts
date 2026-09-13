@@ -124,14 +124,10 @@ function auditChips(
 function defineCheck(locale: LocaleId, scenario: Scenario): void {
   test(`${locale} ${scenario.id}`, async ({ page }) => {
     const hash = await scenarioHash(scenario);
-    // The audit corpus polices the bus machinery, so every spec opts the
-    // toggle on explicitly; the app default (off since the bus-lanes flip)
-    // is a product decision this suite does not re-test. Settled on both
-    // counts before a single chip box is measured.
+    // Settled on both counts before a single chip box is measured.
     await bootExamPage(page, {
       url: `/#${hash}`,
       locale,
-      busLanes: "on",
       readiness: "nodes",
       settle: "both",
     });

@@ -339,7 +339,7 @@ Surface these four now, and again in the final report:
 ```bash
 jq -r 'select(.status == "partial") | "\(.planId): \(.coverage.uncovered | length) uncovered, capHit=\(.coverage.capHit)"' .artifacts/exam/*/scene.json
 jq -r 'select(.consoleErrors | length > 0) | "\(.planId): \(.consoleErrors | join(" | "))"' .artifacts/exam/*/scene.json
-jq -r '"\(.planId): \([.elements[] | select(.kind == "band")] | length) band(s), \([.elements[] | select(.kind == "junction")] | length) junction(s)"' .artifacts/exam/*/scene.json
+jq -r '"\(.planId): \([.elements[] | select(.kind == "junction")] | length) junction(s)"' .artifacts/exam/*/scene.json
 ledgerPack=$(awk 'NR == 1 {print $3}' .artifacts/exam/hashes.tsv)
 jq -sr --arg ledgerPack "$ledgerPack" '
   (map(.commit) | unique) as $commits
@@ -352,10 +352,10 @@ jq -sr --arg ledgerPack "$ledgerPack" '
 The first two print nothing on a clean run: empty output is the clean answer, no partial capture
 and no console error, rather than a command that misfired.
 
-The third line is the layout-feature census: bus bands and junction dots are the only features
-the ledger records by their own kind. Icon-only chips are not in it (the chip record carries no
-icon-only flag) and neither are fan-out columns (nothing records them), so read the census as
-two counts, not as an inventory of what the layout did.
+The third line is the layout-feature census: junction dots are the only feature the ledger
+records by their own kind. Icon-only chips are not in it (the chip record carries no icon-only
+flag) and neither are fan-out columns (nothing records them), so read the census as one count,
+not as an inventory of what the layout did.
 
 ### 6. Run the workflow
 
@@ -533,7 +533,7 @@ In this order:
 - the fixed core: `default`, `battery5-xiranite`, `multi6`, `gas-web`
 - each rotating plan and the recipes it brought in
 - the uncovered residue by reason class, with how much of it a larger `--max` would have reached
-- the band and junction census, per plan
+- the junction census, per plan
 - every partial plan with the ids in its `coverage.uncovered`
 - every console error
 - every capture that failed, with its exit code

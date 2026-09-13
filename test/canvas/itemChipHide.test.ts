@@ -126,9 +126,7 @@ describe("battery5 keeps its bounded sidestep chip", () => {
   ];
 
   it("hides no item chip on the plan the sidestep was ratified on", async () => {
-    const { edges } = await layoutSolved(solveForRender({ targets, pack }), {
-      busLanesEnabled: true,
-    });
+    const { edges } = await layoutSolved(solveForRender({ targets, pack }));
     const sidestepped = edges.find(
       (e) => e.id === "e:14:u:class:q:5->u:class:q:9:liquid_sewage",
     );

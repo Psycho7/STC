@@ -33,7 +33,6 @@ export type UiKey =
   | "app.error.busy"
   | "app.error.crash"
   | "app.locale.label"
-  | "app.busLanes.label"
   | "inputs.title"
   | "inputs.rate.label"
   | "inputs.rate.unit"
@@ -114,7 +113,6 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "app.error.busy": "方案正在加载，请等加载完成后再修改。",
     "app.error.crash": "规划器遇到意外错误，无法绘制当前方案。",
     "app.locale.label": "语言",
-    "app.busLanes.label": "总线通道",
     "inputs.title": "输入",
     "inputs.rate.label": "速率",
     "inputs.rate.unit": "/分",
@@ -190,7 +188,6 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "app.error.crash":
       "The planner hit an unexpected error and could not draw this plan.",
     "app.locale.label": "Language",
-    "app.busLanes.label": "Bus lanes",
     "inputs.title": "Inputs",
     "inputs.rate.label": "Rate",
     "inputs.rate.unit": "/min",

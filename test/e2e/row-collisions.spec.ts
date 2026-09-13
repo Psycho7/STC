@@ -51,7 +51,6 @@ test.describe("visible machine-title collisions", () => {
         await bootExamPage(page, {
           url: "/#" + (await scenarioHash(scenario)),
           locale,
-          busLanes: "on",
           readiness: "nodes",
           settle: "webfonts",
         });
@@ -122,13 +121,9 @@ test.describe("visible row-label collisions", () => {
   for (const scenario of SCENARIOS) {
     for (const locale of LOCALES) {
       test(`${locale} ${scenario.id}`, async ({ page }) => {
-        // The audit corpus polices the bus machinery, so every spec opts the
-        // toggle on explicitly; the app default (off since the bus-lanes
-        // flip) is a product decision this suite does not re-test.
         await bootExamPage(page, {
           url: "/#" + (await scenarioHash(scenario)),
           locale,
-          busLanes: "on",
           readiness: "nodes",
           settle: "webfonts",
         });

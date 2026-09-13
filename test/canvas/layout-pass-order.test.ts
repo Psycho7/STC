@@ -1,5 +1,5 @@
 // The post-layout routing pass order, pinned. This test is the ONLY enforcement
-// of the ordering constraint: all eight passes share one
+// of the ordering constraint: all six passes share one
 // (nodes, edges) => Edge[] signature, so a reorder compiles cleanly and the type
 // system cannot object. Each pass consumes the stamps every earlier pass left,
 // so a swap here silently moves drawn geometry that no other unit test sees.
@@ -10,12 +10,10 @@ import { describe, it, expect } from "vitest";
 import { ROUTING_PASSES } from "../../src/canvas/layout";
 
 describe("canvas/ROUTING_PASSES", () => {
-  it("runs the eight routing passes in the documented order", () => {
+  it("runs the six routing passes in the documented order", () => {
     expect(ROUTING_PASSES.map((p) => p.name)).toEqual([
-      "routeBusEdges",
       "routeFanoutEdges",
       "assignEntryColumns",
-      "clearBusColumns",
       "assignBendColumns",
       "jogForwardLegs",
       "clampBackwardRails",
@@ -25,10 +23,8 @@ describe("canvas/ROUTING_PASSES", () => {
     // so a mislabelled entry would still pass the list check while running a
     // different pass.
     expect(ROUTING_PASSES.map((p) => p.run.name)).toEqual([
-      "routeBusEdges",
       "routeFanoutEdges",
       "assignEntryColumns",
-      "clearBusColumns",
       "assignBendColumns",
       "jogForwardLegs",
       "clampBackwardRails",

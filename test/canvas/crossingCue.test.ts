@@ -8,10 +8,6 @@
 //       the other edge as its partner;
 //   (b) LOAD-BEARING NEGATIVE: a fan-in pair joining collinearly at the port y
 //       stamps NOTHING -- a merge is a merge, never a crossing cue;
-//   (c) LOAD-BEARING NEGATIVE: two bus members sharing a lane stamp NOTHING --
-//       their overlapping collinear runs and their drop/rise columns only ever
-//       TOUCH (endpoints on interiors), which strict-interior crossing
-//       semantics exclude by construction;
 //   (d) the pair stamps BOTH edges regardless of who paints above: which edge
 //       of a pair is "above" is not a rest-time constant -- selecting a node
 //       lifts it (React Flow's elevateNodesOnSelect puts a selected
@@ -43,7 +39,7 @@ import {
 } from "../../src/canvas/crossings";
 import { HIDE_STALE_EPS } from "../../src/canvas/dimensions";
 import { measureRecipe } from "../../src/canvas/recipeGeometry";
-import { chamferBusPath, type DrawnPorts } from "../../src/canvas/edgePath";
+import { type DrawnPorts } from "../../src/canvas/edgePath";
 import type { RFAnyNode } from "../../src/canvas/layout";
 import { mkRecipe, recipeNode, orderedRecipeNode } from "./busRouting.testkit";
 
@@ -310,64 +306,6 @@ describe("deconflictChipAnchors: crossing cues", () => {
     }
   });
 
-  it("stamps nothing for two bus members sharing a lane (overlapping collinear runs)", () => {
-    // Two SINGLE-member lane trunks of DIFFERENT items whose members share one
-    // laneY, so the flowKey skip cannot be what saves the fixture: the runs
-    // overlap collinearly and every drop/rise column only ever touches the
-    // other member's run at its own laneY endpoint. Strict-interior semantics
-    // must be what keeps the stamps empty.
-    const laneY = 200;
-    // All four cards sit on the same rows, so every member's drawn ports land
-    // on one row and the members share the corridor.
-    const A = recipeNode("A", 0, 0, mkRecipe("A", [], ["iron"]));
-    const T1 = orderedRecipeNode("T1", 1000, 0, ["iron"]);
-    const B = recipeNode("B", 200, 0, mkRecipe("B", [], ["copper"]));
-    const T2 = orderedRecipeNode("T2", 1200, 0, ["copper"]);
-
-    const busEdge = (
-      id: string,
-      source: string,
-      target: string,
-      item: string,
-    ): Edge => ({
-      id,
-      type: "bus",
-      source,
-      target,
-      data: {
-        item,
-        rate: new Fraction(1),
-        laneY,
-        trunkKey: item + "|" + source,
-      },
-    });
-    const e1 = "e:1:A->T1:iron";
-    const e2 = "e:2:B->T2:copper";
-    const nodes: RFAnyNode[] = [A, T1, B, T2];
-    const edges: Edge[] = [
-      busEdge(e1, "A", "T1", "iron"),
-      busEdge(e2, "B", "T2", "copper"),
-    ];
-    const out = deconflictChipAnchors(nodes, edges);
-
-    // Premise: the two reconstructed lane runs really do overlap. Rebuilt
-    // with the same builder and the same drawn ports the reconstruction uses.
-    const p1 = portsOf(edges[0]!, nodes);
-    const p2 = portsOf(edges[1]!, nodes);
-    const m1 = chamferBusPath({ ...p1, laneY });
-    const m2 = chamferBusPath({ ...p2, laneY });
-    // Member 2 drops inside member 1's run and member 1 rises inside member
-    // 2's run: both lane runs overlap, by hundreds of units.
-    expect(m2.dropX).toBeGreaterThan(m1.dropX);
-    expect(m2.dropX).toBeLessThan(m1.riseX);
-    expect(m1.riseX).toBeGreaterThan(m2.dropX);
-    expect(m1.riseX).toBeLessThan(m2.riseX);
-
-    // The load-bearing negative: no cue on either member.
-    expect(dataOf(out, e1).crossingCues).toBeUndefined();
-    expect(dataOf(out, e2).crossingCues).toBeUndefined();
-  });
-
   it("drops a cue whose partner's endpoints moved beyond the eps; an unmoved partner keeps it", () => {
     // The render-side half of the (e) clause, driven through the same pure
     // pieces the edge components use: crossingPartnerBits reads the store
@@ -439,7 +377,7 @@ describe("deconflictChipAnchors: crossing cues", () => {
       false,
     ]);
 
-    // Several partners at one point (a lane's members crossing this edge
+    // Several partners at one point (a trunk's members crossing this edge
     // together): the bit stays live while ANY of them still stands, and
     // drops only once every one has moved away.
     const second: CrossingCuePartner = {

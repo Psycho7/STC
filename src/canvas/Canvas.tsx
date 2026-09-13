@@ -21,7 +21,6 @@ import LoopNode from "./LoopNode";
 import ProductNode from "./ProductNode";
 import ItemEdge from "./ItemEdge";
 import BusEdge from "./BusEdge";
-import BusBands from "./BusBands";
 import { contentBounds } from "./chipSeating";
 import { examChipReservations } from "./chipMetrics";
 import { isTrunkOwner, type BusAggregate } from "./busRouting";
@@ -349,7 +348,7 @@ function CanvasInner({
   useEffect(() => cancelPendingHover, [cancelPendingHover]);
 
   // A plan can land with the pointer standing still (Enter in an already-focused
-  // rate field, the bus-lane toggle, hash navigation), and no leave event fires
+  // rate field, hash navigation), and no leave event fires
   // to cancel a hover still waiting out its intent delay. Cancel it here, since
   // it was aimed at the old graph. A hover that has already settled is left to
   // the focus memo below, which keeps it only while its element is still there.
@@ -566,7 +565,6 @@ function CanvasInner({
         // leaves keyboard focus traversal intact.
         disableKeyboardA11y
       >
-        <BusBands nodes={nodes} edges={edges} />
         <Controls aria-label={i18n.t("canvas.controls.panel")} />
       </ReactFlow>
       <div className="canvas-frame" aria-hidden="true" />

@@ -26,7 +26,6 @@ const flat = (text: string): string => text.replace(/\s+/g, " ");
 const SECTIONS = [
   "Cards",
   "Edges",
-  "Bus lanes",
   "Fan-out and fan-in",
   "Rate chips",
   "Intentional behaviours",
@@ -66,18 +65,6 @@ describe("docs/render-conventions.md", () => {
         ascii: true,
       });
     }
-  });
-
-  // The lone-trunk rule, as BusEdge renders it. The earlier prompt said the
-  // chip draws twice, which is only the short-run half.
-  test("states the lone-trunk rule the renderer actually follows", () => {
-    const text = flat(doc());
-    expect(text).toContain("A lone lane trunk draws no junction dot");
-    expect(text).toContain("only the rise chip draws");
-    expect(text).toContain("both the rise and the drop chip draw");
-    expect(text).toContain(
-      "the drop chip returns whenever the rise chip is hidden",
-    );
   });
 
   // The unit mix is visible in `en` on its own: the kind row is uppercased by
