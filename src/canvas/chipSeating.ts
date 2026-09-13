@@ -1798,8 +1798,8 @@ export const CARD_BORDER = 1;
 // layout positions it by, per node kind. Its origin never moves: the wrapper
 // sits at the model position and the border grows the box on the right and the
 // bottom only.
-//   recipe: the card is content-box RECIPE_WIDTH (300) with a CARD_BORDER frame
-//     per side, so the drawn box is 302 wide and two units taller than
+//   recipe: the card is content-box RECIPE_WIDTH (240) with a CARD_BORDER frame
+//     per side, so the drawn box is 242 wide and two units taller than
 //     recipeHeight -- exactly the offset nodeGeometry's PORT_DRIFT.recipe
 //     derivation records.
 //   product: the model width ALREADY counts the card's borders (124 content +
@@ -1807,7 +1807,7 @@ export const CARD_BORDER = 1;
 //     the drawn box is the model box.
 //   loop / container: sized by inline width / height in model units, so the
 //     border stays inside the box and likewise adds no growth.
-// Measured in-browser across the seven corpus scenarios (recipe 302 x
+// Measured in-browser across the seven corpus scenarios (recipe 242 x
 // recipeHeight+2 everywhere, product 148x78, group == its model size, no loop
 // node in any corpus plan). Re-derive alongside nodeGeometry's PORT_DRIFT
 // whenever a card's border or box-sizing changes.
@@ -1839,8 +1839,8 @@ function cardBorder(type: string | undefined): number {
 //
 // These are DRAWN border boxes, the same frame drawnPortsOf reconstructs the
 // polylines in: the model box grown by CARD_GROWTH, which is zero for every
-// kind but the recipe card, whose 1px border makes it 302 wide against the
-// model's 300 (see CARD_BORDER). The audit collects the rendered card rect
+// kind but the recipe card, whose 1px border makes it 242 wide against the
+// model's 240 (see CARD_BORDER). The audit collects the rendered card rect
 // straight off the DOM, so measuring the model box here would leave the two
 // frames two units apart on every recipe -- a chip could clear a card in the
 // seating pass and overlap its drawn border in the browser.

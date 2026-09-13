@@ -111,7 +111,8 @@ describe("cardRectsFor grows the model box into the drawn frame", () => {
     });
     // Stated absolutely too, so a change to CARD_BORDER cannot move the frame
     // while both sides of the comparison shift with it.
-    expect(rect!.right - rect!.left).toBe(302);
+    expect(rect!.right - rect!.left).toBe(RECIPE_WIDTH + 2 * CARD_BORDER);
+    expect(rect!.right - rect!.left).toBe(242);
     expect(rect!.bottom - rect!.top).toBe(nodeHeight(node) + 2);
   });
 
@@ -158,12 +159,12 @@ describe("portKeepOutRect covers the drawn port furniture", () => {
     });
   });
 
-  it("a recipe source band reaches the glyph edge at L+311, full height", () => {
+  it("a recipe source band reaches the glyph edge at L+251, full height", () => {
     const r = portKeepOutRect(recipeCard, "source");
     expect(r.left).toBe(recipeCard.right - CARD_BORDER - PORT_ZONE_DEPTH);
-    // The drawn glyph edge: row right (L+301) + GLYPH_SIZE + 2.
+    // The drawn glyph edge: row right (L+241) + GLYPH_SIZE + 2.
     expect(r.right).toBe(1000 + RECIPE_WIDTH + CARD_BORDER + 10);
-    expect(r.right).toBe(1311);
+    expect(r.right).toBe(1251);
   });
 
   it("a product target band reaches the glyph edge at L-10", () => {

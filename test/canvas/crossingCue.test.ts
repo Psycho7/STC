@@ -78,18 +78,18 @@ describe("deconflictChipAnchors: crossing cues", () => {
   it("stamps a right-angle crossing between two same-item edges at the exact intersection, on the earlier edge", () => {
     // Edge 1 (EARLIER in the array): a straight same-rail line at the drawn
     // port y. Source A1 at (0,0), target A2 at (1000,0): both first rows sit
-    // at drawn y 98, so chamferStepPath takes the straight branch
-    // M 305,98 L 997,98.
+    // at drawn y 74, so chamferStepPath takes the straight branch
+    // M 245,74 L 997,74.
     const A1 = recipeNode("A1", 0, 0, mkRecipe("A1", [], ["s"]));
     const A2 = orderedRecipeNode("A2", 1000, 0, ["s"]);
     const row0 = measureRecipe(mkRecipe("x", [], ["s"])).outHandleYs[0]!;
 
     // Edge 2 (LATER): B1 at (100,-160) drops a full forward step to B2 at
-    // (900,200). Drawn source port (405,-62), drawn target port (897,298):
-    // gap 492 hosts the full stub+chamfer shape, |dy| = 360 hosts a full
+    // (900,200). Drawn source port (345,-86), drawn target port (897,274):
+    // gap 552 hosts the full stub+chamfer shape, |dy| = 360 hosts a full
     // vertical, and the default bend column is the corridor midpoint
-    // (405+897)/2 = 651. The vertical at 651 spans y -54..290, crossing
-    // edge 1's rail at y 98 strictly interior to both segments.
+    // (345+897)/2 = 621. The vertical at 621 spans y -78..266, crossing
+    // edge 1's rail at y 74 strictly interior to both segments.
     const B1 = recipeNode("B1", 100, -160, mkRecipe("B1", [], ["s"]));
     const B2 = orderedRecipeNode("B2", 900, 200, ["s"]);
 
@@ -102,6 +102,10 @@ describe("deconflictChipAnchors: crossing cues", () => {
     ];
     // Edge 1's drawn rail: both its ports resolve to the same row.
     const railY = portsOf(edges[0]!, nodes).sourceY;
+    // Edge 2's default bend column, the midpoint of its drawn ports.
+    const bendX =
+      (portsOf(edges[1]!, nodes).sourceX + portsOf(edges[1]!, nodes).targetX) /
+      2;
 
     const out = deconflictChipAnchors(nodes, edges);
 
@@ -112,7 +116,7 @@ describe("deconflictChipAnchors: crossing cues", () => {
 
     // The stamp lands on ONE edge of the pair -- the earlier in the array --
     // at the exact intersection of the reconstructed polylines (bend column
-    // 651 x rail y 98), naming the other edge as its partner and carrying
+    // 621 x rail y 74), naming the other edge as its partner and carrying
     // that partner's two endpoint node anchors as of seating (the (e)
     // clause). The stamped edge is the one whose stroke gets masked out;
     // the partner stays continuous and carries nothing (the (d) clause: a
@@ -120,7 +124,7 @@ describe("deconflictChipAnchors: crossing cues", () => {
     // the whole cue).
     expect(dataOf(out, e1).crossingCues).toEqual([
       {
-        x: 651,
+        x: bendX,
         y: railY,
         partners: [
           {
@@ -172,9 +176,9 @@ describe("deconflictChipAnchors: crossing cues", () => {
     // A1 feeds two consumers on the same row, A2 at x 1000 and A3 at x 1400:
     // both plain item edges draw the straight rail at railY out of A1's one
     // out-port, so their runs overlap collinearly (one flow, never cued
-    // against each other) and edge F's vertical at 651 crosses BOTH at the
+    // against each other) and edge F's vertical at 621 crosses BOTH at the
     // same point. F is the earliest edge, so it carries the stamp: ONE cue
-    // at (651, railY) listing both A-edges as partners -- not two stacked
+    // at (621, railY) listing both A-edges as partners -- not two stacked
     // cut-outs, and not a cue bound to whichever partner the sweep met
     // first. The gap must outlive either partner alone: dragging A2 away
     // leaves A3 still crossing F there.
@@ -193,10 +197,14 @@ describe("deconflictChipAnchors: crossing cues", () => {
       rateEdge(e2, "A1", "A3", "s", new Fraction(4)),
     ];
     const railY = portsOf(edges[1]!, nodes).sourceY;
+    // Edge F's default bend column, the midpoint of its drawn ports.
+    const bendX =
+      (portsOf(edges[0]!, nodes).sourceX + portsOf(edges[0]!, nodes).targetX) /
+      2;
     const out = deconflictChipAnchors(nodes, edges);
     expect(dataOf(out, f).crossingCues).toEqual([
       {
-        x: 651,
+        x: bendX,
         y: railY,
         partners: [
           { edgeId: e1, source: { x: 0, y: 0 }, target: { x: 1000, y: 0 } },
@@ -249,13 +257,17 @@ describe("deconflictChipAnchors: crossing cues", () => {
     ];
     // The member edge's drawn rail, read through its container parent.
     const railY = portsOf(edges[1]!, nodes).sourceY;
+    // Edge e2's default bend column, the midpoint of its drawn ports.
+    const bendX =
+      (portsOf(edges[0]!, nodes).sourceX + portsOf(edges[0]!, nodes).targetX) /
+      2;
     const out = deconflictChipAnchors(nodes, edges);
 
     // The earlier (top-level, z 0) edge carries the cue although the member
     // edge paints above it; the member edge carries nothing.
     expect(dataOf(out, e2).crossingCues).toEqual([
       {
-        x: 651,
+        x: bendX,
         y: railY,
         partners: [
           {
@@ -296,9 +308,10 @@ describe("deconflictChipAnchors: crossing cues", () => {
 
     // Premise: the fan-in actually formed here -- the owner carries the merge
     // dot stamp, so the negative below is about a REAL join, not a fixture
-    // that secretly has no merge at all.
+    // that secretly has no merge at all. The dot sits at the straight
+    // member's drawn source-right endpoint (600 + 240 + 5).
     const owner = dataOf(out, eA);
-    expect(owner.faninJunctionX).toBe(905);
+    expect(owner.faninJunctionX).toBe(845);
 
     // The load-bearing negative: no cue anywhere in the group.
     for (const e of out) {

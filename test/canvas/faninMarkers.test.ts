@@ -88,9 +88,9 @@ describe("deconflictChipAnchors: fan-in markers", () => {
     expect(owner.faninJunctionY).toBe(drawnTargetY(edges[1]!, nodes));
     // The dot marks where the last member joins the shared run (rightmost join),
     // which is the straight member's drawn source-right endpoint: model right
-    // edge 900 plus the recipe source port drift of 5.
-    expect(owner.faninJunctionX).toBe(905);
-    expect(tx).toBeGreaterThan(905); // the run the dot sits on is real
+    // edge 840 plus the recipe source port drift of 5.
+    expect(owner.faninJunctionX).toBe(845);
+    expect(tx).toBeGreaterThan(845); // the run the dot sits on is real
 
     // The non-owner carries no marker.
     expect(other.faninJunctionX).toBeUndefined();
@@ -140,7 +140,7 @@ describe("deconflictChipAnchors: fan-in markers", () => {
 
     // The merge is still detected: dot on the owner, at the drawn port row.
     const owner = dataOf(out, "e:1:srcA->tgt:s");
-    expect(owner.faninJunctionX).toBe(905);
+    expect(owner.faninJunctionX).toBe(845);
     expect(owner.faninJunctionY).toBeCloseTo(drawnTy, 6);
     // And the on-run test that hides the non-owner reads the same frame.
     expect(dataOf(out, "e:2:srcB->tgt:s").faninChipHidden).toBe(true);
@@ -168,7 +168,7 @@ describe("deconflictChipAnchors: fan-in markers", () => {
 
     const out = deconflictChipAnchors(nodes, edges);
     const owner = dataOf(out, "e:1:srcB->tgt:s"); // the straight member now
-    expect(owner.faninJunctionX).toBe(905); // it does own the marker
+    expect(owner.faninJunctionX).toBe(845); // it does own the marker
     expect(owner.faninChipHidden).toBeUndefined();
   });
 

@@ -28,7 +28,11 @@ import {
   routingHintsFromData,
   type DrawnPorts,
 } from "../../src/canvas/edgePath";
-import { DOT_KEEPOFF } from "../../src/canvas/dimensions";
+import {
+  BETWEEN_LAYERS_SPACING,
+  DOT_KEEPOFF,
+  RECIPE_WIDTH,
+} from "../../src/canvas/dimensions";
 import type { RFAnyNode, RFRecipeNode } from "../../src/canvas/layout";
 import { mkRecipe, recipeNode, orderedRecipeNode } from "./busRouting.testkit";
 import { layoutSolved } from "../../src/canvas/layoutSolved";
@@ -47,7 +51,7 @@ const ITEM = "s";
 
 // One layer is a column gap plus a recipe card, the pitch routeFanoutEdges'
 // near / far bound is derived from.
-const LAYER_PITCH = 410;
+const LAYER_PITCH = BETWEEN_LAYERS_SPACING + RECIPE_WIDTH;
 
 const producer = (id: string, x: number, y: number): RFRecipeNode =>
   recipeNode(id, x, y, mkRecipe(id, [], [ITEM]));
@@ -401,14 +405,15 @@ describe("chamferStepPath: where a pinned member's label anchor lands", () => {
 
 describe("chip seating: a pinned member's chip stays off the shared column", () => {
   it("seats a JOGGED member's chip on the jog's clear horizontal", () => {
-    // A card in the first layer straddling the far member's approach row, so
-    // jogForwardLegs bends that member's leg to a clear y. Its chip must follow
-    // the jog, not fall back onto the column its six siblings draw.
+    // A card in the first layer sitting ON the far member's approach row (its
+    // box straddles that row's leg), so jogForwardLegs bends that member's
+    // leg to a clear y. Its chip must follow the jog, not fall back onto the
+    // column its six siblings draw.
     const src = producer("src", 0, 0);
     const blocker = recipeNode(
       "blk",
       LAYER_PITCH,
-      560,
+      600,
       mkRecipe("blk", ["z"], ["z"]),
     );
     const nodes: RFAnyNode[] = [

@@ -20,11 +20,15 @@ import {
   gutterWidth,
   ENTRY_SLOT_PITCH,
   BUS_SPAN_THRESHOLD,
+  FANOUT_SPAN_MAX,
   CONTAINER_COLUMN_GAP,
   CONTAINER_RAIL_GAP,
   OBSTACLE_PAD_Y,
 } from "../../src/canvas/busRouting";
-import { ENTRY_GUTTER_OVERHANG } from "../../src/canvas/dimensions";
+import {
+  ENTRY_GUTTER_OVERHANG,
+  RECIPE_WIDTH,
+} from "../../src/canvas/dimensions";
 import { nodeIndexOf } from "../../src/canvas/nodeGeometry";
 import {
   PORT_STUB,
@@ -60,8 +64,8 @@ function budgetOf(edges: Edge[], id: string): number | undefined {
 
 describe("assignBendColumns", () => {
   it("fans bend columns across the shared corridor for a same-source group", () => {
-    // Source right edge at x = 0 + 300 = 300; targets at x = 500 (left edge),
-    // so the corridor is [300, 500], usable = 200 - 2*(24+8) = 136.
+    // Source right edge at x = 0 + 240 = 240; targets at x = 500 (left edge),
+    // so the corridor is [240, 500], usable = 260 - 2*(24+8) = 196.
     const r = mkRecipe("r", ["a"], ["b"]);
     const nodes: RFAnyNode[] = [
       recipeNode("s", 0, 0, r),
@@ -75,19 +79,19 @@ describe("assignBendColumns", () => {
     const margin = PORT_STUB + CHAMFER;
     // Both inside the corridor margins.
     for (const b of [b0, b1]) {
-      expect(b).toBeGreaterThan(300 + margin);
+      expect(b).toBeGreaterThan(RECIPE_WIDTH + margin);
       expect(b).toBeLessThan(500 - margin);
     }
     // Distinct, evenly pitched slots: e0 sorts first (slot 1), e1 second.
     expect(b0).toBeLessThan(b1);
-    const pitch = (200 - 2 * margin) / 3;
-    expect(b0).toBeCloseTo(300 + margin + pitch, 6);
-    expect(b1).toBeCloseTo(300 + margin + 2 * pitch, 6);
+    const pitch = (500 - RECIPE_WIDTH - 2 * margin) / 3;
+    expect(b0).toBeCloseTo(RECIPE_WIDTH + margin + pitch, 6);
+    expect(b1).toBeCloseTo(RECIPE_WIDTH + margin + 2 * pitch, 6);
   });
 
   it("stamps a pitch-bounded, sibling-safe chamfer budget per bend", () => {
-    // Same corridor as the fan test: [300, 500], usable = 136, two members, so
-    // pitch = 136 / 3. Each bend carries budget = pitch / 2, the largest chamfer
+    // Same corridor as the fan test: [240, 500], usable = 196, two members, so
+    // pitch = 196 / 3. Each bend carries budget = pitch / 2, the largest chamfer
     // whose envelope [bend - budget, bend + budget] stays off its sibling's.
     const r = mkRecipe("r", ["a"], ["b"]);
     const nodes: RFAnyNode[] = [
@@ -98,7 +102,7 @@ describe("assignBendColumns", () => {
     const edges = [mkEdge("e0", "s", "t1", "b"), mkEdge("e1", "s", "t2", "b")];
     const out = assignBendColumns(nodes, edges);
     const margin = PORT_STUB + CHAMFER;
-    const pitch = (200 - 2 * margin) / 3;
+    const pitch = (500 - RECIPE_WIDTH - 2 * margin) / 3;
     const g0 = budgetOf(out, "e0")!;
     const g1 = budgetOf(out, "e1")!;
     expect(g0).toBeCloseTo(pitch / 2, 6);
@@ -117,7 +121,7 @@ describe("assignBendColumns", () => {
       recipeNode("s", 0, 0, r),
       recipeNode("back", 0, 200, r),
     ];
-    // s right edge 300 > back left 0 -> backward, skipped by the stagger.
+    // s right edge 240 > back left 0 -> backward, skipped by the stagger.
     const out = assignBendColumns(nodes, [mkEdge("bwd0", "s", "back", "b")]);
     expect(bendOf(out, "bwd0")).toBeUndefined();
     expect(budgetOf(out, "bwd0")).toBeUndefined();
@@ -162,16 +166,16 @@ describe("assignBendColumns", () => {
   });
 
   it("bands mixed-width sources of one layer together (finding 2)", () => {
-    // A product source (width 148 -> right 148) and a recipe source (width 300
-    // -> right 300) share the same source layer (left x = 0) and both feed the
+    // A product source (width 148 -> right 148) and a recipe source (width 240
+    // -> right 240) share the same source layer (left x = 0) and both feed the
     // next layer at x = 500. Banding by source LEFT (not source right) puts them
     // in ONE band so they fan against each other and land on DISTINCT columns
-    // inside the shared first gap [300, 500]; the old source-right banding split
+    // inside the shared first gap [240, 500]; the old source-right banding split
     // them into independent bands that could pick coincident columns.
     const r = mkRecipe("r", ["a"], ["b"]);
     const nodes: RFAnyNode[] = [
       inputProductNode("sp", "b", 0, 0), // right 0 + 148 = 148
-      recipeNode("sr", 0, 300, r), //         right 0 + 300 = 300
+      recipeNode("sr", 0, 300, r), //         right 0 + 240 = 240
       recipeNode("t1", 500, 0, r),
       recipeNode("t2", 500, 300, r),
     ];
@@ -185,10 +189,10 @@ describe("assignBendColumns", () => {
     const margin = PORT_STUB + CHAMFER;
     expect(bp).toBeDefined();
     expect(br).toBeDefined();
-    // Corridor is the shared first gap: rightmost source edge (300) to the next
+    // Corridor is the shared first gap: rightmost source edge (240) to the next
     // node column (500). Both bends sit inside it, and they are distinct.
     for (const b of [bp!, br!]) {
-      expect(b).toBeGreaterThan(300 + margin);
+      expect(b).toBeGreaterThan(RECIPE_WIDTH + margin);
       expect(b).toBeLessThan(500 - margin);
     }
     expect(bp).not.toBe(br);
@@ -196,17 +200,17 @@ describe("assignBendColumns", () => {
 
   it("keeps a layer-skipping bend clear of the intermediate node (finding 3)", () => {
     // A forward item edge from layer 0 to layer 2, with a node occupying layer 1
-    // between them. Span 820 - 300 = 520 stays <= BUS_SPAN_THRESHOLD so the edge
+    // between them. Span 700 - 240 = 460 stays <= BUS_SPAN_THRESHOLD so the edge
     // is a plain item edge, not a bus member. Its bend must land in the first gap
     // (before the layer-1 column), never inside the intermediate node box.
     const r = mkRecipe("r", ["a"], ["b"]);
-    const midLeft = 410;
+    const midLeft = FANOUT_SPAN_MAX;
     const nodes: RFAnyNode[] = [
-      recipeNode("s", 0, 0, r), //          right 300
-      recipeNode("mid", midLeft, 0, r), //  layer-1 column at 410
-      recipeNode("t", 820, 200, r), //      layer-2 target
+      recipeNode("s", 0, 0, r), //          right 240
+      recipeNode("mid", midLeft, 0, r), //  layer-1 column at 350
+      recipeNode("t", BUS_SPAN_THRESHOLD, 200, r), //      layer-2 target
     ];
-    const span = 820 - 300;
+    const span = BUS_SPAN_THRESHOLD - RECIPE_WIDTH;
     expect(span).toBeLessThanOrEqual(BUS_SPAN_THRESHOLD);
     const out = assignBendColumns(nodes, [mkEdge("e0", "s", "t", "b")]);
     const b = bendOf(out, "e0");
@@ -225,9 +229,9 @@ describe("assignBendColumns", () => {
     // dropping bends for the whole band, far edges included.
     const r = mkRecipe("r", ["a"], ["b"]);
     const nodes: RFAnyNode[] = [
-      recipeNode("sR", 0, 0, r), //          width 300 -> right 300 (sets groupLeft)
+      recipeNode("sR", 0, 0, r), //          width 240 -> right 240 (sets groupLeft)
       inputProductNode("sP", "b", 0, 400), // width 148 -> right 148
-      recipeNode("near", 200, 400, r), //     adjacent target, left 200 <= 300
+      recipeNode("near", 200, 400, r), //     adjacent target, left 200 <= 240
       recipeNode("far1", 1000, 0, r),
       recipeNode("far2", 1000, 400, r),
     ];
@@ -320,7 +324,7 @@ describe("assignEntryColumns", () => {
     // every one of their bend columns must stay left of M's gutter so no
     // vertical run crosses M's entering rails.
     const nodes: RFAnyNode[] = [
-      recipeNode("s", 0, 0, mkRecipe("s", [], ["b"])), // right edge 300
+      recipeNode("s", 0, 0, mkRecipe("s", [], ["b"])), // right edge 240
       orderedRecipeNode("m", 600, 0, ["b", "w", "x", "y", "z"]),
       recipeNode("t1", 1200, 0, mkRecipe("t1", ["b"], [])),
       recipeNode("t2", 1200, 200, mkRecipe("t2", ["b"], [])),
@@ -699,7 +703,7 @@ function riseXOf(edges: Edge[], id: string): number | undefined {
 
 describe("clearBusColumns", () => {
   const r = mkRecipe("r", ["a"], ["b"]);
-  const far = 300 + (BUS_SPAN_THRESHOLD + 50); // 1170
+  const far = RECIPE_WIDTH + (BUS_SPAN_THRESHOLD + 50); // 990
 
   it("leaves a bus with no foreign geometry untouched (own card/gutter exempt)", () => {
     // A lone wide-forward bus: its drop sits a chamfer off its own source card and
@@ -719,11 +723,11 @@ describe("clearBusColumns", () => {
 
   it("stamps a cleared riseX when the default rise column pierces a foreign card", () => {
     // A foreign product sits below the target row, straddling the default rise
-    // column (tx - PORT_STUB - CHAMFER = 1138). The rise vertical climbs from the
+    // column (tx - PORT_STUB - CHAMFER = 958). The rise vertical climbs from the
     // lane to the target port through it, so clearBusColumns moves the rise column
     // off the foreign card. An anchor up top keeps the trunk in the bottom band so
     // its lane sits below the block and the rise runs downward through it.
-    const blockLeft = 1070;
+    const blockLeft = far - 100;
     const nodes: RFAnyNode[] = [
       recipeNode("anchor", 0, 0, r),
       recipeNode("s", 0, 1000, r),
@@ -739,8 +743,8 @@ describe("clearBusColumns", () => {
     );
     const riseX = riseXOf(out, "e0");
     expect(riseX).toBeDefined();
-    expect(riseX).not.toBe(1138);
-    // Cleared off the foreign card's raw x-extent [1070, 1218].
+    expect(riseX).not.toBe(far - PORT_STUB - CHAMFER);
+    // Cleared off the foreign card's raw x-extent [890, 1038].
     expect(riseX! < blockLeft || riseX! > blockLeft + 148).toBe(true);
     // And it stays on the port's own (left) side of the target card: a rise
     // column at or right of the port would tunnel the target's body.
@@ -750,7 +754,7 @@ describe("clearBusColumns", () => {
 
   it("stamps a cleared dropX when the default drop column pierces a foreign card", () => {
     // A foreign product straddles the default drop column (sx + PORT_STUB +
-    // CHAMFER = 332) in an intermediate row, so the drop vertical is moved off it.
+    // CHAMFER = 272) in an intermediate row, so the drop vertical is moved off it.
     // An anchor up top keeps the trunk in the bottom band so its lane sits below
     // the block and the drop runs downward through it.
     const blockLeft = 250;
@@ -769,7 +773,7 @@ describe("clearBusColumns", () => {
     );
     const dropX = dropXOf(out, "e0");
     expect(dropX).toBeDefined();
-    expect(dropX).not.toBe(332);
+    expect(dropX).not.toBe(RECIPE_WIDTH + PORT_STUB + CHAMFER);
     expect(dropX! < blockLeft || dropX! > blockLeft + 148).toBe(true);
   });
 
@@ -810,7 +814,7 @@ describe("clearBusColumns", () => {
     const nodes: RFAnyNode[] = [
       recipeNode("s", 0, 0, r),
       recipeNode("t", far, 0, r),
-      inputProductNode("block", "ore", 1070, 300, 148, 78),
+      inputProductNode("block", "ore", far - 100, 300, 148, 78),
     ];
     const shuffled = [nodes[2]!, nodes[0]!, nodes[1]!];
     const routed = routeBusEdges(nodes, [mkEdge("e0", "s", "t", "b")]);
@@ -845,26 +849,26 @@ describe("clearBusColumns", () => {
     // ("G") with a sibling card ("sib") packing its left corridor, its right edge
     // one entry-gutter overhang off the target's Left port. The sibling is not the
     // target's own geometry (only t and its parent G are exempt), so it blocks the
-    // default rise column (tx - PORT_STUB - CHAMFER = 1138). Without the own-side
+    // default rise column (tx - PORT_STUB - CHAMFER = 958). Without the own-side
     // guard the nearest accepted column is the rightward fallback (sib's padded
-    // right edge + gap, 1178) -- past the port and straight through the target
+    // right edge + gap, 998) -- past the port and straight through the target
     // card's own body. The guard clamps the rise to the port's own (left) side, so
-    // it threads the raw gutter between sib and t (1148) instead.
-    //   sib.left_raw = 998 (abs), width 148 -> raw right 1146, padded right 1170.
-    //   t.left (tx) = 1170; the rise must land at x <= tx - CHAMFER = 1162.
-    const tx = far; // 1170, target's absolute left edge
+    // it threads the raw gutter between sib and t (968) instead.
+    //   sib.left_raw = 818 (abs), width 148 -> raw right 966, padded right 990.
+    //   t.left (tx) = 990; the rise must land at x <= tx - CHAMFER = 982.
+    const tx = far; // 990, target's absolute left edge
     const nodes: RFAnyNode[] = [
       recipeNode("anchor", 0, 0, r),
       recipeNode("s", 0, 1000, r),
       // A mid-corridor card keeps the lone member on the bus rather than a
       // single-member direct route.
       recipeNode("corridor", 550, 1000, r),
-      containerNode("G", 950, 970, 540, 200), // wraps t + sib
-      { ...recipeNode("t", 220, 30, r), parentId: "G" }, // abs (1170, 1000)
+      containerNode("G", far - 220, 970, 540, 200), // wraps t + sib
+      { ...recipeNode("t", 220, 30, r), parentId: "G" }, // abs (990, 1000)
       {
         ...inputProductNode("sib", "ore", 48, 30, 148, 78),
         parentId: "G",
-      }, // abs (998, 1000): raw [998, 1146]
+      }, // abs (818, 1000): raw [818, 966]
     ];
     const out = clearBusColumns(
       nodes,
@@ -882,24 +886,24 @@ describe("clearBusColumns", () => {
 
   it("escapes past an abutting sibling instead of piercing its body with the rise", () => {
     // Same slab, but the sibling ("sib") abuts the target's left edge (raw right
-    // == tx = 1170), so no clamp-valid leftward column is clear: the rightward
+    // == tx = 990), so no clamp-valid leftward column is clear: the rightward
     // candidates are rejected by the own-side clamp and every leftward
-    // candidate's approach leg crosses the sibling. The desired column (1138)
+    // candidate's approach leg crosses the sibling. The desired column (958)
     // sits strictly INSIDE the sibling's raw body, so returning it unchanged
     // would slice a foreign card outright -- a hard violation. The pierce
     // rescue drops the own-side guard and takes the nearest clear column past
-    // the sibling (raw right + 2 = 1172) instead: a boundary-hugging column on
+    // the sibling (raw right + 2 = 992) instead: a boundary-hugging column on
     // the wrong side of the port beats piercing a foreign body.
     const nodes: RFAnyNode[] = [
       recipeNode("anchor", 0, 0, r),
       recipeNode("s", 0, 1000, r),
       recipeNode("corridor", 550, 1000, r),
-      containerNode("G", 950, 970, 540, 200),
-      { ...recipeNode("t", 220, 30, r), parentId: "G" }, // abs left 1170
+      containerNode("G", far - 220, 970, 540, 200),
+      { ...recipeNode("t", 220, 30, r), parentId: "G" }, // abs left 990
       {
         ...inputProductNode("sib", "ore", 72, 30, 148, 78),
         parentId: "G",
-      }, // abs (1022, 1000): raw right 1170 == tx
+      }, // abs (842, 1000): raw right 990 == tx
     ];
     const out = clearBusColumns(
       nodes,
@@ -907,8 +911,8 @@ describe("clearBusColumns", () => {
     );
     const riseX = riseXOf(out, "e0");
     expect(riseX).toBeDefined();
-    // Clear of the sibling's raw body (never strictly inside [1022, 1170]).
-    expect(riseX! > 1022 && riseX! < 1170).toBe(false);
+    // Clear of the sibling's raw body (never strictly inside [842, 990]).
+    expect(riseX! > 842 && riseX! < 990).toBe(false);
   });
 
   it("keeps a backward (gap <= 0) rise on the port side through the same resolver", () => {
@@ -962,16 +966,16 @@ describe("clearBusColumns", () => {
     // Mirror of the rise slab on the source card. The source ("s") lives inside a
     // container ("G2") with a sibling ("sib") packing its right corridor, its left
     // edge one gutter overhang off the source's Right port. The sibling blocks the
-    // default drop column (sx + PORT_STUB + CHAMFER = 332); without the own-side
-    // guard the nearest accepted column is the leftward fallback (292), past the
+    // default drop column (sx + PORT_STUB + CHAMFER = 272); without the own-side
+    // guard the nearest accepted column is the leftward fallback (232), past the
     // port and through the source card's own body. The clamp (x >= sx + CHAMFER)
     // rejects that, so the drop stays right of the port -- here it degrades to the
     // unstamped right-of-port default when no clamp-valid rightward column clears.
-    //   sib.left_raw = 334 (abs) -> padded left 300 == sx; sib blocks x in
-    //   (292, 514). s.right (sx) = 300; the drop must land at x >= sx + CHAMFER.
+    //   sib.left_raw = 274 (abs) -> padded left 240 == sx; sib blocks x in
+    //   (232, 454). s.right (sx) = 240; the drop must land at x >= sx + CHAMFER.
     // The sibling is tall (height 200) so it spans the drop column's y-range,
-    // which runs from the source's low out-port (y 1097) down to the lane.
-    const sx = 300; // source's absolute right edge (left 0 + RECIPE_WIDTH)
+    // which runs from the source's low out-port (y 1073) down to the lane.
+    const sx = RECIPE_WIDTH; // source's absolute right edge (left 0 + RECIPE_WIDTH)
     const nodes: RFAnyNode[] = [
       recipeNode("anchor", 0, 0, r),
       recipeNode("corridor", 550, 1000, r),
@@ -979,9 +983,9 @@ describe("clearBusColumns", () => {
       containerNode("G2", -40, 970, 560, 260), // wraps s + tall sib
       { ...recipeNode("s", 40, 30, r), parentId: "G2" }, // abs (0, 1000)
       {
-        ...inputProductNode("sib", "ore", 374, 30, 148, 200),
+        ...inputProductNode("sib", "ore", 314, 30, 148, 200),
         parentId: "G2",
-      }, // abs (334, 1000): raw [334, 482] x [1000, 1200], padded left 300
+      }, // abs (274, 1000): raw [274, 422] x [1000, 1200], padded left 240
     ];
     const out = clearBusColumns(
       nodes,
@@ -995,15 +999,15 @@ describe("clearBusColumns", () => {
 
   it("escapes into the chamfer band rather than piercing a sibling with the drop", () => {
     // Drop-side pierce rescue. The desired drop column (sx + PORT_STUB +
-    // CHAMFER = 332) sits strictly INSIDE the tall sibling's raw body [306,
-    // 454], which spans the whole drop run; every rightward candidate's leg
+    // CHAMFER = 272) sits strictly INSIDE the tall sibling's raw body [246,
+    // 394], which spans the whole drop run; every rightward candidate's leg
     // crosses the sibling and every clamp-valid leftward candidate is blocked,
     // so the guarded tiers exhaust. Returning the desired column would slice
     // the sibling outright, so the rescue drops the guard and takes the
-    // nearest clear column: x = 304 (raw left - RAW_GAP), inside the chamfer
+    // nearest clear column: x = 244 (raw left - RAW_GAP), inside the chamfer
     // band [sx, sx + CHAMFER) but clear of every raw body. A cramped
     // boundary-hugging column beats piercing a foreign card.
-    //   s: abs (0, 1000), sx = 300, out-port y = 1097.
+    //   s: abs (0, 1000), sx = 240, out-port y = 1073.
     const nodes: RFAnyNode[] = [
       recipeNode("anchor", 0, 0, r),
       recipeNode("s", 0, 1000, r),
@@ -1011,7 +1015,7 @@ describe("clearBusColumns", () => {
       // single-member direct route.
       recipeNode("corridor", 550, 1000, r),
       recipeNode("t", far, 1000, r),
-      inputProductNode("sib", "ore", 306, 1000, 148, 200), // raw [306, 454]
+      inputProductNode("sib", "ore", RECIPE_WIDTH + 6, 1000, 148, 200), // raw [246, 394]
     ];
     const out = clearBusColumns(
       nodes,
@@ -1019,23 +1023,25 @@ describe("clearBusColumns", () => {
     );
     const dropX = dropXOf(out, "e0");
     expect(dropX).toBeDefined();
-    // Clear of the sibling's raw body (never strictly inside [306, 454]).
-    expect(dropX! > 306 && dropX! < 454).toBe(false);
+    // Clear of the sibling's raw body (never strictly inside [246, 394]).
+    expect(dropX! > RECIPE_WIDTH + 6 && dropX! < RECIPE_WIDTH + 6 + 148).toBe(
+      false,
+    );
   });
 
   it("prefers a clamp-valid drop column over a nearer one inside the chamfer band", () => {
     // Isolates the drop-side clamp with NO pierce in play (so the rescue never
     // runs). Two short foreign cards sit below the port row, straddling the
-    // drop run: "c" blocks the desired column (332) within the raw gap without
-    // containing it (raw left 333), and "d" (raw [304, 330]) walls off c's
-    // near-left candidate while supplying its own left candidate at x = 302 --
-    // inside the chamfer band [sx, sx + CHAMFER) = [300, 308). Both cards sit
+    // drop run: "c" blocks the desired column (272) within the raw gap without
+    // containing it (raw left 273), and "d" (raw [244, 270]) walls off c's
+    // near-left candidate while supplying its own left candidate at x = 242 --
+    // inside the chamfer band [sx, sx + CHAMFER) = [240, 248). Both cards sit
     // under the port row, so their approach legs are clear; the own-card leg
     // rect rejects every column left of the port but admits the band. Without
-    // the clamp the nearest legal candidate 302 wins (a column butting the
+    // the clamp the nearest legal candidate 242 wins (a column butting the
     // port with no room for the chamfer elbow); the clamp rejects it and the
-    // resolver takes the clamp-valid column right of c (483) instead.
-    const sx = 300; // source's absolute right edge (left 0 + RECIPE_WIDTH)
+    // resolver takes the clamp-valid column right of c (423) instead.
+    const sx = RECIPE_WIDTH; // source's absolute right edge (left 0 + RECIPE_WIDTH)
     const nodes: RFAnyNode[] = [
       recipeNode("anchor", 0, 0, r),
       recipeNode("s", 0, 1000, r),
@@ -1043,8 +1049,8 @@ describe("clearBusColumns", () => {
       // single-member direct route.
       recipeNode("corridor", 550, 1000, r),
       recipeNode("t", far, 1000, r),
-      productNode("c", 333, 1300, 148, 78), // raw [333, 481]
-      productNode("d", 304, 1400, 26, 78), // raw [304, 330]
+      productNode("c", RECIPE_WIDTH + 33, 1300, 148, 78), // raw [273, 421]
+      productNode("d", RECIPE_WIDTH + 4, 1400, 26, 78), // raw [244, 270]
     ];
     const out = clearBusColumns(
       nodes,
@@ -1063,19 +1069,21 @@ describe("clearBusColumns", () => {
     // the run, between the target row and the lane. The own-side guard rejects
     // every candidate -- leftward legs cross the wall, rightward columns are
     // clamp-rejected -- and the pre-rescue degrade kept the desired column
-    // (1138), which runs straight through the block's raw body [1064, 1212]: a
+    // (958), which runs straight through the block's raw body [884, 1032]: a
     // hard-gate pierce of an unrelated card. The pierce rescue's off-own tier
     // (3a) finds nothing -- the wall occupies the whole chamfer band so no
     // body-clear column keeps its leg off the own card -- so the last-resort
-    // tier (3b) runs: it lands right of the block (1214), which is clear of
+    // tier (3b) runs: it lands right of the block (1034), which is clear of
     // every FOREIGN raw body but sits INSIDE the own target card's body
-    // [1170, 1470]. This is the ruled last resort for geometry with no clear
+    // [990, 1230]. This is the ruled last resort for geometry with no clear
     // option (matching pre-guard behaviour). The foreign segment audit exempts
     // an edge's own endpoint cards and cannot see this run; auditOwnCardPierces
     // measures it instead.
-    //   t: (1170, 1000), port y 1074 (product-style center fallback).
-    //   wall: raw [1022, 1170] y [1020, 1120] -- abuts tx, contains port y.
-    //   block: raw [1064, 1212] y [1300, 1378] -- contains desired 1138.
+    //   t: (990, 1000), port y 1074 (product-style center fallback).
+    //   wall: raw [842, 990] y [1020, 1120] -- abuts tx, contains port y.
+    //   block: raw [884, 1032] y [1300, 1378] -- contains desired 958.
+    const wallLeft = far - 148;
+    const blockLeft = far - 106;
     const nodes: RFAnyNode[] = [
       recipeNode("anchor", 0, 0, r),
       recipeNode("s", 0, 1000, r),
@@ -1083,8 +1091,8 @@ describe("clearBusColumns", () => {
       // single-member direct route.
       recipeNode("corridor", 550, 1000, r),
       recipeNode("t", far, 1000, r),
-      inputProductNode("wall", "ore", 1022, 1020, 148, 100),
-      inputProductNode("block", "ore", 1064, 1300, 148, 78),
+      inputProductNode("wall", "ore", wallLeft, 1020, 148, 100),
+      inputProductNode("block", "ore", blockLeft, 1300, 148, 78),
     ];
     const out = clearBusColumns(
       nodes,
@@ -1092,61 +1100,61 @@ describe("clearBusColumns", () => {
     );
     const resolved = riseXOf(out, "e0") ?? far - PORT_STUB - CHAMFER;
     // The resolved rise column never runs strictly inside a FOREIGN raw card
-    // body it spans: not the block's [1064, 1212], not the wall's [1022, 1170].
-    expect(resolved > 1064 && resolved < 1212).toBe(false);
-    expect(resolved > 1022 && resolved < 1170).toBe(false);
+    // body it spans: not the block's [884, 1032], not the wall's [842, 990].
+    expect(resolved > blockLeft && resolved < blockLeft + 148).toBe(false);
+    expect(resolved > wallLeft && resolved < wallLeft + 148).toBe(false);
     // It IS an own-card landing (the last-resort 3b traversal): right of the
-    // target's Left port (tx = far = 1170), strictly inside the target card's
-    // own raw body [1170, 1470]. This is what the own-pierce audit ratchets.
+    // target's Left port (tx = far = 990), strictly inside the target card's
+    // own raw body [990, 1230]. This is what the own-pierce audit ratchets.
     expect(resolved > far).toBe(true);
-    expect(resolved > far && resolved < far + 300).toBe(true);
+    expect(resolved > far && resolved < far + RECIPE_WIDTH).toBe(true);
   });
 
   it("prefers a body-clear off-own column over traversing its own target card", () => {
     // The 3a sub-tier of the pierce rescue: same packed shape, but the wall's
-    // raw right edge stops one chamfer short of the port (1160, not 1170), so
-    // the chamfer band [tx - CHAMFER, tx) = [1162, 1170) is not walled. A short
-    // foreign "shelf" (raw right 1166) sitting at the run's lane depth supplies
-    // a candidate column at 1168 -- inside the chamfer band, off-side of the
+    // raw right edge stops one chamfer short of the port (980, not 990), so
+    // the chamfer band [tx - CHAMFER, tx) = [982, 990) is not walled. A short
+    // foreign "shelf" (raw right 986) sitting at the run's lane depth supplies
+    // a candidate column at 988 -- inside the chamfer band, off-side of the
     // clamp (so tiers 1/2 reject it) but with an approach leg that stops at the
-    // port without crossing the own card body. "block" (raw [1002, 1150])
-    // straddles the desired column 1138 and, with the wall, exhausts every
+    // port without crossing the own card body. "block" (raw [822, 970])
+    // straddles the desired column 958 and, with the wall, exhausts every
     // clamp-valid tier-1/2 column, so the rescue runs. Its off-own tier (3a)
-    // takes 1168 -- a body-clear column whose leg clears the own card -- in
+    // takes 988 -- a body-clear column whose leg clears the own card -- in
     // preference to any own-card traversal (3b). The rescue lands off-own.
-    //   t: (1170, 1000), port y 1074. tx = 1170, chamfer band [1162, 1170).
-    //   wall:  raw [1012, 1160] y [1020, 1120] -- blocks leftward legs, clears band.
-    //   shelf: raw [1018, 1166] y [1300, 1378] -- supplies the 1168 candidate.
-    //   block: raw [1002, 1150] y [1300, 1378] -- contains desired 1138.
+    //   t: (990, 1000), port y 1074. tx = 990, chamfer band [982, 990).
+    //   wall:  raw [832, 980] y [1020, 1120] -- blocks leftward legs, clears band.
+    //   shelf: raw [838, 986] y [1300, 1378] -- supplies the 988 candidate.
+    //   block: raw [822, 970] y [1300, 1378] -- contains desired 958.
     const nodes: RFAnyNode[] = [
       recipeNode("anchor", 0, 0, r),
       recipeNode("s", 0, 1000, r),
       recipeNode("corridor", 550, 1000, r),
       recipeNode("t", far, 1000, r),
-      inputProductNode("shelf", "ore", 1018, 1300, 148, 78),
-      inputProductNode("wall", "ore", 1012, 1020, 148, 100),
-      inputProductNode("block", "ore", 1002, 1300, 148, 78),
+      inputProductNode("shelf", "ore", far - 152, 1300, 148, 78),
+      inputProductNode("wall", "ore", far - 158, 1020, 148, 100),
+      inputProductNode("block", "ore", far - 168, 1300, 148, 78),
     ];
     const out = clearBusColumns(
       nodes,
       routeBusEdges(nodes, [mkEdge("e0", "s", "t", "b")]),
     );
     const resolved = riseXOf(out, "e0") ?? far - PORT_STUB - CHAMFER;
-    // Off-own: strictly LEFT of the target's Left port (tx = far = 1170), so
-    // its approach leg never enters the own card body [1170, 1470]. Contrast
+    // Off-own: strictly LEFT of the target's Left port (tx = far = 990), so
+    // its approach leg never enters the own card body [990, 1230]. Contrast
     // the last-resort test above, where the packed wall forces an own-card
     // landing (resolved > far).
     expect(resolved).toBeLessThan(far);
     // And clear of the foreign bodies it spans (block, wall, shelf raw).
-    expect(resolved > 1002 && resolved < 1150).toBe(false);
-    expect(resolved > 1012 && resolved < 1160).toBe(false);
+    expect(resolved > far - 168 && resolved < far - 20).toBe(false);
+    expect(resolved > far - 158 && resolved < far - 10).toBe(false);
   });
 
   it("fans two distinct-item trunks off a shared drop and rise column (#25)", () => {
-    // Two trunks leave the same source layer (right edge 300 -> drop column 332)
+    // Two trunks leave the same source layer (right edge 240 -> drop column 272)
     // and rise into ONE shared multi-input target (left far -> rise column
     // far - 32), one carrying item "b" and one item "c". Absent per-trunk
-    // separation both drops resolve to 332 and both rises to far - 32, candy-
+    // separation both drops resolve to 272 and both rises to far - 32, candy-
     // striping two items on one column. The shared target is each rise's own
     // (exempt) card, so neither rise dodges the other and they genuinely coincide.
     // Each lone member keeps a mid-corridor blocker so it stays on the bus, and a
@@ -1167,7 +1175,7 @@ describe("clearBusColumns", () => {
         mkEdge("e2", "s2", "t", "c"),
       ]),
     );
-    const dropDefault = 300 + PORT_STUB + CHAMFER; // 332
+    const dropDefault = RECIPE_WIDTH + PORT_STUB + CHAMFER; // 272
     const riseDefault = far - PORT_STUB - CHAMFER;
     // Every member of a colliding bucket stores its resolved column -- including
     // the lowest-slot trunk at offset 0 -- so both render on the same basis and
@@ -1188,7 +1196,7 @@ describe("clearBusColumns", () => {
 
   it("keeps two separated trunk drops apart when a card forces a dodge (#25)", () => {
     // The same two colliding trunks, plus a foreign card straddling both drop
-    // columns (332 and 348) at the run's lane depth. Both drops sit inside the
+    // columns (272 and 288) at the run's lane depth. Both drops sit inside the
     // card's padded band, so the foreign-card dodge moves both -- collapsing them
     // onto the same escape column. The post-dodge separation pass then buckets
     // them on that shared resolved column and steps them one slot pitch apart, so
@@ -1201,7 +1209,7 @@ describe("clearBusColumns", () => {
       recipeNode("cor2", 550, 1150, r),
       recipeNode("t1", far, 1000, r),
       recipeNode("t2", far, 1150, r),
-      inputProductNode("block", "ore", 300, 1250, 148, 78), // raw [300, 448]
+      inputProductNode("block", "ore", RECIPE_WIDTH, 1250, 148, 78), // raw [240, 388]
     ];
     const out = clearBusColumns(
       nodes,
@@ -1210,7 +1218,7 @@ describe("clearBusColumns", () => {
         mkEdge("e2", "s2", "t2", "c"),
       ]),
     );
-    // Both dodged the block (stamped away from the 332 default)...
+    // Both dodged the block (stamped away from the 272 default)...
     expect(dropXOf(out, "e1")).toBeDefined();
     expect(dropXOf(out, "e2")).toBeDefined();
     // ...and never onto the same escape column.
@@ -1220,7 +1228,7 @@ describe("clearBusColumns", () => {
   it("fans two same-item trunks from different sources off a shared drop column (#25)", () => {
     // The separation keys on the trunk (`item|source`), not the item alone: two
     // trunks carrying the SAME item from DIFFERENT sources coincide on the drop
-    // column (both resolve to 332 off the shared source layer) and are stepped
+    // column (both resolve to 272 off the shared source layer) and are stepped
     // apart exactly like a distinct-item pair.
     const nodes: RFAnyNode[] = [
       recipeNode("anchor", 0, 0, r),
@@ -1247,31 +1255,34 @@ describe("clearBusColumns", () => {
 
   it("never steps a separated drop column into a foreign card (#25 re-check)", () => {
     // Four distinct-item trunks leave the same source layer; a foreign card with
-    // raw x-extent [350, 498] sits at the run's lane depth. The three upper
+    // raw x-extent [290, 438] sits at the run's lane depth. The three upper
     // trunks' drop spans also pass their sibling source cards below, so the
-    // padded tier is walled on both sides and the raw fallback keeps their 332
+    // padded tier is walled on both sides and the raw fallback keeps their 272
     // default (2px shy of the card's raw left minus the slim gap) -- a colliding
-    // bucket of three at 332. The bottom trunk's span passes no sibling, so it
-    // dodges alone to the card's padded escape at 308. Naive separation would
-    // step the bucket's rank 2 to 332 + 32 = 364, INSIDE the card's raw body.
+    // bucket of three at 272. The bottom trunk's span passes no sibling, so it
+    // dodges alone to the card's padded escape at 248. Naive separation would
+    // step the bucket's rank 2 to 272 + 32 = 304, INSIDE the card's raw body.
     // The post-offset re-check must instead keep stepping (every bounded
     // candidate is still inside the card) and then drop rank 2's offset so it
-    // falls back to the coincident 332 -- a benign overlap, never a pierce.
+    // falls back to the coincident 272 -- a benign overlap, never a pierce.
+    // The mid-corridor blockers sit far enough right that the block's padded
+    // right escape (470) stays inside their padded band, walling the tier's
+    // right side exactly as the sibling source cards wall its left.
     const nodes: RFAnyNode[] = [
       recipeNode("anchor", 0, 0, r),
       recipeNode("s1", 0, 1000, r),
       recipeNode("s2", 0, 1150, r),
       recipeNode("s3", 0, 1300, r),
       recipeNode("s4", 0, 1450, r),
-      recipeNode("cor1", 550, 1000, r),
-      recipeNode("cor2", 550, 1150, r),
-      recipeNode("cor3", 550, 1300, r),
-      recipeNode("cor4", 550, 1450, r),
+      recipeNode("cor1", RECIPE_WIDTH + 250, 1000, r),
+      recipeNode("cor2", RECIPE_WIDTH + 250, 1150, r),
+      recipeNode("cor3", RECIPE_WIDTH + 250, 1300, r),
+      recipeNode("cor4", RECIPE_WIDTH + 250, 1450, r),
       recipeNode("t1", far, 1000, r),
       recipeNode("t2", far, 1150, r),
       recipeNode("t3", far, 1300, r),
       recipeNode("t4", far, 1450, r),
-      inputProductNode("block", "ore", 350, 1550, 148, 78), // raw [350, 498]
+      inputProductNode("block", "ore", RECIPE_WIDTH + 50, 1550, 148, 78), // raw [290, 438]
     ];
     const out = clearBusColumns(
       nodes,
@@ -1286,36 +1297,37 @@ describe("clearBusColumns", () => {
     // Every trunk stores its column (bucket members and the lone dodger)...
     for (const x of xs) expect(x).toBeDefined();
     // ...and no stored column pierces the card's raw body.
-    for (const x of xs) expect(x! > 350 && x! < 498).toBe(false);
+    for (const x of xs)
+      expect(x! > RECIPE_WIDTH + 50 && x! < RECIPE_WIDTH + 198).toBe(false);
     // Rank 2, boxed in by the card, falls back to rank 0's coincident column
     // instead of stepping into the card.
     expect(xs[2]).toBe(xs[0]);
   });
 
   it("rejects a stepped drop whose connecting leg would cross a card (#25 re-check)", () => {
-    // The same four-trunk fixture, plus a slim card with raw x-extent [336, 344]
-    // -- strictly between the bucket's 332 natural and rank 1's 348 candidate --
-    // straddling the second source's port row. The 348 candidate's VERTICAL is
+    // The same four-trunk fixture, plus a slim card with raw x-extent [276, 284]
+    // -- strictly between the bucket's 272 natural and rank 1's 288 candidate --
+    // straddling the second source's port row. The 288 candidate's VERTICAL is
     // clear of that card, but stepping there lengthens the port-to-column leg at
     // the port row so the leg would slice the card's body. The re-check must
     // reject the candidate via the leg guard; with every further candidate
-    // inside the big card, rank 1 falls back to the coincident 332 like rank 2.
+    // inside the big card, rank 1 falls back to the coincident 272 like rank 2.
     const nodes: RFAnyNode[] = [
       recipeNode("anchor", 0, 0, r),
       recipeNode("s1", 0, 1000, r),
       recipeNode("s2", 0, 1150, r),
       recipeNode("s3", 0, 1300, r),
       recipeNode("s4", 0, 1450, r),
-      recipeNode("cor1", 550, 1000, r),
-      recipeNode("cor2", 550, 1150, r),
-      recipeNode("cor3", 550, 1300, r),
-      recipeNode("cor4", 550, 1450, r),
+      recipeNode("cor1", RECIPE_WIDTH + 250, 1000, r),
+      recipeNode("cor2", RECIPE_WIDTH + 250, 1150, r),
+      recipeNode("cor3", RECIPE_WIDTH + 250, 1300, r),
+      recipeNode("cor4", RECIPE_WIDTH + 250, 1450, r),
       recipeNode("t1", far, 1000, r),
       recipeNode("t2", far, 1150, r),
       recipeNode("t3", far, 1300, r),
       recipeNode("t4", far, 1450, r),
-      inputProductNode("block", "ore", 350, 1550, 148, 78), // raw [350, 498]
-      inputProductNode("legcard", "ore", 336, 1150, 8, 140), // raw [336, 344]
+      inputProductNode("block", "ore", RECIPE_WIDTH + 50, 1550, 148, 78), // raw [290, 438]
+      inputProductNode("legcard", "ore", RECIPE_WIDTH + 36, 1150, 8, 140), // raw [276, 284]
     ];
     const out = clearBusColumns(
       nodes,
@@ -1326,15 +1338,15 @@ describe("clearBusColumns", () => {
         mkEdge("e4", "s4", "t4", "e"),
       ]),
     );
-    // Rank 1's leg-crossing 348 candidate is rejected: it falls back to the
+    // Rank 1's leg-crossing 288 candidate is rejected: it falls back to the
     // coincident column instead of slicing the slim card with its leg.
     expect(dropXOf(out, "e2")).toBeDefined();
     expect(dropXOf(out, "e2")).toBe(dropXOf(out, "e1"));
     // And no stored column pierces either card's raw body.
     for (const id of ["e1", "e2", "e3", "e4"]) {
       const x = dropXOf(out, id)!;
-      expect(x > 350 && x < 498).toBe(false);
-      expect(x > 336 - 2 && x < 344 + 2).toBe(false);
+      expect(x > RECIPE_WIDTH + 50 && x < RECIPE_WIDTH + 198).toBe(false);
+      expect(x > RECIPE_WIDTH + 34 && x < RECIPE_WIDTH + 44).toBe(false);
     }
   });
 });

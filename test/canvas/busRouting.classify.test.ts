@@ -32,7 +32,11 @@ import {
 import { nodeWidth, portOffsetY } from "../../src/canvas/nodeGeometry";
 import { deconflictChipAnchors } from "../../src/canvas/chipSeating";
 import { formatRatePerMin } from "../../src/data/rate-format";
-import { CHIP_BOX_HEIGHT, MAX_CHIP_SCALE } from "../../src/canvas/dimensions";
+import {
+  CHIP_BOX_HEIGHT,
+  MAX_CHIP_SCALE,
+  RECIPE_WIDTH,
+} from "../../src/canvas/dimensions";
 import {
   PORT_STUB,
   CHAMFER,
@@ -59,7 +63,7 @@ describe("routeBusEdges", () => {
     const r = mkRecipe("r", ["a"], ["b"]);
     const nodes: RFAnyNode[] = [
       recipeNode("s", 0, 0, r),
-      recipeNode("t", 400, 0, r), // gap 400 - 300 = 100 < 820
+      recipeNode("t", 400, 0, r), // gap 400 - 240 = 160 < 700
     ];
     const edges = [mkEdge("e0", "s", "t", "b")];
 
@@ -75,7 +79,7 @@ describe("routeBusEdges", () => {
     const r = mkRecipe("r", ["a"], ["b"]);
     const nodes: RFAnyNode[] = [
       recipeNode("s", 0, 0, r),
-      recipeNode("t", 0 + 300 + (BUS_SPAN_THRESHOLD + 50), 200, r),
+      recipeNode("t", 0 + RECIPE_WIDTH + (BUS_SPAN_THRESHOLD + 50), 200, r),
       // A card straddling the direct corridor at the target row, so the lone
       // member is NOT demoted to a plain item edge (Task 12) and stays on a lane.
       recipeNode("mid", 600, 200, r),
@@ -100,7 +104,7 @@ describe("routeBusEdges", () => {
 
   it("shares one trunkKey and laneY across long edges of the same item+source", () => {
     const r = mkRecipe("r", ["a"], ["b"]);
-    const far = 300 + (BUS_SPAN_THRESHOLD + 50);
+    const far = RECIPE_WIDTH + (BUS_SPAN_THRESHOLD + 50);
     const nodes: RFAnyNode[] = [
       recipeNode("s", 0, 0, r),
       recipeNode("t1", far, 0, r),
@@ -132,7 +136,7 @@ describe("routeBusEdges", () => {
   it("puts different items on lanes LANE_SPACING apart in item-sorted order", () => {
     const rApple = mkRecipe("rApple", ["x"], ["apple"]);
     const rBanana = mkRecipe("rBanana", ["x"], ["banana"]);
-    const far = 300 + (BUS_SPAN_THRESHOLD + 50);
+    const far = RECIPE_WIDTH + (BUS_SPAN_THRESHOLD + 50);
     // Declare the banana source first to prove ordering is by item, not input.
     // Each lone member's corridor is blocked at its own target row so both stay
     // bus members (Task 12) instead of demoting to plain item edges. Both trunks
@@ -173,7 +177,7 @@ describe("routeBusEdges", () => {
     // short feeder stays a direct item edge.
     const nodes: RFAnyNode[] = [
       inputProductNode("agg", "ore", 0, 0),
-      inputProductNode("tap", "ore", 200, 0), // gap 200 - 148 = 52 < 820
+      inputProductNode("tap", "ore", 200, 0), // gap 200 - 148 = 52 < 700
     ];
     const edges = [mkEdge("e0", "agg", "tap", "ore")];
 
@@ -186,7 +190,7 @@ describe("routeBusEdges", () => {
   it("is deterministic: shuffled input order yields identical output", () => {
     const rApple = mkRecipe("rApple", ["x"], ["apple"]);
     const rBanana = mkRecipe("rBanana", ["x"], ["banana"]);
-    const far = 300 + (BUS_SPAN_THRESHOLD + 50);
+    const far = RECIPE_WIDTH + (BUS_SPAN_THRESHOLD + 50);
     // Corridor blockers keep both lone members on the bus (Task 12) so this
     // exercises deterministic lane assignment, not the demotion path.
     const nodes: RFAnyNode[] = [
@@ -234,7 +238,7 @@ describe("routeBusEdges", () => {
 
 describe("routeBusEdges two-sided lane bands (9B)", () => {
   const r = mkRecipe("r", ["a"], ["b"]);
-  const far = 300 + (BUS_SPAN_THRESHOLD + 50);
+  const far = RECIPE_WIDTH + (BUS_SPAN_THRESHOLD + 50);
 
   function bandOf(edges: Edge[], id: string): string | undefined {
     return (edges.find((e) => e.id === id)?.data as { busBand?: string })
@@ -495,7 +499,7 @@ describe("busBandRegions", () => {
 
 describe("routeBusEdges single-member demotion (9C)", () => {
   const r = mkRecipe("r", ["a"], ["b"]);
-  const far = 300 + (BUS_SPAN_THRESHOLD + 50);
+  const far = RECIPE_WIDTH + (BUS_SPAN_THRESHOLD + 50);
 
   it("demotes a lone clear-corridor forward trunk to a plain item edge", () => {
     const nodes: RFAnyNode[] = [
@@ -597,7 +601,12 @@ describe("routeBusEdges single-member demotion (9C)", () => {
       recipeNode("t", far, 400, r),
       // Straddles the vertical span at the corridor midpoint, below the source
       // row and above the target row, clear of both port ys.
-      recipeNode("blocker", (300 + far) / 2 - 150, 200, r),
+      recipeNode(
+        "blocker",
+        (RECIPE_WIDTH + far) / 2 - RECIPE_WIDTH / 2,
+        200,
+        r,
+      ),
     ];
     const edges = [mkEdge("e0", "s", "t", "b")];
 
@@ -620,7 +629,7 @@ describe("routeBusEdges single-member demotion (9C)", () => {
     // Same shape, but the sy..ty span is tiled with blockers wall to wall, so
     // no candidate column clears: the edge must stay a bus member.
     const blockers: RFAnyNode[] = [];
-    for (let x = 300 - 40; x < far; x += 300 + 20) {
+    for (let x = RECIPE_WIDTH - 40; x < far; x += RECIPE_WIDTH + 20) {
       blockers.push(recipeNode(`w${x}`, x, 200, r));
     }
     const nodes: RFAnyNode[] = [
@@ -672,8 +681,9 @@ describe("routeBusEdges single-member demotion (9C)", () => {
 
 describe("routeFanoutEdges (6C)", () => {
   const r = mkRecipe("r", ["a"], ["b"]);
-  // One layer over: gap = 410 - 300 = 110, inside FANOUT_SPAN_MAX (410).
-  const oneGap = 410;
+  // One layer over: the targets sit at FANOUT_SPAN_MAX, so the empty gap is
+  // BETWEEN_LAYERS_SPACING (110), inside the fan-out window.
+  const oneGap = FANOUT_SPAN_MAX;
 
   const fanData = (edges: Edge[], id: string) =>
     edges.find((e) => e.id === id)!.data as {
@@ -771,7 +781,7 @@ describe("routeFanoutEdges (6C)", () => {
       expect(e.data).not.toHaveProperty("laneY");
       // Junction column stamped, inside the corridor.
       expect(typeof d.junctionX).toBe("number");
-      expect(d.junctionX!).toBeGreaterThan(300); // right of source
+      expect(d.junctionX!).toBeGreaterThan(RECIPE_WIDTH); // right of source
       expect(d.junctionX!).toBeLessThan(oneGap); // left of targets
     }
     // Aggregate = summed member rates (1 + 1), count 2, exactly one owner.
@@ -806,7 +816,9 @@ describe("routeFanoutEdges (6C)", () => {
     expect(fanData(out, "e0").busMemberCount).toBe(3);
     expect(fanData(out, "e0").busTotalRate!.equals(new Fraction(3))).toBe(true);
     // One shared junction across all three branches.
-    const jx = new Set(["e0", "e1", "e2"].map((id) => fanData(out, id).junctionX));
+    const jx = new Set(
+      ["e0", "e1", "e2"].map((id) => fanData(out, id).junctionX),
+    );
     expect(jx.size).toBe(1);
     // Exactly the lex-smallest edge (e0) is the elected owner; the branches are
     // non-owners.
@@ -847,9 +859,9 @@ describe("routeFanoutEdges (6C)", () => {
   });
 
   it("does NOT fan out a two-layer (multi-gap) pair", () => {
-    // gap = 820 - 300 = 520 > FANOUT_SPAN_MAX (410): two layers over.
-    const twoGap = 820;
-    expect(twoGap - 300).toBeGreaterThan(FANOUT_SPAN_MAX);
+    // gap = 700 - 240 = 460 > FANOUT_SPAN_MAX (350): two layers over.
+    const twoGap = BUS_SPAN_THRESHOLD;
+    expect(twoGap - RECIPE_WIDTH).toBeGreaterThan(FANOUT_SPAN_MAX);
     const nodes: RFAnyNode[] = [
       recipeNode("s", 0, 0, r),
       recipeNode("t1", twoGap, 0, r),
@@ -862,10 +874,10 @@ describe("routeFanoutEdges (6C)", () => {
   });
 
   it("does NOT fan out a sub-budget (too-tight) gap", () => {
-    // gap = 360 - 300 = 60 <= FANOUT_SPAN_MIN: no room for a distinct junction
+    // gap = 60 <= FANOUT_SPAN_MIN (64): no room for a distinct junction
     // column, so the pair stays plain item edges (boundary case).
-    const tight = 360;
-    expect(tight - 300).toBeLessThanOrEqual(FANOUT_SPAN_MIN);
+    const tight = RECIPE_WIDTH + FANOUT_SPAN_MIN - 4;
+    expect(tight - RECIPE_WIDTH).toBeLessThanOrEqual(FANOUT_SPAN_MIN);
     const nodes: RFAnyNode[] = [
       recipeNode("s", 0, 0, r),
       recipeNode("t1", tight, 0, r),
@@ -949,7 +961,7 @@ describe("routeFanoutEdges (6C)", () => {
   });
 
   it("spreads a tight-corridor pair to the corridor ends", () => {
-    // One-gap corridor: usable width 410 - 300 - 2 * (PORT_STUB + CHAMFER) = 46.
+    // One-gap corridor: usable width 350 - 240 - 2 * (PORT_STUB + CHAMFER) = 46.
     // Two contesting trunks spread to the corridor ends, the widest separation
     // the window allows.
     const rc = mkRecipe("rc", ["a"], ["c"]);
@@ -973,7 +985,9 @@ describe("routeFanoutEdges (6C)", () => {
     }
     // The top trunk (sy order) takes the corridor's low end; the other spreads
     // as far right as the obstacle model allows, at least a PORT_STUB away.
-    expect(fanData(out, "e0").junctionX).toBe(300 + PORT_STUB + CHAMFER);
+    expect(fanData(out, "e0").junctionX).toBe(
+      RECIPE_WIDTH + PORT_STUB + CHAMFER,
+    );
     expect(
       fanData(out, "e2").junctionX! - fanData(out, "e0").junctionX!,
     ).toBeGreaterThanOrEqual(PORT_STUB);
@@ -1036,7 +1050,7 @@ describe("routeFanoutEdges (6C)", () => {
     const rb = mkRecipe("rb", ["a"], ["b"]);
     const rc = mkRecipe("rc", ["a"], ["c"]);
     const rd = mkRecipe("rd", ["a"], ["d"]);
-    const tgt = 550; // gap 250: corridor [332, 518], pitch (518 - 332) / 2 = 93
+    const tgt = RECIPE_WIDTH + 250; // gap 250: corridor [272, 458], pitch (458 - 272) / 2 = 93
     const nodes: RFAnyNode[] = [
       recipeNode("s1", 0, 0, rb),
       recipeNode("s2", 0, 600, rc),
@@ -1066,7 +1080,9 @@ describe("routeFanoutEdges (6C)", () => {
     }
     // Slots are still handed out top-to-bottom by source-port y, so the topmost
     // trunk takes the corridor's low end and the columns sit a pitch apart.
-    expect(fanData(out, "e0").junctionX).toBe(300 + PORT_STUB + CHAMFER);
+    expect(fanData(out, "e0").junctionX).toBe(
+      RECIPE_WIDTH + PORT_STUB + CHAMFER,
+    );
     const columns = ["e0", "e2", "e4"].map((id) => fanData(out, id).junctionX!);
     expect(columns[1]! - columns[0]!).toBeGreaterThanOrEqual(PORT_STUB);
     expect(columns[2]! - columns[1]!).toBeGreaterThanOrEqual(PORT_STUB);
@@ -1089,7 +1105,7 @@ describe("routeFanoutEdges (6C)", () => {
     // A two-member long-span trunk is already a lane bus after routeBusEdges;
     // routeFanoutEdges (running on that output) must leave them on the lane, not
     // reclassify them as a fan-out.
-    const far = 300 + (BUS_SPAN_THRESHOLD + 50);
+    const far = RECIPE_WIDTH + (BUS_SPAN_THRESHOLD + 50);
     const nodes: RFAnyNode[] = [
       recipeNode("s", 0, 0, r),
       recipeNode("t1", far, 0, r),
@@ -1184,11 +1200,11 @@ describe("routeFanoutEdges (6C)", () => {
     // The acceptance-gated junction stakes the shared column clear of a
     // mid-corridor obstacle AND keeps the shared trunk leg (source port ->
     // column) and every branch leg (column -> target port) off the card. Give
-    // the corridor room (gap 380), read the unobstructed column, then drop a thin
+    // the corridor room (gap 320), read the unobstructed column, then drop a thin
     // foreign card straddling it and spanning the junction's vertical run but
     // sitting BETWEEN the two rows (clear of every port y), so a clean dodge that
     // clears all three horizontals exists.
-    const wideGap = 680; // 680 - 300 = 380, inside FANOUT_SPAN_MAX (410)
+    const wideGap = RECIPE_WIDTH + 320; // 560 - 240 = 320, inside FANOUT_SPAN_MAX (350)
     const nodes: RFAnyNode[] = [
       recipeNode("s", 0, 0, r),
       recipeNode("t1", wideGap, 0, r),
@@ -1215,7 +1231,7 @@ describe("routeFanoutEdges (6C)", () => {
     expect(jx).toBe(fanData(out, "e1").junctionX!);
     expect(jx).not.toBe(clearJx);
     expect(jx < clearJx - 10 || jx > clearJx + 10).toBe(true);
-    expect(jx).toBeGreaterThan(300);
+    expect(jx).toBeGreaterThan(RECIPE_WIDTH);
     expect(jx).toBeLessThan(wideGap);
 
     // Strengthened invariant: the drawn trunk AND branch horizontals clear the
@@ -1236,7 +1252,7 @@ describe("routeFanoutEdges (6C)", () => {
     // the trunk leg or a branch leg would slice the card, so no acceptable shared
     // column exists. The fan-out does not form; the members stay plain item edges
     // (keeping the item-edge passes' per-leg jog protection a bus retype loses).
-    const wideGap = 680;
+    const wideGap = RECIPE_WIDTH + 320;
     const nodes: RFAnyNode[] = [
       recipeNode("s", 0, 0, r),
       recipeNode("t1", wideGap, 0, r),
@@ -1246,7 +1262,14 @@ describe("routeFanoutEdges (6C)", () => {
     const clearJx = fanData(routeFanoutEdges(nodes, edges), "e0").junctionX!;
 
     // Full-height straddling block: covers the trunk row and both branch rows.
-    const block = inputProductNode("block", "ore", clearJx - 10, -200, 20, 1000);
+    const block = inputProductNode(
+      "block",
+      "ore",
+      clearJx - 10,
+      -200,
+      20,
+      1000,
+    );
     const out = routeFanoutEdges([...nodes, block], edges);
     ["e0", "e1"].forEach((id, i) => {
       const e = out.find((x) => x.id === id)!;
@@ -1260,7 +1283,7 @@ describe("routeFanoutEdges (6C)", () => {
 
 describe("directCorridorClear", () => {
   const r = mkRecipe("r", ["a"], ["b"]);
-  const far = 300 + (BUS_SPAN_THRESHOLD + 50);
+  const far = RECIPE_WIDTH + (BUS_SPAN_THRESHOLD + 50);
 
   it("reads clear through a foreign gutter widened by post-retype bus rises", () => {
     // The demotion gate runs on PRE-retype edges (every gutter at its minimum
@@ -1326,7 +1349,7 @@ function busChipXOf(edges: Edge[], id: string): number | undefined {
 
 describe("routeBusEdges trunk rise-chip slots", () => {
   const r = mkRecipe("r", ["a"], ["b"]);
-  const far = 300 + (BUS_SPAN_THRESHOLD + 50);
+  const far = RECIPE_WIDTH + (BUS_SPAN_THRESHOLD + 50);
   const buildThreeMember = (): { nodes: RFAnyNode[]; edges: Edge[] } => ({
     nodes: [
       recipeNode("s", 0, 0, r),
@@ -1347,12 +1370,12 @@ describe("routeBusEdges trunk rise-chip slots", () => {
     const x0 = busChipXOf(out, "e0")!;
     const x1 = busChipXOf(out, "e1")!;
     const x2 = busChipXOf(out, "e2")!;
-    // Lane extent runs from the drop column (sourceRight 300 + stub + chamfer) to
+    // Lane extent runs from the drop column (sourceRight 240 + stub + chamfer) to
     // the members' shared rise column (targetLeft - stub - chamfer). With n = 3
     // members the extent splits into n + 1 = 4 equal gaps and each slot sits at
     // (i + 1)/4 of it, ranked by rise column with edge id breaking ties -- all
     // three members share one rise column here, so the tiebreak orders them.
-    const dropX = 300 + PORT_STUB + CHAMFER;
+    const dropX = RECIPE_WIDTH + PORT_STUB + CHAMFER;
     const maxRiseX = far - PORT_STUB - CHAMFER;
     const step = (maxRiseX - dropX) / 4;
     expect(x0).toBeCloseTo(dropX + step, 6);

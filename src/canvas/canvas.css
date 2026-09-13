@@ -1957,7 +1957,7 @@
     0 1px 0 rgba(255, 255, 255, 0.04) inset,
     0 -1px 0 rgba(0, 0, 0, 0.5) inset,
     0 8px 16px rgba(0, 0, 0, 0.35);
-  width: 300px;
+  width: 240px;
   position: relative;
 }
 
@@ -1994,7 +1994,7 @@
   border-right: 0;
 }
 
-/* The label is the only flexible item against a hard 300px card, so row chrome
+/* The label is the only flexible item against a hard 240px card, so row chrome
    is kept to the minimum that still clears the 5px accent tab. */
 .rn-row {
   display: flex;

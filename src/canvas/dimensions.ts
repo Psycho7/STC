@@ -3,14 +3,14 @@
 // rendering both read these constants directly so they stay locked together,
 // with no CSS-in-JS or build step in between.
 
-// Recipe-node geometry. .recipe-node is 300px wide. These constants are the
+// Recipe-node geometry. .recipe-node is 240px wide. These constants are the
 // contract the rendered DOM is pinned to, not approximations of an auto-sized
 // layout: .rn-head carries an explicit height:56px (box-sizing:border-box),
 // each .rn-row is a fixed 22px, rows sit RECIPE_ROWS_TOP_PAD below the header
 // and the same padding repeats at the bottom of the side column, and there is
 // no footer -- so the offline model here matches the browser exactly at every
 // zoom band.
-export const RECIPE_WIDTH = 300;
+export const RECIPE_WIDTH = 240;
 export const RECIPE_HEADER_HEIGHT = 56;
 export const RECIPE_ROW_HEIGHT = 22;
 export const RECIPE_ROWS_TOP_PAD = 6;
