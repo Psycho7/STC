@@ -362,7 +362,8 @@ function toRecipe(u: UpstreamRecipe): Recipe {
     producers: [...u.producers],
   };
   if (catalyst) recipe.catalyst = catalyst;
-  if (u.locations && u.locations.length > 0) recipe.locations = [...u.locations];
+  if (u.locations && u.locations.length > 0)
+    recipe.locations = [...u.locations];
   if (u.flags && u.flags.length > 0) recipe.flags = [...u.flags];
   if (u.usage != null) recipe.usage = u.usage;
   if (u.cost != null) recipe.cost = u.cost;
@@ -379,12 +380,17 @@ function toRecipe(u: UpstreamRecipe): Recipe {
 // table does not cover. Arithmetic runs on exact rationals because the upstream
 // quantities are decimals a double cannot hold (0.2, 1.2) and the charge has to
 // come back out of a folded entry without drift.
-export function splitCatalyst(u: UpstreamRecipe, inputs: Stoich[]): Stoich[] | undefined {
+export function splitCatalyst(
+  u: UpstreamRecipe,
+  inputs: Stoich[],
+): Stoich[] | undefined {
   if (u.producers.length !== 1) {
     // A transmuter that gains a second producer must not fall through as an
     // ordinary recipe: its charge would stay folded into `in` and the plan
     // would consume the cycled xiranite instead of holding it.
-    const cycler = u.producers.find((p) => CATALYST_BY_PRODUCER[p] !== undefined);
+    const cycler = u.producers.find(
+      (p) => CATALYST_BY_PRODUCER[p] !== undefined,
+    );
     if (cycler !== undefined) {
       throw new Error(
         `recipe ${u.id} lists ${u.producers.length} producers but ${cycler} cycles a catalyst`,
@@ -399,7 +405,9 @@ export function splitCatalyst(u: UpstreamRecipe, inputs: Stoich[]): Stoich[] | u
   const index = inputs.findIndex((s) => s.item === item);
   const entry = inputs[index];
   if (!entry) {
-    throw new Error(`recipe ${u.id} runs on ${producer} but draws no ${item} to cycle as catalyst`);
+    throw new Error(
+      `recipe ${u.id} runs on ${producer} but draws no ${item} to cycle as catalyst`,
+    );
   }
 
   const charge = new Fraction(u.time).mul(CATALYST_PER_MINUTE).div(60);
@@ -425,7 +433,9 @@ export function splitCatalyst(u: UpstreamRecipe, inputs: Stoich[]): Stoich[] | u
   // The charge is emitted as a double, so re-read it as a rational and confirm
   // the round trip still rates at exactly the catalyst draw.
   if (!new Fraction(qty).mul(60).div(u.time).equals(CATALYST_PER_MINUTE)) {
-    throw new Error(`recipe ${u.id} catalyst charge ${qty} does not rate at ${CATALYST_PER_MINUTE}/min`);
+    throw new Error(
+      `recipe ${u.id} catalyst charge ${qty} does not rate at ${CATALYST_PER_MINUTE}/min`,
+    );
   }
   return [{ item, qty }];
 }

@@ -23,10 +23,7 @@ import {
   widthFnFor,
   type MeasuredFont,
 } from "./measureText";
-import {
-  RECIPE_HEAD_TITLE_COL,
-  RECIPE_HEAD_BLOCK_PAD_X,
-} from "./dimensions";
+import { RECIPE_HEAD_TITLE_COL, RECIPE_HEAD_BLOCK_PAD_X } from "./dimensions";
 
 // Row-label elision budget, from the constants that shape the row (see
 // .rn-row in canvas.css): half of the card body, minus the row's horizontal

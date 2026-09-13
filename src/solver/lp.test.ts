@@ -990,12 +990,21 @@ describe("solveLp - extraction recipes", () => {
     // draw + x/5 = 1/2: x = 15/8, draw = 1/8, catalyst = 15/8 * 1/5 = 3/8.
     // The balanced draw is the cap less the catalyst (1/2 - 3/8 = 1/8), and
     // the chain above scales up to make the 3/8 the boundary no longer covers.
-    expect(result.rates.get("phase_trans_2-gas_xiranite")!.equals(new Fraction(15, 8))).toBe(true);
-    expect(result.draws.get("gas_xiranite")!.equals(new Fraction(1, 8))).toBe(true);
+    expect(
+      result.rates
+        .get("phase_trans_2-gas_xiranite")!
+        .equals(new Fraction(15, 8)),
+    ).toBe(true);
+    expect(result.draws.get("gas_xiranite")!.equals(new Fraction(1, 8))).toBe(
+      true,
+    );
     const cycled = catalystDrawFromRates(pack.recipes, result.rates);
     expect(cycled.get("gas_xiranite")!.equals(new Fraction(3, 8))).toBe(true);
     expect(
-      result.draws.get("gas_xiranite")!.add(cycled.get("gas_xiranite")!).equals(new Fraction(1, 2)),
+      result.draws
+        .get("gas_xiranite")!
+        .add(cycled.get("gas_xiranite")!)
+        .equals(new Fraction(1, 2)),
     ).toBe(true);
   });
 });
@@ -1024,9 +1033,12 @@ describe("snapDraw", () => {
     // The window really is the discriminator: the unshifted window rejects
     // this primal, and the fallback it would take cannot produce 5/2.
     expect(
-      Math.abs(primal - cap.valueOf()) <= Math.max(SNAP_REL, SNAP_REL * cap.valueOf()),
+      Math.abs(primal - cap.valueOf()) <=
+        Math.max(SNAP_REL, SNAP_REL * cap.valueOf()),
     ).toBe(false);
-    expect(snapDraw(primal, headroom, new Fraction(0)).equals(headroom)).toBe(true);
+    expect(snapDraw(primal, headroom, new Fraction(0)).equals(headroom)).toBe(
+      true,
+    );
     expect(
       new Fraction(primal)
         .simplify(Math.min(SNAP_REL, Math.abs(primal) * SNAP_REL))
@@ -1042,7 +1054,11 @@ describe("snapDraw", () => {
 
   it("falls back to the relative snap away from the bound", () => {
     const cap = new Fraction(3);
-    expect(snapDraw(1.5, cap, new Fraction(1, 2)).equals(new Fraction(3, 2))).toBe(true);
-    expect(snapDraw(1.5, cap, new Fraction(0)).equals(new Fraction(3, 2))).toBe(true);
+    expect(
+      snapDraw(1.5, cap, new Fraction(1, 2)).equals(new Fraction(3, 2)),
+    ).toBe(true);
+    expect(snapDraw(1.5, cap, new Fraction(0)).equals(new Fraction(3, 2))).toBe(
+      true,
+    );
   });
 });

@@ -6,7 +6,10 @@ import { tarjanScc } from "./scc";
 import { makePack } from "./closed-form-fixtures";
 import { netSelfConsumption } from "./net-self";
 import { solveLp } from "./lp";
-import { isExcludedProducer, isExtractionRecipe } from "../data/recipe-category";
+import {
+  isExcludedProducer,
+  isExtractionRecipe,
+} from "../data/recipe-category";
 import type { ItemTarget } from "../data/targets";
 import type { ItemOverride } from "../data/plan";
 
@@ -457,7 +460,9 @@ describe("catalyst pack census", () => {
     for (const r of withCatalyst) {
       expect(r.producers).toHaveLength(1);
       expect(r.catalyst).toHaveLength(1);
-      expect(r.catalyst![0]!.item).toBe(EXPECTED_BY_MACHINE.get(r.producers[0]!));
+      expect(r.catalyst![0]!.item).toBe(
+        EXPECTED_BY_MACHINE.get(r.producers[0]!),
+      );
     }
   });
 
@@ -548,33 +553,29 @@ describe("ruling 1: the solver never reads `environment`", () => {
     });
   }
 
-  test(
-    "stripping it changes no rate in any corpus plan",
-    () => {
-      const stripped = stripEnvironment(pack);
-      expect(stripped.recipes.filter((r) => r.environment !== undefined)).toEqual(
-        [],
-      );
+  test("stripping it changes no rate in any corpus plan", () => {
+    const stripped = stripEnvironment(pack);
+    expect(stripped.recipes.filter((r) => r.environment !== undefined)).toEqual(
+      [],
+    );
 
-      const drifted: string[] = [];
-      let planned = 0;
-      for (const r of pack.recipes) {
-        const itemId = r.out[0]?.item;
-        if (itemId === undefined) continue;
-        planned++;
-        const targets: ItemTarget[] = [
-          { itemId, ratePerSec: { num: "1", denom: "1" } },
-        ];
-        const live = signature(solveLp({ targets, pack }));
-        const bare = signature(solveLp({ targets, pack: stripped }));
-        if (live !== bare) drifted.push(r.id);
-      }
+    const drifted: string[] = [];
+    let planned = 0;
+    for (const r of pack.recipes) {
+      const itemId = r.out[0]?.item;
+      if (itemId === undefined) continue;
+      planned++;
+      const targets: ItemTarget[] = [
+        { itemId, ratePerSec: { num: "1", denom: "1" } },
+      ];
+      const live = signature(solveLp({ targets, pack }));
+      const bare = signature(solveLp({ targets, pack: stripped }));
+      if (live !== bare) drifted.push(r.id);
+    }
 
-      // Guard the guard: an enumeration that silently stopped covering the pack
-      // would make the comparison above pass for the wrong reason.
-      expect(planned).toBe(232);
-      expect(drifted).toEqual([]);
-    },
-    120_000,
-  );
+    // Guard the guard: an enumeration that silently stopped covering the pack
+    // would make the comparison above pass for the wrong reason.
+    expect(planned).toBe(232);
+    expect(drifted).toEqual([]);
+  }, 120_000);
 });
