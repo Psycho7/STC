@@ -6,7 +6,7 @@ import { describe, it, expect, vi } from "vitest";
 import Fraction from "fraction.js";
 import type { Edge } from "@xyflow/react";
 
-import { routeFanoutEdges } from "../../src/canvas/busRouting";
+import { routeFanoutEdges, FANOUT_SPAN_MAX } from "../../src/canvas/busRouting";
 import {
   chamferFanoutPath,
   routingHintsFromData,
@@ -14,7 +14,7 @@ import {
 import { portOffsetY } from "../../src/canvas/nodeGeometry";
 import { deconflictChipAnchors } from "../../src/canvas/chipSeating";
 import { chipNaturalWidth } from "../../src/canvas/chipMetrics";
-import { CHIP_BOX_HEIGHT } from "../../src/canvas/dimensions";
+import { CHIP_BOX_HEIGHT, RECIPE_WIDTH } from "../../src/canvas/dimensions";
 import type { RFAnyNode } from "../../src/canvas/layout";
 import {
   mkRecipe,
@@ -180,7 +180,7 @@ describe("deconflictChipAnchors: merged collision set", () => {
 
 describe("deconflictChipAnchors: fan-out aggregate seat (3b)", () => {
   const r = mkRecipe("r", ["a"], ["b"]);
-  const oneGap = 410; // 410 - 300 = 110, inside FANOUT_SPAN_MAX
+  const oneGap = FANOUT_SPAN_MAX; // 350 - 240 = 110, inside FANOUT_SPAN_MAX
 
   const aggOf = (edges: Edge[], id: string) =>
     edges.find((e) => e.id === id)!.data as {
@@ -261,7 +261,7 @@ describe("deconflictChipAnchors: fan-out aggregate seat (3b)", () => {
     const src = nodes[0]!;
     const t1 = nodes[1]!;
     const fan = chamferFanoutPath({
-      sourceX: src.position.x + 300 + 5,
+      sourceX: src.position.x + RECIPE_WIDTH + 5,
       sourceY: 0 + portOffsetY(src, "b", "out") + 1,
       targetX: t1.position.x - 3,
       targetY: 0 + portOffsetY(t1, "b", "in"),
@@ -288,7 +288,7 @@ describe("deconflictChipAnchors: fan-out aggregate seat (3b)", () => {
     // re-derivation: the branch seat now slides only over the member's OWN leg
     // (the suffix after the junction), and the short-leg rule collapses that
     // leg's chip to the icon-only box -- so the walls must sit where even a
-    // 24-unit scale-1 collapsed box cannot clear them (x 330..430 spans every
+    // 24-unit scale-1 collapsed box cannot clear them (x 270..370 spans every
     // on-line candidate and both sidestep directions), and the members must be LEVEL
     // with the source row so the walls do not also eat the trunk's y-span and
     // defeat the columnClear formation test. The half-gap between the walls is
@@ -319,8 +319,14 @@ describe("deconflictChipAnchors: fan-out aggregate seat (3b)", () => {
       s,
       orderedRecipeNode("t1", oneGap, levelY, ["b"]), // level member
       orderedRecipeNode("t2", oneGap + 210, levelY, ["b"]), // level, farther
-      productNode("wallTop", 330, sy - wallHalfGap - 9700, 100, 9700),
-      productNode("wallBot", 330, sy + wallHalfGap, 100, 9700),
+      productNode(
+        "wallTop",
+        RECIPE_WIDTH + 30,
+        sy - wallHalfGap - 9700,
+        100,
+        9700,
+      ),
+      productNode("wallBot", RECIPE_WIDTH + 30, sy + wallHalfGap, 100, 9700),
     ];
     const edges = [mkEdge("e0", "s", "t1", "b"), mkEdge("e1", "s", "t2", "b")];
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});

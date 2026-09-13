@@ -16,6 +16,7 @@ import { toleranceScaleFloor } from "../../solver/lp";
 import type { ItemTarget } from "../../data/targets";
 import type { ItemOverride } from "../../data/plan";
 import type { Item, Recipe } from "@aef/schema";
+import { CATALYST_SUPPLY_EDGES } from "../../flags";
 import { rationalFromString, rationalToString } from "./rational";
 import { REL_TOL } from "./invariants";
 import {
@@ -309,6 +310,10 @@ export function deriveBoundaryProducts(
     item: ItemId;
     rate: Fraction;
     containerId: ContainerId | undefined;
+    // A cycled catalyst charge rather than ordinary consumption. It bypasses
+    // every skip rule collectConsumed applies and never takes part in the
+    // share split below: the plan draws the whole charge from the boundary.
+    catalyst?: true;
   };
   const boundaryConsumers: BoundaryConsumer[] = [];
   const collectConsumed = (
@@ -367,6 +372,26 @@ export function deriveBoundaryProducts(
         const rate = v.executionRate.mul(new Fraction(stoich.qty));
         collectConsumed(v.id, stoich.item, toUnit, rate, v.containerId);
       }
+      // Catalysts are boundary supply unconditionally: the machine cycles the
+      // charge and hands it back, so no producer is ever expanded for it and
+      // none of collectConsumed's rules (zero supply, an in-plan producer, a
+      // finite cap with no realized draw) can suppress the draw. A catalyst on
+      // a recipe folded into an SCC vertex is out of scope: an scc-box vertex
+      // exposes netIO only, so that charge still draws no edge.
+      if (CATALYST_SUPPLY_EDGES) {
+        for (const stoich of recipe.catalyst ?? []) {
+          if (!itemById.has(stoich.item)) continue;
+          const rate = v.executionRate.mul(new Fraction(stoich.qty));
+          if (rate.compare(new Fraction(0)) <= 0) continue;
+          boundaryConsumers.push({
+            toUnit,
+            item: stoich.item,
+            rate,
+            containerId: v.containerId,
+            catalyst: true,
+          });
+        }
+      }
     } else if (isMachineSccVertex(v)) {
       // SCC vertices expose boundary I/O via netIO; a boundary item consumed
       // only by an in-loop recipe must still surface as an input product.
@@ -397,7 +422,12 @@ export function deriveBoundaryProducts(
   const consumersByKey = new Map<ConsumerKey, BoundaryConsumer[]>();
   const itemByKey = new Map<ConsumerKey, ItemId>();
   const bucketByKey = new Map<ConsumerKey, BoundaryBucket>();
-  const totalDemandByItem = new Map<ItemId, Fraction>();
+  // Ordinary consumption and the cycled catalyst charge are accounted
+  // separately: only ordinary demand takes the boundary share split, while a
+  // catalyst charge is drawn whole. Every rate below (per-edge, per-bucket
+  // node, aggregate) is a sum over the same per-consumer rule, so the node
+  // chip and its outbound edges can never disagree.
+  const ordinaryDemandByItem = new Map<ItemId, Fraction>();
   for (const c of boundaryConsumers) {
     const bucket = bucketFor(c.containerId);
     const k = boundaryKey(c.item, bucket);
@@ -406,14 +436,15 @@ export function deriveBoundaryProducts(
     consumersByKey.set(k, arr);
     itemByKey.set(k, c.item);
     bucketByKey.set(k, bucket);
-    totalDemandByItem.set(
+    if (c.catalyst) continue;
+    ordinaryDemandByItem.set(
       c.item,
-      (totalDemandByItem.get(c.item) ?? new Fraction(0)).add(c.rate),
+      (ordinaryDemandByItem.get(c.item) ?? new Fraction(0)).add(c.rate),
     );
   }
 
   const consumedSupplyByItem = new Map<ItemId, Fraction>();
-  for (const [itemId, totalDemand] of totalDemandByItem) {
+  for (const [itemId, totalDemand] of ordinaryDemandByItem) {
     if (totalDemand.equals(new Fraction(0))) {
       consumedSupplyByItem.set(itemId, new Fraction(0));
       continue;
@@ -434,20 +465,23 @@ export function deriveBoundaryProducts(
     consumedSupplyByItem.set(itemId, consumed);
   }
 
+  // The rate one consumer's boundary edge carries: a catalyst charge whole, an
+  // ordinary consumer its prorated slice of the realized draw. Multiply before
+  // divide to keep precision under exact rationals.
+  const edgeRateOf = (c: BoundaryConsumer): Fraction => {
+    if (c.catalyst) return c.rate;
+    const ordinaryDemand = ordinaryDemandByItem.get(c.item) ?? new Fraction(0);
+    if (ordinaryDemand.equals(new Fraction(0))) return new Fraction(0);
+    const consumed = consumedSupplyByItem.get(c.item) ?? new Fraction(0);
+    return c.rate.mul(consumed).div(ordinaryDemand);
+  };
+
   const realizedRateByKey = new Map<ConsumerKey, Fraction>();
   for (const [key, consumers] of consumersByKey) {
-    const itemId = itemByKey.get(key)!;
-    const totalDemand = totalDemandByItem.get(itemId)!;
-    if (totalDemand.equals(new Fraction(0))) {
-      realizedRateByKey.set(key, new Fraction(0));
-      continue;
-    }
-    const consumed = consumedSupplyByItem.get(itemId)!;
-    const containerDemand = consumers.reduce(
-      (acc, c) => acc.add(c.rate),
-      new Fraction(0),
+    realizedRateByKey.set(
+      key,
+      consumers.reduce((acc, c) => acc.add(edgeRateOf(c)), new Fraction(0)),
     );
-    realizedRateByKey.set(key, consumed.mul(containerDemand).div(totalDemand));
   }
 
   // Group keys by item so the topology decision (single bucket vs aggregate +
@@ -577,24 +611,27 @@ export function deriveBoundaryProducts(
     const bucket = bucketByKey.get(key)!;
     const item = itemById.get(itemId);
     if (!item) continue;
-    const totalDemand = totalDemandByItem.get(itemId)!;
-    // Avoid 0/0 if all consumer rates collapse to zero.
-    if (totalDemand.equals(new Fraction(0))) continue;
-    const consumedSupply = consumedSupplyByItem.get(itemId)!;
     // With an aggregate, a container bucket's consumer edges originate from its
     // fanout slice and the loose bucket's originate from the aggregate itself;
     // without one, from the single-bucket node (which is either the container
     // card or the bare `u:in:<item>` card).
     const fromUnit = unitIdForInputBucket(itemId, bucket);
+    // Avoid 0/0 when every ordinary consumer's rate collapses to zero. A
+    // catalyst consumer takes no share of that demand, so its charge is still
+    // drawn (collectConsumed already dropped any zero-rate catalyst).
+    const noOrdinaryDemand = (
+      ordinaryDemandByItem.get(itemId) ?? new Fraction(0)
+    ).equals(new Fraction(0));
     for (const c of consumers) {
-      // Multiply before divide to keep precision under exact rationals.
-      const rate = c.rate.mul(consumedSupply).div(totalDemand);
+      if (noOrdinaryDemand && !c.catalyst) continue;
+      const rate = edgeRateOf(c);
       boundaryEdges.push({
         fromUnit,
         toUnit: c.toUnit,
         item: itemId,
         rate,
         transportKind: item.transportKind,
+        ...(c.catalyst ? { toPortKind: "catalyst" as const } : {}),
       });
     }
   }

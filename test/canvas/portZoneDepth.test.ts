@@ -24,7 +24,7 @@ import {
   CONTAINER_CAPTION_BAND,
   PRODUCT_HEIGHT,
   PRODUCT_WIDTH,
-  RECIPE_FOOTER_HEIGHT,
+  RECIPE_HEAD_ICON_COL,
   RECIPE_HEADER_HEIGHT,
   RECIPE_ROWS_TOP_PAD,
   RECIPE_ROW_HEIGHT,
@@ -111,7 +111,8 @@ describe("cardRectsFor grows the model box into the drawn frame", () => {
     });
     // Stated absolutely too, so a change to CARD_BORDER cannot move the frame
     // while both sides of the comparison shift with it.
-    expect(rect!.right - rect!.left).toBe(302);
+    expect(rect!.right - rect!.left).toBe(RECIPE_WIDTH + 2 * CARD_BORDER);
+    expect(rect!.right - rect!.left).toBe(242);
     expect(rect!.bottom - rect!.top).toBe(nodeHeight(node) + 2);
   });
 
@@ -158,12 +159,12 @@ describe("portKeepOutRect covers the drawn port furniture", () => {
     });
   });
 
-  it("a recipe source band reaches the glyph edge at L+311, full height", () => {
+  it("a recipe source band reaches the glyph edge at L+251, full height", () => {
     const r = portKeepOutRect(recipeCard, "source");
     expect(r.left).toBe(recipeCard.right - CARD_BORDER - PORT_ZONE_DEPTH);
-    // The drawn glyph edge: row right (L+301) + GLYPH_SIZE + 2.
+    // The drawn glyph edge: row right (L+241) + GLYPH_SIZE + 2.
     expect(r.right).toBe(1000 + RECIPE_WIDTH + CARD_BORDER + 10);
-    expect(r.right).toBe(1311);
+    expect(r.right).toBe(1251);
   });
 
   it("a product target band reaches the glyph edge at L-10", () => {
@@ -194,18 +195,63 @@ describe("the recipe card's box is declared the same in TS and in CSS", () => {
     expect(cssPx(".rn-head", "height")).toBe(RECIPE_HEADER_HEIGHT);
   });
 
-  it("sizes .rn-row at RECIPE_ROW_HEIGHT", () => {
-    expect(cssPx(".rn-row", "height")).toBe(RECIPE_ROW_HEIGHT);
+  it("sizes .machine-icon at 40px and sums it to RECIPE_HEAD_ICON_COL", () => {
+    // The icon is the card's identity at fit zoom, so both the sprite box and
+    // the column it fills are pinned: the icon plus the machine block's
+    // 2x6px horizontal padding and 1px right border is the whole column.
+    const icon = cssPx(".rn-head .rn-machine-block .machine-icon", "width");
+    expect(icon).toBe(40);
+    expect(cssPx(".rn-head .rn-machine-block .machine-icon", "height")).toBe(
+      40,
+    );
+    const padX = cssPx(".rn-head .rn-machine-block", "padding", 1);
+    const border = cssPx(".rn-head .rn-machine-block", "border-right");
+    expect(icon + 2 * padX + border).toBe(RECIPE_HEAD_ICON_COL);
   });
 
-  it("sizes .rn-footer at RECIPE_FOOTER_HEIGHT", () => {
-    expect(cssPx(".rn-footer", "height")).toBe(RECIPE_FOOTER_HEIGHT);
+  it("sizes .rn-row at RECIPE_ROW_HEIGHT", () => {
+    expect(cssPx(".rn-row", "height")).toBe(RECIPE_ROW_HEIGHT);
   });
 
   it("pads .rn-side by RECIPE_ROWS_TOP_PAD above and below the rows", () => {
     // Shorthand: the first length is the vertical pad, and recipeHeight counts
     // it twice because the same padding repeats under the last row.
     expect(cssPx(".rn-side", "padding")).toBe(RECIPE_ROWS_TOP_PAD);
+  });
+});
+
+describe("the row rate is an overlay hidden at rest and revealed per card", () => {
+  it("takes the rate out of the row flow", () => {
+    expect(cssValue(".rn-row .rate", "position")).toBe("absolute");
+  });
+
+  it("hides the rate at rest", () => {
+    expect(cssValue(".rn-row .rate", "display")).toBe("none");
+  });
+
+  it("reveals the rate on card hover and on selection", () => {
+    // One shared rule carries both selector-list entries, so each selector
+    // resolves to the same block; both spellings must declare the reveal.
+    expect(cssBlock(".recipe-node:hover .rn-row .rate")).toMatch(
+      /display:\s*block/,
+    );
+    expect(cssBlock(".recipe-node.selected .rn-row .rate")).toMatch(
+      /display:\s*block/,
+    );
+  });
+
+  it("keeps the reveal suppressed under zoom-low", () => {
+    expect(
+      cssValue(
+        ".ak-canvas-theme.zoom-low .recipe-node .rn-row .rate",
+        "display",
+      ),
+    ).toBe("none");
+  });
+
+  it("seats the overlay at the row's inner-end padding", () => {
+    expect(cssValue(".rn-row.input .rate", "right")).toBe("6px");
+    expect(cssValue(".rn-row.output .rate", "left")).toBe("6px");
   });
 });
 

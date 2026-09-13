@@ -13,12 +13,16 @@ pixels.
 
 ## Cards
 
-A recipe card has a header carrying the recipe name and the machine multiplier
-(xN), then input rows down its left side and output rows down its right, each
-row ending in a port handle with a small item glyph. Output rows read in the
-recipe's own declared order, so two cards of one recipe read alike. Cyan
-product chips are boundary inputs and outputs rather than machines. Group slabs
-and loop boxes are containers, and the cards inside one are its members.
+A recipe card has a header carrying the machine icon, the machine name and the
+machine multiplier (xN), then input rows down its left side and output rows
+down its right, each row ending in a port handle with a small item glyph.
+Output rows read in the recipe's own declared order, so two cards of one recipe
+read alike. At rest a card shows no digits anywhere: no rate column, no
+products line, no footer. Each row's rate appears as an overlay at the row's
+inner end when the pointer is over the card or the card is selected, and it is
+hidden again under the low-zoom band. Cyan product chips are boundary inputs
+and outputs rather than machines. Group slabs and loop boxes are containers,
+and the cards inside one are its members.
 
 An item imported at the boundary draws one input chip. Consumers outside any
 container draw straight from that chip; a container gets a chip of its own,
@@ -26,7 +30,7 @@ marked as a tap and fed by the item's chip, because an edge entering a
 container has to enter it once. So several tap chips of one item mean several
 containers, not several consumers.
 
-A name too long for its row, its title or the products line elides
+A name too long for its row or its title elides
 tail-first: a distinguishing trailing bracket group or word is kept whole with
 the ellipsis in front of it. When the whole tail cannot fit beside a readable
 head, a partial tail is preserved instead -- a window into the tail over the
@@ -38,6 +42,40 @@ window that clears the minimum, falls back to plain tail ellipsis. Chinese
 tier prefixes (a leading 优质/精选-style
 affix) are the one naming shape a tail rule cannot protect; those names are
 short enough not to clip at card width.
+
+Below the input rows a card may carry catalyst rows: inputs the machine cycles
+rather than consumes, drawn from the plan boundary and handed straight back
+every cycle. No producer is ever built for a catalyst, so the charge arrives
+from the item's boundary supply card over an edge of its own, landing on a
+`cat:<item>` handle at the row's left -- the same x as the input handles, at the
+row's centre -- and the row shows the item's transport glyph like a port row
+does. The boundary card's rate counts that draw alongside ordinary consumption,
+so the card and the inputs panel read the same number. One card can carry the
+same item on an input row and a catalyst row; the two take separate handles and
+separate edges. A catalyst row keeps no accent tab, its label is muted a step
+below the supplied rows, and its rate is the draw for one machine with its unit
+spelled out ("6/min") rather than the flow across every machine that the port
+rows above it carry.
+
+The behaviour is behind the `CATALYST_SUPPLY_EDGES` code flag (`src/flags.ts`),
+on by default; with it off a catalyst row carries no handle and no edge, wears a
+small filled disc in the glyph slot, and the inputs panel adds the cycled draw
+onto the supply row itself.
+
+Some recipes only run inside a gas environment, which the player builds a
+disperser for. Such a card states its requirement as a frame around the card
+rather than as a mark inside it: a plate of chevrons above the card, a
+single-row plate below it, and a faint tint of the environment's colour with
+a soft glow behind the card. The upper plate is two rows tall, blue for a
+stable environment and yellow for an acidic one, and carries a dark glyph at
+its centre that names the environment: two peaks for a stable one, four
+teardrops for an acidic one. The lower plate is one row of the same chevrons,
+so every triangle is the same size on both plates, and it carries no glyph.
+The space between the plates at the card's sides stays open, and the card's
+own border keeps its neutral colour; selection keeps its lime border while
+the plates keep the environment colour. Hovering the card names the
+environment. The frame is a build requirement rather than a detail figure, so
+it draws at every zoom and never collapses with the low-zoom simplifications.
 
 ## Edges
 
@@ -98,9 +136,10 @@ own member chip is the only rate on it.
 
 No chip anywhere shows a bare summed total. Every rate chip states one edge's
 rate: a fan-out branch chip keeps the plain rate and unit the item edges beside
-it carry. Totals live on the node cards' rows. A total on a chip and the same
-total on a card come from one formatter, so they should read alike; members
-rounded independently can still sum a cent off that number.
+it carry. Totals live on the node cards' rows, which reveal their rates on
+hover or selection. A total on a chip and the same total on a card come from one
+formatter, so they should read alike; members rounded independently can still
+sum a cent off that number.
 
 Chips, machine cards, boundary cards, product-chip captions and the totals lines
 all draw from one formatter, so a plan shows one rate unit throughout. A mix
@@ -133,6 +172,9 @@ anchor stands until the next re-seat.
 
 Do not report these as defects.
 
+- A card at rest shows no row rates: each row's rate is an overlay that appears
+  only while the pointer is over the card or the card is selected, and below
+  the low-zoom band the overlay stays hidden even then.
 - Every rate chip is hidden below zoom 0.35, the trunk's aggregate chip
   included. A fit shot of a dense plan therefore shows no chips, and card detail
   fades at low zoom by design.
@@ -144,15 +186,15 @@ Do not report these as defects.
   contested corridor. These too keep the rate on the hover title and the aria
   label.
 - A fan-out branch chip, or a fan-in member chip that would land on the shared
-  run, may be deliberately hidden. The rate remains on the target card's input
-  row and on the edge's hover tooltip.
+  run, may be deliberately hidden. The rate remains on the edge's hover tooltip
+  and on the target card's input row, which reveals it on hover or selection.
 - A plain item edge may draw no chip at all: a bare stroke with no chip on it,
   not even an icon-only square, is the seating pass hiding a chip whose only
   remaining seat was more than one chip pitch off the line it labels (a
   crowded corridor, a foreign stroke or a neighbouring chip on every on-line
-  seat). The rate stays on the target card's input row and on the edge's hover
-  tooltip. A step of a pitch or less still reads as sitting beside its line and
-  still draws.
+  seat). The rate stays on the edge's hover tooltip and on the target card's
+  input row, which reveals it on hover or selection. A step of a pitch or less
+  still reads as sitting beside its line and still draws.
 - Mid-drag, a fan-in merge dot can vanish while the merged run still shows one
   member's rate. The dot hides as soon as its stamped x leaves the owner's live
   polyline, while a non-owner member's chip hide is pinned to the port ROW

@@ -3,44 +3,37 @@
 // rendering both read these constants directly so they stay locked together,
 // with no CSS-in-JS or build step in between.
 
-// Recipe-node geometry. .recipe-node is 300px wide. These constants are the
+// Recipe-node geometry. .recipe-node is 240px wide. These constants are the
 // contract the rendered DOM is pinned to, not approximations of an auto-sized
-// layout: .rn-head carries an explicit height:80px (box-sizing:border-box), each
-// .rn-row is a fixed 22px, and .rn-footer a fixed 26px, so the offline model
-// here matches the browser exactly at every zoom band (the low-zoom LOD hides
-// header children but the pinned height holds). RECIPE_ROWS_TOP_PAD is the
-// .rn-side vertical padding: rows sit that far below the header, and the same
-// padding repeats at the bottom of the side column.
-export const RECIPE_WIDTH = 300;
-export const RECIPE_HEADER_HEIGHT = 80;
+// layout: .rn-head carries an explicit height:56px (box-sizing:border-box),
+// each .rn-row is a fixed 22px, rows sit RECIPE_ROWS_TOP_PAD below the header
+// and the same padding repeats at the bottom of the side column, and there is
+// no footer -- so the offline model here matches the browser exactly at every
+// zoom band.
+export const RECIPE_WIDTH = 240;
+export const RECIPE_HEADER_HEIGHT = 56;
 export const RECIPE_ROW_HEIGHT = 22;
-export const RECIPE_FOOTER_HEIGHT = 26;
 export const RECIPE_ROWS_TOP_PAD = 6;
 
-// Card-header grid columns, pinned (ruling R3) so the title and products
-// budgets are deterministic instead of depending on what the auto columns
-// happen to hold. The icon column is the machine block's full box (28px
-// icon + 8px 6px padding + 1px right border); the rate column holds the
-// widest rate figure and localized unit label across the locales (the ru
-// "шт/мин" mono label at 0.1em tracking, inside the block's 8px-per-side
-// padding). The title column takes the remainder -- at least as wide as the
-// old auto layout ever gave the default plan in en, so no chip-bearing
-// title that fit before pins clips now. RECIPE_HEAD_BLOCK_PAD_X is the
-// .rn-recipe-block horizontal padding subtracted from the title column to
-// get the name budget (RecipeNode). canvas.css hardcodes the same numbers;
-// keep them in step.
-export const RECIPE_HEAD_ICON_COL = 41;
-export const RECIPE_HEAD_RATE_COL = 58;
-export const RECIPE_HEAD_TITLE_COL =
-  RECIPE_WIDTH - RECIPE_HEAD_ICON_COL - RECIPE_HEAD_RATE_COL;
+// Card-header grid columns, pinned (ruling R3) so the title budget is
+// deterministic instead of depending on what the auto columns happen to hold.
+// The icon column is the machine block's full box (40px icon + 2x6px
+// horizontal padding + 1px right border); the title column takes the
+// remainder. RECIPE_HEAD_BLOCK_PAD_X is the .rn-recipe-block horizontal
+// padding subtracted from the title column to get the name budget
+// (RecipeNode). canvas.css hardcodes the same numbers; keep them in step.
+export const RECIPE_HEAD_ICON_COL = 53;
+export const RECIPE_HEAD_TITLE_COL = RECIPE_WIDTH - RECIPE_HEAD_ICON_COL;
 export const RECIPE_HEAD_BLOCK_PAD_X = 8;
 
-export function recipeHeight(inPorts: number, outPorts: number): number {
+// Card height from the two side columns' row counts. The left count is ROWS,
+// not ports: a catalyst row is drawn without a handle and still takes a row's
+// worth of height. The right side has only port rows, so its count is both.
+export function recipeHeight(inRows: number, outPorts: number): number {
   return (
     RECIPE_HEADER_HEIGHT +
     RECIPE_ROWS_TOP_PAD * 2 +
-    Math.max(inPorts, outPorts) * RECIPE_ROW_HEIGHT +
-    RECIPE_FOOTER_HEIGHT
+    Math.max(inRows, outPorts) * RECIPE_ROW_HEIGHT
   );
 }
 
@@ -138,6 +131,30 @@ export const DOT_KEEPOFF = 16;
 export const ENTRY_GUTTER_OVERHANG = 34;
 
 export const NODE_NODE_SPACING = 30;
+
+// How far an environment recipe card's FRAME reaches beyond its card box, per
+// side: the banner plates and haze RecipeNode draws on .rn-env (inset
+// -36px -8px -22px). The card box itself never grows -- measureRecipe and the
+// DOM stay card-sized -- but two things have to reserve the frame rectangle:
+// the ELK adapter hands ELK the grown box (so the default nodeNode spacing
+// keeps neighbours off the plates) and maps positions back to the frame's
+// inner rectangle, and the chip-seating obstacles grow by the same extents so
+// no chip seats on a plate. Both read this one constant.
+//
+//   +--------------------------+   ^
+//   | 36 (top plate + glyph)   |   |
+//   |   +------------------+   |   | frame
+//   | 8 |    card box      | 8 |   |
+//   |   +------------------+   |   |
+//   | 22 (bottom plate)        |   v
+//   +--------------------------+
+export const ENV_FRAME_EXTENTS = {
+  top: 36,
+  bottom: 22,
+  left: 8,
+  right: 8,
+} as const;
+
 // A generous column gap so each ItemEdge label chip (item icon + name + rate)
 // has room to breathe and doesn't overlap the source or target node. The earlier
 // 40px gap left labels jammed against the neighboring nodes and hard to read.

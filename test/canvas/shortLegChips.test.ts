@@ -637,10 +637,10 @@ describe("deconflictChipAnchors: adjacent-row pair seats on its own lines", () =
       mkEdge("e:1:tapOre->r:ore", "tapOre", "r", "ore"),
       mkEdge("e:2:tapWater->r:water", "tapWater", "r", "water"),
     ];
-    // The bend columns the bus router assigns the pair on the default plan:
-    // the ore chip lands on its upper run at the corridor's one band-clear x,
-    // and the water leg bends past it, so the water anchor sits on a vertical
-    // run inside the target band's x-range.
+    // The pair's bend columns, the fixture's own geometry: both chips land
+    // on their target-side runs at the corridor's one band-clear x (497.5,
+    // flush against the recipe's in-band), each from an anchor on its bend
+    // column -- the ore's at its vertical's midpoint, the water's likewise.
     Object.assign(edges[0]!.data!, { bendX: 486.67, chamferBudget: 5.17 });
     Object.assign(edges[1]!.data!, { bendX: 517.67, chamferBudget: 5.17 });
     const out = deconflictChipAnchors(nodes, edges);

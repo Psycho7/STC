@@ -194,6 +194,11 @@ export type RenderEdge = {
   rate: Fraction;
   transportKind: TransportKindId;
   labelSide?: "source" | "target";
+  // Which port on `toUnit` the edge lands on. Absent means the ordinary
+  // `in:<item>` port. "catalyst" means the `cat:<item>` port of a catalyst
+  // row, which a card can carry for an item it ALSO consumes as an input, so
+  // the two edges are told apart by this discriminator rather than by item.
+  toPortKind?: "catalyst";
 };
 
 export type RenderPlan = {

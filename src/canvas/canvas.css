@@ -27,6 +27,15 @@
   --ak-accent-amber-dim: #8a5c12;
   --ak-accent-ink: #d8d5cd;
 
+  /* Gas-environment colors. Upstream names the environments nowhere in its
+     data; the only marker is a colored banner baked into the recipe icon.
+     These are the dominant banner pixels sampled from the 1.5.3 sprite sheet
+     -- stable from icon LESvbc0cp at -576px -704px, acidic from ynGeJZzIH at
+     -768px -704px, rows 5..14 of the 64px tile -- so a later snapshot can be
+     re-sampled the same way. */
+  --ak-env-stable: #36c0fc;
+  --ak-env-acidic: #ffbe04;
+
   --font-ui: "Noto Sans SC", "Source Han Sans SC", "PingFang SC", sans-serif;
   --font-display:
     "Noto Serif SC", "Source Han Serif SC", "Songti SC", Georgia, serif;
@@ -1427,10 +1436,10 @@
 
 /* Low-zoom LOD (zoom < 0.4): at the dense-plan fit zoom the per-machine metadata
    and card chrome render below legibility, so read cards as solid brighter
-   blocks with firm borders, drop the sub-legible text layers, and clear the dot
-   grid so structure leads. The .zoom-low / .zoom-mid classes carry two classes
-   in the first compound selector, so they outrank the single-class base rules
-   above regardless of order. */
+   blocks with firm borders and clear the dot grid so structure leads. The
+   .zoom-low / .zoom-mid classes carry two classes in the first compound
+   selector, so they outrank the single-class base rules above regardless of
+   order. */
 .ak-canvas-theme.zoom-low .recipe-node {
   background: var(--ak-bg-secondary);
   border-color: var(--ak-divider-strong);
@@ -1438,15 +1447,14 @@
 .ak-canvas-theme.zoom-low .product-node {
   border-color: var(--ak-divider-strong);
 }
-.ak-canvas-theme.zoom-low .rn-footer,
-.ak-canvas-theme.zoom-low .rn-head .rn-products,
-.ak-canvas-theme.zoom-low .rn-head .rn-rate-block .rate-val,
-.ak-canvas-theme.zoom-low .rn-head .rn-rate-block .rate-lbl,
-.ak-canvas-theme.zoom-low .rn-head .rn-rate-block .rate-sub {
-  display: none;
-}
 .ak-canvas-theme.zoom-low .react-flow {
   background-image: none;
+}
+/* The rate overlay stays hidden at low zoom; without the extra .recipe-node
+   class this compound would only tie the later reveal rules' specificity
+   and lose on file order. */
+.ak-canvas-theme.zoom-low .recipe-node .rn-row .rate {
+  display: none;
 }
 
 /* Mid-zoom LOD (0.4-0.8): a lighter touch. Keep the detail text but firm up card
@@ -1890,8 +1898,76 @@
     0 1px 0 rgba(255, 255, 255, 0.04) inset,
     0 -1px 0 rgba(0, 0, 0, 0.5) inset,
     0 8px 16px rgba(0, 0, 0, 0.35);
-  width: 300px;
+  width: 240px;
   position: relative;
+}
+
+/* The gas-environment frame: one absolutely positioned child RecipeNode adds
+   to environment cards, carrying the six --rn-env-* custom properties (the
+   five banner layer data URIs plus the plate colour). It takes no part in
+   layout -- the card box, its border, the header height and every port
+   y-slot are unchanged -- and the sides stay open. The frame draws at every
+   zoom band (a build requirement, not a LOD ornament), so no zoom-low or
+   zoom-mid rule may touch it. */
+.rn-env {
+  position: absolute;
+  /* 8px gap every side: top 8 + 28 (two-row plate) = 36 above the card,
+     bottom 8 + 14 (single-row plate) = 22 below, 8 each side. */
+  inset: -36px -8px -22px;
+  pointer-events: none;
+}
+
+/* The haze fills the whole frame rectangle behind the card: the React Flow
+   node wrapper is a stacking context, so -1 paints under the card background
+   but above the canvas. .rn-env itself must stay z-index:auto -- a z-index
+   here would trap the pseudo's -1 inside the frame and lift the haze onto
+   the card. */
+.rn-env::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: color-mix(in srgb, var(--rn-env-plate) 12%, transparent);
+  box-shadow: 0 0 18px 4px
+    color-mix(in srgb, var(--rn-env-plate) 14%, transparent);
+}
+
+/* The two plates, stacked on one pseudo in paint order: glyph, top plate
+   (left cap, stretched solid, right cap), bottom plate the same. The caps
+   are the fixed-ratio SVGs scaled by height, so a cap's width is
+   72 * plateHeight / (18 * rows) -- 56px at both the 28px two-row top and
+   the 14px single-row bottom, every triangle the same size on the card.
+   Each cap's chevron gap is transparent, so each solid spans 2px less than
+   the full subtraction (2 * 56 - 2 = 110): it may peek 1px into a cap, it
+   must never underfill the seam. The glyph is 29/36 of the top plate tall,
+   3.5/36 from its top, centred. */
+.rn-env::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image:
+    var(--rn-env-glyph), var(--rn-env-top-left),
+    linear-gradient(var(--rn-env-plate), var(--rn-env-plate)),
+    var(--rn-env-top-right), var(--rn-env-bottom-left),
+    linear-gradient(var(--rn-env-plate), var(--rn-env-plate)),
+    var(--rn-env-bottom-right);
+  background-size:
+    auto calc(28px * 29 / 36),
+    calc(72px * 28 / 36) 28px,
+    calc(100% - 110px) 28px,
+    calc(72px * 28 / 36) 28px,
+    calc(72px * 14 / 18) 14px,
+    calc(100% - 110px) 14px,
+    calc(72px * 14 / 18) 14px;
+  background-position:
+    center calc(28px * 3.5 / 36),
+    left top,
+    center top,
+    right top,
+    left bottom,
+    center bottom,
+    right bottom;
+  background-repeat: no-repeat;
 }
 
 .rn-body {
@@ -1927,7 +2003,7 @@
   border-right: 0;
 }
 
-/* The label is the only flexible item against a hard 300px card, so row chrome
+/* The label is the only flexible item against a hard 240px card, so row chrome
    is kept to the minimum that still clears the 5px accent tab. */
 .rn-row {
   display: flex;
@@ -1949,7 +2025,21 @@
   flex-direction: row-reverse;
 }
 
-.rn-row.output .rate,
+/* A catalyst row: an input the machine cycles rather than consumes. It takes
+   the input rows' left padding so the column reads as one stack, but not their
+   accent tab (.rn-row.input::before). The muted label is what sets it apart
+   from the supplied rows above it; the rate is muted only to land on the same
+   colour the input rows' rates already use, since a catalyst row carries no
+   `input` class to inherit it from. */
+.rn-row.catalyst {
+  padding-left: 8px;
+}
+
+.rn-row.catalyst .lbl,
+.rn-row.catalyst .rate {
+  color: var(--ak-text-secondary);
+}
+
 .rn-row.output .lbl {
   text-align: right;
 }
@@ -1970,19 +2060,40 @@
   font-size: 12px;
 }
 
+/* The row rate is an overlay over the label tail, out of flow so the label
+   budget never pays for it, hidden at rest and revealed by pointer hover or
+   card selection (rules below). The backdrop is the card body gradient's end
+   colour, which the rows sit on, so the digits read legibly over the tail. */
 .rn-row .rate {
   font-family: var(--font-num);
   font-size: 12px;
   font-weight: 700;
   letter-spacing: -0.01em;
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  display: none;
+  background: #1f2125;
+  padding: 0 2px;
 }
 
+/* The overlay seats at the row's inner end (right for inputs, left for
+   outputs), inset by the row's own horizontal padding on that side; the row
+   is position:relative already. */
 .rn-row.input .rate {
   color: var(--ak-text-secondary);
+  right: 6px;
 }
 
 .rn-row.output .rate {
   color: var(--ak-accent-cyan-soft);
+  left: 6px;
+}
+
+/* Pointer-only hover plus selection; no intent delay, no focus-set involvement. */
+.recipe-node:hover .rn-row .rate,
+.recipe-node.selected .rn-row .rate {
+  display: block;
 }
 
 .rn-row.input::before,
@@ -2011,21 +2122,19 @@
 
 .rn-head {
   /* Pinned to RECIPE_HEADER_HEIGHT (dimensions.ts): the offline geometry model
-     and ELK sizing treat 80px as the header contract, so the DOM must hold that
-     height at every zoom band (the low-zoom LOD hides header children but must
-     not collapse the box). box-sizing keeps the 1px border-bottom inside 80px.
-     The columns still stretch and center their content, so the block stays
-     vertically centered with the extra headroom.
-     The side columns are pinned to RECIPE_HEAD_ICON_COL / RECIPE_HEAD_RATE_COL
-     (dimensions.ts, ruling R3): 41px is the icon block's full box (28px icon +
-     padding + border) and 58px holds the widest rate figure and localized
-     unit label, so the middle column is a constant RECIPE_HEAD_TITLE_COL wide
-     and the title and products elision budgets are deterministic instead of
-     depending on what the auto columns happen to hold. */
-  height: 80px;
+     and ELK sizing treat 56px as the header contract, so the DOM must hold that
+     height at every zoom band. box-sizing keeps the 1px border-bottom inside
+     56px, which is the machine block's full vertical box: 40px icon plus
+     2x8px vertical padding. The icon column is pinned to RECIPE_HEAD_ICON_COL
+     (dimensions.ts, ruling R3): 53px is the icon block's full box (40px icon +
+     2x6px horizontal padding + 1px right border), so the title column is a
+     constant RECIPE_HEAD_TITLE_COL wide and the title elision budget is
+     deterministic instead of depending on what an auto column happens to
+     hold. */
+  height: 56px;
   box-sizing: border-box;
   display: grid;
-  grid-template-columns: 41px 1fr 58px;
+  grid-template-columns: 53px 1fr;
   align-items: stretch;
   background: linear-gradient(180deg, var(--ak-bg-primary) 0%, #1b1d21 100%);
   border-bottom: 1px solid var(--ak-divider);
@@ -2042,15 +2151,15 @@
 }
 
 .rn-head .rn-machine-block .machine-icon {
-  width: 28px;
-  height: 28px;
+  width: 40px;
+  height: 40px;
   flex-shrink: 0;
 }
 
 .rn-head .rn-recipe-block {
-  /* Pad pinned to RECIPE_HEAD_BLOCK_PAD_X (dimensions.ts): the
-     title/products elision budget is RECIPE_HEAD_TITLE_COL minus twice this
-     pad, so the number lives in both files and must stay in step. */
+  /* Pad pinned to RECIPE_HEAD_BLOCK_PAD_X (dimensions.ts): the title elision
+     budget is RECIPE_HEAD_TITLE_COL minus twice this pad, so the number lives
+     in both files and must stay in step. */
   padding: 8px;
   display: flex;
   flex-direction: column;
@@ -2060,10 +2169,8 @@
 }
 
 /* Machine-count multiplier chip: rides the title line right after the machine
-   name. Uses the lime tier-chip treatment for a readable, on-theme chip. It
-   never collides with the rate figures (they sit in the separate
-   .rn-rate-block cell), and it survives at every zoom band including
-   zoom-low, where the rate figures are hidden. */
+   name. Uses the lime tier-chip treatment for a readable, on-theme chip, and
+   survives at every zoom band. */
 .rn-head .rn-mult-chip {
   flex-shrink: 0;
   font-family: var(--font-num);
@@ -2078,66 +2185,9 @@
   white-space: nowrap;
 }
 
-.rn-head .rn-rate-block {
-  padding: 0 8px;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  align-items: flex-end;
-  gap: 2px;
-  border-left: 1px solid var(--ak-divider);
-  background: rgba(0, 0, 0, 0.2);
-}
-
-.rn-head .rn-rate-block .rate-val {
-  font-family: var(--font-num);
-  font-size: 18px;
-  font-weight: 700;
-  color: var(--ak-accent-cyan);
-  letter-spacing: -0.01em;
-  line-height: 1;
-}
-
-.rn-head .rn-rate-block .rate-lbl {
-  font-family: var(--font-mono);
-  font-size: 10px;
-  color: var(--ak-text-secondary);
-  /* Tracking tuned to the pinned rate column (RECIPE_HEAD_RATE_COL): at the
-     old 0.18em the ru unit label alone is wider than the column's content
-     box, so the tracking sits at 0.1em where every locale's label fits. */
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-}
-
-/* Per-machine secondary under the aggregate header value: the single-machine
-   rate and a scope label ("ea" = each machine), so the aggregate primary stays
-   reconcilable to one machine's throughput. The machine count rides the header
-   multiplier chip (.rn-mult-chip), not this line. */
-.rn-head .rn-rate-block .rate-sub {
-  display: flex;
-  align-items: baseline;
-  gap: 4px;
-  margin-top: 2px;
-  font-family: var(--font-num);
-  font-size: 10px;
-  line-height: 1;
-  color: var(--ak-text-secondary);
-}
-
-.rn-head .rn-rate-block .rate-sub .rate-sub-val {
-  font-weight: 700;
-}
-
-.rn-head .rn-rate-block .rate-sub .rate-sub-ea {
-  font-family: var(--font-mono);
-  font-size: 9px;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: var(--ak-text-decoration);
-}
-
 /* Header title: the machine name with the multiplier chip riding inline. The
-   name span ellipsizes; the chip never shrinks. */
+   name span ellipsizes; the chip does not shrink, so a card that carries one
+   spends the chip's width plus one gap out of the name's budget. */
 .rn-head .machine-title {
   display: flex;
   align-items: center;
@@ -2156,33 +2206,6 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-/* Secondary line under the title: the produced item names (a recipe can have
-   several outputs, joined into one line). Since the title above carries the
-   machine name, this is the only per-recipe identity on the card, and one
-   ellipsized line cuts most item names before they differ. It wraps to two
-   lines, which fits the headroom the pinned 80px header already has:
-   80 - 1px border - 20px .rn-recipe-block padding = 59px inner, against a
-   18.7px title + 4px gap + 27.5px of products. */
-.rn-head .rn-products {
-  font-family: var(--ak-font-ui);
-  font-size: 11px;
-  font-weight: 500;
-  color: var(--ak-text-secondary);
-  line-height: 1.25;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  /* CJK breaks between any two Han characters by default, so a single item
-     name like a 6-char powder splits mid-word across the clamp's two lines
-     and reads as a spurious gap. keep-all limits breaks to the separator
-     spaces; strict keeps small kana from starting a line. A name too long
-     for one line may clip; the title attribute recovers it on hover. */
-  word-break: keep-all;
-  line-break: strict;
 }
 
 /* React Flow's shipped style.css suppresses the node focus outline
@@ -2212,6 +2235,15 @@
   opacity: 0.6;
 }
 
+/* An environment card suppresses the outer selection ring: at -6px it would
+   sit 1px inside the frame's plates (the frame extends 8px out). The card's
+   own lime border above still applies, and the plates and haze keep their
+   environment colour while selected -- selection and environment are
+   orthogonal and never share a colour. */
+.recipe-node.selected[data-environment]::before {
+  content: none;
+}
+
 /* Selection treatment for a boundary product card. Unlike the recipe card it
    has no lime identity, so the ring uses the cyan accent as a neutral
    "selected" cue that reads on the dark canvas without fighting the per-flavor
@@ -2222,43 +2254,6 @@
     0 0 0 1px rgba(124, 223, 252, 0.25),
     0 0 18px rgba(124, 223, 252, 0.18),
     0 4px 12px rgba(0, 0, 0, 0.5);
-}
-
-.rn-footer {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  height: 26px;
-  padding: 6px 12px;
-  gap: 8px;
-  border-top: 1px solid var(--ak-divider);
-  background: rgba(0, 0, 0, 0.25);
-  font-family: var(--ak-font-mono);
-  font-size: 9px;
-  color: var(--ak-text-decoration);
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  box-sizing: border-box;
-}
-
-.rn-footer .cycle {
-  flex: 1 1 0;
-  min-width: 0;
-  font-size: 10px;
-  color: var(--ak-text-secondary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.rn-footer .pwr {
-  flex: 1 1 0;
-  min-width: 0;
-  color: var(--ak-accent-lime);
-  display: inline-flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 4px;
 }
 
 /* Recipe picker popup. Portaled to <body>, so its rules live outside the
