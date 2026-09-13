@@ -37,7 +37,6 @@ export type UiKey =
   | "inputs.rate.label"
   | "inputs.rate.unit"
   | "canvas.rate.unit"
-  | "canvas.chip.share"
   | "inputs.rate.placeholder"
   | "inputs.rate.cap"
   | "inputs.remove"
@@ -117,7 +116,6 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "inputs.rate.label": "速率",
     "inputs.rate.unit": "/分",
     "canvas.rate.unit": "/分",
-    "canvas.chip.share": "{rate} 共 {total}/分",
     "inputs.rate.placeholder": "上限 / 分",
     "inputs.rate.cap": "上限 {rate}/分",
     "inputs.remove": "移除",
@@ -192,7 +190,6 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "inputs.rate.label": "Rate",
     "inputs.rate.unit": "/min",
     "canvas.rate.unit": "/min",
-    "canvas.chip.share": "{rate} of {total}/min",
     "inputs.rate.placeholder": "cap /min",
     "inputs.rate.cap": "cap {rate}/min",
     "inputs.remove": "Remove",
