@@ -1,7 +1,9 @@
 import { Handle, Position, type NodeProps, type Node } from "@xyflow/react";
 import Fraction from "fraction.js";
-import type { Recipe, Stoich } from "@aef/schema";
+import type { CSSProperties } from "react";
+import type { EnvironmentId, Recipe, Stoich } from "@aef/schema";
 import { measureRecipe } from "./recipeGeometry";
+import { envBannerLayers } from "./envBanner";
 import { useI18n } from "../data/i18n-context";
 import { PortGlyph } from "./PortGlyph";
 import { CatalystGlyph } from "./CatalystGlyph";
@@ -80,6 +82,40 @@ const TITLE_CHIP_GAP = 8;
 
 function headerContentWidth(): number {
   return RECIPE_HEAD_TITLE_COL - 2 * RECIPE_HEAD_BLOCK_PAD_X;
+}
+
+// The gas-environment frame around an environment card: the plate SVGs bake
+// the plate colour into their data URIs (an SVG fill cannot resolve a CSS
+// var), so the token VALUE is read from the stylesheet at runtime. The tokens
+// never change at runtime, so the whole six-property style is memoised per
+// environment on first render.
+const ENV_PLATE_TOKEN: Record<EnvironmentId, string> = {
+  stable: "--ak-env-stable",
+  acidic: "--ak-env-acidic",
+};
+
+const envFrameStyles = new Map<EnvironmentId, CSSProperties>();
+
+function envFrameStyle(environment: EnvironmentId): CSSProperties {
+  const cached = envFrameStyles.get(environment);
+  if (cached !== undefined) {
+    return cached;
+  }
+
+  const plate = getComputedStyle(document.documentElement)
+    .getPropertyValue(ENV_PLATE_TOKEN[environment])
+    .trim();
+  const layers = envBannerLayers(environment, plate);
+  const style: CSSProperties = {
+    ["--rn-env-plate" as string]: plate,
+    ["--rn-env-glyph" as string]: layers.top.glyph.uri,
+    ["--rn-env-top-left" as string]: layers.top.leftCap.uri,
+    ["--rn-env-top-right" as string]: layers.top.rightCap.uri,
+    ["--rn-env-bottom-left" as string]: layers.bottom.leftCap.uri,
+    ["--rn-env-bottom-right" as string]: layers.bottom.rightCap.uri,
+  };
+  envFrameStyles.set(environment, style);
+  return style;
 }
 
 function elideRowLabel(
@@ -320,6 +356,17 @@ export default function RecipeNode({
         minHeight: geom.height,
       }}
     >
+      {/* The environment frame: canvas.css paints the plates and the haze
+          from the custom properties. Absolutely positioned at negative
+          insets, so it takes no part in the card's layout -- the box,
+          border, header height and every port y-slot are unchanged. */}
+      {environment !== undefined ? (
+        <div
+          className="rn-env"
+          aria-hidden="true"
+          style={envFrameStyle(environment)}
+        />
+      ) : null}
       {/* Header: a 28px machine icon slot plus the machine title line. */}
       <div className="rn-head">
         <div className="rn-machine-block">
