@@ -17,6 +17,7 @@ import {
   portOffsetY,
 } from "../../src/canvas/nodeGeometry";
 import {
+  CHAMFER,
   chamferFanoutPath,
   drawnEdge,
   routingHintsFromData,
@@ -92,7 +93,7 @@ describe("junction dots: fan-out trunk (BusEdge split dot)", () => {
       ...routingHintsFromData(dataOf(routed, "e:2")),
     }).junction;
 
-    expect(upJunction).toEqual({ x: 392, y: 198 });
+    expect(upJunction).toEqual({ x: 362, y: 174 });
     // Every member draws the same dot: the trunk splits once.
     expect(downJunction).toEqual(upJunction);
     // The dot sits on the source row, out along the shared trunk.
@@ -223,12 +224,14 @@ describe("junction dots: declined fan-out divergence (stamped on the owner)", ()
 
     const out = deconflictChipAnchors(nodes, routed);
     const owner = dataOf(out, "e:b"); // smallest id among the BENDING members
-    // The shared column (the corridor midpoint, 800) less one chamfer: the last
-    // vertex both members still share is where the bent one starts turning.
-    expect((routed[1]!.data as { bendX?: number }).bendX).toBe(800);
-    expect(owner.fanoutJunctionX).toBe(792);
+    // The shared column (the midpoint of the corridor between the source's
+    // right edge and the targets' left edge) less one chamfer: the last vertex
+    // both members still share is where the bent one starts turning.
+    const column = (nodeWidth(src) + (nodeWidth(src) + gap)) / 2;
+    expect((routed[1]!.data as { bendX?: number }).bendX).toBe(column);
+    expect(owner.fanoutJunctionX).toBe(column - CHAMFER);
     expect(owner.fanoutJunctionY).toBe(drawnPortsFor(src, straight).sourceY);
-    expect(owner.fanoutJunctionY).toBe(98);
+    expect(owner.fanoutJunctionY).toBe(74);
     // One dot per split: the non-owner carries none.
     expect(dataOf(out, "e:a").fanoutJunctionX).toBeUndefined();
   });

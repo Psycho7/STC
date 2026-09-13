@@ -39,6 +39,7 @@ import {
   deconflictChipAnchors,
 } from "../../src/canvas/chipSeating";
 import { chipSeatHalfW, rateChipText } from "../../src/canvas/chipMetrics";
+import { RECIPE_WIDTH } from "../../src/canvas/dimensions";
 import { drawnPortsOf, nodeIndexOf } from "../../src/canvas/nodeGeometry";
 import { segmentEntersRect, segmentsOf } from "../e2e/geometry";
 import type { RFAnyNode, RFRecipeNode } from "../../src/canvas/layout";
@@ -95,7 +96,8 @@ describe("routeTrunkEdges: a near member whose own run crosses a card", () => {
     const nodes: RFAnyNode[] = [
       producer("p1", 0, 0),
       producer("p2", 0, 700),
-      productNode("blk", 300, 0, 260, 200),
+      // Flush against p1's right edge, so the two share one layer.
+      productNode("blk", RECIPE_WIDTH, 0, 260, 200),
       consumer("tgt", 1200, 300),
     ];
     const routed = widenAndRoute(nodes, [
@@ -208,8 +210,10 @@ describe("jogForwardLegs: a card in the target's own layer", () => {
   const fixture = () => {
     const nodes: RFAnyNode[] = [
       producer("s", 0, 300),
-      productNode("blk", 940, 600, 200, 200),
-      consumer("bridge", 1100, 3000),
+      // The three x-intervals chain: blk's right edge meets the bridge's left,
+      // and the bridge's right edge meets the target's.
+      productNode("blk", 1400 - RECIPE_WIDTH - 200, 600, 200, 200),
+      consumer("bridge", 1400 - RECIPE_WIDTH, 3000),
       consumer("tgt", 1400, 600),
     ];
     const edges = [edge("e:1", "s", "tgt")];
@@ -261,7 +265,9 @@ describe("a far member whose named run cannot hold its chip", () => {
     const nodes: RFAnyNode[] = [
       producer("s", 0, 300),
       productNode("blk", 1200, 600, 200, 200),
-      consumer("bridge", 1160, 3000),
+      // Overlaps blk and reaches the target's left edge, chaining all three
+      // into one layer.
+      consumer("bridge", 1460 - RECIPE_WIDTH, 3000),
       consumer("tgt", 1460, 600),
     ];
     const member = edge("e:1", "s", "tgt");

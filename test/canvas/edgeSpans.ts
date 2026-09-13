@@ -3,7 +3,7 @@
 // more than two layers.
 //
 // The threshold is derived from the layout dimensions, so it tracks any spacing
-// change instead of drifting from a hardcoded 820.
+// change instead of drifting from a hardcoded literal.
 
 import {
   BETWEEN_LAYERS_SPACING,

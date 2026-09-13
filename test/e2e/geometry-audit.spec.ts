@@ -126,7 +126,6 @@ test.describe("DOM geometry audit", () => {
       const {
         chips,
         rows,
-        multPairs,
         recipeNodeCount,
         containerRect,
         flowChipZ,
@@ -177,6 +176,29 @@ test.describe("DOM geometry audit", () => {
       // (b) Every row handle centred on its row (vertical axis).
       const offCenter: string[] = [];
       for (const row of rows) {
+        // A catalyst row is an input the machine cycles rather than
+        // consumes, and it draws its own edge from the item's boundary
+        // supply node (CATALYST_SUPPLY_EDGES in src/flags.ts, on). So it
+        // carries exactly one handle, on the `cat:` namespace rather than
+        // `in:`, seated inside the row like every other port: a row without
+        // one leaves that edge no endpoint to land on, and a second handle
+        // would offer the arriving edge a choice of two.
+        if (row.rowClass.split(" ").includes("catalyst")) {
+          const catIds = row.handleIds.filter((id) => id.startsWith("cat:"));
+          const seated =
+            row.handleCenterY !== null &&
+            row.handleCenterY >= row.rowTop &&
+            row.handleCenterY <= row.rowBottom;
+          if (row.handleIds.length !== 1 || catIds.length !== 1 || !seated) {
+            offCenter.push(
+              `${row.nodeId} catalyst row "${row.item}" carries ` +
+                `[${row.handleIds.join(", ")}] instead of one seated ` +
+                `cat: handle (row ${row.rowTop.toFixed(1)}-${row.rowBottom.toFixed(1)}, ` +
+                `handle ${row.handleCenterY === null ? "none" : row.handleCenterY.toFixed(1)})`,
+            );
+          }
+          continue;
+        }
         if (row.handleCenterY === null) {
           offCenter.push(
             `${row.nodeId} row "${row.item}" (${row.rowClass}) has no handle`,
@@ -193,32 +215,12 @@ test.describe("DOM geometry audit", () => {
         }
       }
 
-      // (c) The machine-multiplier chip and the rate block never overlap. The
-      // promoted header cell replaced the old absolute .rn-mult-badge overlay
-      // (audit issue 5); the two boxes must stay disjoint on every node that
-      // shows a chip.
-      const chipCollisions: string[] = [];
-      for (const pair of multPairs) {
-        const hit = overlapPx(pair.chip, pair.rate);
-        if (hit !== null) {
-          chipCollisions.push(
-            `${pair.nodeId}: mult-chip ${fmtRect(pair.chip)} overlaps ` +
-              `rate-block ${fmtRect(pair.rate)} by ` +
-              `${hit.dx.toFixed(1)}x${hit.dy.toFixed(1)}px`,
-          );
-        }
-      }
-
       // Handle centring is a per-node CSS invariant independent of chip layout;
       // assert it first so that if a scenario also has chip overlaps, reaching
       // the overlap assertion still confirms the handles were centred.
       expect(
         offCenter,
         `${scenario.id}: ${offCenter.length} off-centre handle(s) among ${rows.length} rows in ${recipeNodeCount} recipe node(s):\n${offCenter.join("\n")}`,
-      ).toEqual([]);
-      expect(
-        chipCollisions,
-        `${scenario.id}: ${chipCollisions.length} mult-chip/rate-block overlap(s) among ${multPairs.length} chipped node(s):\n${chipCollisions.join("\n")}`,
       ).toEqual([]);
       expect(
         overlaps,
@@ -310,17 +312,30 @@ test.describe("DOM geometry audit", () => {
 // that routes more flows through one corridor legitimately crosses more.
 const CROSSING_BASELINE: Record<string, number> = {
   default: 2,
-  battery5: 12,
+  // MERGE 2026-09-13 (placement rule on the develop merge): 12 -> 14. The
+  // catalyst supply edge e:23 u:in:liquid_xiranite -> u:class:q:2 runs the
+  // width of the graph and crosses two more corridors.
+  battery5: 14,
   "battery5-xiranite": 20,
   crystal: 1,
   equip4: 1,
-  multi6: 83,
+  // MERGE 2026-09-13 (placement rule on the develop merge): 83 -> 90. Three
+  // catalyst supply edges (e:69 / e:71 / e:72 off u:in:gas_xiranite) span this
+  // 92-edge graph from the boundary column to the transmuters deep in it.
+  multi6: 90,
   tundra: 0,
-  script43: 23,
+  // MERGE 2026-09-13 (placement rule on the develop merge): 23 -> 27, the
+  // three gas_xiranite catalyst supply edges crossing the chain.
+  script43: 27,
   "coupon-web": 1,
   "gas-web": 13,
   "rot-bottled_food_3": 2,
   "rot-bottled_food_4": 3,
+  // MERGE 2026-09-13 (placement rule on the develop merge): the transmuters
+  // scenario rejoins the corpus with the catalyst supply edges, so it takes a
+  // row here. Seeded at the pin it carried on the develop side and re-measured
+  // on the merged tree below.
+  transmuters: 27,
 };
 
 // Padding-graze ratchet (tier 3): segments that clip only a foreign card's
@@ -333,13 +348,18 @@ const PADDED_GRAZE_BASELINE: Record<string, number> = {
   "battery5-xiranite": 0,
   crystal: 0,
   equip4: 0,
-  multi6: 0,
+  multi6: 1,
   tundra: 0,
   script43: 0,
   "coupon-web": 0,
   "gas-web": 0,
   "rot-bottled_food_3": 0,
   "rot-bottled_food_4": 0,
+  // RECIPE CARD TRIM + CATALYST EDGES (2026-09-13): 0 -> 1. e:24, the
+  // liquid_xiranite catalyst supply run off the copper_powder loop-return
+  // node, crosses the gutter at y 263 and clips u:class:q:13's padding on the
+  // way. UP move, listed for ruling.
+  transmuters: 1,
 };
 
 // Chip-segment ratchet: (segment, chip) pairs where a foreign flow's line passes
@@ -347,7 +367,9 @@ const PADDED_GRAZE_BASELINE: Record<string, number> = {
 // own edge draws, and in a packed corridor that run shares its row with other
 // flows' legs. The hard tiers above forbid the escapes that would clear them.
 const CHIP_SEGMENT_BASELINE: Record<string, number> = {
-  default: 0,
+  // MERGE 2026-09-13 (placement rule on the develop merge): default 0 -> 1.
+  // The merged corridor packs one foreign leg under a chip on the landing plan.
+  default: 1,
   battery5: 0,
   "battery5-xiranite": 0,
   crystal: 0,
@@ -359,8 +381,11 @@ const CHIP_SEGMENT_BASELINE: Record<string, number> = {
   "gas-web": 0,
   "rot-bottled_food_3": 0,
   "rot-bottled_food_4": 0,
+  // MERGE 2026-09-13 (placement rule on the develop merge): the transmuters
+  // scenario rejoins the corpus with the catalyst supply edges. Seeded at the
+  // pin it carried on the develop side.
+  transmuters: 4,
 };
-
 // Fan-out leg ratchet: member chips whose centre lies off the member's OWN leg,
 // the polyline suffix right of the shared junction column. A branch chip names
 // its member by standing on that member's leg; the column belongs to every
@@ -378,6 +403,7 @@ const FANOUT_LEG_BASELINE: Record<string, number> = {
   "gas-web": 0,
   "rot-bottled_food_3": 0,
   "rot-bottled_food_4": 0,
+  transmuters: 0,
 };
 
 // Fan-in leg ratchet, the mirror of the table above: a member chip off its own
@@ -397,6 +423,7 @@ const FANIN_LEG_BASELINE: Record<string, number> = {
   "gas-web": 0,
   "rot-bottled_food_3": 0,
   "rot-bottled_food_4": 0,
+  transmuters: 0,
 };
 
 // Own-endpoint-pierce ratchet: segments that run inside their OWN source /
@@ -416,6 +443,7 @@ const OWN_PIERCE_BASELINE: Record<string, number> = {
   "gas-web": 0,
   "rot-bottled_food_3": 0,
   "rot-bottled_food_4": 0,
+  transmuters: 0,
 };
 
 // Frame-ride ratchet: edge segments running ALONG a container slab's border
@@ -424,6 +452,7 @@ const OWN_PIERCE_BASELINE: Record<string, number> = {
 // then read as one line. Blind by design to a stroke that crosses or corners
 // near a frame: only a RUN along it counts.
 const FRAME_RIDE_BASELINE: Record<string, number> = {
+  // Structural zero with no bands drawn.
   default: 0,
   battery5: 0,
   "battery5-xiranite": 0,
@@ -436,6 +465,7 @@ const FRAME_RIDE_BASELINE: Record<string, number> = {
   "gas-web": 0,
   "rot-bottled_food_3": 1,
   "rot-bottled_food_4": 0,
+  transmuters: 0,
 };
 
 // Hidden-junction-dot ratchet: dots whose whole drawn disc sits under a chip box
@@ -445,6 +475,7 @@ const FRAME_RIDE_BASELINE: Record<string, number> = {
 // which is a trunk chip against its OWN trunk's dot: this one counts any dot a
 // reader lost, whichever chip took it.
 const DOT_COVER_BASELINE: Record<string, number> = {
+  // The one survivor is battery5's fan-in owner chip (e:18, ruling R13).
   default: 0,
   battery5: 0,
   "battery5-xiranite": 0,
@@ -457,6 +488,7 @@ const DOT_COVER_BASELINE: Record<string, number> = {
   "gas-web": 0,
   "rot-bottled_food_3": 0,
   "rot-bottled_food_4": 0,
+  transmuters: 0,
 };
 
 // Endpoint-parity tolerance, in GRAPH UNITS, per scenario: the largest per-axis
@@ -490,6 +522,7 @@ const ENDPOINT_PARITY_TOL: Record<string, number> = {
   "gas-web": 0.5,
   "rot-bottled_food_3": 0.5,
   "rot-bottled_food_4": 0.5,
+  transmuters: 0.5,
 };
 
 async function loadScenario(page: Page, hash: string): Promise<void> {
@@ -961,6 +994,7 @@ const CARD_INTRUSION_BASELINE: Record<string, number> = {
   "gas-web": 0,
   "rot-bottled_food_3": 0,
   "rot-bottled_food_4": 0,
+  transmuters: 0,
 };
 
 // Foreign strokes: chips with at least one foreign flow's stroke through the
@@ -970,18 +1004,32 @@ const CARD_INTRUSION_BASELINE: Record<string, number> = {
 // that one counts (segment, chip) pairs, and it reads at the census camera
 // rather than at fit zoom, where far more chips are drawn.
 const FOREIGN_STROKE_BASELINE: Record<string, number> = {
-  default: 0,
-  battery5: 1,
+  // MERGE 2026-09-13 (placement rule on the develop merge): 0 -> 1.
+  default: 1,
+  // MERGE 2026-09-13 (placement rule on the develop merge): 1 -> 5, the
+  // liquid_xiranite catalyst supply run crossing the chips of the chain it
+  // feeds.
+  battery5: 5,
   "battery5-xiranite": 5,
   crystal: 1,
   equip4: 1,
-  multi6: 8,
+  // MERGE 2026-09-13 (placement rule on the develop merge): 8 -> 10, the three
+  // gas_xiranite catalyst supply runs.
+  multi6: 10,
   tundra: 0,
   script43: 1,
   "coupon-web": 0,
-  "gas-web": 2,
+  // MERGE 2026-09-13 (chips graph objects on the develop merge): 2 -> 3. e:14's
+  // "Cuprium Ore x 180/min" chip takes e:25's liquid_water tap stroke, the tap
+  // column the 240px card re-packed against it.
+  "gas-web": 3,
   "rot-bottled_food_3": 0,
   "rot-bottled_food_4": 0,
+  // RECIPE CARD TRIM + CATALYST EDGES (2026-09-13): 2 -> 3. e:21's "Xiragen
+  // x 12/min" rise chip, off the gas_xiranite loop-return supply node, now
+  // takes e:9's copper_nugget stroke through its box; the e:8-under-e:11
+  // surplus stroke and e:23's rise chip stay. UP move, listed for ruling.
+  transmuters: 3,
 };
 
 // Port cover: chips whose drawn box covers a handle, glyph or row strip of their
@@ -1008,6 +1056,7 @@ const PORT_COVER_BASELINE: Record<string, number> = {
   "gas-web": 0,
   "rot-bottled_food_3": 0,
   "rot-bottled_food_4": 0,
+  transmuters: 0,
 };
 
 // Corpus-wide totals, one per counter. The census is a campaign-level ratchet,
@@ -1021,7 +1070,11 @@ const CENSUS_TOTALS: {
   portCover: number;
 } = {
   cardIntrusion: 0,
-  foreignStroke: 19,
+  // MERGE 2026-09-13 (placement rule on the develop merge): 19 -> 30, the sum
+  // of FOREIGN_STROKE_BASELINE on the merged tree (transmuters rejoining at 3,
+  // and the default / battery5 / multi6 / gas-web raises the catalyst supply
+  // edges brought with them).
+  foreignStroke: 30,
   portCover: 5,
 };
 

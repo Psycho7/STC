@@ -9,6 +9,7 @@ import { itemColor } from "../../src/canvas/itemColor";
 import { iconPosition } from "../../src/canvas/iconSprite";
 import { pack } from "../../src/data/load";
 import { measureRecipe } from "../../src/canvas/recipeGeometry";
+import { cssBlock } from "../../src/canvas/cssContract.testkit";
 import {
   ItemPackProvider,
   type ItemPackContextValue,
@@ -59,6 +60,7 @@ const multiRowRecipe: Recipe = {
 // A recipe built from those items exercises the row sprite lookup.
 const HASHED_IN_ITEM = "iron_bottle-liquid_plant_grass_1";
 const HASHED_OUT_ITEM = "copper_bottle-liquid_plant_grass_1";
+const HASHED_CATALYST_ITEM = "iron_bottle-liquid_plant_grass_2";
 
 const hashedIconRecipe: Recipe = {
   id: "hashed_icon",
@@ -69,6 +71,7 @@ const hashedIconRecipe: Recipe = {
   time: 1,
   in: [{ item: HASHED_IN_ITEM, qty: 1 }],
   out: [{ item: HASHED_OUT_ITEM, qty: 1 }],
+  catalyst: [{ item: HASHED_CATALYST_ITEM, qty: 1 }],
   producers: ["smelter"],
 };
 
@@ -94,8 +97,8 @@ function renderRecipe(
 
 describe("RecipeNode", () => {
   it("renders a kind: 'recipe' unit with the header multiplier chip when multiplier > 1 and not expanded", () => {
-    // The multiplier is promoted to one reserved .rn-head grid cell; target that
-    // chip rather than a bare text match.
+    // The multiplier rides the header title line as the .rn-mult-chip; target
+    // that chip rather than a bare text match.
     const { container } = renderRecipe({
       recipe,
       kind: "recipe",
@@ -117,8 +120,8 @@ describe("RecipeNode", () => {
   });
 
   it("preserves backward-compat on-main shape: { recipe, multiplier, expanded } with no kind", () => {
-    // The multiplier is promoted to one reserved .rn-head grid cell; target that
-    // chip rather than a bare text match.
+    // The multiplier rides the header title line as the .rn-mult-chip; target
+    // that chip rather than a bare text match.
     const { container } = renderRecipe({
       recipe,
       multiplier: 4,
@@ -179,11 +182,13 @@ describe("RecipeNode", () => {
     const iconOf = (id: string) => pack.items.find((i) => i.id === id)?.icon;
     const inIcon = iconOf(HASHED_IN_ITEM);
     const outIcon = iconOf(HASHED_OUT_ITEM);
+    const catalystIcon = iconOf(HASHED_CATALYST_ITEM);
     // Premise guard: the fixture only exercises the lookup while the shipped
     // pack still keeps these icon ids apart from their item ids.
     expect(inIcon).toBeDefined();
     expect(inIcon).not.toBe(HASHED_IN_ITEM);
     expect(outIcon).not.toBe(HASHED_OUT_ITEM);
+    expect(catalystIcon).not.toBe(HASHED_CATALYST_ITEM);
     expect(iconPosition(HASHED_IN_ITEM)).toBeUndefined();
 
     const { container } = renderRecipe({
@@ -197,10 +202,19 @@ describe("RecipeNode", () => {
     const outSpr = container.querySelector<HTMLElement>(
       ".rn-side.out .rn-row.output .ico .spr",
     );
+    // The catalyst row holds only an item id too, so it resolves the same way
+    // the port rows do -- it just has no port to hang the lookup off.
+    const catalystSpr = container.querySelector<HTMLElement>(
+      ".rn-side.in .rn-row.catalyst .ico .spr",
+    );
     expect(inSpr).not.toBeNull();
     expect(outSpr).not.toBeNull();
+    expect(catalystSpr).not.toBeNull();
     expect(inSpr!.style.backgroundPosition).toBe(iconPosition(inIcon));
     expect(outSpr!.style.backgroundPosition).toBe(iconPosition(outIcon));
+    expect(catalystSpr!.style.backgroundPosition).toBe(
+      iconPosition(catalystIcon),
+    );
   });
 
   it("fallback path (no inputOrder): each handle nests in its own row in declaration order with no computed inline top", () => {
@@ -273,12 +287,10 @@ describe("RecipeNode", () => {
     expect(inputRates).toEqual(["120", "60"]);
   });
 
-  it("renders output rows in the recipe's declared order, matching the .rn-products subtitle", () => {
+  it("renders output rows in the recipe's declared order", () => {
     // R4 (recipe-row-order-unstable): output rows read in the recipe's own
     // declared order -- the layout stamps no output side order -- so two cards
-    // of one recipe list their outputs alike. The header subtitle
-    // (.rn-products) already reads declaration order; the side rows must agree
-    // with it item for item.
+    // of one recipe list their outputs alike.
     const twoOutRecipe: Recipe = {
       ...multiRowRecipe,
       out: [
@@ -295,11 +307,6 @@ describe("RecipeNode", () => {
       container.querySelectorAll(".rn-side.out .rn-row.output .lbl"),
     ).map((el) => el.textContent);
     expect(outLbls).toEqual(["赤铜粉末", "污水"]);
-    // The subtitle is the declaration-order join of the same display names,
-    // so it reads in the same order as the rows.
-    expect(container.querySelector(".rn-products")?.textContent).toBe(
-      outLbls.join(" ·\u00A0"),
-    );
   });
 
   it("each row's .lbl shows the zh-CN item name and .rate shows the per-min formatted value", () => {
@@ -401,34 +408,155 @@ describe("RecipeNode", () => {
     expect(container.querySelectorAll("[data-glyph]").length).toBe(3);
   });
 
-  describe("footer", () => {
-    it("renders cycle-time text inside .rn-footer .cycle with an empty .pwr placeholder", () => {
-      const footerRecipe: Recipe = {
-        id: "copper_powder",
-        name: "Copper Powder",
-        category: "smelt",
-        icon: "copper_powder",
-        row: 0,
-        time: 2.4,
-        in: [{ item: "copper_nugget", qty: 1 }],
-        out: [{ item: "copper_powder", qty: 1 }],
-        producers: ["smelter"],
-      };
+  // A catalyst is an input the machine cycles rather than consumes: it is drawn
+  // from the plan boundary and handed back every cycle. The card declares the
+  // draw as an extra input-column row below every port row, and with
+  // CATALYST_SUPPLY_EDGES on that row takes a `cat:` port of its own so the
+  // edge from the boundary card can land on it.
+  describe("catalyst rows", () => {
+    // qty 1 over a 10s cycle at speed 1 is the pack's 6/min catalyst draw.
+    const catalystRecipe: Recipe = {
+      ...multiRowRecipe,
+      time: 10,
+      catalyst: [{ item: "gas_xiranite", qty: 1 }],
+    };
+
+    const catalystPortKinds: PortTransportKinds = new Map([
+      ["in:copper_nugget", "belt"],
+      ["in:liquid_water", "pipe"],
+      ["cat:gas_xiranite", "gas"],
+      ["out:copper_powder", "belt"],
+    ]);
+
+    function renderCatalyst(multiplier = 1) {
+      return renderRecipe({
+        recipe: catalystRecipe,
+        kind: "recipe",
+        multiplier,
+        portTransportKinds: catalystPortKinds,
+      });
+    }
+
+    it("appends one .rn-row.catalyst below every port row in the input column", () => {
+      const { container } = renderCatalyst();
+      const inSide = container.querySelector(".rn-body > .rn-side.in")!;
+      const rows = Array.from(inSide.querySelectorAll(".rn-row"));
+      expect(rows).toHaveLength(3);
+      expect(rows.slice(0, 2).map((r) => r.className)).toEqual([
+        "rn-row input",
+        "rn-row input",
+      ]);
+      // Last, and not an input row: the .input class draws the accent tab that
+      // promises an entering edge.
+      expect(rows[2]!.className).toBe("rn-row catalyst");
+      expect(container.querySelectorAll(".rn-row.catalyst")).toHaveLength(1);
+    });
+
+    it("gives the catalyst row an icon, a label, a rate and the item's transport glyph", () => {
+      const { container } = renderCatalyst();
+      const row = container.querySelector(".rn-row.catalyst")!;
+      expect(row.querySelector(".ico")).not.toBeNull();
+      expect(row.querySelector(".lbl")?.textContent).not.toBe("");
+      expect(row.querySelector(".rate")).not.toBeNull();
+      // The row takes an edge now, so it wears the transport shape its port
+      // carries instead of the catalyst disc.
+      const glyph = row.querySelector("[data-glyph]");
+      expect(glyph).not.toBeNull();
+      expect(glyph!.getAttribute("data-glyph")).toBe("gas");
+    });
+
+    it("hangs a cat: handle on the catalyst row alongside the port handles", () => {
+      const { container } = renderCatalyst();
+      const row = container.querySelector(".rn-row.catalyst")!;
+      const handles = row.querySelectorAll<HTMLElement>("[data-handleid]");
+      expect(handles).toHaveLength(1);
+      expect(handles[0]!.getAttribute("data-handleid")).toBe(
+        "cat:gas_xiranite",
+      );
+      // The row's handle is a target on the left, exactly like an input row's,
+      // and the input rows keep theirs.
+      expect(handles[0]!.getAttribute("data-handlepos")).toBe("left");
+      expect(
+        container.querySelectorAll('[data-handlepos="left"]'),
+      ).toHaveLength(3);
+      expect(
+        container.querySelectorAll('[data-handlepos="right"]'),
+      ).toHaveLength(1);
+      expect(container.querySelectorAll("[data-handleid]")).toHaveLength(4);
+    });
+
+    it("spells the per-machine draw out with the locale rate unit", () => {
+      const { container } = renderCatalyst();
+      expect(
+        container.querySelector(".rn-row.catalyst .rate")?.textContent,
+      ).toBe("6/分");
+    });
+
+    // The port rows carry the AGGREGATE flow across every machine; a catalyst
+    // is charged per machine, so its row stays on the one-machine figure and
+    // says so by carrying the unit the port rows leave to the header.
+    it("keeps the catalyst rate per machine while the port rows scale", () => {
+      const { container } = renderCatalyst(3);
+      const inputRates = Array.from(
+        container.querySelectorAll(".rn-side.in .rn-row.input .rate"),
+      ).map((el) => el.textContent);
+      expect(inputRates).toEqual(["18", "36"]);
+      expect(
+        container.querySelector(".rn-row.catalyst .rate")?.textContent,
+      ).toBe("6/分");
+    });
+
+    it("sizes the card for the catalyst row", () => {
+      const { container } = renderCatalyst();
+      const wrapper = container.firstElementChild as HTMLElement;
+      expect(wrapper.style.minHeight).toBe(
+        `${measureRecipe(catalystRecipe).height}px`,
+      );
+      // 2 port rows + 1 catalyst row against 1 output row.
+      expect(measureRecipe(catalystRecipe).height).toBe(134);
+    });
+
+    it("styles the catalyst row in canvas.css", () => {
+      expect(cssBlock(".rn-row.catalyst")).toContain("padding-left");
+    });
+  });
+
+  // The environment frame against the real pack: the extractor's hand table
+  // is what marks a recipe gas-gated, so the pack wiring is asserted here
+  // while the component contract (layer properties, localisation, CSS) lives
+  // in src/canvas/RecipeNode.test.tsx.
+  describe("environment frame", () => {
+    it("renders one aria-hidden .rn-env on the pack recipe the hand table marks acidic", () => {
+      const envRecipe = pack.recipes.find((r) => r.id === "gas_copper_enr2");
+      // Premise guard: the pack still marks exactly this recipe acidic.
+      expect(envRecipe?.environment).toBe("acidic");
       const { container } = renderRecipe({
-        recipe: footerRecipe,
+        recipe: envRecipe!,
         kind: "recipe",
         multiplier: 1,
       });
-      const footer = container.querySelector(".rn-footer");
-      expect(footer).not.toBeNull();
-      const cycle = footer!.querySelector(".cycle");
-      expect(cycle).not.toBeNull();
-      // The cycle caption localizes; the harness renders under the default zh
-      // locale, so the label reads in zh.
-      expect(cycle!.textContent).toBe("2.4秒 · 周期");
-      const pwr = footer!.querySelector(".pwr");
-      expect(pwr).not.toBeNull();
-      expect(pwr!.textContent).toBe("");
+      const root = container.querySelector<HTMLElement>(
+        '[data-testid="recipe-node"]',
+      )!;
+      expect(root.getAttribute("data-environment")).toBe("acidic");
+      const frames = root.querySelectorAll(".rn-env");
+      expect(frames).toHaveLength(1);
+      expect(frames[0]!.getAttribute("aria-hidden")).toBe("true");
+    });
+
+    it("renders no frame and no data-environment on a plain pack recipe", () => {
+      const plainRecipe = pack.recipes.find((r) => r.id === "plant_moss_1");
+      expect(plainRecipe?.environment).toBeUndefined();
+      const { container } = renderRecipe({
+        recipe: plainRecipe!,
+        kind: "recipe",
+        multiplier: 1,
+      });
+      const root = container.querySelector<HTMLElement>(
+        '[data-testid="recipe-node"]',
+      )!;
+      expect(root.hasAttribute("data-environment")).toBe(false);
+      expect(container.querySelector(".rn-env")).toBeNull();
     });
   });
 
@@ -532,30 +660,6 @@ describe("RecipeNode", () => {
       expect(visA).not.toBe(visC);
     });
 
-    it("shows both bottle tails in the products subtitle", () => {
-      const twoBottles = {
-        ...bottleRecipe("copper_bottle", "liquid_plant_grass_1"),
-        out: [
-          { item: "copper_bottle-liquid_plant_grass_1", qty: 1 },
-          { item: "copper_bottle-liquid_plant_grass_2", qty: 1 },
-        ],
-      } as unknown as Recipe;
-      const { container } = renderEn({
-        recipe: twoBottles,
-        kind: "recipe",
-      });
-      const subtitle = container.querySelector(".rn-products");
-      expect(subtitle).not.toBeNull();
-      const text = subtitle!.textContent ?? "";
-      expect(text).toContain("(Jincao Solution)");
-      expect(text).toContain("(Yazhen Solution)");
-      expect(text).toContain("\u2026");
-      // The full join stays on the title attribute.
-      expect(subtitle!.getAttribute("title")).toBe(
-        "Cuprium Bottle(Jincao Solution) \u00b7\u00a0Cuprium Bottle(Yazhen Solution)",
-      );
-    });
-
     it("keeps a colliding machine-title pair distinct with tails intact (zh gates)", () => {
       // The two Purification Node machines differ only in their parenthesis
       // tail; under the pinned title budget the visible titles elide
@@ -633,11 +737,7 @@ describe("RecipeNode", () => {
       expect(head!.querySelector(".machine-title .cn")?.textContent).toBe(
         "mixer",
       );
-      // The products ride the secondary line; the old .product title line and
-      // the raw machine id line are gone.
-      expect(head!.querySelector(".rn-products")?.textContent).toBe(
-        "iron-plate",
-      );
+      // The old .product title line and the raw machine id line are gone.
       expect(head!.querySelector(".product")).toBeNull();
       expect(head!.querySelector(".machine-mid")).toBeNull();
     });

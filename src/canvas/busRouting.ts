@@ -36,6 +36,7 @@ import {
   absoluteLeft,
   absoluteTop,
   edgeItem,
+  edgeTargetSide,
   nodeHeight,
   nodeIndexOf,
   nodeWidth,
@@ -136,7 +137,9 @@ export function edgePortsModel(
     sx: absoluteLeft(source, byId) + nodeWidth(source),
     sy: absoluteTop(source, byId) + portOffsetY(source, item, "out"),
     tx: absoluteLeft(target, byId),
-    ty: absoluteTop(target, byId) + portOffsetY(target, item, "in"),
+    ty:
+      absoluteTop(target, byId) +
+      portOffsetY(target, item, edgeTargetSide(edge)),
   };
 }
 

@@ -19,7 +19,11 @@ import type { Edge } from "@xyflow/react";
 
 import { ROUTING_PASSES } from "../../src/canvas/layout";
 import { routeTrunkEdges } from "../../src/canvas/busRouting";
-import { drawnPortsOf, nodeWidth } from "../../src/canvas/nodeGeometry";
+import {
+  drawnPortsOf,
+  nodeWidth,
+  portOffsetY,
+} from "../../src/canvas/nodeGeometry";
 import {
   CHAMFER,
   PORT_STUB,
@@ -29,7 +33,11 @@ import {
   routingHintsFromData,
   type DrawnPorts,
 } from "../../src/canvas/edgePath";
-import { DOT_KEEPOFF } from "../../src/canvas/dimensions";
+import {
+  BETWEEN_LAYERS_SPACING,
+  DOT_KEEPOFF,
+  RECIPE_WIDTH,
+} from "../../src/canvas/dimensions";
 import type { RFAnyNode, RFRecipeNode } from "../../src/canvas/layout";
 import { mkRecipe, recipeNode, orderedRecipeNode } from "./busRouting.testkit";
 import { layoutSolved } from "../../src/canvas/layoutSolved";
@@ -47,7 +55,7 @@ const JOG_RECOLUMNED_MEMBERS = 0;
 const ITEM = "s";
 
 // One layer is a column gap plus a recipe card.
-const LAYER_PITCH = 410;
+const LAYER_PITCH = BETWEEN_LAYERS_SPACING + RECIPE_WIDTH;
 
 // A card parked in the layer between, far below the trunk's own rows: it makes
 // the layer the near / far split needs without obstructing any leg.
@@ -433,17 +441,21 @@ describe("chip placement: a pinned member's chip stays off the shared column", (
     // rule picks, the chip stands on a HORIZONTAL one -- never on the vertical
     // column its siblings share, where every one of their chips would stack.
     const src = producer("src", 0, 0);
+    const far1 = consumer("far1", 3 * LAYER_PITCH, 600);
+    // The blocker's body has to straddle far1's approach ROW, so its top is
+    // derived from that row rather than typed: the row's offset inside the card
+    // moves with the card chrome.
     const blocker = recipeNode(
       "blk",
       2 * LAYER_PITCH,
-      560,
+      600 + portOffsetY(far1, ITEM, "in") - 20,
       mkRecipe("blk", ["z"], ["z"]),
     );
     const nodes: RFAnyNode[] = [
       src,
       layerFiller("mid", LAYER_PITCH),
       blocker,
-      consumer("far1", 3 * LAYER_PITCH, 600),
+      far1,
       consumer("far2", 3 * LAYER_PITCH, 900),
     ];
     const routed = routeAll(nodes, [
@@ -481,9 +493,11 @@ describe("chip placement: a pinned member's chip stays off the shared column", (
 
 describe("the gas_xiranite fan-out of equip_script_4_3", () => {
   // The plan this feature came from: one imported gas_xiranite card feeding
-  // seven consumers spread over several layers. Before the shared column each
-  // of those edges took its own staggered bend column and the card sat behind a
-  // bundle of parallel verticals.
+  // consumers spread over several layers. Before the shared column each of
+  // those edges took its own staggered bend column and the card sat behind a
+  // bundle of parallel verticals. The catalyst split (2026-09-07) moved the
+  // transmuters' xiranite feeds into cycled catalyst rows, which draw no edge,
+  // so the card feeds four members now, down from seven.
   it("leaves the input card on one column", async () => {
     const targets: ItemTarget[] = [
       {
@@ -498,7 +512,7 @@ describe("the gas_xiranite fan-out of equip_script_4_3", () => {
     const sourceId = "u:in:gas_xiranite";
     const members = edges.filter((e) => e.source === sourceId);
     // Premise: this really is the wide fan-out, over more than one layer.
-    expect(members.length).toBeGreaterThanOrEqual(7);
+    expect(members.length).toBeGreaterThanOrEqual(4);
 
     // A jogged member leaves the shared line by design: jogForwardLegs replaces
     // the column with a cleared one when the source horizontal is blocked.
@@ -516,9 +530,9 @@ describe("the gas_xiranite fan-out of equip_script_4_3", () => {
     const columns = onColumn.map(columnOf);
     for (const x of columns) expect(typeof x).toBe("number");
     expect(new Set(columns).size).toBe(1);
-    // Measured census on this plan: 7 members, all of them FAR (the nearest
-    // consumer is more than one layer over), one column at x 244, none of them
-    // re-columned by a jog (four ARE leg-jogged, which keeps the column).
+    // Measured census on this plan after the catalyst split: 4 members, one
+    // column at x 254, none of them re-columned by a jog (one IS leg-jogged,
+    // which keeps the column).
     expect(
       members.filter((e) => (e.data as EdgeData).fanoutColumn === true).length,
     ).toBe(members.length);

@@ -36,7 +36,7 @@
 
 import type { Edge } from "@xyflow/react";
 
-import { GLYPH_SIDE_OFFSET } from "./dimensions";
+import { ENV_FRAME_EXTENTS, GLYPH_SIDE_OFFSET } from "./dimensions";
 import {
   CHAMFER,
   cardClearRunAnchor,
@@ -192,8 +192,8 @@ export const CARD_BORDER = 1;
 // layout positions it by, per node kind. Its origin never moves: the wrapper
 // sits at the model position and the border grows the box on the right and the
 // bottom only.
-//   recipe: the card is content-box RECIPE_WIDTH (300) with a CARD_BORDER frame
-//     per side, so the drawn box is 302 wide and two units taller than
+//   recipe: the card is content-box RECIPE_WIDTH (240) with a CARD_BORDER frame
+//     per side, so the drawn box is 242 wide and two units taller than
 //     recipeHeight -- exactly the offset nodeGeometry's PORT_DRIFT.recipe
 //     derivation records.
 //   product: the model width ALREADY counts the card's borders (124 content +
@@ -201,7 +201,7 @@ export const CARD_BORDER = 1;
 //     the drawn box is the model box.
 //   loop / container: sized by inline width / height in model units, so the
 //     border stays inside the box and likewise adds no growth.
-// Measured in-browser across the seven corpus scenarios (recipe 302 x
+// Measured in-browser across the seven corpus scenarios (recipe 242 x
 // recipeHeight+2 everywhere, product 148x78, group == its model size, no loop
 // node in any corpus plan). Re-derive alongside nodeGeometry's PORT_DRIFT
 // whenever a card's border or box-sizing changes.
@@ -230,10 +230,19 @@ function cardBorder(type: string | undefined): number {
 //
 // These are DRAWN border boxes, the same frame drawnPortsOf reconstructs the
 // polylines in: the model box grown by CARD_GROWTH, which is zero for every
-// kind but the recipe card, whose 1px border makes it 302 wide against the
-// model's 300 (see CARD_BORDER). The audit collects the rendered card rect
+// kind but the recipe card, whose 1px border makes it 242 wide against the
+// model's 240 (see CARD_BORDER). The audit collects the rendered card rect
 // straight off the DOM, so measuring the model box here would leave the two
 // frames two units apart on every recipe.
+//
+// One kind grows further: an environment recipe's frame rectangle (plates and
+// haze beyond the card box, ENV_FRAME_EXTENTS) is an obstacle too, or a chip
+// seats on a plate. That growth is per-node, on top of the neutral
+// cardGrowth; the e2e card-frame criterion still compares the DRAWN card box
+// against the model box plus cardGrowth alone, which is what keeps proving
+// the DOM box did not grow. The rect's `border` absorbs the side extent so
+// the port-zone strip (measured border-inward from the rect edge) still
+// starts at the card's own row edge.
 //
 // Exported so a unit test can observe the growth actually being applied: the
 // e2e card-frame criterion rebuilds the same constants and so cannot see this
@@ -246,13 +255,24 @@ export function cardRectsFor(
     const left = absoluteLeft(n, byId);
     const top = absoluteTop(n, byId);
     const growth = cardGrowth(n.type);
+    const env = n.type === "recipe" && n.data.recipe.environment !== undefined;
+    if (!env) {
+      return {
+        id: n.id,
+        left,
+        top,
+        right: left + nodeWidth(n) + growth,
+        bottom: top + nodeHeight(n) + growth,
+        border: cardBorder(n.type),
+      };
+    }
     return {
       id: n.id,
-      left,
-      top,
-      right: left + nodeWidth(n) + growth,
-      bottom: top + nodeHeight(n) + growth,
-      border: cardBorder(n.type),
+      left: left - ENV_FRAME_EXTENTS.left,
+      top: top - ENV_FRAME_EXTENTS.top,
+      right: left + nodeWidth(n) + growth + ENV_FRAME_EXTENTS.right,
+      bottom: top + nodeHeight(n) + growth + ENV_FRAME_EXTENTS.bottom,
+      border: cardBorder(n.type) + ENV_FRAME_EXTENTS.left,
     };
   });
 }
@@ -673,6 +693,93 @@ type ChipAnchorData = Partial<
   // payload types type them `true`, so the Pick cannot take either as optional.
 > & { fanout?: boolean; fanin?: boolean };
 
+// One seated chip's drawn box, at the anchor its render component draws and
+// the size its seat reserved: halfW is the same per-family chipSeatHalfW the
+// seat reserved (the max counter-scale box the chip paints, so the box here is
+// never narrower than the box the browser shows), halfH the chip pitch height
+// every family shares. Hidden chips draw nothing, so they enumerate none.
+// Exported for the seating suites, which assert chip/obstacle clearance
+// against the boxes the renderers actually draw.
+export type SeatedChipBox = {
+  edgeId: string;
+  family: "label" | "fanout-agg" | "fanout-branch";
+  source: string;
+  target: string;
+  x: number;
+  y: number;
+  halfW: number;
+  halfH: number;
+};
+
+// Every chip family, anchored exactly as its render component anchors it:
+// rebuild the polyline with the same builder and hints, then read the rule
+// anchor off it. contentBounds folds these into the camera frame; the suites
+// read them individually.
+export function seatedChipBoxes(
+  nodes: ReadonlyArray<RFAnyNode>,
+  edges: ReadonlyArray<Edge>,
+): SeatedChipBox[] {
+  const byId = nodeIndexOf(nodes);
+  const out: SeatedChipBox[] = [];
+  const push = (
+    edge: Edge,
+    family: SeatedChipBox["family"],
+    cx: number,
+    cy: number,
+    halfW: number,
+  ): void => {
+    out.push({
+      edgeId: edge.id,
+      family,
+      source: edge.source,
+      target: edge.target,
+      x: cx,
+      y: cy,
+      halfW,
+      halfH: CHIP_HALF_H,
+    });
+  };
+  for (const edge of edges) {
+    const data = edge.data as ChipAnchorData | undefined;
+    // The canvas draws two edge types (Canvas's edgeTypes map); anything else
+    // carries no chip family to draw, and drawnEdge would answer it with the
+    // item shape, so it is skipped before the per-shape arms below.
+    if (edge.type !== "item" && edge.type !== "bus") continue;
+    const ends = drawnPortsOf(edge, byId);
+    if (ends === null) continue;
+    const drawn = drawnEdge(ends, edge.type, edge.data);
+    if (drawn.shape === "item") {
+      push(
+        edge,
+        "label",
+        drawn.labelAnchor.x,
+        drawn.labelAnchor.y,
+        chipSeatHalfW(rateChipText(edge), false),
+      );
+      continue;
+    }
+    // Every trunk draws one aggregate chip, on its owner, and every member its
+    // own rate on the stretch that is its alone.
+    if (isTrunkOwner(data)) {
+      push(
+        edge,
+        "fanout-agg",
+        drawn.trunkAnchor.x,
+        drawn.trunkAnchor.y,
+        chipSeatHalfW(aggregateChipText(edge), false),
+      );
+    }
+    push(
+      edge,
+      "fanout-branch",
+      drawn.branchAnchor.x,
+      drawn.branchAnchor.y,
+      chipSeatHalfW(branchChipText(edge), false),
+    );
+  }
+  return out;
+}
+
 // Content bounding box (flow coords) covering both the node cards AND every
 // chip box, for the camera fit. React Flow's fitView frames node cards only, so
 // a chip standing on a routed leg outside the cards lands outside the framed
@@ -704,48 +811,14 @@ export function contentBounds(
     bottom = Math.max(bottom, t + nodeHeight(n));
   }
 
-  // One chip box, centred at its anchor, into the frame. The half-width is the
-  // box this chip's own text draws, the same reservation the anchor rule seats
-  // by -- not the widest box a chip may ever take.
-  const unionChip = (cx: number, cy: number, halfW: number): void => {
-    left = Math.min(left, cx - halfW);
-    right = Math.max(right, cx + halfW);
-    top = Math.min(top, cy - CHIP_HALF_H);
-    bottom = Math.max(bottom, cy + CHIP_HALF_H);
-  };
-
-  // Every chip family, anchored exactly as its render component anchors it.
-  for (const edge of edges) {
-    const data = edge.data as ChipAnchorData | undefined;
-    // The canvas draws two edge types (Canvas's edgeTypes map); anything else
-    // carries no chip family to frame, and drawnEdge would answer it with the
-    // item shape, so it is skipped before the per-shape arms below.
-    if (edge.type !== "item" && edge.type !== "bus") continue;
-    const ends = drawnPortsOf(edge, byId);
-    if (ends === null) continue;
-    const drawn = drawnEdge(ends, edge.type, edge.data);
-    if (drawn.shape === "item") {
-      unionChip(
-        drawn.labelAnchor.x,
-        drawn.labelAnchor.y,
-        chipSeatHalfW(rateChipText(edge), false),
-      );
-      continue;
-    }
-    // Every trunk draws one aggregate chip, on its owner, and every member its
-    // own rate on the stretch that is its alone.
-    if (isTrunkOwner(data)) {
-      unionChip(
-        drawn.trunkAnchor.x,
-        drawn.trunkAnchor.y,
-        chipSeatHalfW(aggregateChipText(edge), false),
-      );
-    }
-    unionChip(
-      drawn.branchAnchor.x,
-      drawn.branchAnchor.y,
-      chipSeatHalfW(branchChipText(edge), false),
-    );
+  // One chip box each, at the rule anchor its render component draws it at. The
+  // half-width is the box that chip's own text draws, the same reservation the
+  // anchor rule seats by -- not the widest box a chip may ever take.
+  for (const chip of seatedChipBoxes(nodes, edges)) {
+    left = Math.min(left, chip.x - chip.halfW);
+    right = Math.max(right, chip.x + chip.halfW);
+    top = Math.min(top, chip.y - chip.halfH);
+    bottom = Math.max(bottom, chip.y + chip.halfH);
   }
 
   return { x: left, y: top, width: right - left, height: bottom - top };

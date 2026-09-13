@@ -3,9 +3,9 @@
 //
 // Every fixture here is laid out by hand rather than by ELK, so the gap
 // arithmetic is checked against numbers the reader can recompute: recipe cards
-// are RECIPE_WIDTH wide, a layer pitch of 410 leaves ELK's own
-// BETWEEN_LAYERS_SPACING of 110 between two layers, and the reserves come out of
-// the real chip metrics.
+// are RECIPE_WIDTH wide, a layer pitch of RECIPE_WIDTH + ELK_GAP leaves ELK's
+// own BETWEEN_LAYERS_SPACING of 110 between two layers, and the reserves come
+// out of the real chip metrics.
 
 import { describe, it, expect } from "vitest";
 import Fraction from "fraction.js";
@@ -55,7 +55,8 @@ const producer = (id: string, y: number, item: string): RFAnyNode =>
 
 describe("buildLayerModel", () => {
   it("clusters leaf nodes by overlapping x-interval and skips containers", () => {
-    const group = containerNode("g", 390, 0, 340, 400);
+    // The container's own box sits one child inset left of its members.
+    const group = containerNode("g", LAYER_PITCH - 20, 0, 340, 400);
     const nodes: RFAnyNode[] = [
       producer("p", 0, "s"),
       group,
@@ -67,7 +68,7 @@ describe("buildLayerModel", () => {
 
     expect(model.layers.map((l) => [l.left, l.right])).toEqual([
       [0, RECIPE_WIDTH],
-      [410, 410 + RECIPE_WIDTH],
+      [LAYER_PITCH, LAYER_PITCH + RECIPE_WIDTH],
     ]);
     expect(model.layerByNodeId.get("p")).toBe(0);
     expect(model.layerByNodeId.get("c1")).toBe(1);
@@ -77,7 +78,7 @@ describe("buildLayerModel", () => {
 
   it("keeps a narrow card centred in a wide card's extent in one layer", () => {
     // ELK sizes a layer by its widest member and centres the narrower ones
-    // inside it, so a 148-wide product card in a layer of 300-wide recipes has a
+    // inside it, so a PRODUCT_WIDTH card in a layer of RECIPE_WIDTH recipes has a
     // left edge of its own. Splitting on the left edge would invent a layer
     // whose "gap" to its neighbour is negative.
     const inset = (RECIPE_WIDTH - PRODUCT_WIDTH) / 2;
@@ -200,7 +201,7 @@ describe("gap widening on three layers", () => {
     // ELK hands back fractional lefts. Membership, not an x comparison, decides
     // who moves, so a layer on x.5 travels with its gap instead of being
     // stranded while the layers right of it move.
-    const FRACTIONAL = 573.5;
+    const FRACTIONAL = RECIPE_WIDTH + 273.5;
     const nodes: RFAnyNode[] = [
       producer("p", 0, "s"),
       orderedRecipeNode("c", FRACTIONAL, 0, ["s"]),
@@ -251,7 +252,9 @@ describe("gap widening with containers", () => {
   it("shifts a container fully right of the gap as a unit", () => {
     const nodes: RFAnyNode[] = [
       producer("p", 0, "s"),
-      containerNode("g", 390, 0, 340, 400),
+      // One child inset left of its members, so the members' layer starts at
+      // LAYER_PITCH and the gap is exactly ELK_GAP.
+      containerNode("g", LAYER_PITCH - 20, 0, 340, 400),
       inContainer(orderedRecipeNode("c1", 20, 0, ["s"]), "g"),
       inContainer(orderedRecipeNode("c2", 20, 200, ["s"]), "g"),
     ];
@@ -265,7 +268,7 @@ describe("gap widening with containers", () => {
     const widened = widenLayerGaps(nodes, edges);
     const byId = new Map(widened.nodes.map((n) => [n.id, n]));
 
-    expect(byId.get("g")!.position.x).toBe(390 + delta);
+    expect(byId.get("g")!.position.x).toBe(LAYER_PITCH - 20 + delta);
     expect(byId.get("g")!.width).toBe(340);
     // Children are parent-relative, so they follow the container untouched.
     expect(byId.get("c1")!.position.x).toBe(20);

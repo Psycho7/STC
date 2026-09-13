@@ -25,21 +25,20 @@ export type RowCenter = {
   rowClass: string;
   rowCenterY: number;
   handleCenterY: number | null;
-};
-
-// Per recipe node that shows a machine-multiplier chip: the chip's box and the
-// adjacent rate-block box. Audit issue 5 was the old absolute .rn-mult-badge
-// overlapping the rate figures; the promoted header cell must keep them apart.
-export type MultPair = {
-  nodeId: string;
-  chip: AuditChipRect;
-  rate: AuditChipRect;
+  // Every handle id the row carries, in DOM order. A catalyst row must carry
+  // exactly one, "cat:<item>"; an ordinary row carries its own side's id. The
+  // count is what tells a row with a stray second handle from a well-formed
+  // one, which handleCenterY (the FIRST handle's centre) cannot say.
+  handleIds: string[];
+  // The row's own client-rect band, so a handle centre can be checked for
+  // sitting inside the row rather than only near its centre line.
+  rowTop: number;
+  rowBottom: number;
 };
 
 export type AuditData = {
   chips: AuditChipRect[];
   rows: RowCenter[];
-  multPairs: MultPair[];
   recipeNodeCount: number;
   // The React Flow pane's client rect: the visible viewport every chip must sit
   // inside at fit zoom (the camera-fit content-bounds assertion).
@@ -70,35 +69,12 @@ export function collectAudit(): AuditData {
     };
   });
 
-  const toRect = (el: HTMLElement, label: string): AuditChipRect => {
-    const r = el.getBoundingClientRect();
-    return {
-      label,
-      x: r.x,
-      y: r.y,
-      right: r.right,
-      bottom: r.bottom,
-      width: r.width,
-      height: r.height,
-    };
-  };
-
   const recipeNodes = Array.from(
     document.querySelectorAll<HTMLElement>(".react-flow__node-recipe"),
   );
   const rows: RowCenter[] = [];
-  const multPairs: MultPair[] = [];
   for (const node of recipeNodes) {
     const nodeId = node.getAttribute("data-id") ?? "(node)";
-    const chipEl = node.querySelector<HTMLElement>(".rn-mult-chip");
-    const rateEl = node.querySelector<HTMLElement>(".rn-rate-block");
-    if (chipEl !== null && rateEl !== null) {
-      multPairs.push({
-        nodeId,
-        chip: toRect(chipEl, "mult-chip"),
-        rate: toRect(rateEl, "rate-block"),
-      });
-    }
     for (const row of Array.from(
       node.querySelectorAll<HTMLElement>(".rn-row"),
     )) {
@@ -111,6 +87,11 @@ export function collectAudit(): AuditData {
         rowClass: row.className,
         rowCenterY: rr.y + rr.height / 2,
         handleCenterY: hr === null ? null : hr.y + hr.height / 2,
+        handleIds: Array.from(
+          row.querySelectorAll<HTMLElement>("[data-handleid]"),
+        ).map((h) => h.getAttribute("data-handleid") ?? ""),
+        rowTop: rr.y,
+        rowBottom: rr.bottom,
       });
     }
   }
@@ -132,7 +113,6 @@ export function collectAudit(): AuditData {
   return {
     chips,
     rows,
-    multPairs,
     recipeNodeCount: recipeNodes.length,
     containerRect: {
       x: rfRect.x,
@@ -162,6 +142,17 @@ export type NodeGeom = {
   // that carries no per-item handles.
   inPorts: string[];
   outPorts: string[];
+  // Item ids of the catalyst ports ("cat:<item>" handles), in DOM order. They
+  // sit in the input column BELOW every in: row, so a catalyst port's row index
+  // is inPorts.length + its index here. Kept out of inPorts because one card
+  // can carry the same item on both sides (an in: row and a catalyst row), and
+  // because the height model counts catalyst rows through catalystRows.
+  catPorts: string[];
+  // Catalyst rows on the card, counted off the DOM. Each takes a row of card
+  // height on top of the in: rows, which is what the height model needs; the
+  // count is read from the row markup rather than from catPorts so it still
+  // holds when the catalyst rows draw no handle.
+  catalystRows: number;
 };
 export type ChipGeom = {
   edgeId: string;
@@ -275,12 +266,14 @@ export function collectGeometry(): Geometry {
     const nodeId = el.getAttribute("data-id") ?? "(node)";
     const inPorts: string[] = [];
     const outPorts: string[] = [];
+    const catPorts: string[] = [];
     for (const h of Array.from(
       el.querySelectorAll<HTMLElement>("[data-handleid]"),
     )) {
       const hid = h.getAttribute("data-handleid") ?? "";
       if (hid.startsWith("in:")) inPorts.push(hid.slice(3));
       else if (hid.startsWith("out:")) outPorts.push(hid.slice(4));
+      else if (hid.startsWith("cat:")) catPorts.push(hid.slice(4));
     }
     const furniture: Array<[string, PortFurnitureGeom["kind"]]> = [
       [".react-flow__handle", "handle"],
@@ -309,6 +302,8 @@ export function collectGeometry(): Geometry {
       bottom: toGraphY(r.bottom),
       inPorts,
       outPorts,
+      catPorts,
+      catalystRows: el.querySelectorAll(".rn-row.catalyst").length,
     };
   });
 

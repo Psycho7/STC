@@ -10,13 +10,18 @@ import { drawnEdge, PORT_STUB } from "../../src/canvas/edgePath";
 import { drawnPortsOf, nodeIndexOf } from "../../src/canvas/nodeGeometry";
 import { deconflictChipAnchors } from "../../src/canvas/chipSeating";
 import { branchChipText, chipSeatHalfW } from "../../src/canvas/chipMetrics";
-import { DOT_KEEPOFF } from "../../src/canvas/dimensions";
+import {
+  BETWEEN_LAYERS_SPACING,
+  DOT_KEEPOFF,
+  RECIPE_WIDTH,
+} from "../../src/canvas/dimensions";
 import type { RFAnyNode } from "../../src/canvas/layout";
 import { mkRecipe, recipeNode, mkEdge } from "./busRouting.testkit";
 
 describe("chip placement: fan-out trunk chips", () => {
   const r = mkRecipe("r", ["a"], ["b"]);
-  const oneGap = 410; // one layer over: a 110-unit gap right of the source
+  // One layer over: a card plus the 110-unit gap right of the source.
+  const oneGap = RECIPE_WIDTH + BETWEEN_LAYERS_SPACING;
 
   const dataOf = (edges: Edge[], id: string) =>
     edges.find((e) => e.id === id)!.data as {

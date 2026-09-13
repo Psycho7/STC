@@ -77,6 +77,15 @@ function recipeCost(r: StcRecipe): number {
 // same RecipeJson shape, and finalizeRecipe derives `output` (the NET per-time
 // production map) and `produces` (items the recipe nets positive) -- the exact
 // fields the simplex reads. `consumption` is set so adjustPowerPollution runs.
+//
+// `catalyst` is dropped by design. A catalyst is recycled in full, so it
+// contributes nothing to the mass balance the simplex solves, and the STC
+// solver does not fund it either. Passing it through as an input would make
+// the oracle demand supply the reference solver never demands. The one place
+// the two models part is a finite POSITIVE cap on a cycled item: STC charges
+// the catalyst against that cap and the oracle does not, so a scenario that
+// caps gas_xiranite or liquid_xiranite diverges by construction and is kept
+// out of the sweep. No scenario here sets one.
 function toAdjustedRecipe(r: StcRecipe): AdjustedRecipe {
   const json: RecipeJson = {
     id: r.id,

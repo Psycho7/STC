@@ -25,6 +25,10 @@ import {
   routeTrunkEdges,
 } from "../../src/canvas/busRouting";
 import {
+  BETWEEN_LAYERS_SPACING,
+  RECIPE_WIDTH,
+} from "../../src/canvas/dimensions";
+import {
   COLUMN_PITCH,
   widenLayerGaps,
   type GapRecord,
@@ -41,7 +45,7 @@ import {
   chipSeatHalfW,
 } from "../../src/canvas/chipMetrics";
 import { deconflictChipAnchors } from "../../src/canvas/chipSeating";
-import { drawnPortsOf } from "../../src/canvas/nodeGeometry";
+import { drawnPortsOf, portOffsetY } from "../../src/canvas/nodeGeometry";
 import type { RFAnyNode, RFRecipeNode } from "../../src/canvas/layout";
 import { mkRecipe, recipeNode, orderedRecipeNode } from "./busRouting.testkit";
 import { layoutSolved } from "../../src/canvas/layoutSolved";
@@ -53,7 +57,7 @@ import { SCENARIOS } from "../e2e/scenarios";
 const ITEM = "s";
 
 // One layer is a column gap plus a recipe card.
-const LAYER_PITCH = 410;
+const LAYER_PITCH = RECIPE_WIDTH + BETWEEN_LAYERS_SPACING;
 
 const producer = (id: string, x: number, y: number): RFRecipeNode =>
   recipeNode(id, x, y, mkRecipe(id, [], [ITEM]));
@@ -458,17 +462,21 @@ describe("jogged descents stay left of the target zone", () => {
     // that member's leg to a clear y and has to pick a descent column in front
     // of the target. That column is an arrival slot like any other.
     const src = producer("src", 0, 0);
+    const far1 = consumer("far1", 3 * LAYER_PITCH, 600);
+    // The blocker's body has to straddle far1's approach ROW, so its top is
+    // derived from that row rather than typed: the row's offset inside the card
+    // moves with the card chrome.
     const blocker = recipeNode(
       "blk",
       2 * LAYER_PITCH,
-      560,
+      600 + portOffsetY(far1, ITEM, "in") - 20,
       mkRecipe("blk", ["z"], ["z"]),
     );
     const nodes: RFAnyNode[] = [
       src,
       layerFiller("mid", LAYER_PITCH),
       blocker,
-      consumer("far1", 3 * LAYER_PITCH, 600),
+      far1,
       consumer("far2", 3 * LAYER_PITCH, 900),
     ];
     const widened = widenLayerGaps(nodes, [
@@ -601,8 +609,8 @@ describe("routeTrunkEdges: a fan-in trunk of FAR members only", () => {
 
 describe("the default plan's Sewage fan-in", () => {
   // Two Refining Units feed the sewage output two layers over: a fan-in trunk
-  // whose members are both far AND both jogged (a card of the layer between
-  // straddles each source row). Before the source columns were zoned they took
+  // of two far members, one of them jogged (a card of the layer between
+  // straddles its source row). Before the source columns were zoned they took
   // the same column a few units out of their ports, merged there, and ran
   // collinear to the target with one chip on the shared line.
   const layOut = async (): Promise<{ nodes: RFAnyNode[]; edges: Edge[] }> => {
@@ -630,12 +638,24 @@ describe("the default plan's Sewage fan-in", () => {
 
     const columns = new Set(members.map((e) => (e.data as EdgeData).bendX));
     expect(columns.size).toBe(1);
-    // Distinct source-side columns, one entry slot apart: the two stubs stay
-    // two lines, each carrying its own rate, instead of merging at the port.
-    const srcCols = members
-      .map((e) => (e.data as EdgeData).srcColX as number)
+    // Source-side columns at least one entry slot apart: the two stubs stay two
+    // lines, each carrying its own rate, instead of merging at the port. The
+    // column is read off the DRAWN polyline -- where the source run turns --
+    // because only a jogged member carries an explicit srcColX; a member whose
+    // own source run is clear keeps the drawer's default column.
+    // MERGE 2026-09-13 (placement rule on the develop merge): the trimmed card
+    // clears the lex-smaller member's source run, so it is no longer re-columned
+    // and the pair is no longer EXACTLY one slot apart. The separation itself,
+    // which is what the describe exists for, is unchanged.
+    const turnCols = members
+      .map((e) => {
+        const ports = drawnPortsOf(e, byId)!;
+        return drawnEdge(ports, e.type, e.data).pts[1]![0];
+      })
       .sort((a, b) => a - b);
-    expect(srcCols[1]! - srcCols[0]!).toBe(ENTRY_SLOT_PITCH);
+    expect(turnCols[1]! - turnCols[0]!).toBeGreaterThanOrEqual(
+      ENTRY_SLOT_PITCH,
+    );
 
     for (const e of members) {
       const ports = drawnPortsOf(e, byId)!;

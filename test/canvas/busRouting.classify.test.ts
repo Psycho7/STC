@@ -18,6 +18,10 @@ import {
   directCorridorClear,
   jogForwardLegs,
 } from "../../src/canvas/busRouting";
+import {
+  BETWEEN_LAYERS_SPACING,
+  RECIPE_WIDTH,
+} from "../../src/canvas/dimensions";
 import { COLUMN_PITCH, widenLayerGaps } from "../../src/canvas/layerModel";
 import { nodeWidth } from "../../src/canvas/nodeGeometry";
 import { deconflictChipAnchors } from "../../src/canvas/chipSeating";
@@ -31,8 +35,9 @@ import {
 
 describe("routeTrunkEdges (6C)", () => {
   const r = mkRecipe("r", ["a"], ["b"]);
-  // One layer over: the targets' left edge, 110 right of the source card.
-  const oneGap = 410;
+  // One layer over: the targets' left edge, one BETWEEN_LAYERS_SPACING right
+  // of the source card.
+  const oneGap = RECIPE_WIDTH + BETWEEN_LAYERS_SPACING;
 
   const fanData = (edges: Edge[], id: string) =>
     edges.find((e) => e.id === id)!.data as {
@@ -62,7 +67,7 @@ describe("routeTrunkEdges (6C)", () => {
       expect(d.trunkKey).toBe("b|s");
       // Junction column stamped, inside the corridor.
       expect(typeof d.junctionX).toBe("number");
-      expect(d.junctionX!).toBeGreaterThan(300); // right of source
+      expect(d.junctionX!).toBeGreaterThan(RECIPE_WIDTH); // right of source
       expect(d.junctionX!).toBeLessThan(oneGap); // left of targets
     }
     // Aggregate = summed member rates (1 + 1), count 2, exactly one owner.
@@ -144,7 +149,7 @@ describe("routeTrunkEdges (6C)", () => {
     // membership is topological now, so the pair is a trunk all the same. The
     // pre-pass widens such a gap before this runs; the pass itself never
     // declines one.
-    const tight = 360;
+    const tight = RECIPE_WIDTH + 60;
     const nodes: RFAnyNode[] = [
       recipeNode("s", 0, 0, r),
       recipeNode("t1", tight, 0, r),
@@ -395,9 +400,9 @@ describe("routeTrunkEdges (6C)", () => {
 
 describe("directCorridorClear", () => {
   const r = mkRecipe("r", ["a"], ["b"]);
-  // Past two full layers (a 300-wide card plus a 410 layer pitch), the reach
-  // the census helper is asked about.
-  const far = 300 + 2 * 410 + 50;
+  // Past two full layers (a card plus two layer pitches), the reach the census
+  // helper is asked about.
+  const far = RECIPE_WIDTH + 2 * (RECIPE_WIDTH + BETWEEN_LAYERS_SPACING) + 50;
 
   it("reads a card-straddled corridor as blocked", () => {
     const nodes: RFAnyNode[] = [

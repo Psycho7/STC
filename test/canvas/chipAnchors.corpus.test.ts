@@ -53,6 +53,11 @@ import { SCENARIOS } from "../e2e/scenarios";
 // fractional layout coordinates, so they agree well inside a pixel.
 const EPS = 1e-6;
 
+// The path builder rounds every coordinate it emits to two decimals, so an
+// anchor read off a drawn polyline and the same seat recomputed here from
+// unrounded layout coordinates differ by up to half a hundredth of a unit.
+const ROUNDING = 0.005 + EPS;
+
 type Chip = {
   plan: string;
   edge: string;
@@ -354,9 +359,9 @@ describe("a far trunk member's chip stands on the run the rule names", () => {
         // The seat is the port-stub one, or the run's own end where the run is
         // too short to hold the box that far out.
         const seated =
-          Math.abs(chip.x - seat) <= EPS ||
-          Math.abs(chip.x - run.lo) <= EPS ||
-          Math.abs(chip.x - run.hi) <= EPS;
+          Math.abs(chip.x - seat) <= ROUNDING ||
+          Math.abs(chip.x - run.lo) <= ROUNDING ||
+          Math.abs(chip.x - run.hi) <= ROUNDING;
         // The named seat as the rule resolves it: the port-stub seat clamped
         // onto the named run.
         const namedX = Math.min(Math.max(seat, run.lo), run.hi);

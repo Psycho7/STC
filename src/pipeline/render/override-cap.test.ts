@@ -28,6 +28,7 @@ function solveAndRender(
 ): {
   plan: RenderPlan;
   rates: ReadonlyMap<string, Fraction>;
+  catalystDraw: ReadonlyMap<string, Fraction>;
   softFeasible: boolean;
 } {
   const { full, plan } = solveForRender({
@@ -46,6 +47,7 @@ function solveAndRender(
   return {
     plan,
     rates: full.rates,
+    catalystDraw: full.catalystDraw,
     softFeasible: full.feasibility.softFeasible,
   };
 }
@@ -197,38 +199,49 @@ describe("residual split on a capped raw item with a real producer", () => {
     expect(input.rate).toEqual({ num: "1", denom: "2" });
     expect(input.rateCap).toEqual({ num: "1", denom: "2" });
   });
+});
 
-  // The same split on the shipped pack, where the capped item is a gas the
-  // phase-transition recipe can make: gas_xiranite capped at 1/10 is drawn in
-  // full and phase_trans_2-gas_xiranite covers the rest.
-  it("splits a shipped-pack cap between the boundary and a real producer", () => {
-    const { plan, rates, softFeasible } = solveAndRender(
+// The shipped pack no longer splits a gas_xiranite cap the way the synthetic
+// pack above splits m. The xiranite a phase transmuter cycles is a catalyst:
+// it stays out of mass balance, so nothing consumes it and no boundary draw
+// stands for it. A finite positive cap still binds it - the cap row charges
+// the cycled quantity - so the cap throttles the recipe that cycles it and
+// the demand routes around that recipe instead of splitting.
+describe("catalyst charged against a shipped-pack cap", () => {
+  it("spends the whole cap on the cycled charge and routes the rest around it", () => {
+    const { plan, rates, catalystDraw, softFeasible } = solveAndRender(
       [{ itemId: "gas_copper", ratePerSec: { num: "1", denom: "1" } }],
       [{ itemId: "gas_xiranite", ratePerSec: { num: "1", denom: "10" } }],
     );
     expect(softFeasible).toBe(true);
-    expect(rates.get("phase_trans_2-gas_xiranite")?.gt(0)).toBe(true);
-    const input = plan.units.find(
+    // 0.2 gas_xiranite cycled per cycle against a 1/10 cap holds
+    // phase_trans_2-gas_copper to 1/2 cycles/sec, and it makes 1 gas_copper
+    // per cycle. phase_trans_1-gas_copper cycles liquid_xiranite, which
+    // carries no cap, and covers the other half of the 1/s target.
+    expect(
+      rates.get("phase_trans_2-gas_copper")?.equals(new Fraction(1, 2)),
+    ).toBe(true);
+    expect(
+      rates.get("phase_trans_1-gas_copper")?.equals(new Fraction(1, 2)),
+    ).toBe(true);
+    expect(catalystDraw.get("gas_xiranite")?.equals(new Fraction(1, 10))).toBe(
+      true,
+    );
+    // The cycled charge is boundary supply: one import card carrying the whole
+    // 1/10 draw, one catalyst edge into the transmuter that cycles it, and the
+    // internal producer the old split funded to cover the rest is not funded.
+    const importCard = plan.units.find(
       (u) => isInputProductUnit(u) && u.itemId === "gas_xiranite",
     );
-    if (!input || !isInputProductUnit(input)) throw new Error("missing input");
-    expect(input.rate).toEqual({ num: "1", denom: "10" });
-    const producerUnit = plan.units.find(
-      (u) => isRecipeUnit(u) && u.recipeId === "phase_trans_2-gas_xiranite",
-    );
-    expect(producerUnit).toBeDefined();
-    // Both reaches into the gas_xiranite consumers exist: the boundary draw and
-    // the internal producer.
-    expect(
-      plan.edges.some(
-        (e) => e.fromUnit === input.id && e.item === "gas_xiranite",
-      ),
-    ).toBe(true);
-    expect(
-      plan.edges.some(
-        (e) => e.fromUnit === producerUnit!.id && e.item === "gas_xiranite",
-      ),
-    ).toBe(true);
+    expect(importCard).toBeDefined();
+    expect((importCard as { rate: unknown }).rate).toEqual({
+      num: "1",
+      denom: "10",
+    });
+    const xiraniteEdges = plan.edges.filter((e) => e.item === "gas_xiranite");
+    expect(xiraniteEdges.map((e) => e.toPortKind)).toEqual(["catalyst"]);
+    expect(xiraniteEdges[0]!.rate.equals(new Fraction(1, 10))).toBe(true);
+    expect(rates.has("phase_trans_2-gas_xiranite")).toBe(false);
   });
 });
 
