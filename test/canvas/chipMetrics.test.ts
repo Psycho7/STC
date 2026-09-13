@@ -39,14 +39,6 @@ describe("chipSeatHalfW: the per-chip reserved box", () => {
     );
   });
 
-  it("charges no unit to a share chip, which draws digits only", () => {
-    // A multi-member bus rise reads "30/270" with no unit (issue #45), so the
-    // 34px unit reserve must not be charged to it.
-    expect(chipSeatHalfW({ body: "30/270", unit: false }, false)).toBe(
-      (MAX_CHIP_SCALE * (CHROME + 6 * GLYPH)) / 2,
-    );
-  });
-
   it("clamps at the CSS max-width, which is the old worst case", () => {
     // .flow-chip has max-width: 120px and ellipsizes past it, so no estimate may
     // exceed CHIP_BOX_WIDTH however long the digits get.
@@ -80,23 +72,9 @@ describe("aggregateChipText / branchChipText", () => {
       data: { item: "a", ...data },
     }) as unknown as Parameters<typeof branchChipText>[0];
 
-  it("branch: a multi-member trunk reads as a unit-less share of the total", () => {
-    const text = branchChipText(
-      member({
-        rate: new Fraction(1, 2), // 30/min
-        busMemberCount: 2,
-        busTotalRate: new Fraction(9, 2), // 270/min
-      }),
-    );
-    expect(text).toEqual({ body: "30/270", unit: false });
-  });
-
-  it("branch: a fan-out member keeps the plain rate + unit reading", () => {
-    // R3 (exam 2026-09-04): the share form is reserved for bus-LANE members.
-    // routeFanoutEdges retypes a formed fan-out branch to type "bus" with
-    // busMemberCount >= 2, so keying the share on the count alone printed
-    // "15/30" beside the "15/min" item edges of its unformed siblings. The
-    // fanout discriminant returns the plain body + unit instead.
+  it("branch: a multi-member trunk reads the member's own rate + unit", () => {
+    // The trunk total prints on the aggregate chip alone; a member chip never
+    // repeats it as a share.
     const text = branchChipText(
       member({
         rate: new Fraction(1, 2), // 30/min
@@ -113,13 +91,6 @@ describe("aggregateChipText / branchChipText", () => {
       member({ rate: new Fraction(1, 2), busMemberCount: 1 }),
     );
     expect(text).toEqual({ body: "30", unit: true });
-  });
-
-  it("branch: multi-member with busTotalRate absent falls back to its own rate as the total", () => {
-    const text = branchChipText(
-      member({ rate: new Fraction(1, 2), busMemberCount: 2 }),
-    );
-    expect(text).toEqual({ body: "30/30", unit: false });
   });
 
   it("aggregate: shows the trunk total with unit, falling back to the member rate", () => {
@@ -159,13 +130,6 @@ describe("examChipReservations", () => {
   it("maps each edge to its FlowChip testIds with the builder texts", () => {
     const rows = examChipReservations([
       edge("i1", "item", { rate: new Fraction(1, 2) }), // 30/min
-      edge("b1", "bus", {
-        rate: new Fraction(1, 2), // 30/min
-        busMemberCount: 2,
-        busTotalRate: new Fraction(9, 2), // 270/min
-      }),
-      // R3: a fan-out member reserves the plain rate + unit, never the share
-      // form its lane-member sibling above reserves.
       edge("f1", "bus", {
         rate: new Fraction(1, 2), // 30/min
         fanout: true,
@@ -180,22 +144,6 @@ describe("examChipReservations", () => {
         unit: true,
         reservedPx:
           (2 * chipSeatHalfW({ body: "30", unit: true }, false)) /
-          MAX_CHIP_SCALE,
-      },
-      {
-        testId: "bus-edge-label-b1-drop",
-        body: "270",
-        unit: true,
-        reservedPx:
-          (2 * chipSeatHalfW({ body: "270", unit: true }, false)) /
-          MAX_CHIP_SCALE,
-      },
-      {
-        testId: "bus-edge-label-b1-rise",
-        body: "30/270",
-        unit: false,
-        reservedPx:
-          (2 * chipSeatHalfW({ body: "30/270", unit: false }, false)) /
           MAX_CHIP_SCALE,
       },
       {

@@ -1547,7 +1547,7 @@ describe("seatRateChip: a narrow reserve takes a corridor the wide box cannot", 
     // it needs 120 of clearance either side and only 105 exists, so every
     // on-line candidate crosses a stroke, no sidestep inside the containment
     // bound helps, and the seat is a graze at the anchor. A chip drawing
-    // "30/270" reserves 166, half of which is 83 -- it fits, so the same seat is
+    // "30/min" reserves 174, half of which is 87 -- it fits, so the same seat is
     // fully clear and stays a tier-1 anchor.
     const wall = (x: number): EdgeSegments => ({
       id: `w${x}`,
@@ -1583,7 +1583,7 @@ describe("seatRateChip: a narrow reserve takes a corridor the wide box cannot", 
         exempt: NO_EXEMPT,
         entryBand: NO_BAND,
       },
-      { text: { body: "30/270", unit: false } },
+      { text: { body: "30", unit: true } },
     );
     expect(narrow).toMatchObject({ dx: 0, dy: 0, tier: "anchor" });
   });

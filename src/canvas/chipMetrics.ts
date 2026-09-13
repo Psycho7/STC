@@ -89,9 +89,9 @@ export const CHIP_UNIT_MAX_PX = 34;
 
 // What one chip's box is going to DRAW, as the seat needs to know it: the body
 // string the component builds, and whether the localized rate unit follows it.
-// Mirrors the chip text in ItemEdge (rate + unit) and BusEdge (aggregate total +
-// unit; a multi-member share "30/270", digits only, no unit), so the callers
-// below build it from the same edge-data fields at seating time. The seat and
+// Mirrors the chip text in ItemEdge (rate + unit) and BusEdge (aggregate total
+// + unit, member rate + unit), so the callers below build it from the same
+// edge-data fields at seating time. The seat and
 // the render must agree on the box AT REST; the rendered-width probe check is
 // the cross-check that they do.
 export type ChipText = { body: string; unit: boolean };
@@ -160,34 +160,13 @@ export function aggregateChipText(edge: Edge): ChipText | undefined {
     : { body: formatRatePerMin(total), unit: true };
 }
 
-// The chip text a bus member's per-member chip (lane rise / fan-out branch)
-// draws. The SHARE -- "30/270", digits only, no unit, because the unit would
-// not fit the box beside a decimal pair and differs per locale, so the full
-// localized wording rides the label and title instead (BusEdge, issue #45) --
-// is a bus-LANE member's reading (R3, exam 2026-09-04): a lane rise names one
-// share of a trunk total the reader cannot otherwise split. A formed FAN-OUT
-// branch is a direct in-corridor leg drawn beside its unformed siblings' plain
-// item edges, so it keeps the plain rate + unit those siblings read. A lone
-// lane member is its own total and keeps the plain rate + unit reading too.
-// The single source of the share-form predicate: BusEdge derives which of the
-// two readings its per-member chip draws from THIS builder (unit === false is
-// the share form), so the seat and the render agree on the box by
-// construction. Consulted by every seat that reserves a member chip's box --
-// the fan-out branch seat and, since Task 10, the lane rise seat -- and by the
-// exam reservation rows for both member kinds.
+// The chip text a fan-out member's own chip draws: the member's own rate plus
+// the unit, the same reading as the plain item edges beside it. The trunk total
+// prints on the aggregate chip alone. The seating pass reserves the member
+// chip's box through this builder and the exam reservation rows read it too;
+// BusEdge formats the same rate the same way.
 export function branchChipText(edge: Edge): ChipText | undefined {
-  const plain = rateChipText(edge);
-  if (plain === undefined || plain.body === "") return plain;
-  const data = edge.data as BusEdgeData | undefined;
-  // Fan-out members never take the share form (see the doc comment above);
-  // BusEdge reads the form from this return, never a predicate of its own.
-  if (data?.fanout === true) return plain;
-  if ((data?.busMemberCount ?? 1) <= 1) return plain;
-  const total = data?.busTotalRate ?? edgeRate(edge)!;
-  const shareTotal = formatRatePerMin(total);
-  return shareTotal === ""
-    ? plain
-    : { body: `${plain.body}/${shareTotal}`, unit: false };
+  return rateChipText(edge);
 }
 
 // One row per chip an edge CAN draw, keyed by the FlowChip testId, carrying the

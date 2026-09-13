@@ -7,7 +7,6 @@ import { loadI18n, type Locale } from "./i18n";
 const NON_LATIN_UNIT_LOCALES: Locale[] = ["zh"];
 const RATE_KEYS = [
   "product.tap.share",
-  "canvas.chip.share",
   "inputs.rate.cap",
   "inputs.needed",
 ] as const;

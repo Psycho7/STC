@@ -13,7 +13,6 @@ import {
 } from "./ItemEdge";
 import { isTrunkOwner, type BusEdgeData } from "./busRouting";
 import { drawnEdge } from "./edgePath";
-import { branchChipText } from "./chipMetrics";
 import { anchorStampLive } from "./dimensions";
 import { useI18n } from "../data/i18n-context";
 import { formatRateExactPerMin, formatRatePerMin } from "../data/rate-format";
@@ -33,11 +32,9 @@ export { junctionRadius };
 // target. A lone-member trunk labels itself with the rate chip (icon +
 // rate/min), reusing ItemEdge's flow-chip markup and zoom gate so a bus member
 // reads the same as a plain item edge near what it feeds. A fan-out member's
-// branch chip keeps the plain rate reading (R3).
+// branch chip shows that member's own rate.
 export default function BusEdge({
   id,
-  source,
-  target,
   sourceX,
   sourceY,
   targetX,
@@ -145,63 +142,17 @@ export default function BusEdge({
     (hiddenAt === undefined ||
       (fan !== null && anchorStampLive(hiddenAt, fan.branchAnchor)));
   const memberChipHidden = branchHidden;
-  // On a multi-member trunk the member chip reads as a SHARE of the trunk
-  // it runs in ("30/270") rather than a bare rate, so a member's number is never
-  // mistaken for the whole trunk's throughput (issue #45). The chip carries
-  // digits only: the unit would not fit the fixed chip box beside a decimal
-  // pair, and it differs per locale, so the label and tooltip below spell out
-  // the full localized wording instead. The denominator is the trunk's exact
-  // total rounded once, matching the boundary cards, so the visible members may
-  // sum a cent off it; the tooltip keeps the exact one. A lone member is its
-  // own total, so it keeps the plain rate + unit reading -- and so does a
-  // formed FAN-OUT member (R3, exam 2026-09-04): its branch is a direct
-  // in-corridor leg drawn beside its unformed siblings' plain item edges. WHICH of the two forms
-  // this render draws is branchChipText's call alone -- the same builder the
-  // seating pass reserved this chip's box through, so the seat and the render
-  // cannot drift apart. Its only unit-less return is the share form, and its
-  // exact formatters can fall back to a "/"-bearing fraction string, so the
-  // two display strings stay composed here rather than split back out of its
-  // body.
-  const branchText = branchChipText({
-    id,
-    source,
-    target,
-    ...(data !== undefined ? { data } : {}),
-  });
-  const isShare = branchText?.unit === false;
-  // The share denominator is the trunk total the drop chip already rounded, so
-  // the two chips of one trunk can never print different totals.
-  const shareTotalStr = isShare ? dropRateStr : "";
+  // Branch chip text: this member's own rate plus the unit, the same reading
+  // as the plain item edges beside it. The trunk total prints on the aggregate
+  // chip alone.
   const plainRate = `${memberRateStr}${unit}`;
   const riseText =
-    showMemberChip && memberRateStr && !memberChipHidden
-      ? isShare
-        ? `${memberRateStr}/${shareTotalStr}`
-        : plainRate
-      : "";
+    showMemberChip && memberRateStr && !memberChipHidden ? plainRate : "";
   const riseLabel =
-    edgeData && memberRateStr
-      ? rateLabel(
-          itemName,
-          isShare
-            ? i18n.t("canvas.chip.share", {
-                rate: memberRateStr,
-                total: shareTotalStr,
-              })
-            : plainRate,
-        )
-      : "";
+    edgeData && memberRateStr ? rateLabel(itemName, plainRate) : "";
   const riseTitle =
     edgeData && memberRateStr
-      ? rateLabel(
-          itemName,
-          isShare
-            ? i18n.t("canvas.chip.share", {
-                rate: memberExactStr,
-                total: totalExactStr,
-              })
-            : `${memberExactStr}${unit}`,
-        )
+      ? rateLabel(itemName, `${memberExactStr}${unit}`)
       : "";
   // Per-member chip anchor: the branch-leg midpoint plus its offset.
   const branchX =
@@ -255,7 +206,7 @@ export default function BusEdge({
         markerEnd={markerEnd}
       />
       {/* A hidden branch chip was this
-          member's only exact-rate tooltip carrier, so keep the share reachable
+          member's only exact-rate tooltip carrier, so keep the rate reachable
           on the edge itself: a transparent hover path over the same geometry
           carries the native SVG tooltip. */}
       {memberChipHidden && riseTitle ? (
