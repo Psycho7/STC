@@ -96,48 +96,6 @@ describe("contentBounds: stale hides frame the chip again", () => {
     height: NODE_H,
   };
 
-  const faninEdges = (hiddenAtY: number): Edge[] => {
-    const data = {
-      item: "ore",
-      rate: new Fraction(1),
-      labelDy: 900,
-      faninChipHidden: true,
-      faninChipHiddenAtY: hiddenAtY,
-    };
-    return [{ id: "e1", type: "item", source: "a", target: "b", data }];
-  };
-
-  it("skips a fan-in member chip whose stamp still matches the live port", () => {
-    // Stamp == the live target port y: the hide holds, ItemEdge draws no chip,
-    // so the 900-unit cascade below the cards frames nothing.
-    expect(contentBounds(NODES, faninEdges(TY))).toEqual(NODE_BOX);
-  });
-
-  it("frames a fan-in member chip whose stamp has drifted off the live port", () => {
-    // A drag moved the port exactly HIDE_STALE_EPS off the stamp. The renderer
-    // treats that as stale (its test is >=) and draws the chip, so the rect has
-    // to grow down to it.
-    const edges = faninEdges(TY + HIDE_STALE_EPS);
-    const [, lx, ly] = chamferStepPath({
-      sourceX: SX,
-      sourceY: SY,
-      targetX: TX,
-      targetY: TY,
-      ...routingHintsFromData(edges[0]!.data),
-    });
-    const boxLeft = Math.min(0, lx - CHIP_HALF_W);
-    const boxRight = Math.max(TX + NODE_W, lx + CHIP_HALF_W);
-    const boxTop = Math.min(0, ly + 900 - CHIP_HALF_H);
-    const boxBottom = Math.max(NODE_H, ly + 900 + CHIP_HALF_H);
-
-    expect(contentBounds(NODES, edges)).toEqual({
-      x: boxLeft,
-      y: boxTop,
-      width: boxRight - boxLeft,
-      height: boxBottom - boxTop,
-    });
-  });
-
   // A non-owner fan-out member (busChipOwner false, so no aggregate chip is
   // framed) whose branch chip cascaded 900 units below its leg.
   const fanoutEdges = (hiddenAt: { x: number; y: number }): Edge[] => {

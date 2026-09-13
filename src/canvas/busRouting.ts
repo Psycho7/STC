@@ -28,6 +28,7 @@ import {
   clamp,
   clearRailY,
   forwardStepGeometry,
+  routingHintsFromData,
   type ObstacleRect,
 } from "./edgePath";
 import {
@@ -43,7 +44,9 @@ import {
   COLUMN_PITCH,
   buildLayerModel,
   classifyTrunks,
+  type GapRecord,
   type Trunk,
+  type TrunkKind,
 } from "./layerModel";
 import type { RFAnyNode, RoutingCtx } from "./layout";
 // Type-only: ItemEdge.tsx declares the base canvas edge payload these passes
@@ -76,7 +79,7 @@ export function isTrunkOwner(data: Partial<BusAggregate> | undefined): boolean {
   return data?.busChipOwner ?? true;
 }
 
-// Fan-out trunk member (routeFanoutEdges). Retyped `type: "bus"` -- so Canvas
+// Fan-out trunk member (routeTrunkEdges). Retyped `type: "bus"` -- so Canvas
 // trunk adjacency and hover-dim pick it up -- and it consolidates N
 // same-source-port edges onto one shared junction column in a single layer gap.
 // `fanout: true` is always set, so BusEdge draws the short in-corridor trunk
@@ -88,6 +91,9 @@ export function isTrunkOwner(data: Partial<BusAggregate> | undefined): boolean {
 // its vertical leg).
 export type FanoutBusEdgeData = BusAggregate & {
   fanout: true;
+  // The absent half of the discriminated union below, so a reader can ask
+  // either question of a BusEdgeData without narrowing it first.
+  fanin?: undefined;
   junctionX?: number;
   fanoutAggDx?: number;
   fanoutAggDy?: number;
@@ -112,20 +118,30 @@ export type FanoutBusEdgeData = BusAggregate & {
   fanoutBranchIconOnly?: true;
 };
 
-// Data fields the bus pass merges onto a member edge's existing `data`. Every
-// bus-typed edge is a fan-out member, so the payload is that one shape.
-export type BusEdgeData = FanoutBusEdgeData;
+// Fan-in trunk member (routeTrunkEdges), the mirror of the fan-out payload
+// above. Retyped `type: "bus"` the same way, with `fanin: true` as the
+// discriminant BusEdge draws the merge shape (chamferFaninPath) from.
+// `junctionX` is the trunk's shared merge column, the slot it took from the
+// RIGHT of its gap's reserved column zone. The aggregate reuses BusAggregate:
+// here busChipOwner marks the member that draws the trunk's one aggregate chip
+// on the shared leg into the port. Its chip offsets are the four fanin* below,
+// threaded by deconflictChipAnchors and added to the fan-in chip anchors by
+// BusEdge (the aggregate slides along the shared leg, a member along its own
+// source stub).
+export type FaninBusEdgeData = BusAggregate & {
+  fanin: true;
+  fanout?: undefined;
+  junctionX?: number;
+  faninAggDx?: number;
+  faninAggDy?: number;
+  faninMemberDx?: number;
+  faninMemberDy?: number;
+};
 
-// Read a Fraction rate off an edge's data, or undefined when it is absent or not
-// a Fraction (older fixtures may omit it). Exported because the chip-seating
-// pass reads the same field to predict a chip's drawn text, and two readers of
-// one loosely typed field would be free to disagree about what counts as a rate.
-export function edgeRate(edge: Edge): Fraction | undefined {
-  // Deliberately weaker than ItemEdgeData: older fixtures carry a non-Fraction
-  // rate, so the guard below has to see `unknown` rather than a claimed type.
-  const rate = (edge.data as { rate?: unknown } | undefined)?.rate;
-  return rate instanceof Fraction ? rate : undefined;
-}
+// Data fields the bus pass merges onto a member edge's existing `data`: a
+// bus-typed edge is a member of one trunk or the other, so the payload is the
+// union of the two shapes, discriminated by `fanout` / `fanin`.
+export type BusEdgeData = FanoutBusEdgeData | FaninBusEdgeData;
 
 // The four port coordinates of one edge: the source's out-port on its right
 // edge and the target's in-port on its left edge, each at the row the edge's
@@ -152,17 +168,6 @@ export function edgePortsModel(
     tx: absoluteLeft(target, byId),
     ty: absoluteTop(target, byId) + portOffsetY(target, item, "in"),
   };
-}
-
-// Key of one FLOW: the (item, source unit) pair leaving a single out-port. A
-// recipe out-port carries exactly one item, so item plus source id names the
-// port, and every edge sharing the key draws as one physical line. Fan-out
-// trunks (routeFanoutEdges) key on it -- that is the `trunkKey` they stamp --
-// and chip seating reuses it to decide which lines a chip may legitimately sit
-// on. Built here so the callers cannot drift on the separator or on how a
-// missing item is spelled.
-export function flowKeyOf(item: string | undefined, source: string): string {
-  return (item ?? "?") + "|" + source;
 }
 
 // Numeric index encoded in an ELK edge id, or null for a hand-built id. layout's
@@ -210,122 +215,146 @@ function ownExempt(nodes: ReadonlyArray<RFAnyNode>): Set<string> {
   return exempt;
 }
 
-// routeFanoutEdges: draw every fan-out trunk of the graph on one shared
-// junction column. Its place in the order, and why that placement is scheduling
-// rather than a dependency, is the ROUTING_PASSES entry in layout.ts.
+// routeTrunkEdges: draw every trunk of the graph -- fan-out and fan-in alike --
+// on one shared junction column. Its place in the order, and why that placement
+// is scheduling rather than a dependency, is the ROUTING_PASSES entry in
+// layout.ts.
 //
-// Membership is TOPOLOGICAL, not geometric: the trunks come from
-// classifyTrunks, so any (item, source unit) port feeding two or more target
-// units is a trunk whatever the gap widths are. Nothing here re-decides it, and
-// nothing declines a trunk -- the pre-pass already widened the gap for the
-// columns and chips this pass places.
+// Membership is TOPOLOGICAL, not geometric: the trunks come from classifyTrunks,
+// so any (item, unit) port feeding or fed by two or more counterpart units is a
+// trunk whatever the gap widths are. Nothing here re-decides it, and nothing
+// declines a trunk -- the pre-pass already widened the gap for the columns and
+// chips this pass places.
 //
-// The column comes from the GAP RECORD the pre-pass produced (ctx.gaps). A
-// trunk whose source unit sits in layer k takes a slot in gap k's column zone,
-// which was reserved one COLUMN_PITCH per trunk: the slots are handed out
-// top-to-bottom by source-port y (trunk key breaks ties) at
-//   columnZone.left + COLUMN_PITCH / 2 + slot * COLUMN_PITCH
-// so sibling trunks in one gap never share a column. Fan-in columns fill the
-// same zone from the right (a later pass), which is why the zone is wider than
-// the fan-out slots alone. Without a ctx -- a hand-built fixture, or a caller
-// that re-runs the passes on its own -- there is no record to read and the
-// column falls back to the midpoint of the source-to-nearest-target corridor,
-// clamped exactly as chamferFanoutPath clamps it.
+// The columns come from the GAP RECORDS the pre-pass produced (ctx.gaps), one
+// reserved COLUMN_PITCH per trunk. A fan-out whose source unit sits in layer k
+// takes a slot in gap k; a fan-in whose target unit sits in layer k takes one in
+// gap k-1. The two kinds fill the SAME zone from opposite ends, so a flow's
+// split column stands beside its source layer and its merge column beside its
+// target layer:
+//   fan-out  columnZone.left  + COLUMN_PITCH / 2 + slot * COLUMN_PITCH
+//   fan-in   columnZone.right - COLUMN_PITCH / 2 - slot * COLUMN_PITCH
+// Slots are handed out top-to-bottom by the port row the trunk hangs off (the
+// source port for a fan-out, the target port for a fan-in), the trunk key
+// breaking ties, so the columns follow reading order and never depend on where
+// an edge sits in the input array. Without a ctx -- a hand-built fixture, or a
+// caller that re-runs the passes on its own -- there is no record to read and
+// the column falls back to the midpoint of the corridor between the unit's port
+// and its nearest counterpart, clamped exactly as the path builders clamp it.
 //
-// A member's treatment is by LAYER DISTANCE, not pixel span:
-//   next layer      retyped `type: "bus"` and stamped { fanout, trunkKey,
-//                   junctionX, busTotalRate, busMemberCount, busChipOwner };
-//                   BusEdge draws the in-corridor trunk (chamferFanoutPath).
+// A member's treatment is by LAYER DISTANCE from its trunk's unit, not pixel
+// span:
+//   next layer      retyped `type: "bus"` and stamped { fanout | fanin,
+//                   trunkKey, junctionX, busTotalRate, busMemberCount,
+//                   busChipOwner }; BusEdge draws the in-corridor trunk
+//                   (chamferFanoutPath / chamferFaninPath).
 //   two or more     stays `type: "item"` and only borrows the column, stamped
-//                   { bendX: junctionX, fanoutColumn: true }. chamferFanoutPath
-//                   would draw a straight final leg slicing the cards in
-//                   between, and a bus-typed member never reaches
-//                   jogForwardLegs -- so a far member keeps the item-edge
-//                   passes and the shared line both. assignBendColumns leaves a
-//                   pre-stamped bendX alone, so the pin holds; jogForwardLegs
-//                   may still replace the column with a cleared srcColX when the
-//                   source horizontal is blocked, and that member simply leaves
-//                   the shared line.
-//   backward        untouched here. It still counts in the trunk's total and
-//                   member count, so the aggregate chip reads the whole port.
+//                   { bendX: junctionX } plus fanoutColumn / faninColumn. The
+//                   trunk path builders would draw a straight shared leg
+//                   slicing the cards in between, and a bus-typed member never
+//                   reaches jogForwardLegs -- so a far member keeps the
+//                   item-edge passes and the shared line both. assignBendColumns
+//                   leaves a pre-stamped bendX alone, so the pin holds.
+//   backward        keeps its detour rail, with the column it shares with the
+//                   trunk pre-stamped: railXRight for a fan-out member (the
+//                   rail leaves the source at the split column), railXLeft for
+//                   a fan-in member (it arrives at the merge column).
+//                   clampBackwardRails keeps a pre-stamped side as given.
+//
+// A DUAL member -- one that is a near member of a fan-out AND of a fan-in -- is
+// drawn as the fan-out member it already was, with the fan-in column stamped as
+// faninJoinX: the drawn polyline is the same, but the run at the target row
+// between the two columns is the stretch that belongs to it alone, so that is
+// where its ONE own chip anchors and its source stub stays bare (the fan-out
+// aggregate reads there). Both trunks still draw their aggregate.
 //
 // Non-members pass through by reference. Pure and deterministic: membership,
-// owner election (lex-smallest edge id) and the slot order depend only on the
-// graph and on geometry, never on input order.
-export function routeFanoutEdges(
+// owner election and the slot order depend only on the graph and on geometry,
+// never on input order.
+export function routeTrunkEdges(
   nodes: ReadonlyArray<RFAnyNode>,
   edges: ReadonlyArray<Edge>,
   ctx?: RoutingCtx,
 ): Edge[] {
   const byId = nodeIndexOf(nodes);
-  const fanOutTrunks = classifyTrunks(nodes, edges).trunks.filter(
-    (trunk) => trunk.kind === "fanOut",
-  );
-  if (fanOutTrunks.length === 0) return edges.map((e) => e);
+  const trunks = classifyTrunks(nodes, edges).trunks;
+  if (trunks.length === 0) return edges.map((e) => e);
 
   const { layerByNodeId } = buildLayerModel(nodes);
   const edgeById = new Map(edges.map((edge) => [edge.id, edge]));
 
-  // How far right of its source layer a member ends, which is what decides
-  // whether it is drawn as a branch of the trunk (next layer) or merely pinned
-  // to its column (further right). A member whose endpoints have no layer --
-  // only an unplaced node can do that, and classifyTrunks already dropped
-  // those -- reads as backward, the treatment that touches nothing.
+  // How far the member reaches from its trunk's own layer, which is what
+  // decides whether it is drawn as part of the trunk (next layer over), merely
+  // pinned to its column (further away) or left to its detour rail (backward).
+  // A member whose endpoints have no layer -- only an unplaced node can do
+  // that, and classifyTrunks already dropped those -- reads as backward.
   type Reach = "near" | "far" | "backward";
 
   type TrunkGeom = {
     trunk: Trunk;
     gapIndex: number;
-    sx: number;
-    sy: number;
-    nearestTx: number;
+    // The port row the trunk hangs off: its slot order inside the gap.
+    portY: number;
+    fallbackColumn: number;
     reachByEdgeId: Map<string, Reach>;
   };
 
   const geoms: TrunkGeom[] = [];
-  for (const trunk of fanOutTrunks) {
+  for (const trunk of trunks) {
     const members = trunk.members
       .map((id) => edgeById.get(id))
       .filter((edge): edge is Edge => edge !== undefined);
     const first = members[0];
     if (first === undefined) continue;
-    const sourceLayer = layerByNodeId.get(trunk.unit);
-    if (sourceLayer === undefined) continue;
+    const unitLayer = layerByNodeId.get(trunk.unit);
+    if (unitLayer === undefined) continue;
     const ports = edgePortsModel(first, byId);
     if (ports === null) continue;
+    const fanOut = trunk.kind === "fanOut";
 
     const reachByEdgeId = new Map<string, Reach>();
-    let nearestTx = Infinity;
+    // The nearest counterpart port, for the no-ctx fallback column: the leftmost
+    // target for a fan-out, the rightmost source for a fan-in.
+    let nearestX = fanOut ? Infinity : -Infinity;
     for (const member of members) {
-      const targetLayer = layerByNodeId.get(member.target);
+      const otherLayer = layerByNodeId.get(
+        fanOut ? member.target : member.source,
+      );
+      const distance =
+        otherLayer === undefined
+          ? undefined
+          : fanOut
+            ? otherLayer - unitLayer
+            : unitLayer - otherLayer;
       const reach: Reach =
-        targetLayer === undefined || targetLayer <= sourceLayer
+        distance === undefined || distance <= 0
           ? "backward"
-          : targetLayer === sourceLayer + 1
+          : distance === 1
             ? "near"
             : "far";
       reachByEdgeId.set(member.id, reach);
       if (reach === "backward") continue;
       const memberPorts = edgePortsModel(member, byId);
-      if (memberPorts !== null) {
-        nearestTx = Math.min(nearestTx, memberPorts.tx);
-      }
+      if (memberPorts === null) continue;
+      nearestX = fanOut
+        ? Math.min(nearestX, memberPorts.tx)
+        : Math.max(nearestX, memberPorts.sx);
     }
 
     geoms.push({
       trunk,
-      gapIndex: sourceLayer,
-      sx: ports.sx,
-      sy: ports.sy,
-      nearestTx,
+      gapIndex: fanOut ? unitLayer : unitLayer - 1,
+      portY: fanOut ? ports.sy : ports.ty,
+      fallbackColumn: fanOut
+        ? corridorMidColumn(ports.sx, nearestX)
+        : corridorMidColumn(nearestX, ports.tx),
       reachByEdgeId,
     });
   }
   if (geoms.length === 0) return edges.map((e) => e);
 
-  // Slot order inside one gap: top-to-bottom by source port y, trunk key
-  // breaking ties, so the columns follow reading order and never depend on
-  // where an edge sits in the input array.
+  // One slot per trunk in its gap's reserved zone, the two kinds filling it from
+  // opposite ends so neither can land on the other's column.
   const geomsByGap = new Map<number, TrunkGeom[]>();
   for (const geom of geoms) {
     const group = geomsByGap.get(geom.gapIndex) ?? [];
@@ -334,58 +363,131 @@ export function routeFanoutEdges(
   }
   const gapByIndex = new Map((ctx?.gaps ?? []).map((gap) => [gap.index, gap]));
 
-  const junctionByTrunkKey = new Map<string, number>();
+  const junctionByTrunk = new Map<Trunk, number>();
   for (const [gapIndex, group] of geomsByGap) {
-    group.sort(
-      (a, b) =>
-        a.sy - b.sy ||
-        (a.trunk.key < b.trunk.key ? -1 : a.trunk.key > b.trunk.key ? 1 : 0),
-    );
     const zone = gapByIndex.get(gapIndex)?.columnZone;
-    group.forEach((geom, slot) => {
-      junctionByTrunkKey.set(
-        geom.trunk.key,
-        zone === undefined
-          ? corridorMidColumn(geom.sx, geom.nearestTx)
-          : zone.left + COLUMN_PITCH / 2 + slot * COLUMN_PITCH,
-      );
-    });
+    const bySlot = (a: TrunkGeom, b: TrunkGeom): number =>
+      a.portY - b.portY ||
+      (a.trunk.key < b.trunk.key ? -1 : a.trunk.key > b.trunk.key ? 1 : 0);
+    const place = (
+      kind: TrunkKind,
+      columnOf: (slot: number) => number,
+    ): void => {
+      group
+        .filter((geom) => geom.trunk.kind === kind)
+        .sort(bySlot)
+        .forEach((geom, slot) => {
+          junctionByTrunk.set(
+            geom.trunk,
+            zone === undefined ? geom.fallbackColumn : columnOf(slot),
+          );
+        });
+    };
+    place(
+      "fanOut",
+      (slot) => (zone?.left ?? 0) + COLUMN_PITCH / 2 + slot * COLUMN_PITCH,
+    );
+    place(
+      "fanIn",
+      (slot) => (zone?.right ?? 0) - COLUMN_PITCH / 2 - slot * COLUMN_PITCH,
+    );
   }
 
-  const geomByEdgeId = new Map<string, TrunkGeom>();
+  // Per edge, the trunk it belongs to on each side and how far it reaches there.
+  type Side = { geom: TrunkGeom; reach: Reach; junctionX: number };
+  const fanOutByEdgeId = new Map<string, Side>();
+  const fanInByEdgeId = new Map<string, Side>();
   for (const geom of geoms) {
-    for (const id of geom.reachByEdgeId.keys()) geomByEdgeId.set(id, geom);
+    const junctionX = junctionByTrunk.get(geom.trunk)!;
+    const into = geom.trunk.kind === "fanOut" ? fanOutByEdgeId : fanInByEdgeId;
+    for (const [id, reach] of geom.reachByEdgeId) {
+      into.set(id, { geom, reach, junctionX });
+    }
   }
+
+  // The member that draws a fan-in trunk's ONE aggregate chip. It has to be a
+  // member BusEdge draws the fan-in shape for, and a dual member already draws
+  // its fan-out trunk's aggregate on the same `-drop` chip, so the election runs
+  // over the near members that are nobody else's fan-out branch, lex-smallest
+  // first. A trunk whose near members are all dual draws no aggregate: each of
+  // them already states its own source's total beside it.
+  const faninAggOwnerByTrunk = new Map<Trunk, string>();
+  for (const geom of geoms) {
+    if (geom.trunk.kind !== "fanIn") continue;
+    let owner: string | undefined;
+    for (const [id, reach] of geom.reachByEdgeId) {
+      if (reach !== "near") continue;
+      if (fanOutByEdgeId.get(id)?.reach === "near") continue;
+      if (owner === undefined || id < owner) owner = id;
+    }
+    if (owner !== undefined) faninAggOwnerByTrunk.set(geom.trunk, owner);
+  }
+
+  const aggregateOf = (trunk: Trunk, owner: boolean): BusAggregate => ({
+    trunkKey: trunk.key,
+    busTotalRate: trunk.total,
+    busMemberCount: trunk.members.length,
+    busChipOwner: owner,
+  });
 
   return edges.map((edge) => {
-    const geom = geomByEdgeId.get(edge.id);
-    if (geom === undefined) return edge;
-    const reach = geom.reachByEdgeId.get(edge.id);
-    if (reach === "backward") return edge;
-    const junctionX = junctionByTrunkKey.get(geom.trunk.key)!;
-    if (reach === "far") {
+    const out = fanOutByEdgeId.get(edge.id);
+    const into = fanInByEdgeId.get(edge.id);
+    if (out === undefined && into === undefined) return edge;
+
+    // Pre-stamped rail columns: a backward member shares its trunk's column
+    // with the forward members instead of taking its own default one stub off
+    // the port. clampBackwardRails keeps a pre-stamped side as given.
+    const rails = {
+      ...(out?.reach === "backward" ? { railXRight: out.junctionX } : {}),
+      ...(into?.reach === "backward" ? { railXLeft: into.junctionX } : {}),
+    };
+
+    if (out?.reach === "near") {
+      // Near fan-out member, dual or not. A dual hands its flow to the fan-in
+      // column at faninJoinX; the drawn polyline is the same either way.
       return {
         ...edge,
+        type: "bus",
         data: {
           ...edge.data,
-          bendX: junctionX,
-          fanoutColumn: true as const,
+          ...rails,
+          ...aggregateOf(out.geom.trunk, edge.id === out.geom.trunk.owner),
+          fanout: true,
+          junctionX: out.junctionX,
+          ...(into?.reach === "near" ? { faninJoinX: into.junctionX } : {}),
         },
       };
     }
-    return {
-      ...edge,
-      type: "bus",
-      data: {
-        ...edge.data,
-        fanout: true,
-        trunkKey: geom.trunk.key,
-        junctionX,
-        busTotalRate: geom.trunk.total,
-        busMemberCount: geom.trunk.members.length,
-        busChipOwner: edge.id === geom.trunk.owner,
-      },
-    };
+    if (into?.reach === "near") {
+      return {
+        ...edge,
+        type: "bus",
+        data: {
+          ...edge.data,
+          ...rails,
+          ...aggregateOf(
+            into.geom.trunk,
+            edge.id === faninAggOwnerByTrunk.get(into.geom.trunk),
+          ),
+          fanin: true,
+          junctionX: into.junctionX,
+        },
+      };
+    }
+    // A far member borrows one column. When it is far on BOTH sides the
+    // fan-out's wins: that is the column its siblings already leave the shared
+    // out-port on, and a single vertical run can only stand in one gap.
+    const column =
+      out?.reach === "far"
+        ? { bendX: out.junctionX, fanoutColumn: true as const }
+        : into?.reach === "far"
+          ? { bendX: into.junctionX, faninColumn: true as const }
+          : {};
+    if (Object.keys(column).length === 0 && Object.keys(rails).length === 0) {
+      return edge;
+    }
+    return { ...edge, data: { ...edge.data, ...rails, ...column } };
   });
 }
 
@@ -511,9 +613,10 @@ function nodeGap(
 // Does an edge occupy a vertical column inside its target's entry gutter? A
 // backward item edge routes a left rail one stub before the port. Returns true
 // for the edges that both consume a gutter slot and count toward the band's
-// width. Every routed bus edge is a fan-out member, which approaches its target
-// horizontally off the shared junction column and so stakes no gutter column;
-// the non-fan-out arms answer only for hand-built bus edges.
+// width. A routed bus edge is a member of one trunk or the other and the two
+// answer differently -- a fan-out member arrives horizontally off its trunk's
+// column and stakes nothing, a fan-in member claims its trunk's merge column in
+// front of the card; the remaining arm answers only for hand-built bus edges.
 function occupiesGutterColumn(
   edge: Edge,
   source: RFAnyNode,
@@ -522,11 +625,18 @@ function occupiesGutterColumn(
 ): boolean {
   const gap = nodeGap(source, target, byId);
   if (edge.type === "bus") {
+    const busData = edge.data as BusEdgeData | undefined;
     // A fan-out member approaches its target horizontally off the shared
     // junction column (mid-corridor), never up the target's entry gutter, so it
     // stakes no gutter column and does not widen the band.
-    if ((edge.data as BusEdgeData | undefined)?.fanout === true) {
+    if (busData?.fanout === true) {
       return false;
+    }
+    // A fan-in member does claim a column in front of its target -- the trunk's
+    // shared merge column -- so it counts as an arrival for the band width and
+    // for the slots the other arrivals into this node take.
+    if (busData?.fanin === true) {
+      return true;
     }
     // narrow-forward hairpin claims no column
     return gap <= 0 || gap >= FORWARD_STEP_BUDGET;
@@ -587,13 +697,133 @@ export function entryGutterRects(
   return rects;
 }
 
+// -- Arrival columns ----------------------------------------------------------
+//
+// Every vertical run that drops into a target port from in front of it -- a
+// backward rail's left column, a jogged forward leg's descent -- takes one
+// ARRIVAL column, and the two passes that hand them out (assignEntryColumns,
+// jogForwardLegs) share this model so their slots interleave instead of
+// colliding.
+//
+// With a gap record the columns stand LEFT of the gap's target zone: that zone
+// is the room the pre-pass reserved for the chips the arriving edges carry, so a
+// column inside it would stand on the chips it was widened for. The first slot
+// sits half a slot pitch left of the zone, each next one a pitch further left,
+// and any candidate closer than half a COLUMN_PITCH to a fan-in column already
+// stamped in the same gap is skipped -- that column carries a whole trunk's
+// stroke, and an arrival braiding it reads as one line. Without a record (a
+// hand-built fixture, or a caller re-running the passes on its own) the
+// pre-zone rule stands: the first slot one stub before the port.
+type ArrivalModel = {
+  // The k-th arrival column in front of one target, k counting from 0.
+  columnOf: (target: RFAnyNode, k: number) => number;
+  // The gap zones in front of one target, absent when there is no record for it.
+  zoneOf: (target: RFAnyNode) => GapRecord | undefined;
+};
+
+// Cap on the skip scan: a gap holds at most a handful of columns, so a
+// candidate this far out means the skip list is pathological and the plain
+// stagger is the better answer.
+const ARRIVAL_SCAN_LIMIT = 64;
+
+function arrivalModelOf(
+  nodes: ReadonlyArray<RFAnyNode>,
+  edges: ReadonlyArray<Edge>,
+  byId: ReadonlyMap<string, RFAnyNode>,
+  ctx: RoutingCtx | undefined,
+): ArrivalModel {
+  const gaps = ctx?.gaps ?? [];
+  if (gaps.length === 0) {
+    return {
+      columnOf: (target, k) =>
+        absoluteLeft(target, byId) - PORT_STUB - k * ENTRY_SLOT_PITCH,
+      zoneOf: () => undefined,
+    };
+  }
+  const { layerByNodeId } = buildLayerModel(nodes);
+  const gapByIndex = new Map(gaps.map((gap) => [gap.index, gap]));
+  // The fan-in columns already stamped in each gap, from the pass that placed
+  // them: a near member carries its trunk's column as junctionX, a far member as
+  // the pinned bendX.
+  const faninColumnsByGap = new Map<number, number[]>();
+  for (const edge of edges) {
+    const data = edge.data as (BusEdgeData & ItemEdgeData) | undefined;
+    const column =
+      edge.type === "bus" && data?.fanin === true
+        ? data.junctionX
+        : data?.faninColumn === true
+          ? data.bendX
+          : undefined;
+    if (column === undefined) continue;
+    const targetLayer = layerByNodeId.get(edge.target);
+    if (targetLayer === undefined) continue;
+    const list = faninColumnsByGap.get(targetLayer - 1) ?? [];
+    list.push(column);
+    faninColumnsByGap.set(targetLayer - 1, list);
+  }
+  const gapOf = (target: RFAnyNode): GapRecord | undefined => {
+    const layer = layerByNodeId.get(target.id);
+    return layer === undefined ? undefined : gapByIndex.get(layer - 1);
+  };
+  return {
+    zoneOf: gapOf,
+    columnOf: (target, k) => {
+      const gap = gapOf(target);
+      if (gap === undefined) {
+        return absoluteLeft(target, byId) - PORT_STUB - k * ENTRY_SLOT_PITCH;
+      }
+      const base = gap.targetZone.left - ENTRY_SLOT_PITCH / 2;
+      const avoid = faninColumnsByGap.get(gap.index) ?? [];
+      let taken = 0;
+      for (let i = 0; i < ARRIVAL_SCAN_LIMIT; i += 1) {
+        const x = base - i * ENTRY_SLOT_PITCH;
+        if (avoid.some((c) => Math.abs(c - x) < COLUMN_PITCH / 2)) continue;
+        if (taken === k) return x;
+        taken += 1;
+      }
+      return base - k * ENTRY_SLOT_PITCH;
+    },
+  };
+}
+
+// The gap each node's DEPARTING runs stand in: the one right of its own layer.
+// The arrival model answers the mirror question for a node's entering runs, so
+// between them a backward rail's two columns each know the zone they belong in.
+// Empty without gap records.
+function sourceGapsOf(
+  nodes: ReadonlyArray<RFAnyNode>,
+  ctx: RoutingCtx | undefined,
+): Map<string, GapRecord> {
+  const out = new Map<string, GapRecord>();
+  const gaps = ctx?.gaps ?? [];
+  if (gaps.length === 0) return out;
+  const gapByIndex = new Map(gaps.map((gap) => [gap.index, gap]));
+  const { layerByNodeId } = buildLayerModel(nodes);
+  for (const [id, layer] of layerByNodeId) {
+    const gap = gapByIndex.get(layer);
+    if (gap !== undefined) out.set(id, gap);
+  }
+  return out;
+}
+
+// A column clamped into the gap zone it belongs to, the guard every arrival and
+// rail column passes through once its obstacle search has run: the search may
+// walk a column out of the zone (into a chip reserve, or past the cards), and a
+// layer gap holds no leaf card, so pulling it back is always drawable.
+function clampToZone(x: number, gap: GapRecord | undefined): number {
+  if (gap === undefined) return x;
+  return clamp(x, gap.columnZone.left, gap.columnZone.right);
+}
+
 // assignEntryColumns: give every gutter-occupying edge (a backward item rail) a
 // per-target staggered column x, merged as { entryX } onto its data and
 // consumed by chamferStepPath. Columns of one target are
 // ordered by resolved input-port index so the entering runs form a monotonic
 // fan that does not self-cross inside the band: the topmost port takes the
-// leftmost column and the bottom port the rightmost (one stub before the port,
-// which is the pre-gutter default, so a single-entry node is unchanged).
+// leftmost column and the bottom port the rightmost. The columns themselves come
+// from the shared arrival model above -- left of the gap's target zone with a
+// gap record, one stub before the port without one, so a single-entry node in an
+// un-widened fixture is unchanged.
 //
 // Pure and deterministic: the column of an edge depends only on its target and
 // port rank, never on edge order. Leaves every non-gutter edge untouched by
@@ -602,8 +832,10 @@ export function entryGutterRects(
 export function assignEntryColumns(
   nodes: ReadonlyArray<RFAnyNode>,
   edges: ReadonlyArray<Edge>,
+  ctx?: RoutingCtx,
 ): Edge[] {
   const byId = nodeIndexOf(nodes);
+  const arrivals = arrivalModelOf(nodes, edges, byId, ctx);
 
   // Bucket gutter edges by target, remembering each one's original index so the
   // emitted array can be rebuilt in place.
@@ -632,7 +864,6 @@ export function assignEntryColumns(
   const entryXByIndex = new Map<number, number>();
   for (const [targetId, list] of byTarget) {
     const target = byId.get(targetId)!;
-    const left = absoluteLeft(target, byId);
     const k = list.length;
     const sorted = [...list].sort((a, b) => {
       const ai = a.portIndex < 0 ? Infinity : a.portIndex;
@@ -643,10 +874,7 @@ export function assignEntryColumns(
     });
     sorted.forEach((slot, rank) => {
       const fromRight = k - 1 - rank; // topmost port -> largest offset (leftmost)
-      entryXByIndex.set(
-        slot.index,
-        left - PORT_STUB - fromRight * ENTRY_SLOT_PITCH,
-      );
+      entryXByIndex.set(slot.index, arrivals.columnOf(target, fromRight));
     });
   }
 
@@ -900,7 +1128,7 @@ export type PaddedObstacle = ObstacleRect & {
 //              for every pass (layoutRenderPlan never re-derives it), so this
 //              arm is stable for the whole run.
 //   gutter arm a fold over `(nodes, edges-as-of-now)`: occupiesGutterColumn
-//              reads edge.type and data.fanout, which routeFanoutEdges
+//              reads edge.type and data.fanout, which routeTrunkEdges
 //              rewrites, so it changes under the first pass and only freezes
 //              from the second on.
 // Each pass therefore rebuilds the field instead of sharing one hoisted to a
@@ -1285,8 +1513,11 @@ function clearColumnKeepingLeg(args: {
 export function clampBackwardRails(
   nodes: ReadonlyArray<RFAnyNode>,
   edges: ReadonlyArray<Edge>,
+  ctx?: RoutingCtx,
 ): Edge[] {
   const byId = nodeIndexOf(nodes);
+  const arrivals = arrivalModelOf(nodes, edges, byId, ctx);
+  const sourceGaps = sourceGapsOf(nodes, ctx);
 
   const obstacles = paddedObstacles(nodes, edges);
   const rawCards = rawCardRects(nodes);
@@ -1307,19 +1538,29 @@ export function clampBackwardRails(
     const ports = edgePortsModel(edge, byId);
     if (ports === null) return;
     const { sx, sy, tx, ty } = ports;
+    // Columns routeTrunkEdges already pinned: a backward member of a trunk
+    // shares that trunk's junction column instead of taking a default one, so
+    // its rail leaves (or arrives at) the line its forward siblings draw. A
+    // pre-stamped side is kept as given -- no search runs on it.
+    const railHints = routingHintsFromData(edge.data);
+    const pinnedRight = railHints.railXRight;
+    const pinnedLeft = railHints.railXLeft;
+    const sourceGap = sourceGaps.get(source.id);
+    const targetGap = arrivals.zoneOf(target);
     // Rail x-span and level come from chamferStepPath's own backward defaults,
-    // so the clamp starts at exactly the shape the drawer would produce.
-    const {
-      xr: xrDesired,
-      xl: xlDesired,
-      railY: preferredY,
-    } = backwardRailDefaults({
+    // so the clamp starts at exactly the shape the drawer would produce, then
+    // each side is pulled into the column zone of the gap it stands in (where
+    // there is a record for it) so a rail column never crosses a chip reserve.
+    const defaults = backwardRailDefaults({
       sx,
       sy,
       tx,
       ty,
-      entryX: (edge.data as ItemEdgeData | undefined)?.entryX,
+      entryX: railHints.entryX,
     });
+    const preferredY = defaults.railY;
+    const xrDesired = pinnedRight ?? clampToZone(defaults.xr, sourceGap);
+    const xlDesired = pinnedLeft ?? clampToZone(defaults.xl, targetGap);
     const railY = clearRailY(
       preferredY,
       xlDesired,
@@ -1370,40 +1611,50 @@ export function clampBackwardRails(
       ];
     };
     const xrExempt = ownExempt([source]);
-    const xr = clearColumnKeepingLeg({
-      desired: xrDesired,
-      portX: sx,
-      portY: sy,
-      yLo: sy,
-      yHi: railY,
-      toward: -1,
-      foreignPadded: obstacles.filter(
-        (o) => !xrExempt.has(o.nodeId) && o.nodeId !== sharedContainerId,
-      ),
-      foreignRawCards: rawCards.filter(
-        (o) => !xrExempt.has(o.nodeId) && o.nodeId !== sharedContainerId,
-      ),
-      containerBands: bandsOf(source),
-      containerGap: CONTAINER_COLUMN_GAP,
-    });
+    const xr =
+      pinnedRight ??
+      clampToZone(
+        clearColumnKeepingLeg({
+          desired: xrDesired,
+          portX: sx,
+          portY: sy,
+          yLo: sy,
+          yHi: railY,
+          toward: -1,
+          foreignPadded: obstacles.filter(
+            (o) => !xrExempt.has(o.nodeId) && o.nodeId !== sharedContainerId,
+          ),
+          foreignRawCards: rawCards.filter(
+            (o) => !xrExempt.has(o.nodeId) && o.nodeId !== sharedContainerId,
+          ),
+          containerBands: bandsOf(source),
+          containerGap: CONTAINER_COLUMN_GAP,
+        }),
+        sourceGap,
+      );
     if (xr !== xrDesired) railXRightByIndex.set(index, xr);
     const xlExempt = ownExempt([target]);
-    const xl = clearColumnKeepingLeg({
-      desired: xlDesired,
-      portX: tx,
-      portY: ty,
-      yLo: railY,
-      yHi: ty,
-      toward: -1,
-      foreignPadded: obstacles.filter(
-        (o) => !xlExempt.has(o.nodeId) && o.nodeId !== sharedContainerId,
-      ),
-      foreignRawCards: rawCards.filter(
-        (o) => !xlExempt.has(o.nodeId) && o.nodeId !== sharedContainerId,
-      ),
-      containerBands: bandsOf(target),
-      containerGap: CONTAINER_COLUMN_GAP,
-    });
+    const xl =
+      pinnedLeft ??
+      clampToZone(
+        clearColumnKeepingLeg({
+          desired: xlDesired,
+          portX: tx,
+          portY: ty,
+          yLo: railY,
+          yHi: ty,
+          toward: -1,
+          foreignPadded: obstacles.filter(
+            (o) => !xlExempt.has(o.nodeId) && o.nodeId !== sharedContainerId,
+          ),
+          foreignRawCards: rawCards.filter(
+            (o) => !xlExempt.has(o.nodeId) && o.nodeId !== sharedContainerId,
+          ),
+          containerBands: bandsOf(target),
+          containerGap: CONTAINER_COLUMN_GAP,
+        }),
+        targetGap,
+      );
     if (xl !== xlDesired) railXLeftByIndex.set(index, xl);
   });
 
@@ -1478,8 +1729,10 @@ export function clampBackwardRails(
 export function jogForwardLegs(
   nodes: ReadonlyArray<RFAnyNode>,
   edges: ReadonlyArray<Edge>,
+  ctx?: RoutingCtx,
 ): Edge[] {
   const byId = nodeIndexOf(nodes);
+  const arrivals = arrivalModelOf(nodes, edges, byId, ctx);
 
   const obstacles = paddedObstacles(nodes, edges);
   const rawCards = rawCardRects(nodes);
@@ -1528,7 +1781,15 @@ export function jogForwardLegs(
     const occupied =
       (gutterCounts.get(edge.target) ?? 0) +
       (jogsByTarget.get(edge.target) ?? 0);
-    const descentX0 = tx - PORT_STUB - occupied * ENTRY_SLOT_PITCH;
+    const descentX0 = arrivals.columnOf(target, occupied);
+    // The gap the descent stands in, when there is a record for it: every
+    // candidate column below is confined to its column zone, so a descent
+    // pushed clear of a card cannot end up inside the chip reserve in front of
+    // the target.
+    const descentGap = arrivals.zoneOf(target);
+    const inDescentZone = (x: number): boolean =>
+      descentGap === undefined ||
+      (x >= descentGap.columnZone.left && x <= descentGap.columnZone.right);
 
     // Exempt from the obstacle scan: both endpoints' own cards / gutters (the leg
     // leaves the source and ends inside the target) and each endpoint's own
@@ -1643,7 +1904,9 @@ export function jogForwardLegs(
             towardTarget: 1,
             gap: colGap,
             accept: (x) =>
-              x <= tx - CHAMFER && !legBlockedIn(cardSet, ty, x, tx),
+              x <= tx - CHAMFER &&
+              inDescentZone(x) &&
+              !legBlockedIn(cardSet, ty, x, tx),
           },
         );
         if (D > tx - CHAMFER) continue;
@@ -1665,7 +1928,9 @@ export function jogForwardLegs(
 
     if (jog.R !== ty) {
       legYByIndex.set(index, jog.R);
-      if (jog.D !== tx - PORT_STUB) descentXByIndex.set(index, jog.D);
+      if (jog.D !== tx - PORT_STUB) {
+        descentXByIndex.set(index, clampToZone(jog.D, descentGap));
+      }
       jogsByTarget.set(edge.target, (jogsByTarget.get(edge.target) ?? 0) + 1);
     }
     if (srcBlocked) srcColXByIndex.set(index, jog.C);

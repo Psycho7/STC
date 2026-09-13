@@ -12,7 +12,7 @@ import { LAYOUT_PREPASS, ROUTING_PASSES } from "../../src/canvas/layout";
 describe("canvas/ROUTING_PASSES", () => {
   it("runs the six routing passes in the documented order", () => {
     expect(ROUTING_PASSES.map((p) => p.name)).toEqual([
-      "routeFanoutEdges",
+      "routeTrunkEdges",
       "assignEntryColumns",
       "assignBendColumns",
       "jogForwardLegs",
@@ -23,7 +23,7 @@ describe("canvas/ROUTING_PASSES", () => {
     // so a mislabelled entry would still pass the list check while running a
     // different pass.
     expect(ROUTING_PASSES.map((p) => p.run.name)).toEqual([
-      "routeFanoutEdges",
+      "routeTrunkEdges",
       "assignEntryColumns",
       "assignBendColumns",
       "jogForwardLegs",
@@ -36,7 +36,7 @@ describe("canvas/ROUTING_PASSES", () => {
     expect([LAYOUT_PREPASS.name, ...ROUTING_PASSES.map((p) => p.name)]).toEqual(
       [
         "widenLayerGaps",
-        "routeFanoutEdges",
+        "routeTrunkEdges",
         "assignEntryColumns",
         "assignBendColumns",
         "jogForwardLegs",

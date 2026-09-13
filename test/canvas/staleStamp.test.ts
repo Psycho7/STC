@@ -9,26 +9,26 @@ import { describe, it, expect } from "vitest";
 import {
   HIDE_STALE_EPS,
   anchorStampLive,
-  faninHideLive,
+  portRowStampLive,
 } from "../../src/canvas/dimensions";
 
-describe("canvas/dimensions faninHideLive", () => {
+describe("canvas/dimensions portRowStampLive", () => {
   it("keeps the decision when nothing was stamped", () => {
-    expect(faninHideLive(undefined, 400)).toBe(true);
+    expect(portRowStampLive(undefined, 400)).toBe(true);
   });
 
   it("keeps the decision when the stamp sits on the live row", () => {
-    expect(faninHideLive(120, 120)).toBe(true);
+    expect(portRowStampLive(120, 120)).toBe(true);
   });
 
   it("drops the decision at exactly the threshold, either way", () => {
-    expect(faninHideLive(120, 120 + HIDE_STALE_EPS)).toBe(false);
-    expect(faninHideLive(120, 120 - HIDE_STALE_EPS)).toBe(false);
+    expect(portRowStampLive(120, 120 + HIDE_STALE_EPS)).toBe(false);
+    expect(portRowStampLive(120, 120 - HIDE_STALE_EPS)).toBe(false);
   });
 
   it("keeps the decision one unit inside the threshold", () => {
-    expect(faninHideLive(120, 120 + HIDE_STALE_EPS - 1)).toBe(true);
-    expect(faninHideLive(120, 120 - HIDE_STALE_EPS + 1)).toBe(true);
+    expect(portRowStampLive(120, 120 + HIDE_STALE_EPS - 1)).toBe(true);
+    expect(portRowStampLive(120, 120 - HIDE_STALE_EPS + 1)).toBe(true);
   });
 });
 

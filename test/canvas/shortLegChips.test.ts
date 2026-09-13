@@ -27,7 +27,7 @@ import {
   routingHintsFromData,
   type DrawnPorts,
 } from "../../src/canvas/edgePath";
-import { routeFanoutEdges } from "../../src/canvas/busRouting";
+import { routeTrunkEdges } from "../../src/canvas/busRouting";
 import {
   drawnPortsOf,
   nodeWidth,
@@ -362,7 +362,7 @@ const fanoutFixture = (
   const level = fanConsumer("level", tgtX, levelY);
   const down = fanConsumer("down", tgtX, levelY + 400);
   const nodes: RFAnyNode[] = [src, level, down];
-  const routed = routeFanoutEdges(nodes, [
+  const routed = routeTrunkEdges(nodes, [
     fanEdge("e:1", "src", "level"),
     fanEdge("e:2", "src", "down"),
   ]);
@@ -416,7 +416,7 @@ const riserFixture = (): {
   const riser = fanConsumer("riser", tgtX, riserY);
   const down = fanConsumer("down", tgtX, riserY + RISER_DY + 300);
   const nodes: RFAnyNode[] = [src, riser, down];
-  const routed = routeFanoutEdges(nodes, [
+  const routed = routeTrunkEdges(nodes, [
     fanEdge("e:1", "src", "riser"),
     fanEdge("e:2", "src", "down"),
   ]);

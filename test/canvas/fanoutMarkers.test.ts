@@ -1,4 +1,4 @@
-// Fan-out divergence dot on plain item edges (issue #43). routeFanoutEdges
+// Fan-out divergence dot on plain item edges (issue #43). routeTrunkEdges
 // retypes a member as a bus fan-out branch (with its own junction dot from
 // BusEdge) only when its target sits in the NEXT layer. Everything else off a
 // shared out-port stays a plain ItemEdge: the FAR members, which join the trunk
@@ -14,7 +14,7 @@ import Fraction from "fraction.js";
 import type { Edge } from "@xyflow/react";
 
 import { deconflictChipAnchors } from "../../src/canvas/chipSeating";
-import { routeFanoutEdges } from "../../src/canvas/busRouting";
+import { routeTrunkEdges } from "../../src/canvas/busRouting";
 import {
   drawnPortsOf,
   nodeWidth,
@@ -44,7 +44,7 @@ const dataOf = (edges: Edge[], id: string): FanoutData =>
 
 // The routing hints a pass left on one edge, extracted exactly as the renderer
 // and the seating reconstruction do -- so a fixture's drawn polyline is rebuilt
-// on the SAME column the pass pinned (routeFanoutEdges pins every member of a
+// on the SAME column the pass pinned (routeTrunkEdges pins every member of a
 // fan-out to the trunk's shared one).
 const routedHints = (edges: Edge[], id: string): RoutingHints =>
   routingHintsFromData(edges.find((e) => e.id === id)?.data);
@@ -176,9 +176,9 @@ describe("deconflictChipAnchors: declined fan-out divergence dot", () => {
       rateEdge("e:b", "src", "tgtB", new Fraction(3)),
     ];
 
-    // Premise 1: the group really is a trunk whose members routeFanoutEdges
+    // Premise 1: the group really is a trunk whose members routeTrunkEdges
     // left as item edges, so no bus junction dot covers it.
-    const declined = routeFanoutEdges(nodes, edges);
+    const declined = routeTrunkEdges(nodes, edges);
     expect(declined.map((e) => e.type)).toEqual(["item", "item"]);
     expect(declined.some((e) => (e.data as FanoutData).fanout === true)).toBe(
       false,
@@ -245,7 +245,7 @@ describe("deconflictChipAnchors: declined fan-out divergence dot", () => {
       rateEdge("e:c", "src", "tgtC", new Fraction(4)),
     ];
 
-    const routed = routeFanoutEdges(nodes, edges);
+    const routed = routeTrunkEdges(nodes, edges);
     expect(routed.map((e) => e.type)).toEqual(["item", "item", "item"]);
     expect(new Set(edges.map((e) => e.target)).size).toBe(3);
 
@@ -289,7 +289,7 @@ describe("deconflictChipAnchors: declined fan-out divergence dot", () => {
       rateEdge("e:b", "src", "tgtB", new Fraction(3), hints),
     ];
 
-    const declined = routeFanoutEdges(nodes, edges);
+    const declined = routeTrunkEdges(nodes, edges);
     expect(declined.map((e) => e.type)).toEqual(["item", "item"]);
     expect(new Set(edges.map((e) => e.target)).size).toBe(2);
 
@@ -322,7 +322,7 @@ describe("deconflictChipAnchors: declined fan-out divergence dot", () => {
       rateEdge("e:c", "src", "tgtC", new Fraction(4)),
     ];
 
-    const declined = routeFanoutEdges(nodes, edges);
+    const declined = routeTrunkEdges(nodes, edges);
     expect(declined.map((e) => e.type)).toEqual(["item", "item", "item"]);
 
     // Premise: "c" really is drawn backward (its path ends left of where it
@@ -355,7 +355,7 @@ describe("deconflictChipAnchors: declined fan-out divergence dot", () => {
       rateEdge("e:c", "src", "tgtC", new Fraction(4)),
     ];
 
-    const declined = routeFanoutEdges(nodes, edges);
+    const declined = routeTrunkEdges(nodes, edges);
     expect(declined.map((e) => e.type)).toEqual(["item", "item"]);
     expect(new Set(edges.map((e) => e.target)).size).toBe(2);
 
@@ -429,7 +429,7 @@ describe("deconflictChipAnchors: declined fan-out divergence dot", () => {
   });
 
   it("stamps nothing on a REAL fan-out trunk (BusEdge already draws its dot)", () => {
-    // Same source port, but a gap inside the accepted band: routeFanoutEdges
+    // Same source port, but a gap inside the accepted band: routeTrunkEdges
     // retypes both members to bus and gives them a junction of their own. The
     // item-edge marker must not double up on it.
     const S = recipeNode("S", 0, 100, mkRecipe("S", [], [ITEM]));
@@ -441,7 +441,7 @@ describe("deconflictChipAnchors: declined fan-out divergence dot", () => {
       rateEdge("e:b", "S", "B", new Fraction(3)),
     ];
 
-    const fanned = routeFanoutEdges(nodes, edges);
+    const fanned = routeTrunkEdges(nodes, edges);
     expect(dataOf(fanned, "e:a").fanout).toBe(true); // premise: trunk formed
     expect(dataOf(fanned, "e:b").fanout).toBe(true);
 

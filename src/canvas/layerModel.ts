@@ -24,7 +24,7 @@
 // pass runs on the widened nodes and keeps its read-only contract.
 //
 // Membership in a trunk is TOPOLOGICAL, not geometric: any (item, unit) port
-// with two or more edges is a trunk whatever the gap widths are. routeFanoutEdges
+// with two or more edges is a trunk whatever the gap widths are. routeTrunkEdges
 // takes its trunks from classifyTrunks here, so the trunks the reserves are
 // measured for are exactly the ones that get routed.
 
@@ -39,8 +39,14 @@ import {
   rateChipText,
   type ChipText,
 } from "./chipMetrics";
-import { edgeRate, flowKeyOf } from "./busRouting";
-import { absoluteLeft, edgeItem, nodeIndexOf, nodeWidth } from "./nodeGeometry";
+import {
+  absoluteLeft,
+  edgeItem,
+  edgeRate,
+  flowKeyOf,
+  nodeIndexOf,
+  nodeWidth,
+} from "./nodeGeometry";
 import type { RFAnyNode } from "./layout";
 
 // The two pads around one reserved chip box, and the spacing between two trunk
@@ -91,7 +97,7 @@ export type TrunkKind = "fanOut" | "fanIn";
 
 // One topological trunk: every edge of one item leaving a single source unit
 // (fan-out) or entering a single target unit (fan-in), N >= 2. `owner` is the
-// lex-smallest member edge id, the same election routeFanoutEdges runs, so a
+// lex-smallest member edge id, the same election routeTrunkEdges runs, so a
 // consumer can key per-trunk state on one member without re-electing.
 export type Trunk = {
   readonly kind: TrunkKind;
@@ -415,7 +421,7 @@ function chipTextForSide(
   if (trunk === undefined) return rateChipText(edge);
   // Reuse the production aggregate builder rather than re-format the total: the
   // reserve has to measure the string the chip will really draw. The pass runs
-  // before routeFanoutEdges stamps busTotalRate, so the total is handed in here.
+  // before routeTrunkEdges stamps busTotalRate, so the total is handed in here.
   return aggregateChipText({
     ...edge,
     data: { ...edge.data, busTotalRate: trunk.total },
@@ -453,7 +459,7 @@ function requirementsOf(
   const spans = gapSpansOf(model);
   if (spans.length === 0) return [];
 
-  const { trunks, webs, trunkByEdgeId } = classifyTrunks(nodes, edges);
+  const { trunks, trunkByEdgeId } = classifyTrunks(nodes, edges);
   const sourceZone = new Array<number>(spans.length).fill(0);
   const targetZone = new Array<number>(spans.length).fill(0);
   const columns = new Array<number>(spans.length).fill(0);
@@ -480,36 +486,18 @@ function requirementsOf(
   }
 
   // One shared junction column per trunk, in the gap beside the unit it fans
-  // from or into. A web is drawn as one source-side column plus one target-side
-  // column, so it counts two and its member trunks are not counted again.
-  const webTrunkKeys = new Set<string>();
-  for (const web of webs) {
-    for (const source of web.sources) {
-      webTrunkKeys.add(`fanOut|${flowKeyOf(web.item, source)}`);
-    }
-    for (const target of web.targets) {
-      webTrunkKeys.add(`fanIn|${flowKeyOf(web.item, target)}`);
-    }
-  }
+  // from or into. EVERY trunk counts, webs included: the drawn web shape is
+  // deferred, so routeTrunkEdges gives each member trunk of a web its own
+  // column like any other, and the reserve has to match what the routing pass
+  // will place. The classification still reports the webs for later.
   const addColumn = (index: number): void => {
     if (index < 0 || index >= spans.length) return;
     columns[index] = columns[index]! + 1;
   };
   for (const trunk of trunks) {
-    if (webTrunkKeys.has(`${trunk.kind}|${trunk.key}`)) continue;
     const layer = model.layerByNodeId.get(trunk.unit);
     if (layer === undefined) continue;
     addColumn(trunk.kind === "fanOut" ? layer : layer - 1);
-  }
-  for (const web of webs) {
-    const sourceLayers = web.sources
-      .map((id) => model.layerByNodeId.get(id))
-      .filter((l): l is number => l !== undefined);
-    const targetLayers = web.targets
-      .map((id) => model.layerByNodeId.get(id))
-      .filter((l): l is number => l !== undefined);
-    if (sourceLayers.length > 0) addColumn(Math.min(...sourceLayers));
-    if (targetLayers.length > 0) addColumn(Math.min(...targetLayers) - 1);
   }
 
   return spans.map((span) => {

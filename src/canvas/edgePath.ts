@@ -146,13 +146,28 @@ export type ObstacleRect = {
 //           one stub out of the source port. railXLeft is the target-side column
 //           and overrides entryX when present, absent -> entryX, or one stub
 //           before the target port.
-//   junctionX: shared junction column for a fan-out trunk member
-//           (routeFanoutEdges). Every member of one (item, source) fan-out
-//           shares this column: their trunk segments (source port out to the
-//           junction) overlap into one line, and each branches off it up / down
-//           to its own target. Absent -> the corridor midpoint (a plain step).
+//   junctionX: shared junction column for a trunk member (routeTrunkEdges).
+//           Every member of one (item, source) fan-out shares this column:
+//           their trunk segments (source port out to the junction) overlap into
+//           one line, and each branches off it up / down to its own target. A
+//           fan-in member reads it mirrored: each member descends this column
+//           to the target row and they share the aggregate leg from there into
+//           the port. Absent -> the corridor midpoint (a plain step).
+//   faninJoinX: the fan-in column a DUAL member (a fan-out member whose target
+//           port also carries a fan-in trunk) hands its flow over at. The drawn
+//           polyline is unchanged -- the member's own stretch simply ends
+//           there, so its chip anchor is the middle of the run at the target
+//           row BETWEEN the two columns instead of the whole final leg. Absent
+//           -> the whole leg, byte-identical for a plain fan-out member.
+//   faninColumn: this forward item edge's bendX is a SHARED fan-in column
+//           (routeTrunkEdges pinned every far member of one (item, target-port)
+//           fan-in to it). The mirror of fanoutColumn below: here the FINAL leg
+//           at the target row is the one the members share (it is the trunk's
+//           aggregate leg), so the label anchor moves onto the middle of this
+//           member's own SOURCE horizontal instead. Absent -> the bend-column
+//           anchor. The drawn path never changes.
 //   fanoutColumn: this forward item edge's bendX is a SHARED fan-out column
-//           (routeFanoutEdges pinned every same-(item, source-port) member to
+//           (routeTrunkEdges pinned every same-(item, source-port) member to
 //           it), not a staggered one of its own. Present -> the step's label
 //           anchor moves off the shared vertical onto the middle of this
 //           member's own final horizontal leg, so the members' chips spread
@@ -176,6 +191,8 @@ export type RoutingHints = {
   railXRight?: number;
   railXLeft?: number;
   junctionX?: number;
+  faninJoinX?: number;
+  faninColumn?: boolean;
   fanoutColumn?: boolean;
   chamferBudget?: number;
 };
@@ -193,15 +210,17 @@ const HINT_KEYS = [
   "railXRight",
   "railXLeft",
   "junctionX",
+  "faninJoinX",
   "chamferBudget",
 ] as const satisfies ReadonlyArray<keyof RoutingHints>;
 
 // The hints carried as flags rather than coordinates, extracted the same way
 // but type-checked as booleans (an absent or non-boolean value is dropped, so a
 // stray string cannot switch a shape on).
-const FLAG_HINT_KEYS = ["fanoutColumn"] as const satisfies ReadonlyArray<
-  keyof RoutingHints
->;
+const FLAG_HINT_KEYS = [
+  "fanoutColumn",
+  "faninColumn",
+] as const satisfies ReadonlyArray<keyof RoutingHints>;
 
 export function routingHintsFromData(data: unknown): RoutingHints {
   const d = data as Record<string, unknown> | undefined;
@@ -523,6 +542,15 @@ export function chamferStepPath(
   const legAnchorX = (cornerChamfer: number): number =>
     (Math.min(bx + cornerChamfer, tx) + tx) / 2;
   const fanoutLeg = args.fanoutColumn === true;
+  // Shared fan-in column (faninColumn): the mirror of the rule above. Here the
+  // run the members share is the FINAL leg at the target row -- it is the
+  // trunk's aggregate leg into the port -- so such a member anchors on the
+  // middle of its own SOURCE horizontal, from the port out to the column's
+  // incoming chamfer. Clamped to the port so a column closer than one chamfer
+  // cannot push the anchor left of it.
+  const srcAnchorX = (cornerChamfer: number): number =>
+    (sx + Math.max(bx - cornerChamfer, sx)) / 2;
+  const faninLeg = args.faninColumn === true;
 
   // Same rail: a plain straight line, no vertical offset at all. The anchor
   // sits at the bend column (on the line by construction), NOT the geometric
@@ -536,7 +564,12 @@ export function chamferStepPath(
   // column IS the corridor midpoint.
   if (sy === ty) {
     const d = `M ${r(sx)},${r(sy)} L ${r(tx)},${r(ty)}`;
-    return [d, r(fanoutLeg ? legAnchorX(chamfer) : bx), r(sy)];
+    const straightAnchorX = fanoutLeg
+      ? legAnchorX(chamfer)
+      : faninLeg
+        ? srcAnchorX(chamfer)
+        : bx;
+    return [d, r(straightAnchorX), r(sy)];
   }
 
   // Small dy: a vertical run plus two chamfers will not fit between the rails, so
@@ -549,9 +582,9 @@ export function chamferStepPath(
       ` L ${r(bx - chamfer)},${r(sy)}` +
       ` L ${r(bx + chamfer)},${r(ty)}` +
       ` L ${r(tx)},${r(ty)}`;
-    return fanoutLeg
-      ? [d, r(legAnchorX(chamfer)), r(ty)]
-      : [d, r(bx), r((sy + ty) / 2)];
+    if (fanoutLeg) return [d, r(legAnchorX(chamfer)), r(ty)];
+    if (faninLeg) return [d, r(srcAnchorX(chamfer)), r(sy)];
+    return [d, r(bx), r((sy + ty) / 2)];
   }
 
   // Normal forward step: H run, chamfer, V run, chamfer, H run into target.
@@ -581,6 +614,10 @@ export function chamferStepPath(
     if (fanoutLeg && runHi > runLo) {
       return [jog, r((runLo + runHi) / 2), r(args.legY)];
     }
+    // A member pinned to a shared fan-in column keeps the source-horizontal
+    // anchor through a jog: the jog only moves the run AFTER the column, which
+    // is the stretch this member shares with the trunk.
+    if (faninLeg) return [jog, r(srcAnchorX(chamfer)), r(sy)];
     // Clear-segment anchor: the jog-descent vertical (descentX) run midpoint --
     // the corridor leg carrying the edge down into the target after the leg has
     // cleared the intervening card.
@@ -616,13 +653,33 @@ export function chamferStepPath(
     chamferColumn(bx, sy, ty, stepChamfer) +
     ` L ${r(tx)},${r(ty)}`;
   if (fanoutLeg) return [d, r(legAnchorX(stepChamfer)), r(ty)];
+  if (faninLeg) return [d, r(srcAnchorX(stepChamfer)), r(sy)];
   // Clear-segment anchor: the bend-column vertical (bx) run midpoint. The old
   // geometric midpoint often landed on the target-side horizontal, which cuts
   // across foreign card rows; this vertical corridor leg is clear of them.
   return [d, r(bx), r((sy + ty) / 2)];
 }
 
-// chamferFanoutPath: one member of a fan-out trunk (routeFanoutEdges). N members
+// Chip anchor of a DUAL member -- a fan-out member whose target port also
+// carries a fan-in trunk (faninJoinX, the fan-in column). The run from this
+// member's own fan-out column across to the fan-in junction is the last stretch
+// that belongs to it alone: everything right of that junction is the aggregate
+// leg every fan-in member shares. Null when there is no such hand-over, or when
+// the two columns leave no run between them (the member then keeps the ordinary
+// fan-out anchor). The drawn polyline is unchanged either way.
+function dualAnchorOf(
+  args: RoutingHints,
+  jx: number,
+  ty: number,
+): { x: number; y: number } | null {
+  if (args.faninJoinX === undefined) return null;
+  const joinX = args.faninJoinX + CHAMFER;
+  const ownRunLo = jx + CHAMFER;
+  if (joinX <= ownRunLo) return null;
+  return { x: r((ownRunLo + joinX) / 2), y: r(ty) };
+}
+
+// chamferFanoutPath: one member of a fan-out trunk (routeTrunkEdges). N members
 // share a source PORT (same item, same source unit) and fan out to N targets one
 // layer over. Every member is drawn with the SAME junction column, so their
 // shared trunk segment -- the horizontal from the source port out to the junction
@@ -683,11 +740,14 @@ export function chamferFanoutPath(
       path: d,
       junction,
       trunkAnchor,
-      branchAnchor: { x: r(mid), y: r(sy) },
+      branchAnchor: dualAnchorOf(args, jx, ty) ?? { x: r(mid), y: r(sy) },
     };
   }
 
-  const branchAnchor = { x: r(jx), y: r((sy + ty) / 2) };
+  const branchAnchor = dualAnchorOf(args, jx, ty) ?? {
+    x: r(jx),
+    y: r((sy + ty) / 2),
+  };
 
   // Small dy: a vertical run plus two chamfers will not fit, so join the two
   // horizontals with a single diagonal at the junction column.
@@ -702,6 +762,77 @@ export function chamferFanoutPath(
 
   // Normal branch: trunk horizontal, chamfer, branch vertical, chamfer, final
   // rightward stub into the target.
+  const d =
+    `M ${r(sx)},${r(sy)}` +
+    chamferColumn(jx, sy, ty, CHAMFER) +
+    ` L ${r(tx)},${r(ty)}`;
+  return { path: d, junction, trunkAnchor, branchAnchor };
+}
+
+// chamferFaninPath: one member of a fan-in trunk (routeTrunkEdges), the mirror
+// of chamferFanoutPath above. N members feed one target PORT (same item, same
+// target unit) from N sources one layer back. Every member is drawn with the
+// SAME junction column, so their final legs -- the horizontal from the junction
+// into the target port -- overlap into one line and the trunk's aggregate leg
+// visually draws once. Each member reaches that column along its own source
+// stub and turns down (or up) it to the target row.
+//
+// The polyline family is the fan-out's, so the shape is built by the same
+// clamp and the same chamfered column; what differs is which parts are shared
+// and therefore where the three points sit:
+//   junction     (jx + CHAMFER, ty) -- the first vertex every member shares,
+//                one chamfer past the column on the target row;
+//   trunkAnchor  the middle of the aggregate leg, junction to the target port,
+//                where the owner's aggregate chip seats;
+//   branchAnchor the middle of this member's own source stub, where its own
+//                rate chip seats.
+// Same degenerate guards as chamferFanoutPath: a shared-y member draws a
+// straight line with no descent, a small-dy member a single diagonal. Pure.
+export function chamferFaninPath(
+  args: {
+    sourceX: number;
+    sourceY: number;
+    targetX: number;
+    targetY: number;
+  } & RoutingHints,
+): {
+  path: string;
+  junction: { x: number; y: number };
+  trunkAnchor: { x: number; y: number };
+  branchAnchor: { x: number; y: number };
+} {
+  const { sourceX: sx, sourceY: sy, targetX: tx, targetY: ty } = args;
+  const lo = sx + PORT_STUB + CHAMFER;
+  const hi = tx - PORT_STUB - CHAMFER;
+  const mid = (sx + tx) / 2;
+  const desired = args.junctionX ?? mid;
+  const jx = lo < hi ? clamp(desired, lo, hi) : mid;
+  // The merge dot sits on the drawn geometry at the point the members first
+  // coincide: the outgoing chamfer's end on the target row, which every
+  // branching, small-dy and shared-y member alike emits (or, for a straight
+  // member, lies on).
+  const junction = { x: r(jx + CHAMFER), y: r(ty) };
+  // Aggregate chip rides the shared leg, centered on the run from the merge DOT
+  // to the target port -- the fan-out's trunk anchor read from the other end.
+  const trunkAnchor = { x: r((jx + CHAMFER + tx) / 2), y: r(ty) };
+  // Member chip rides this member's own stub, from its source port out to the
+  // column's incoming chamfer.
+  const branchAnchor = { x: r((sx + jx - CHAMFER) / 2), y: r(sy) };
+
+  if (sy === ty) {
+    const d = `M ${r(sx)},${r(sy)} L ${r(tx)},${r(ty)}`;
+    return { path: d, junction, trunkAnchor, branchAnchor };
+  }
+
+  if (Math.abs(ty - sy) <= 2 * CHAMFER) {
+    const d =
+      `M ${r(sx)},${r(sy)}` +
+      ` L ${r(jx - CHAMFER)},${r(sy)}` +
+      ` L ${r(jx + CHAMFER)},${r(ty)}` +
+      ` L ${r(tx)},${r(ty)}`;
+    return { path: d, junction, trunkAnchor, branchAnchor };
+  }
+
   const d =
     `M ${r(sx)},${r(sy)}` +
     chamferColumn(jx, sy, ty, CHAMFER) +
@@ -748,6 +879,35 @@ export function branchLegAfterJunction(
   return [[junction.x, junction.y] as const, ...rest];
 }
 
+// The sub-polyline a fan-in member's OWN chip draws on: the prefix up to the
+// trunk's junction point (source port -> column -> junction), the mirror of
+// branchLegAfterJunction above. Everything past the junction is the aggregate
+// leg every member of the trunk draws, so a chip allowed to slide there would
+// read as the trunk's total and bury the merge dot from the right. The scan
+// walks back from the end while the vertices sit right of the junction; the
+// junction is appended when the prefix does not already end on it (a shared-y
+// member draws a straight line with no vertex of its own at that x).
+//
+// Exported for the seating pass, which slices the same stub.
+export function stubBeforeJunction(
+  pts: ReadonlyArray<readonly [number, number]>,
+  junction: { x: number; y: number },
+): ReadonlyArray<readonly [number, number]> {
+  let i = pts.length - 1;
+  while (i > 0 && pts[i]![0] > junction.x) i--;
+  const head = pts.slice(0, i + 1);
+  const tail = head[head.length - 1];
+  if (
+    tail !== undefined &&
+    head.length >= 2 &&
+    Math.abs(tail[0] - junction.x) <= 1 &&
+    Math.abs(tail[1] - junction.y) <= 1
+  ) {
+    return head;
+  }
+  return [...head, [junction.x, junction.y] as const];
+}
+
 // The DRAWN edge: given one edge's drawn ports, its type and its stamped data,
 // the polyline the canvas paints and every anchor that rides it. The one place
 // that resolves the routing hints, the fan-out discriminant, the parse of `d`
@@ -792,6 +952,18 @@ export type DrawnEdge =
       junction: Anchor;
       trunkAnchor: Anchor;
       branchAnchor: Anchor;
+    }
+  | {
+      shape: "fanin";
+      path: string;
+      pts: ReadonlyArray<readonly [number, number]>;
+      // The member's OWN stretch, source port up to the merge dot. Named as
+      // the fan-out arm's branchPts is, because both answer the same question:
+      // which part of this polyline is not shared with the rest of the trunk.
+      branchPts: ReadonlyArray<readonly [number, number]>;
+      junction: Anchor;
+      trunkAnchor: Anchor;
+      branchAnchor: Anchor;
     };
 
 export function drawnEdge(
@@ -801,6 +973,20 @@ export function drawnEdge(
 ): DrawnEdge {
   const hints = routingHintsFromData(data);
   const d = data as Record<string, unknown> | undefined;
+
+  if (edgeType === "bus" && d?.fanin === true) {
+    const fan = chamferFaninPath({ ...ports, ...hints });
+    const pts = parsePathPoints(fan.path);
+    return {
+      shape: "fanin",
+      path: fan.path,
+      pts,
+      branchPts: stubBeforeJunction(pts, fan.junction),
+      junction: fan.junction,
+      trunkAnchor: fan.trunkAnchor,
+      branchAnchor: fan.branchAnchor,
+    };
+  }
 
   if (edgeType === "bus" && d?.fanout === true) {
     const fan = chamferFanoutPath({ ...ports, ...hints });

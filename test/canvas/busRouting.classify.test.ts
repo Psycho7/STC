@@ -11,7 +11,7 @@ import Fraction from "fraction.js";
 import type { Edge } from "@xyflow/react";
 
 import {
-  routeFanoutEdges,
+  routeTrunkEdges,
   assignBendColumns,
   assignEntryColumns,
   clampBackwardRails,
@@ -29,7 +29,7 @@ import {
   mkEdge,
 } from "./busRouting.testkit";
 
-describe("routeFanoutEdges (6C)", () => {
+describe("routeTrunkEdges (6C)", () => {
   const r = mkRecipe("r", ["a"], ["b"]);
   // One layer over: the targets' left edge, 110 right of the source card.
   const oneGap = 410;
@@ -52,7 +52,7 @@ describe("routeFanoutEdges (6C)", () => {
     ];
     const edges = [mkEdge("e0", "s", "t1", "b"), mkEdge("e1", "s", "t2", "b")];
 
-    const out = routeFanoutEdges(nodes, edges);
+    const out = routeTrunkEdges(nodes, edges);
 
     for (const id of ["e0", "e1"]) {
       const e = out.find((x) => x.id === id)!;
@@ -89,7 +89,7 @@ describe("routeFanoutEdges (6C)", () => {
       mkEdge("e2", "s", "t3", "b"),
     ];
 
-    const out = routeFanoutEdges(nodes, edges);
+    const out = routeTrunkEdges(nodes, edges);
     for (const id of ["e0", "e1", "e2"]) {
       expect(out.find((e) => e.id === id)!.type).toBe("bus");
       expect(fanData(out, id).fanout).toBe(true);
@@ -114,7 +114,7 @@ describe("routeFanoutEdges (6C)", () => {
       recipeNode("t1", oneGap, 0, r),
     ];
     const edges = [mkEdge("e0", "s", "t1", "b")];
-    const out = routeFanoutEdges(nodes, edges);
+    const out = routeTrunkEdges(nodes, edges);
     expect(out[0]!.type).toBe("item");
     expect(out[0]).toBe(edges[0]); // untouched by reference
   });
@@ -133,7 +133,7 @@ describe("routeFanoutEdges (6C)", () => {
       mkEdge("e1", "s", "t2", "c"), // item c from s -> different port
       mkEdge("e2", "s2", "t3", "b"), // item b from a different source
     ];
-    const out = routeFanoutEdges(nodes, edges);
+    const out = routeTrunkEdges(nodes, edges);
     for (const id of ["e0", "e1", "e2"]) {
       expect(out.find((e) => e.id === id)!.type).toBe("item");
     }
@@ -151,7 +151,7 @@ describe("routeFanoutEdges (6C)", () => {
       recipeNode("t2", tight, 300, r),
     ];
     const edges = [mkEdge("e0", "s", "t1", "b"), mkEdge("e1", "s", "t2", "b")];
-    const out = routeFanoutEdges(nodes, edges);
+    const out = routeTrunkEdges(nodes, edges);
     expect(out[0]!.type).toBe("bus");
     expect(out[1]!.type).toBe("bus");
   });
@@ -163,7 +163,7 @@ describe("routeFanoutEdges (6C)", () => {
       recipeNode("t2", 0, 300, r),
     ];
     const edges = [mkEdge("e0", "s", "t1", "b"), mkEdge("e1", "s", "t2", "b")];
-    const out = routeFanoutEdges(nodes, edges);
+    const out = routeTrunkEdges(nodes, edges);
     expect(out[0]!.type).toBe("item");
     expect(out[1]!.type).toBe("item");
   });
@@ -183,7 +183,7 @@ describe("routeFanoutEdges (6C)", () => {
       mkEdge("e1", "s", "t2", "b"),
       mkEdge("e2", "s", "t0", "b"),
     ];
-    const out = routeFanoutEdges(nodes, edges);
+    const out = routeTrunkEdges(nodes, edges);
 
     // Next layer over: a bus branch carrying the whole trunk aggregate.
     const near = out.find((e) => e.id === "e0")!;
@@ -204,10 +204,19 @@ describe("routeFanoutEdges (6C)", () => {
     expect(farData.bendX).toBe(nearData.junctionX);
     expect(farData.fanoutColumn).toBe(true);
 
-    // Backward: untouched by this pass (its column is not routed here).
+    // Backward: still an item edge drawing its detour rail, but its rail leaves
+    // the source on the trunk's own column instead of a default one stub out,
+    // so the return joins the line its forward siblings share.
     const backward = out.find((e) => e.id === "e2")!;
     expect(backward.type).toBe("item");
-    expect(backward).toBe(edges[2]); // untouched by reference
+    const backData = backward.data as {
+      railXRight?: number;
+      fanout?: boolean;
+      bendX?: number;
+    };
+    expect(backData.railXRight).toBe(nearData.junctionX);
+    expect(backData.fanout).toBeUndefined();
+    expect(backData.bendX).toBeUndefined();
   });
 
   it("retypes a lone near member beside a far sibling", () => {
@@ -220,7 +229,7 @@ describe("routeFanoutEdges (6C)", () => {
       recipeNode("t2", 2 * oneGap, 300, r),
     ];
     const edges = [mkEdge("e0", "s", "t1", "b"), mkEdge("e1", "s", "t2", "b")];
-    const out = routeFanoutEdges(nodes, edges);
+    const out = routeTrunkEdges(nodes, edges);
     expect(out.find((e) => e.id === "e0")!.type).toBe("bus");
     expect(fanData(out, "e0").busChipOwner).toBe(true);
     expect(out.find((e) => e.id === "e1")!.type).toBe("item");
@@ -242,7 +251,7 @@ describe("routeFanoutEdges (6C)", () => {
       mkEdge("e0", "agg", "t1", "ore"),
       mkEdge("e1", "agg", "t2", "ore"),
     ];
-    const out = routeFanoutEdges(nodes, edges);
+    const out = routeTrunkEdges(nodes, edges);
     for (const id of ["e0", "e1"]) {
       const edge = out.find((e) => e.id === id)!;
       expect(edge.type).toBe("bus");
@@ -276,7 +285,7 @@ describe("routeFanoutEdges (6C)", () => {
     expect(gaps[0]!.columns).toBe(2);
     const zone = gaps[0]!.columnZone;
 
-    const out = routeFanoutEdges(nodes, edges, { gaps });
+    const out = routeTrunkEdges(nodes, edges, { gaps });
     const jxA = fanData(out, "e0").junctionX!;
     const jxB = fanData(out, "e2").junctionX!;
     expect(jxA).toBe(zone.left + COLUMN_PITCH / 2);
@@ -290,7 +299,7 @@ describe("routeFanoutEdges (6C)", () => {
     expect(fanData(out, "e1").junctionX).toBe(jxA);
     expect(fanData(out, "e3").junctionX).toBe(jxB);
     // Order-independence: shuffled edges resolve the same slots.
-    const shuffled = routeFanoutEdges(
+    const shuffled = routeTrunkEdges(
       nodes,
       [edges[3]!, edges[1]!, edges[2]!, edges[0]!],
       { gaps },
@@ -311,7 +320,7 @@ describe("routeFanoutEdges (6C)", () => {
     ];
     const edges = [mkEdge("e0", "s", "t1", "b"), mkEdge("e1", "s", "t2", "b")];
     const sx = nodeWidth(nodes[0]!);
-    const out = routeFanoutEdges(nodes, edges);
+    const out = routeTrunkEdges(nodes, edges);
     expect(fanData(out, "e0").junctionX).toBe((sx + oneGap) / 2);
     expect(fanData(out, "e1").junctionX).toBe((sx + oneGap) / 2);
   });
@@ -347,8 +356,8 @@ describe("routeFanoutEdges (6C)", () => {
             owner: d.busChipOwner,
           };
         });
-    const a = routeFanoutEdges(nodes, edges);
-    const b = routeFanoutEdges([...nodes].reverse(), [
+    const a = routeTrunkEdges(nodes, edges);
+    const b = routeTrunkEdges([...nodes].reverse(), [
       edges[2]!,
       edges[0]!,
       edges[1]!,
@@ -371,7 +380,7 @@ describe("routeFanoutEdges (6C)", () => {
           nodes,
           assignBendColumns(
             nodes,
-            assignEntryColumns(nodes, routeFanoutEdges(nodes, edges)),
+            assignEntryColumns(nodes, routeTrunkEdges(nodes, edges)),
           ),
         ),
       ),

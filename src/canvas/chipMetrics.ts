@@ -20,7 +20,8 @@
 import type { Edge } from "@xyflow/react";
 
 import { CHIP_BOX_HEIGHT, CHIP_BOX_WIDTH } from "./dimensions";
-import { edgeRate, type BusEdgeData } from "./busRouting";
+import type { BusEdgeData } from "./busRouting";
+import { edgeRate } from "./nodeGeometry";
 import { formatRatePerMin } from "../data/rate-format";
 
 // Chip half-extents, in graph units. A chip draws at its natural CSS size at

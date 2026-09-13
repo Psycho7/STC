@@ -1,4 +1,4 @@
-// One shared column per source port. routeFanoutEdges used to form a trunk only
+// One shared column per source port. routeTrunkEdges used to form a trunk only
 // out of the members whose target sits one layer over; everything further took
 // its own staggered bend column, so an input card feeding N consumers drew N
 // parallel verticals beside the card. Now every member of one (item, source
@@ -18,7 +18,7 @@ import Fraction from "fraction.js";
 import type { Edge } from "@xyflow/react";
 
 import { ROUTING_PASSES } from "../../src/canvas/layout";
-import { routeFanoutEdges } from "../../src/canvas/busRouting";
+import { routeTrunkEdges } from "../../src/canvas/busRouting";
 import { deconflictChipAnchors } from "../../src/canvas/chipSeating";
 import { drawnPortsOf, nodeWidth } from "../../src/canvas/nodeGeometry";
 import {
@@ -106,7 +106,7 @@ const typeOf = (edges: Edge[], id: string): string | undefined =>
 const routeAll = (nodes: RFAnyNode[], edges: Edge[]): Edge[] =>
   ROUTING_PASSES.reduce((acc, pass) => pass.run(nodes, acc), edges);
 
-describe("routeFanoutEdges: one shared column for near and far members", () => {
+describe("routeTrunkEdges: one shared column for near and far members", () => {
   // Two consumers one layer over and two consumers three layers over, all off
   // one out-port. The far rows sit below the near cards, so no far leg crosses
   // one and jogForwardLegs leaves every column alone.
@@ -193,7 +193,7 @@ describe("routeFanoutEdges: one shared column for near and far members", () => {
   });
 });
 
-describe("routeFanoutEdges: a trunk of far members only", () => {
+describe("routeTrunkEdges: a trunk of far members only", () => {
   it("shares one column and elects one owner to draw the split dot", () => {
     const src = producer("src", 0, 0);
     const nodes: RFAnyNode[] = [
@@ -236,7 +236,7 @@ describe("routeFanoutEdges: a trunk of far members only", () => {
   });
 });
 
-describe("routeFanoutEdges: the shared column and its neighbours", () => {
+describe("routeTrunkEdges: the shared column and its neighbours", () => {
   it("keeps the stagger of other edges off the shared column", () => {
     // assignBendColumns cannot re-place a pinned member, but it must not fan
     // ANOTHER edge's vertical onto the column either: a staggered column half a
@@ -278,7 +278,7 @@ describe("routeFanoutEdges: the shared column and its neighbours", () => {
       layerFiller("mid", 2 * LAYER_PITCH),
       consumer("far", 3 * LAYER_PITCH, 900),
     ];
-    const routed = routeFanoutEdges(nodes, [
+    const routed = routeTrunkEdges(nodes, [
       edge("e:1", "src", "near1"),
       edge("e:2", "src", "near2"),
       edge("e:3", "src", "far"),

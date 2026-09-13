@@ -354,6 +354,16 @@ describe("web classification", () => {
     ]);
   });
 
+  it("reserves a column for every member trunk of a web", () => {
+    // The drawn web shape is deferred: routeTrunkEdges places each member trunk
+    // of a complete bipartite component on a column of its own, so the reserve
+    // counts all four (two fan-outs in the gap, two fan-ins in the same gap)
+    // rather than one column per side.
+    const gap = gapRequirements(webNodes(), webEdges())[0]!;
+    expect(gap.columns).toBe(4);
+    expect(gap.columnZone).toBe(FORWARD_STEP_BUDGET + 4 * COLUMN_PITCH);
+  });
+
   it("totals a trunk's member rates and elects the lex-smallest owner", () => {
     const { trunks } = classifyTrunks(
       webNodes(),

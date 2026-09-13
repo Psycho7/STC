@@ -653,3 +653,93 @@ describe("canvas/BusEdge trunk labels", () => {
     expect(drop!.textContent).toBe("120/min");
   });
 });
+
+describe("canvas/BusEdge fan-in members", () => {
+  // A fan-in member carries the mirrored payload: `fanin` instead of `fanout`,
+  // the trunk's merge column, and the same aggregate fields. BusEdge draws the
+  // merge dot, the owner's aggregate on the shared leg and every member's own
+  // rate on its stub.
+  const faninData = (over: Partial<BusData> = {}): BusData =>
+    ({
+      item: "belt",
+      rate: new Fraction(2, 1),
+      fanin: true,
+      trunkKey: "belt|tgt",
+      junctionX: 150,
+      busTotalRate: new Fraction(5, 1),
+      busMemberCount: 2,
+      busChipOwner: true,
+      ...over,
+    }) as BusData;
+
+  it("draws the merge dot on the target row, one chamfer past the column", async () => {
+    renderEdge(faninData());
+    const path = await findEdgePath();
+    const pts = parsePathPoints(path.getAttribute("d") ?? "");
+    const targetY = pts[pts.length - 1]![1];
+    // The fan-in dot keeps its own testid and family, so the e2e collector and
+    // the keep-off field still tell the two trunk families apart.
+    const dot = document.querySelector<HTMLElement>(
+      '[data-testid="fanin-junction-e1"]',
+    );
+    expect(dot).not.toBeNull();
+    expect(dot!.getAttribute("data-family")).toBe("fanin");
+    expect(
+      document.querySelector('[data-testid="bus-junction-e1"]'),
+    ).toBeNull();
+    expect(dot!.style.transform).toMatch(
+      new RegExp(
+        `translate\\(-50%, -50%\\) translate\\(-?\\d[\\d.]*px, ${targetY}px\\)`,
+      ),
+    );
+  });
+
+  it("draws the trunk total on the owner and the member's own rate on every member", async () => {
+    renderEdge(faninData());
+    await findEdgePath();
+    const drop = document.querySelector<HTMLElement>(
+      '[data-testid="bus-edge-label-e1-drop"]',
+    );
+    const rise = document.querySelector<HTMLElement>(
+      '[data-testid="bus-edge-label-e1-rise"]',
+    );
+    expect(drop).not.toBeNull();
+    expect(drop!.textContent).toBe("300/min"); // the trunk's 5/s total
+    expect(rise).not.toBeNull();
+    expect(rise!.textContent).toBe("120/min"); // this member's own 2/s
+  });
+
+  it("draws no aggregate on a non-owner member, only its own rate", async () => {
+    renderEdge(faninData({ busChipOwner: false }));
+    await findEdgePath();
+    expect(
+      document.querySelector('[data-testid="bus-edge-label-e1-drop"]'),
+    ).toBeNull();
+    expect(
+      document.querySelector('[data-testid="bus-edge-label-e1-rise"]'),
+    ).not.toBeNull();
+  });
+
+  it("adds the fan-in seat offsets to the two anchors", async () => {
+    // The seating pass stamps faninAgg* / faninMember*; BusEdge adds each to
+    // the anchor its own chip family rides, and never to the other one.
+    renderEdge(faninData({ faninAggDy: 40, faninMemberDy: -40 }));
+    await findEdgePath();
+    const yOf = (testId: string): number => {
+      const el = document.querySelector<HTMLElement>(
+        `[data-testid="${testId}"]`,
+      )!;
+      return Number(
+        /translate\(-?[\d.]+px, (-?[\d.]+)px\)$/.exec(el.style.transform)![1],
+      );
+    };
+    const plain = { drop: 0, rise: 0 };
+    plain.drop = yOf("bus-edge-label-e1-drop");
+    plain.rise = yOf("bus-edge-label-e1-rise");
+    cleanup();
+    renderEdge(faninData());
+    await findEdgePath();
+    expect(plain.drop - yOf("bus-edge-label-e1-drop")).toBe(40);
+    expect(plain.rise - yOf("bus-edge-label-e1-rise")).toBe(-40);
+  });
+});

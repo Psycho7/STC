@@ -14,7 +14,7 @@ import {
   CHIP_ICON_ONLY_MAX_ZOOM,
   LABEL_MIN_ZOOM,
   anchorStampLive,
-  faninHideLive,
+  portRowStampLive,
 } from "./dimensions";
 import { drawnEdge, parsePathPoints, type DrawnEdge } from "./edgePath";
 import {
@@ -42,11 +42,17 @@ export type ItemEdgeData = {
   // when absent the path builder centers the bend at the corridor midpoint.
   bendX?: number;
   // Set beside bendX when that column is a fan-out trunk's SHARED junction
-  // column (routeFanoutEdges pinned every same-(item, source-port) member to
+  // column (routeTrunkEdges pinned every same-(item, source-port) member to
   // it) rather than a stagger column of this edge's own. chamferStepPath then
   // anchors this member's rate chip on its own final horizontal leg instead of
   // the shared vertical, where every member's chip would stack.
   fanoutColumn?: boolean;
+  // The mirror of fanoutColumn: this edge's bendX is a fan-in trunk's SHARED
+  // merge column (routeTrunkEdges pinned every far member of one (item,
+  // target-port) fan-in to it). chamferStepPath then anchors this member's rate
+  // chip on its own SOURCE horizontal, because here it is the final leg into
+  // the port that the members share.
+  faninColumn?: boolean;
   // Per-bend corridor budget (half the stagger pitch) assigned alongside bendX by
   // assignBendColumns. chamferStepPath grows the forward step's corner chamfers
   // toward MAX_CHAMFER, capped by this budget so a fattened bevel never reaches a
@@ -89,38 +95,19 @@ export type ItemEdgeData = {
   // the zoom LOD gates, so the hover answers the rate question it asks instead
   // of lighting an edge that shows no number. Optional, defaults to falsy.
   focused?: boolean;
-  // Fan-in marker (deconflictChipAnchors). Where 2+ forward same-item edges enter
-  // one target in-port their final legs run collinear at the port y from a merge
-  // point to the port; fan-in is otherwise structurally unmodeled (all trunk keys
-  // are (item, source), never (item, target)). This pair is stamped on the ONE
-  // elected owner item edge of such a group so its ItemEdge draws the merge point
-  // as a bus-junction dot. A port that also receives a same-item feed outside the
-  // run (a lane-bus rise, a backward rail) gets no marker at all. Presentational
-  // only: no edge is retyped and no member's own rate changes.
-  faninJunctionX?: number;
-  faninJunctionY?: number;
-  // Set on a NON-OWNER fan-in member whose OWN rate chip would sit ON the shared
-  // run (between the merge point and the port), where the owner's own rate chip
-  // reads: ItemEdge then draws no rate chip, keeping the exact member rate on a
-  // transparent hover path (and the target card's input row). Members whose chip
-  // sits on their own PRE-merge leg keep it. Mirrors the bus member-hide.
-  // faninChipHiddenAtY records the port y the hide was decided at, so the hide
-  // (like the whole marker) drops once a drag moves the live port off the stamp.
-  faninChipHidden?: boolean;
-  faninChipHiddenAtY?: number;
   // Set on an item edge whose seated rate chip ended up MORE THAN ONE chip
   // pitch off its own polyline: ItemEdge then draws no rate chip at all,
   // because at that distance the line runs clear of the box and the chip names
   // no flow. A seat at or under a pitch still draws, the #28 sidestep among
   // them. The exact rate stays on the hover path and the target card's input
-  // row, as with the fan-in hide above. itemChipHiddenAt records the label
+  // row. itemChipHiddenAt records the label
   // anchor the hide was decided at, so a drag that moves the anchor drops the
   // hide.
   itemChipHidden?: true;
   itemChipHiddenAt?: { x: number; y: number };
   // Declined fan-out marker (deconflictChipAnchors, #43). Where N >= 2 edges of
   // the same (item, source) run to >= 2 distinct targets but their span falls
-  // outside routeFanoutEdges' band, no bus trunk forms: the members stay plain
+  // outside routeTrunkEdges' band, no bus trunk forms: the members stay plain
   // item edges that leave the shared out-port coincident and peel off one at a
   // time, so the run reads as a single line carrying one member's rate. These
   // fields are stamped on the ONE elected owner item edge of such a group (the
@@ -289,8 +276,8 @@ export function FlowChip({
   );
 }
 
-// Radius of a merge junction dot -- the small filled circle a bus member or a
-// fan-in owner draws where its own line joins a shared run -- in graph units.
+// Radius of a junction dot -- the small filled circle a trunk member draws
+// where its own line joins the stretch its trunk shares -- in graph units.
 const JUNCTION_RADIUS = 3;
 
 // Junction-dot screen-radius bounds, in physical px. The dot is drawn in graph
@@ -441,8 +428,8 @@ export type JunctionFamily = "fanout" | "fanin" | "divergence";
 // sits BELOW the flow chips (.bus-junction z-index 1 vs .flow-chip z-index 2 in
 // canvas.css), so an overlapping aggregate chip's digits win. Sized in graph
 // units via junctionRadius so the pane zoom renders it at a clamped screen
-// radius. Threads the same `dimmed` state the chips do. Shared by BusEdge
-// (fan-out branch dots) and ItemEdge (fan-in merge dots).
+// radius. Threads the same `dimmed` state the chips do. Shared by BusEdge (the
+// two trunk dots) and ItemEdge (the declined-fan-out divergence dot).
 export function JunctionDot({
   testId,
   family,
@@ -589,8 +576,8 @@ export function MaskedEdge({
 // A chip that draws nothing still owes the reader its exact rate, so the edge
 // carries it itself: a transparent hover path over the same geometry with the
 // native SVG tooltip on it. Both components fall back to this wherever a hide
-// rule (a fan-in member on the shared run, a hidden bus branch or lane rise)
-// takes their only chip away.
+// rule (a hidden bus branch, an off-line item seat) takes their only chip
+// away.
 export function HoverTitlePath({ d, title }: { d: string; title: string }) {
   return (
     <path
@@ -635,25 +622,11 @@ export default function ItemEdge({
   // The full "Name x rate/min" string rides on aria-label so a screen reader can
   // name the item, and a separate tooltip carries the exact, un-rounded rate the
   // rounding hides (chips now accept pointer events, so hovering shows it).
-  // A non-owner fan-in member whose own rate chip would sit on the shared merged
-  // run draws no rate chip -- the owner's own chip reads there instead. The exact
-  // member rate stays reachable on the transparent hover path below (and the
-  // target card's input row), mirroring the bus member-hide. The hide was taken
-  // at the target port row, so it is checked against the LIVE target port y
-  // React Flow measured (the targetY prop).
-  const ownChipHidden =
-    edgeData?.faninChipHidden === true &&
-    faninHideLive(edgeData.faninChipHiddenAtY, targetY);
-  // The owner's merge dot sits on the run into the same target port, so it is
-  // checked against the same live row -- and, below, against the live line.
-  const faninMarkerLive =
-    edgeData?.faninJunctionY !== undefined &&
-    faninHideLive(edgeData.faninJunctionY, targetY);
-  // The declined fan-out dot sits near the SOURCE port instead, so it is checked
+  // The declined fan-out dot sits at the SOURCE port row, so it is checked
   // against the live source y.
   const fanoutMarkerLive =
     edgeData?.fanoutJunctionY !== undefined &&
-    faninHideLive(edgeData.fanoutJunctionY, sourceY);
+    portRowStampLive(edgeData.fanoutJunctionY, sourceY);
   // The label pair is BigInt Fraction work (the exact half re-formats the
   // rational in full), and the zoom subscription above re-renders every edge on
   // every zoom tick, so it is memoized on what it actually reads: this edge's
@@ -712,13 +685,6 @@ export default function ItemEdge({
   // from the drawn shape above, so the check costs no second parse of the path
   // this render just built.
   const dotPts = drawn.pts;
-  const faninDotLive =
-    faninMarkerLive &&
-    edgeData?.faninJunctionX !== undefined &&
-    stampOnOwnPolyline(
-      [edgeData.faninJunctionX, edgeData.faninJunctionY!],
-      dotPts,
-    );
   const fanoutDotLive =
     fanoutMarkerLive &&
     edgeData?.fanoutJunctionX !== undefined &&
@@ -737,13 +703,12 @@ export default function ItemEdge({
     edgeData?.itemChipHidden === true &&
     anchorStampLive(edgeData.itemChipHiddenAt, drawn.labelAnchor);
   // The zoom gate yields to the hover focus: a lit edge shows its rate at any
-  // zoom. The overlap-driven hides above still win, since they are placement
-  // rulings, not level of detail.
+  // zoom. The overlap-driven hide above still wins, since it is a placement
+  // ruling, not level of detail.
   const chipText =
     edgeData &&
     rateStr &&
     (zoom >= LABEL_MIN_ZOOM || edgeData.focused === true) &&
-    !ownChipHidden &&
     !seatChipHidden
       ? `${rateStr}${unit}`
       : "";
@@ -783,26 +748,12 @@ export default function ItemEdge({
           zoom={zoom}
         />
       ) : null}
-      {/* A hidden chip (fan-in member, or a seat more than one chip pitch off
-          its own polyline) drew no rate chip, so keep its exact rate reachable
-          on the edge itself: a transparent hover path over the same geometry
-          carries the native SVG tooltip (mirrors BusEdge). */}
-      {(ownChipHidden || seatChipHidden) && exactTitle ? (
+      {/* A hidden chip (a seat more than one chip pitch off its own polyline)
+          drew no rate chip, so keep its exact rate reachable on the edge
+          itself: a transparent hover path over the same geometry carries the
+          native SVG tooltip (mirrors BusEdge). */}
+      {seatChipHidden && exactTitle ? (
         <HoverTitlePath d={edgePath} title={exactTitle} />
-      ) : null}
-      {/* Fan-in merge dot (owner only): where the last same-item member joins the
-          shared run into the target port. Reuses BusEdge's junction dot markup.
-          Dropped while stale (see the staleness guards above). */}
-      {faninDotLive && edgeData?.faninJunctionX !== undefined ? (
-        <JunctionDot
-          testId={`fanin-junction-${id}`}
-          family="fanin"
-          x={edgeData.faninJunctionX}
-          y={edgeData.faninJunctionY!}
-          color={stroke}
-          dimmed={edgeData.dimmed}
-          zoom={zoom}
-        />
       ) : null}
       {/* Declined fan-out divergence dot (#43, owner only): where coincident
           same-flow item edges leave the shared out-port run for their own

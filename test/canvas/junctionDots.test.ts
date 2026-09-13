@@ -1,16 +1,16 @@
-// Junction-dot coordinates, all three families pinned in one place: the fan-out
-// trunk's split dot (drawn by BusEdge from the shared path builders), plus the
-// fan-in merge dot and the declined-fan-out divergence dot (both stamped onto
-// item-edge data by deconflictChipAnchors). chipSeating resolves all three up
-// front, before any chip seats, so these are the coordinates that cache -- and
-// the render layer that draws the dots -- must keep reproducing.
+// Junction-dot coordinates, all three families pinned in one place: the two
+// trunk dots (the fan-out's split and the fan-in's merge, both drawn by BusEdge
+// from the shared path builders) plus the declined-fan-out divergence dot
+// (stamped onto item-edge data by deconflictChipAnchors). chipSeating resolves
+// all three up front, before any chip seats, so these are the coordinates that
+// cache -- and the render layer that draws the dots -- must keep reproducing.
 
 import { describe, it, expect } from "vitest";
 import Fraction from "fraction.js";
 import type { Edge } from "@xyflow/react";
 
 import { deconflictChipAnchors } from "../../src/canvas/chipSeating";
-import { routeFanoutEdges } from "../../src/canvas/busRouting";
+import { routeTrunkEdges } from "../../src/canvas/busRouting";
 import {
   drawnPortsOf,
   nodeWidth,
@@ -75,7 +75,7 @@ describe("junction dots: fan-out trunk (BusEdge split dot)", () => {
     const up = consumer("up", 500, 0);
     const down = consumer("down", 500, 260);
     const nodes: RFAnyNode[] = [src, up, down];
-    const routed = routeFanoutEdges(nodes, [
+    const routed = routeTrunkEdges(nodes, [
       rateEdge("e:1", "src", "up"),
       rateEdge("e:2", "src", "down"),
     ]);
@@ -123,39 +123,96 @@ describe("junction dots: fan-out trunk (BusEdge split dot)", () => {
   });
 });
 
-describe("junction dots: fan-in merge (stamped on the owner item edge)", () => {
-  it("stamps the merge point where the last member joins the shared run", () => {
-    const tgtRecipe = mkRecipe("tgt", [ITEM], []);
-    const tgt = consumer("tgt", 1000, 100);
-    const ty = 100 + measureRecipe(tgtRecipe).inHandleYs[0]!;
-    // A bent feeder and a straight feeder: the straight one joins the port run
-    // at its own drawn out-port, which is where the merge dot goes.
+describe("junction dots: fan-in trunk (BusEdge merge dot)", () => {
+  it("draws one shared dot where the members merge onto the trunk's leg", () => {
     const srcA = producer("srcA", 0, 0);
-    const srcBRecipe = mkRecipe("srcB", [], [ITEM]);
-    const srcBOutY0 = measureRecipe(srcBRecipe).outHandleYs[0]!;
-    const srcB = producer("srcB", 600, ty - srcBOutY0);
-
+    const srcB = producer("srcB", 0, 260);
+    const tgt = consumer("tgt", 500, 100);
     const nodes: RFAnyNode[] = [srcA, srcB, tgt];
-    const out = deconflictChipAnchors(nodes, [
-      rateEdge("e:1:srcA->tgt", "srcA", "tgt"),
-      rateEdge("e:2:srcB->tgt", "srcB", "tgt"),
+    const routed = routeTrunkEdges(nodes, [
+      rateEdge("e:1", "srcA", "tgt"),
+      rateEdge("e:2", "srcB", "tgt"),
     ]);
 
-    const owner = dataOf(out, "e:1:srcA->tgt"); // smallest id of the group
-    expect(owner.faninJunctionX).toBe(905);
-    // On the DRAWN port row, so the dot sits on the run it marks: the model row
-    // y plus the recipe handle drift, which is what the members are drawn along.
-    expect(owner.faninJunctionY).toBe(drawnPortsFor(srcA, tgt).targetY);
-    expect(owner.faninJunctionY).toBe(198);
-    expect(ty).toBe(197);
-    // One dot per merge: the non-owner carries none.
-    expect(dataOf(out, "e:2:srcB->tgt").faninJunctionX).toBeUndefined();
+    // Both members answer the same point: one chamfer past the shared column,
+    // on the target port row, which is the first vertex of the leg they share.
+    const merge = (id: string, src: RFRecipeNode): { x: number; y: number } => {
+      const drawn = drawnEdge(
+        drawnPortsFor(src, tgt),
+        "bus",
+        dataOf(routed, id),
+      );
+      expect(drawn.shape).toBe("fanin");
+      if (drawn.shape !== "fanin") throw new Error("not a fan-in shape");
+      return drawn.junction;
+    };
+    const dot = merge("e:1", srcA);
+    expect(merge("e:2", srcB)).toEqual(dot);
+    expect(dot.y).toBe(drawnPortsFor(srcA, tgt).targetY);
+    const column = routingHintsFromData(dataOf(routed, "e:1")).junctionX!;
+    expect(dot.x).toBeGreaterThan(column);
+    expect(dot.x).toBeLessThan(drawnPortsFor(srcA, tgt).targetX);
+    // It lies on each member's own drawn polyline, which is what lets the
+    // render layer draw it without any cross-edge state.
+    for (const [id, src] of [
+      ["e:1", srcA],
+      ["e:2", srcB],
+    ] as const) {
+      const drawn = drawnEdge(
+        drawnPortsFor(src, tgt),
+        "bus",
+        dataOf(routed, id),
+      );
+      expect(stampOnOwnPolyline([dot.x, dot.y], drawn.pts)).toBe(true);
+    }
+  });
+
+  it("keeps every seated fan-in chip off the merge dot", () => {
+    // The merge dot joins the seating pass's keep-off set from the routed data
+    // (phase 0), so no chip the pass seats may end up painting over it. The
+    // corridor here is wide enough for both chips to seat well clear of the
+    // dot, so this states the invariant rather than a move.
+    const srcA = producer("srcA", 0, 0);
+    const srcB = producer("srcB", 0, 260);
+    const tgt = consumer("tgt", 1400, 100);
+    const nodes: RFAnyNode[] = [srcA, srcB, tgt];
+    const routed = routeTrunkEdges(nodes, [
+      rateEdge("e:1", "srcA", "tgt"),
+      rateEdge("e:2", "srcB", "tgt"),
+    ]);
+    const seated = deconflictChipAnchors(nodes, routed);
+
+    for (const [id, src] of [
+      ["e:1", srcA],
+      ["e:2", srcB],
+    ] as const) {
+      const data = dataOf(seated, id);
+      const drawn = drawnEdge(drawnPortsFor(src, tgt), "bus", data);
+      if (drawn.shape !== "fanin") throw new Error("not a fan-in shape");
+      const chips = [
+        {
+          x: drawn.trunkAnchor.x + ((data.faninAggDx as number) ?? 0),
+          y: drawn.trunkAnchor.y + ((data.faninAggDy as number) ?? 0),
+        },
+        {
+          x: drawn.branchAnchor.x + ((data.faninMemberDx as number) ?? 0),
+          y: drawn.branchAnchor.y + ((data.faninMemberDy as number) ?? 0),
+        },
+      ];
+      for (const chip of chips) {
+        expect(
+          Math.abs(chip.x - drawn.junction.x) >= CHIP_HALF_W ||
+            Math.abs(chip.y - drawn.junction.y) >= CHIP_HALF_H,
+          `${id} chip clears the merge dot`,
+        ).toBe(true);
+      }
+    }
   });
 });
 
 describe("junction dots: declined fan-out divergence (stamped on the owner)", () => {
   it("stamps the column where the coincident members first split", () => {
-    // Two members two layers over: routeFanoutEdges pins both to the trunk's
+    // Two members two layers over: routeTrunkEdges pins both to the trunk's
     // shared column and retypes neither, so they leave one out-port coincident
     // as plain item edges. The filler card makes the layer between.
     const gap = 1000;
@@ -169,7 +226,7 @@ describe("junction dots: declined fan-out divergence (stamped on the owner)", ()
     const bent = consumer("bent", nodeWidth(src) + gap, rowTop + 200);
     const mid = consumer("mid", nodeWidth(src) + 300, rowTop + 2800);
     const nodes: RFAnyNode[] = [src, mid, straight, bent];
-    const routed = routeFanoutEdges(nodes, [
+    const routed = routeTrunkEdges(nodes, [
       rateEdge("e:a", "src", "straight"),
       rateEdge("e:b", "src", "bent"),
     ]);

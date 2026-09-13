@@ -6,7 +6,7 @@ import { describe, it, expect, vi } from "vitest";
 import Fraction from "fraction.js";
 import type { Edge } from "@xyflow/react";
 
-import { routeFanoutEdges } from "../../src/canvas/busRouting";
+import { routeTrunkEdges } from "../../src/canvas/busRouting";
 import {
   chamferFanoutPath,
   routingHintsFromData,
@@ -199,7 +199,7 @@ describe("deconflictChipAnchors: fan-out aggregate seat (3b)", () => {
       recipeNode("t2", oneGap, 400, r),
     ];
     const edges = [mkEdge("e0", "s", "t1", "b"), mkEdge("e1", "s", "t2", "b")];
-    const routed = routeFanoutEdges(nodes, edges);
+    const routed = routeTrunkEdges(nodes, edges);
     // e0 is the elected owner (lex-smallest edge id); e1 is a non-owner.
     expect(aggOf(routed, "e0").busChipOwner).toBe(true);
     expect(aggOf(routed, "e1").busChipOwner).toBe(false);
@@ -245,7 +245,7 @@ describe("deconflictChipAnchors: fan-out aggregate seat (3b)", () => {
       recipeNode("t2", oneGap, 400, r), // far below: long clear branch leg
     ];
     const edges = [mkEdge("e0", "s", "t1", "b"), mkEdge("e1", "s", "t2", "b")];
-    const routed = routeFanoutEdges(nodes, edges);
+    const routed = routeTrunkEdges(nodes, edges);
     const out = deconflictChipAnchors(nodes, routed);
     expect(branchOf(out, "e0").fanoutBranchHidden).toBeUndefined();
     expect(branchOf(out, "e0").fanoutBranchHiddenAt).toBeUndefined();
@@ -327,7 +327,7 @@ describe("deconflictChipAnchors: fan-out aggregate seat (3b)", () => {
     const edges = [mkEdge("e0", "s", "t1", "b"), mkEdge("e1", "s", "t2", "b")];
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     try {
-      const routed = routeFanoutEdges(nodes, edges);
+      const routed = routeTrunkEdges(nodes, edges);
       // The walls must not defeat the classification itself.
       expect(routed.find((e) => e.id === "e0")!.type).toBe("bus");
       const out = deconflictChipAnchors(nodes, routed);

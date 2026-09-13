@@ -80,13 +80,12 @@ export const HIDE_STALE_EPS = CHIP_BOX_HEIGHT / 2;
 // does the anchor a decision was stamped at still describe the live geometry?
 // An ABSENT stamp answers yes -- nothing contradicts the seating decision, so
 // the decision stands -- and this is the only place that default is stated.
-// faninHideLive is the 1-D form for a decision anchored to a port row (the
-// fan-in hide and both junction-dot families compare a stamped y against the
-// live port y). anchorStampLive is the 2-D form for a decision anchored to a
+// portRowStampLive is the 1-D form for a decision anchored to a port row (the
+// divergence dot compares its stamped y against the live source-port y). anchorStampLive is the 2-D form for a decision anchored to a
 // point, and it is per-axis rather than Euclidean because what the stamp
 // records is "this chip box was clear here": a box is a rectangle, so
 // rectangular drift is what invalidates it.
-export function faninHideLive(
+export function portRowStampLive(
   stampY: number | undefined,
   liveY: number,
 ): boolean {

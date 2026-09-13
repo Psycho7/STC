@@ -50,7 +50,7 @@ import {
   clampBackwardRails,
   jogForwardLegs,
   parseElkEdgeIndex,
-  routeFanoutEdges,
+  routeTrunkEdges,
 } from "./busRouting";
 import { deconflictChipAnchors } from "./chipSeating";
 import { widenLayerGaps, type GapRecord } from "./layerModel";
@@ -884,12 +884,13 @@ export const ROUTING_PASSES: ReadonlyArray<{
   readonly run: RoutingPass;
   readonly because: string;
 }> = [
-  // Put every fan-out trunk of the layer model on one shared junction column,
-  // taken from its gap's reserved column zone (members reaching the next layer
-  // retyped bus, the ones further right pinned to the same column).
+  // Put every trunk of the layer model -- fan-out and fan-in alike -- on one
+  // shared junction column, taken from its gap's reserved column zone (members
+  // reaching the neighbouring layer retyped bus, the ones further away pinned to
+  // the same column, backward ones given it as their rail column).
   {
-    name: "routeFanoutEdges",
-    run: routeFanoutEdges,
+    name: "routeTrunkEdges",
+    run: routeTrunkEdges,
     because:
       "Consumes no stamp: it reads the placed nodes and the pre-pass's gap " +
       'records alone. It writes the type: "bus" retype and the junction ' +
@@ -901,8 +902,10 @@ export const ROUTING_PASSES: ReadonlyArray<{
     name: "assignEntryColumns",
     run: assignEntryColumns,
     because:
-      "Reads the bus retype from routeFanoutEdges, so a fan-out member is " +
-      "excluded from its target's gutter columns. Writes entryX.",
+      "Reads the bus retype from routeTrunkEdges, so a fan-out member is " +
+      "excluded from its target's gutter columns and a fan-in member counts " +
+      "as one, and the fan-in columns it must not seat a gutter column on. " +
+      "Writes entryX.",
   },
   // Stagger the remaining item edges' bend columns so their verticals fan out
   // (clamped clear of gutters).
@@ -910,8 +913,8 @@ export const ROUTING_PASSES: ReadonlyArray<{
     name: "assignBendColumns",
     run: assignBendColumns,
     because:
-      'Reads the bus retype from routeFanoutEdges (it fans only still-"item" ' +
-      "edges) and leaves the bendX routeFanoutEdges pinned on a far member " +
+      'Reads the bus retype from routeTrunkEdges (it fans only still-"item" ' +
+      "edges) and leaves the bendX routeTrunkEdges pinned on a far member " +
       "alone. Writes bendX for everything else.",
   },
   // Bend a blocked forward final leg to a clear y so it does not cross an
@@ -921,7 +924,9 @@ export const ROUTING_PASSES: ReadonlyArray<{
     run: jogForwardLegs,
     because:
       "Reads each edge's FINAL bendX from assignBendColumns, because the leg " +
-      "it jogs starts at that column.",
+      "it jogs starts at that column, and the entry columns assignEntryColumns " +
+      "already staked at the target, because a jog descent takes the next free " +
+      "slot left of them.",
   },
   // Move the backward detour rails clear of the cards they span.
   {
@@ -929,7 +934,8 @@ export const ROUTING_PASSES: ReadonlyArray<{
     run: clampBackwardRails,
     because:
       "Reads entryX from assignEntryColumns, which fixes the rail's left end " +
-      "before the rail level is clamped.",
+      "before the rail level is clamped, and the rail columns routeTrunkEdges " +
+      "pre-stamped on a trunk's backward members, which it keeps as given.",
   },
   // Stack crowded chips (entry, bus, midpoint) so none coincide.
   {
