@@ -1,7 +1,7 @@
 // VENDOR PATCH: dropped primeng SelectItem import + qualityFilterOptions/qualityOptions (UI only).
-import { Item, ItemJson } from '../data/item';
-import { Recipe, RecipeJson } from '../data/recipe';
-import { Entities } from '../utils';
+import { Item, ItemJson } from "../data/item";
+import { Recipe, RecipeJson } from "../data/recipe";
+import { Entities } from "../utils";
 
 export enum Quality {
   Any = -1,
@@ -36,10 +36,10 @@ export function recipeHasQuality(
   const flags = new Set(recipe.flags);
   return (
     recipe.part == null &&
-    !flags.has('mining') &&
-    (!flags.has('technology') || Object.keys(recipe.in).length > 0) &&
-    !flags.has('burn') &&
-    !flags.has('grow') &&
+    !flags.has("mining") &&
+    (!flags.has("technology") || Object.keys(recipe.in).length > 0) &&
+    !flags.has("burn") &&
+    !flags.has("grow") &&
     Object.keys(recipe.in).some((k) => itemData[k].stack)
   );
 }

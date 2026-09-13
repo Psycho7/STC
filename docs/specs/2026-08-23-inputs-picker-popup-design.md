@@ -56,6 +56,7 @@ plan immediately, which fires a solve for a row the user never chose.
    way, and destroys the row it came from - the Add-side churn plus a
    deletion. Those tiles are dimmed too, explained by the same hint line the
    Add popup uses.
+
 4. **Depth grouping is reused unchanged.** `computeItemDepths` seeds every
    entry in `pack.items`, not just producible ones, and all 113 rank on the
    shipped pack (tiers 0 through 8), so the popup's unranked bucket stays
@@ -78,15 +79,15 @@ own backdrop, so a second mount site needs no portal or sprite work. Two of
 its prop comments are target-specific and go stale here; they are listed under
 cleanup.
 
-| prop | from a row | from Add |
-| --- | --- | --- |
-| `items` | all of `pack.items` | same |
-| `tierByItemId` | `computeItemDepths(pack)`, memoized per pack | same |
-| `disabledIds` | the other override rows' items, plus every auto-row item when the row is uncapped | every override item, plus every auto-row item |
-| `disabledHint` | `inputs.picker.listed` (copy below) | same |
-| `selectedId` | the row's own item | `undefined` |
-| `onPick` | own item returns early from the swap and arms nothing, then closes; otherwise `handleItemChange` swaps, carrying any rate, and arms `{ itemId, kind: "trigger" }` | appends `{ itemId }` and arms `{ itemId, kind: "rate" }`, then closes |
-| `onClose` | clears `pickerFor`, refocuses the trigger | same |
+| prop           | from a row                                                                                                                                                        | from Add                                                              |
+| -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------- |
+| `items`        | all of `pack.items`                                                                                                                                               | same                                                                  |
+| `tierByItemId` | `computeItemDepths(pack)`, memoized per pack                                                                                                                      | same                                                                  |
+| `disabledIds`  | the other override rows' items, plus every auto-row item when the row is uncapped                                                                                 | every override item, plus every auto-row item                         |
+| `disabledHint` | `inputs.picker.listed` (copy below)                                                                                                                               | same                                                                  |
+| `selectedId`   | the row's own item                                                                                                                                                | `undefined`                                                           |
+| `onPick`       | own item returns early from the swap and arms nothing, then closes; otherwise `handleItemChange` swaps, carrying any rate, and arms `{ itemId, kind: "trigger" }` | appends `{ itemId }` and arms `{ itemId, kind: "rate" }`, then closes |
+| `onClose`      | clears `pickerFor`, refocuses the trigger                                                                                                                         | same                                                                  |
 
 A disabled tile therefore means the same thing at both sites: "this item
 already has a row in the panel - edit that row instead". Auto-rows already
@@ -166,11 +167,11 @@ Focus lands on an input whose accessible name is the generic
 announces "Rate, edit" with no indication of which item it caps. Every rate
 input, on auto-rows and override rows alike, therefore gains an
 `aria-describedby` pointing at its row's item name, joined with the existing
-invalid-rate message id when that is present. The accessible *name* is
+invalid-rate message id when that is present. The accessible _name_ is
 untouched, so every `getAllByLabelText` query keeps resolving.
 
 The id must sit on a dedicated name node, never on the trigger button. A
-description resolves to the referenced element's accessible *name*, and the
+description resolves to the referenced element's accessible _name_, and the
 trigger's `aria-label` is the generic `inputs.item.label`, so pointing at the
 button would announce "Rate, edit, Item" and silently reinstate the problem
 this fixes. Override rows wrap the trigger's visible text in a

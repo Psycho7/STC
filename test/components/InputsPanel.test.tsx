@@ -325,7 +325,11 @@ describe("InputsPanel", () => {
     const user = userEvent.setup();
     const onChange = vi.fn();
     const overrides: ItemOverride[] = [
-      { itemId: "copper_ore", plan: true, ratePerSec: { num: "1", denom: "1" } },
+      {
+        itemId: "copper_ore",
+        plan: true,
+        ratePerSec: { num: "1", denom: "1" },
+      },
     ];
     render(
       <InputsPanel
@@ -339,7 +343,11 @@ describe("InputsPanel", () => {
     fireEvent.blur(input);
     expect(onChange).toHaveBeenCalledTimes(1);
     expect(firstUpdater(onChange)(overrides)).toEqual([
-      { itemId: "copper_ore", plan: true, ratePerSec: { num: "2", denom: "1" } },
+      {
+        itemId: "copper_ore",
+        plan: true,
+        ratePerSec: { num: "2", denom: "1" },
+      },
     ]);
 
     await user.click(rowTrigger());

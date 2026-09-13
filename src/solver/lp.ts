@@ -84,7 +84,8 @@ export function recipeCostWeight(
   // Clamp to non-negative: a negative override would reward unbounded execution
   // of this recipe. 0 means "run if useful, no cost".
   if (overrides?.has(r.id)) return Math.max(0, overrides.get(r.id)!);
-  if (r.flags?.includes("target-only") || isExcludedProducer(r)) return BIG_M_COST;
+  if (r.flags?.includes("target-only") || isExcludedProducer(r))
+    return BIG_M_COST;
   return 1;
 }
 
@@ -121,7 +122,9 @@ export const REL_TOL = 1e-6;
 // Demand per item: sum over targets of the requested net-export rate.
 // Duplicate targets on the same item accumulate. Shared with the invariant
 // checkers so model and checks read demand the same way.
-export function demandByItem(targets: ReadonlyArray<ItemTarget>): Map<ItemId, number> {
+export function demandByItem(
+  targets: ReadonlyArray<ItemTarget>,
+): Map<ItemId, number> {
   const demand = new Map<ItemId, number>();
   for (const t of targets) {
     const rate = Number(t.ratePerSec.num) / Number(t.ratePerSec.denom);
@@ -152,7 +155,8 @@ function primaryObjective(
   costById: Map<RecipeId, number>,
 ): number {
   let total = 0;
-  for (const r of recipes) total += costById.get(r.id)! * (raw[`x_${r.id}`] ?? 0);
+  for (const r of recipes)
+    total += costById.get(r.id)! * (raw[`x_${r.id}`] ?? 0);
   for (const it of items) {
     total += SURPLUS_WEIGHT * (raw[`surplus_${it.id}`] ?? 0);
     total += DEFICIT_WEIGHT * (raw[`deficit_${it.id}`] ?? 0);
@@ -533,7 +537,10 @@ function extractResult(args: ExtractArgs): LpResult {
     const dv = lpResult[`deficit_${itemId}`] ?? 0;
     return (
       dv >
-      Math.max(RATE_ZERO, DEFICIT_MATERIAL_REL * Math.max(1, demand.get(itemId) ?? 0))
+      Math.max(
+        RATE_ZERO,
+        DEFICIT_MATERIAL_REL * Math.max(1, demand.get(itemId) ?? 0),
+      )
     );
   };
 

@@ -549,8 +549,18 @@ describe("fromElkRenderLayout", () => {
       mkRecipe("r:bseed", ["b"], ["bseed"]),
     ];
     const containers: LoopBoxContainer[] = [
-      { kind: "loop-box", id: "lc:1", members: ["u:a1", "u:a2", "u:aseed"], sccId: "scc:1" },
-      { kind: "loop-box", id: "lc:2", members: ["u:b", "u:bseed1", "u:bseed2"], sccId: "scc:2" },
+      {
+        kind: "loop-box",
+        id: "lc:1",
+        members: ["u:a1", "u:a2", "u:aseed"],
+        sccId: "scc:1",
+      },
+      {
+        kind: "loop-box",
+        id: "lc:2",
+        members: ["u:b", "u:bseed1", "u:bseed2"],
+        sccId: "scc:2",
+      },
     ];
     const plan: RenderPlan = {
       units: [

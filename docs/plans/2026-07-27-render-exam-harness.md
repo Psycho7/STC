@@ -27,22 +27,22 @@
 
 ## File structure
 
-| Path | Responsibility |
-| --- | --- |
-| `src/canvas/Canvas.tsx` (modify) | Install `window.__stcExam` when `?exam=1` is present |
-| `src/canvas/Canvas.exam.test.tsx` (create) | Hook presence/absence and behaviour |
-| `test/e2e/collect.ts` (create) | All in-page DOM collectors, shared by the audit spec and the exam |
-| `test/e2e/geometry-audit.spec.ts` (modify) | Import collectors instead of defining them |
-| `tools/exam/tiling.ts` (create) | Pure geometry: safe region, tile grid, viewport math, coverage |
-| `tools/exam/tiling.test.ts` (create) | Unit tests for the above |
-| `tools/exam/scene.ts` (create) | Assemble `scene.json` from collector output plus `geometry.ts` measurements |
-| `tools/exam/capture.ts` (create) | The `capture` CLI |
-| `tools/exam/probe.ts` (create) | The `probe` CLI and its named ops |
-| `tools/exam/triage.ts` (create) | Corroboration join and routing |
-| `tools/exam/triage.test.ts` (create) | Unit tests for the join |
-| `vitest.config.ts` (modify) | Add `tools/exam/**` to `include` |
-| `.claude/skills/render-exam/SKILL.md` (modify) | Rewritten procedure |
-| `.claude/workflows/render-quality-exam.js` (modify) | Evaluate + triage + Refute |
+| Path                                                | Responsibility                                                              |
+| --------------------------------------------------- | --------------------------------------------------------------------------- |
+| `src/canvas/Canvas.tsx` (modify)                    | Install `window.__stcExam` when `?exam=1` is present                        |
+| `src/canvas/Canvas.exam.test.tsx` (create)          | Hook presence/absence and behaviour                                         |
+| `test/e2e/collect.ts` (create)                      | All in-page DOM collectors, shared by the audit spec and the exam           |
+| `test/e2e/geometry-audit.spec.ts` (modify)          | Import collectors instead of defining them                                  |
+| `tools/exam/tiling.ts` (create)                     | Pure geometry: safe region, tile grid, viewport math, coverage              |
+| `tools/exam/tiling.test.ts` (create)                | Unit tests for the above                                                    |
+| `tools/exam/scene.ts` (create)                      | Assemble `scene.json` from collector output plus `geometry.ts` measurements |
+| `tools/exam/capture.ts` (create)                    | The `capture` CLI                                                           |
+| `tools/exam/probe.ts` (create)                      | The `probe` CLI and its named ops                                           |
+| `tools/exam/triage.ts` (create)                     | Corroboration join and routing                                              |
+| `tools/exam/triage.test.ts` (create)                | Unit tests for the join                                                     |
+| `vitest.config.ts` (modify)                         | Add `tools/exam/**` to `include`                                            |
+| `.claude/skills/render-exam/SKILL.md` (modify)      | Rewritten procedure                                                         |
+| `.claude/workflows/render-quality-exam.js` (modify) | Evaluate + triage + Refute                                                  |
 
 ---
 
@@ -51,10 +51,12 @@
 ### Task 1: The `?exam=1` camera hook
 
 **Files:**
+
 - Modify: `src/canvas/Canvas.tsx`
 - Create: `src/canvas/Canvas.exam.test.tsx`
 
 **Interfaces:**
+
 - Consumes: `contentBounds(nodes, edges): ContentRect | null` from `src/canvas/chipSeating.ts:1631`, where `ContentRect = {x, y, width, height}` (`chipSeating.ts:1589`).
 - Produces: a global `window.__stcExam` with this exact shape, relied on by Tasks 5 and 7:
 
@@ -62,7 +64,12 @@
 type StcExamHook = {
   setViewport(v: { x: number; y: number; zoom: number }): void;
   fitView(): void;
-  contentBounds(): { x: number; y: number; width: number; height: number } | null;
+  contentBounds(): {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  } | null;
 };
 ```
 
@@ -79,7 +86,12 @@ declare global {
     __stcExam?: {
       setViewport(v: { x: number; y: number; zoom: number }): void;
       fitView(): void;
-      contentBounds(): { x: number; y: number; width: number; height: number } | null;
+      contentBounds(): {
+        x: number;
+        y: number;
+        width: number;
+        height: number;
+      } | null;
     };
   }
 }
@@ -147,26 +159,26 @@ In `src/canvas/Canvas.tsx`, inside `CanvasInner`:
 2. Add this effect after the existing `fitContent` callback. Keep the comment ASCII and explain WHY the param gate exists, matching the file's commenting density:
 
 ```tsx
-  // Exam hook: the render-quality exam needs exact camera placement to tile a
-  // plan reproducibly, and wheel zoom cannot translate the view (it pins the
-  // world point under the cursor). Nothing here mutates plan data; it is camera
-  // control plus the same contentBounds the fit path already uses, so the
-  // shipped bundle carries it inert unless a URL asks for it by name.
-  useEffect(() => {
-    if (new URLSearchParams(window.location.search).get("exam") !== "1") return;
-    window.__stcExam = {
-      setViewport: (v) => {
-        void setViewport(v);
-      },
-      fitView: () => {
-        fitContent();
-      },
-      contentBounds: () => contentBounds(nodes as unknown as RFAnyNode[], edges),
-    };
-    return () => {
-      delete window.__stcExam;
-    };
-  }, [setViewport, fitContent, nodes, edges]);
+// Exam hook: the render-quality exam needs exact camera placement to tile a
+// plan reproducibly, and wheel zoom cannot translate the view (it pins the
+// world point under the cursor). Nothing here mutates plan data; it is camera
+// control plus the same contentBounds the fit path already uses, so the
+// shipped bundle carries it inert unless a URL asks for it by name.
+useEffect(() => {
+  if (new URLSearchParams(window.location.search).get("exam") !== "1") return;
+  window.__stcExam = {
+    setViewport: (v) => {
+      void setViewport(v);
+    },
+    fitView: () => {
+      fitContent();
+    },
+    contentBounds: () => contentBounds(nodes as unknown as RFAnyNode[], edges),
+  };
+  return () => {
+    delete window.__stcExam;
+  };
+}, [setViewport, fitContent, nodes, edges]);
 ```
 
 3. Declare the global. Put this at the top of `Canvas.tsx` below the imports:
@@ -177,7 +189,12 @@ declare global {
     __stcExam?: {
       setViewport(v: { x: number; y: number; zoom: number }): void;
       fitView(): void;
-      contentBounds(): { x: number; y: number; width: number; height: number } | null;
+      contentBounds(): {
+        x: number;
+        y: number;
+        width: number;
+        height: number;
+      } | null;
     };
   }
 }
@@ -204,10 +221,12 @@ git commit -m "Add exam camera hook behind the exam query param"
 ### Task 2: Extract the in-page collectors
 
 **Files:**
+
 - Create: `test/e2e/collect.ts`
 - Modify: `test/e2e/geometry-audit.spec.ts`
 
 **Interfaces:**
+
 - Produces: `export function collectAudit(): AuditData` and `export function collectGeometry(): Geometry`, plus the `AuditData`, `Geometry`, `EdgeGeom`, `NodeGeom`, `ChipGeom`, `ChipRect`, `RowCenter`, `MultPair` types they use. Tasks 3, 5 and 6 import from here.
 
 **This is a behaviour-preserving move.** Playwright serialises these function bodies and evaluates them in the browser, so they must stay self-contained: no outer-scope references, no imported helpers, no module-level constants. `geometry-audit.spec.ts:566` already documents this rule. Helpers that live inside a collector today stay inside it.
@@ -224,6 +243,7 @@ Write down the exact pass/fail counts and the names of any failing tests. This i
 - [ ] **Step 2: Create `test/e2e/collect.ts` by moving code**
 
 Move, verbatim and without edits, out of `test/e2e/geometry-audit.spec.ts`:
+
 - the `AuditData`, `ChipRect`, `RowCenter`, `MultPair` type declarations
 - `function collectAudit(): AuditData` (defined at :115)
 - the `EdgeGeom`, `NodeGeom`, `ChipGeom`, `Geometry` type declarations
@@ -236,7 +256,12 @@ Add `export` to each. Add a file header explaining that these run in page contex
 In `test/e2e/geometry-audit.spec.ts`, delete the moved declarations and add:
 
 ```ts
-import { collectAudit, collectGeometry, type AuditData, type Geometry } from "./collect";
+import {
+  collectAudit,
+  collectGeometry,
+  type AuditData,
+  type Geometry,
+} from "./collect";
 ```
 
 Keep every other line of the spec untouched, including all baseline tables and rulings.
@@ -263,9 +288,11 @@ git commit -m "Extract in-page collectors into a shared module"
 ### Task 3: The `collectScene` collector
 
 **Files:**
+
 - Modify: `test/e2e/collect.ts`
 
 **Interfaces:**
+
 - Consumes: nothing from earlier tasks (page context only).
 - Produces:
 
@@ -275,15 +302,21 @@ export type SceneElement = {
   kind: "node" | "edge" | "chip" | "junction" | "band" | "glyph" | "group";
   itemId?: string;
   label?: string;
-  clientRect: { x: number; y: number; width: number; height: number };   // relative to .react-flow
+  clientRect: { x: number; y: number; width: number; height: number }; // relative to .react-flow
   worldRect: { x: number; y: number; width: number; height: number };
-  polyline?: Array<[number, number]>;    // world units, edges only
+  polyline?: Array<[number, number]>; // world units, edges only
 };
 
 export type SceneCollection = {
   transform: { x: number; y: number; zoom: number };
-  paneRect: { x: number; y: number; width: number; height: number };     // .react-flow, viewport coords
-  overlays: Array<{ name: string; x: number; y: number; width: number; height: number }>;
+  paneRect: { x: number; y: number; width: number; height: number }; // .react-flow, viewport coords
+  overlays: Array<{
+    name: string;
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  }>;
   elements: SceneElement[];
 };
 
@@ -294,15 +327,15 @@ Tasks 5 and 6 consume `SceneCollection`.
 
 **Selectors, verified against `src/canvas/` on this branch:**
 
-| kind | selector | id source |
-| --- | --- | --- |
-| node | `.react-flow__node` | `data-id` |
-| edge | `.react-flow__edge-path` | element `id` |
-| chip | `.flow-chip` | `data-testid`, falling back to `data-edge-id` |
-| junction | `.bus-junction` | `data-testid` |
-| band | `.bus-band` | `bus-band-<index>` |
-| glyph | `[data-glyph]` | `glyph-<index>` |
-| group | `.rf-group-box`, `[data-testid="loop-node"]` | enclosing node's `data-id` |
+| kind     | selector                                     | id source                                     |
+| -------- | -------------------------------------------- | --------------------------------------------- |
+| node     | `.react-flow__node`                          | `data-id`                                     |
+| edge     | `.react-flow__edge-path`                     | element `id`                                  |
+| chip     | `.flow-chip`                                 | `data-testid`, falling back to `data-edge-id` |
+| junction | `.bus-junction`                              | `data-testid`                                 |
+| band     | `.bus-band`                                  | `bus-band-<index>`                            |
+| glyph    | `[data-glyph]`                               | `glyph-<index>`                               |
+| group    | `.rf-group-box`, `[data-testid="loop-node"]` | enclosing node's `data-id`                    |
 
 Overlays to measure: `.react-flow__controls` (always present) and `.react-flow__minimap` (present only above 15 nodes; emit only if found).
 
@@ -317,7 +350,9 @@ import { collectScene } from "./collect";
 
 test.use({ viewport: { width: 1920, height: 1080 } });
 
-test("collectScene inventories every element kind on a dense plan", async ({ page }) => {
+test("collectScene inventories every element kind on a dense plan", async ({
+  page,
+}) => {
   await page.addInitScript(() => {
     window.localStorage.setItem("aef.locale", "en");
   });
@@ -337,7 +372,9 @@ test("collectScene inventories every element kind on a dense plan", async ({ pag
   expect(kinds.has("chip")).toBe(true);
   expect(kinds.has("band")).toBe(true);
   expect(scene.elements.every((e) => e.id !== "")).toBe(true);
-  expect(new Set(scene.elements.map((e) => e.id)).size).toBe(scene.elements.length);
+  expect(new Set(scene.elements.map((e) => e.id)).size).toBe(
+    scene.elements.length,
+  );
   expect(scene.overlays.some((o) => o.name === "controls")).toBe(true);
   expect(scene.transform.zoom).toBeGreaterThan(0);
   for (const e of scene.elements) {
@@ -387,21 +424,41 @@ git commit -m "Add scene collector for bands, junctions, glyphs and groups"
 ### Task 4: Tiling and coverage math
 
 **Files:**
+
 - Create: `tools/exam/tiling.ts`
 - Create: `tools/exam/tiling.test.ts`
 - Modify: `vitest.config.ts`
 
 **Interfaces:**
+
 - Produces, consumed by Task 5:
 
 ```ts
 export type Rect = { x: number; y: number; width: number; height: number };
 export type Viewport = { x: number; y: number; zoom: number };
-export type TileSpec = { row: number; col: number; center: { x: number; y: number }; worldRect: Rect };
+export type TileSpec = {
+  row: number;
+  col: number;
+  center: { x: number; y: number };
+  worldRect: Rect;
+};
 
-export function safeRegion(pane: Rect, overlays: readonly Rect[], inset: number): Rect;
-export function viewportFor(center: { x: number; y: number }, zoom: number, safe: Rect): Viewport;
-export function tileGrid(content: Rect, safe: Rect, targetZoom: number, overlap: number): TileSpec[];
+export function safeRegion(
+  pane: Rect,
+  overlays: readonly Rect[],
+  inset: number,
+): Rect;
+export function viewportFor(
+  center: { x: number; y: number },
+  zoom: number,
+  safe: Rect,
+): Viewport;
+export function tileGrid(
+  content: Rect,
+  safe: Rect,
+  targetZoom: number,
+  overlap: number,
+): TileSpec[];
 
 export type CoverageElement = {
   id: string;
@@ -421,6 +478,7 @@ export function computeCoverage(
 ```
 
 **Semantics that the tests pin:**
+
 - `safeRegion` subtracts each overlay from the pane by shrinking on the axis where the overlay touches an edge, then applies `inset` on all four sides. Overlays that do not touch a pane edge are ignored (they cannot be subtracted without splitting the region).
 - `viewportFor` satisfies React Flow's mapping `screen = world * zoom + offset`, placing `center` at the centre of `safe`: `x = safe.x + safe.width/2 - center.x*zoom`, `y = safe.y + safe.height/2 - center.y*zoom`.
 - `tileGrid` covers `content` with tiles of world size `safe.width/targetZoom` by `safe.height/targetZoom`, stepping by `(1 - overlap)` of that size. Always at least one tile.
@@ -488,21 +546,36 @@ describe("tileGrid", () => {
   const safe: Rect = { x: 0, y: 0, width: 1000, height: 1000 };
 
   test("returns a single tile when content fits", () => {
-    const grid = tileGrid({ x: 0, y: 0, width: 100, height: 100 }, safe, 1, 0.15);
+    const grid = tileGrid(
+      { x: 0, y: 0, width: 100, height: 100 },
+      safe,
+      1,
+      0.15,
+    );
     expect(grid).toHaveLength(1);
     expect(grid[0]!.row).toBe(0);
     expect(grid[0]!.col).toBe(0);
   });
 
   test("tiles a plan four times wider than one tile", () => {
-    const grid = tileGrid({ x: 0, y: 0, width: 4000, height: 1000 }, safe, 1, 0.15);
+    const grid = tileGrid(
+      { x: 0, y: 0, width: 4000, height: 1000 },
+      safe,
+      1,
+      0.15,
+    );
     const cols = new Set(grid.map((t) => t.col));
     expect(cols.size).toBeGreaterThanOrEqual(4);
     expect(new Set(grid.map((t) => t.row)).size).toBe(1);
   });
 
   test("neighbouring tiles overlap by the requested fraction", () => {
-    const grid = tileGrid({ x: 0, y: 0, width: 4000, height: 1000 }, safe, 1, 0.15);
+    const grid = tileGrid(
+      { x: 0, y: 0, width: 4000, height: 1000 },
+      safe,
+      1,
+      0.15,
+    );
     const a = grid.find((t) => t.col === 0)!;
     const b = grid.find((t) => t.col === 1)!;
     const overlap = a.worldRect.x + a.worldRect.width - b.worldRect.x;
@@ -510,8 +583,18 @@ describe("tileGrid", () => {
   });
 
   test("tile world size scales inversely with target zoom", () => {
-    const at1 = tileGrid({ x: 0, y: 0, width: 10, height: 10 }, safe, 1, 0.15)[0]!;
-    const at05 = tileGrid({ x: 0, y: 0, width: 10, height: 10 }, safe, 0.5, 0.15)[0]!;
+    const at1 = tileGrid(
+      { x: 0, y: 0, width: 10, height: 10 },
+      safe,
+      1,
+      0.15,
+    )[0]!;
+    const at05 = tileGrid(
+      { x: 0, y: 0, width: 10, height: 10 },
+      safe,
+      0.5,
+      0.15,
+    )[0]!;
     expect(at05.worldRect.width).toBeCloseTo(at1.worldRect.width * 2, 6);
   });
 });
@@ -521,7 +604,13 @@ describe("computeCoverage", () => {
 
   test("a point element fully inside one tile is covered", () => {
     const r = computeCoverage(
-      [{ id: "chip-1", kind: "point", worldRect: { x: 10, y: 10, width: 5, height: 5 } }],
+      [
+        {
+          id: "chip-1",
+          kind: "point",
+          worldRect: { x: 10, y: 10, width: 5, height: 5 },
+        },
+      ],
       [tile],
       0,
     );
@@ -531,7 +620,13 @@ describe("computeCoverage", () => {
 
   test("a point element straddling every tile boundary is uncovered", () => {
     const r = computeCoverage(
-      [{ id: "chip-2", kind: "point", worldRect: { x: 95, y: 10, width: 20, height: 5 } }],
+      [
+        {
+          id: "chip-2",
+          kind: "point",
+          worldRect: { x: 95, y: 10, width: 20, height: 5 },
+        },
+      ],
       [tile, { x: 100, y: 0, width: 100, height: 100 }],
       0,
     );
@@ -612,17 +707,22 @@ git commit -m "Add tiling and coverage math for the exam harness"
 ### Task 5: The `capture` CLI
 
 **Files:**
+
 - Create: `tools/exam/capture.ts`
 - Create: `tools/exam/scene.ts`
 
 **Interfaces:**
+
 - Consumes: `collectScene`, `collectGeometry` from `test/e2e/collect.ts`; everything from `tools/exam/tiling.ts`; `window.__stcExam` from Task 1.
 - Produces: `<out>/<planId>/scene.json` in the shape given in spec section 6, plus `00-fit.png`, `10-tile-r<r>c<c>.png`, `20-corrective-<id>.png`. Task 6 fills the `measurements` array; Task 7's probe reuses `bootPage` from `capture.ts`.
 - Produces (exported for reuse by Task 7):
 
 ```ts
 export type BootOptions = { baseUrl: string; hash: string; locale: string };
-export async function bootPage(browser: Browser, opts: BootOptions): Promise<{ page: Page; consoleErrors: string[] }>;
+export async function bootPage(
+  browser: Browser,
+  opts: BootOptions,
+): Promise<{ page: Page; consoleErrors: string[] }>;
 ```
 
 **CLI contract:**
@@ -691,21 +791,31 @@ git commit -m "Add deterministic exam capture CLI"
 ### Task 6: Measurements and footprints in `scene.json`
 
 **Files:**
+
 - Modify: `tools/exam/scene.ts`
 - Create: `tools/exam/measurements.test.ts`
 
 **Interfaces:**
+
 - Consumes: the audit functions from `test/e2e/geometry.ts` — `auditChipsOnOwnPath`, `auditChipsVsCards`, `auditSegmentsVsCards`, `auditSegmentsVsChips`, `auditOwnCardPierces`, `countCrossings`.
 - Produces:
 
 ```ts
 export type Measurement = {
-  kind: "chip-off-own-path" | "chip-vs-card" | "segment-vs-card" | "own-card-pierce" | "chip-vs-segment";
+  kind:
+    | "chip-off-own-path"
+    | "chip-vs-card"
+    | "segment-vs-card"
+    | "own-card-pierce"
+    | "chip-vs-segment";
   elementIds: string[];
-  footprint: { x: number; y: number; width: number; height: number };   // world units
+  footprint: { x: number; y: number; width: number; height: number }; // world units
   detail: string;
 };
-export function measurementsFor(geom: Geometry, scene: SceneCollection): {
+export function measurementsFor(
+  geom: Geometry,
+  scene: SceneCollection,
+): {
   measurements: Measurement[];
   crossingCensus: { count: number };
 };
@@ -713,13 +823,13 @@ export function measurementsFor(geom: Geometry, scene: SceneCollection): {
 
 **Footprint derivation, one rule per kind (the audit payload shapes are at `test/e2e/geometry.ts:164, 210, 266, 366, 465`):**
 
-| kind | source type | footprint |
-| --- | --- | --- |
-| `segment-vs-card` | `SegmentViolation.seg` | bounding rect of the segment |
-| `own-card-pierce` | `OwnCardPierce.seg` | bounding rect of the segment |
-| `chip-vs-segment` | `ChipViolation.seg` | bounding rect of the segment |
-| `chip-vs-card` | `ChipCardViolation` (ids only) | chip world rect intersected with the card world rect; if they do not intersect, the chip world rect |
-| `chip-off-own-path` | `ChipOffPathViolation` (distance only) | the chip's world rect |
+| kind                | source type                            | footprint                                                                                           |
+| ------------------- | -------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| `segment-vs-card`   | `SegmentViolation.seg`                 | bounding rect of the segment                                                                        |
+| `own-card-pierce`   | `OwnCardPierce.seg`                    | bounding rect of the segment                                                                        |
+| `chip-vs-segment`   | `ChipViolation.seg`                    | bounding rect of the segment                                                                        |
+| `chip-vs-card`      | `ChipCardViolation` (ids only)         | chip world rect intersected with the card world rect; if they do not intersect, the chip world rect |
+| `chip-off-own-path` | `ChipOffPathViolation` (distance only) | the chip's world rect                                                                               |
 
 `countCrossings` returns a bare number with no participating ids, so it is recorded as `crossingCensus` and is NEVER a measurement. Nothing may corroborate a finding from it.
 
@@ -759,9 +869,11 @@ git commit -m "Record geometry measurements with footprints in scene.json"
 ### Task 7: The `probe` CLI
 
 **Files:**
+
 - Create: `tools/exam/probe.ts`
 
 **Interfaces:**
+
 - Consumes: `bootPage` from Task 5; `viewportFor` from Task 4.
 - Produces the CLI that Task 11's refuters call.
 
@@ -786,16 +898,16 @@ type ProbeResult = {
 
 **Ops to implement:**
 
-| op | args | result |
-| --- | --- | --- |
-| `hover-edge` | `id` | `{hoverEngaged, pointsTried, observedDimmed: string[], expectedDimmed: string[]}` |
-| `hover-node` | `id` | same shape |
-| `contrast` | `selector` | `{ratio, fg, bg}` WCAG 2.1 relative-luminance ratio |
-| `delta-e` | `a`, `b` (element selectors) | `{deltaE76}` over sRGB converted to Lab |
-| `chip-binding` | `id` | `{ownPathDistance, nearestOtherPathDistance, nearestOtherEdgeId}` |
-| `rect` | `id` | `{clientRect, worldRect}` |
-| `computed-style` | `selector`, `props` (comma list) | `{[prop]: value}` |
-| `text-overflow` | `selector` | `{scrollWidth, clientWidth, clipped: boolean}` |
+| op               | args                             | result                                                                            |
+| ---------------- | -------------------------------- | --------------------------------------------------------------------------------- |
+| `hover-edge`     | `id`                             | `{hoverEngaged, pointsTried, observedDimmed: string[], expectedDimmed: string[]}` |
+| `hover-node`     | `id`                             | same shape                                                                        |
+| `contrast`       | `selector`                       | `{ratio, fg, bg}` WCAG 2.1 relative-luminance ratio                               |
+| `delta-e`        | `a`, `b` (element selectors)     | `{deltaE76}` over sRGB converted to Lab                                           |
+| `chip-binding`   | `id`                             | `{ownPathDistance, nearestOtherPathDistance, nearestOtherEdgeId}`                 |
+| `rect`           | `id`                             | `{clientRect, worldRect}`                                                         |
+| `computed-style` | `selector`, `props` (comma list) | `{[prop]: value}`                                                                 |
+| `text-overflow`  | `selector`                       | `{scrollWidth, clientWidth, clipped: boolean}`                                    |
 
 **`hover-edge` is the load-bearing one — it exists because issue #30 was a capture artifact.** It must never use Playwright's element hover:
 
@@ -843,6 +955,7 @@ git commit -m "Add exam probe CLI with named runtime operations"
 ### Task 8: Rewrite the skill procedure
 
 **Files:**
+
 - Modify: `.claude/skills/render-exam/SKILL.md`
 
 - [ ] **Step 1: Rewrite the procedure section**
@@ -861,12 +974,12 @@ New steps, replacing the current 1-7:
 
 Delete the traps the harness now makes impossible: hash-only goto, pan-drag corruption, mouse-rest hover-dim, the LOD zoom floor, JSON-stringified args, and the chromium OOM chunking. Keep and add:
 
-| Trap | Rule |
-| --- | --- |
-| A plan captured at `status: "partial"` has blind spots | Report it; never let an evaluator make absence claims about uncovered ids |
-| Raw geometry measurements are not defects | Baselines in `geometry-audit.spec.ts` permit large nonzero counts after written rulings |
-| `hoverEngaged: false` is a capture miss, not a product defect | Re-probe another point before believing an absence claim |
-| The exam runs `?exam=1` | Without it `window.__stcExam` is absent and capture exits non-zero |
+| Trap                                                          | Rule                                                                                    |
+| ------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| A plan captured at `status: "partial"` has blind spots        | Report it; never let an evaluator make absence claims about uncovered ids               |
+| Raw geometry measurements are not defects                     | Baselines in `geometry-audit.spec.ts` permit large nonzero counts after written rulings |
+| `hoverEngaged: false` is a capture miss, not a product defect | Re-probe another point before believing an absence claim                                |
+| The exam runs `?exam=1`                                       | Without it `window.__stcExam` is absent and capture exits non-zero                      |
 
 - [ ] **Step 3: Commit**
 
@@ -882,10 +995,12 @@ git commit -m "Rewrite render-exam procedure around the frozen harness"
 ### Task 9: The corroboration join
 
 **Files:**
+
 - Create: `tools/exam/triage.ts`
 - Create: `tools/exam/triage.test.ts`
 
 **Interfaces:**
+
 - Consumes: `Measurement` from `tools/exam/scene.ts` (Task 6) and `Rect` from `tools/exam/tiling.ts` (Task 4).
 - Produces, consumed by Task 10:
 
@@ -897,33 +1012,53 @@ export type Finding = {
   title: string;
   observation: string;
   claimType: ClaimType;
-  evidence: Array<{ image: string; rect: [number, number, number, number]; where: string }>;
+  evidence: Array<{
+    image: string;
+    rect: [number, number, number, number];
+    where: string;
+  }>;
   severity: "major" | "minor" | "nit";
   aspect: "correctness" | "comprehension" | "ux";
-  falsifier?: { op: string; args: Record<string, string>; expectedIfFalse: string };
+  falsifier?: {
+    op: string;
+    args: Record<string, string>;
+    expectedIfFalse: string;
+  };
   mechanismHypothesis?: string;
 };
-export type Route = "CORROBORATED" | "REFUTE_INDIVIDUAL" | "REFUTE_BATCH" | "HUMAN_RULING";
+export type Route =
+  | "CORROBORATED"
+  | "REFUTE_INDIVIDUAL"
+  | "REFUTE_BATCH"
+  | "HUMAN_RULING";
 
 export function corroborationsFor(
   finding: Finding,
   measurements: readonly Measurement[],
-  tiles: readonly { file: string; viewportTransform: { x: number; y: number; zoom: number }; safeRegion: Rect }[],
+  tiles: readonly {
+    file: string;
+    viewportTransform: { x: number; y: number; zoom: number };
+    safeRegion: Rect;
+  }[],
 ): Measurement[];
 
-export function routeFinding(finding: Finding, corroborations: readonly Measurement[]): Route;
-export function validateFinding(finding: Finding): string[];   // schema violations, empty when valid
+export function routeFinding(
+  finding: Finding,
+  corroborations: readonly Measurement[],
+): Route;
+export function validateFinding(finding: Finding): string[]; // schema violations, empty when valid
 ```
 
 **Rules:**
+
 - `corroborationsFor` requires BOTH: (a) the measurement's world footprint, projected into the cited tile's image space via that tile's `viewportTransform`, intersects the evidence rect; and (b) the kinds are compatible per this table.
 
-| `claimType` | compatible measurement kinds |
-| --- | --- |
-| `geometric` | all five |
-| `interaction` | none |
-| `absence` | none |
-| `subjective` | none |
+| `claimType`   | compatible measurement kinds |
+| ------------- | ---------------------------- |
+| `geometric`   | all five                     |
+| `interaction` | none                         |
+| `absence`     | none                         |
+| `subjective`  | none                         |
 
 Shared element id alone never corroborates: a long edge can be measured at one end while the evidence rect sits hundreds of pixels away on the same edge.
 
@@ -960,9 +1095,11 @@ git commit -m "Add corroboration join and finding routing"
 ### Task 10: Rewrite the workflow's Evaluate phase
 
 **Files:**
+
 - Modify: `.claude/workflows/render-quality-exam.js`
 
 **Interfaces:**
+
 - Consumes: `args` of shape `{plans: [{id, dir, url, images: [{file, what}], coverage}], measurements: {[planId]: Measurement[]}, examDir}`.
 - Produces: the findings array Task 11 refutes.
 
@@ -977,6 +1114,7 @@ Encode exactly the Task 9 `Finding` type, with `claimType`, `falsifier` and `mec
 - [ ] **Step 3: Rewrite `evalPrompt`**
 
 Keep the domain briefing and the intentional-behaviours list from the current prompt. Add:
+
 - the coverage ledger, verbatim, with the instruction that no absence claim may be made about an uncovered element id;
 - the claim-type taxonomy and when each applies;
 - the falsifier rule: required for geometric/interaction/absence and for any mechanism hypothesis, forbidden for subjective;
@@ -1007,6 +1145,7 @@ git commit -m "Rewrite exam workflow evaluate phase around typed findings"
 ### Task 11: Add the Refute phase
 
 **Files:**
+
 - Modify: `.claude/workflows/render-quality-exam.js`
 
 - [ ] **Step 1: Add the triage step**
@@ -1017,18 +1156,30 @@ Between Evaluate and Refute, in plain JS inside the workflow script (no agent). 
 
 ```js
 const REFUTE_SCHEMA = {
-  type: 'object',
+  type: "object",
   properties: {
-    findingId: { type: 'string' },
-    observationVerdict: { type: 'string', enum: ['CONFIRMED', 'REFUTED', 'UNCERTAIN'] },
-    mechanismVerdict: { type: 'string', enum: ['CONFIRMED', 'REFUTED', 'UNCERTAIN'] },
-    probeCommand: { type: 'string' },
-    probeOutput: { type: 'string' },
-    reasoning: { type: 'string' },
-    correctedObservation: { type: 'string' },
+    findingId: { type: "string" },
+    observationVerdict: {
+      type: "string",
+      enum: ["CONFIRMED", "REFUTED", "UNCERTAIN"],
+    },
+    mechanismVerdict: {
+      type: "string",
+      enum: ["CONFIRMED", "REFUTED", "UNCERTAIN"],
+    },
+    probeCommand: { type: "string" },
+    probeOutput: { type: "string" },
+    reasoning: { type: "string" },
+    correctedObservation: { type: "string" },
   },
-  required: ['findingId', 'observationVerdict', 'probeCommand', 'probeOutput', 'reasoning'],
-}
+  required: [
+    "findingId",
+    "observationVerdict",
+    "probeCommand",
+    "probeOutput",
+    "reasoning",
+  ],
+};
 ```
 
 - [ ] **Step 3: Add the refuter prompt**
@@ -1055,6 +1206,7 @@ git commit -m "Add refute phase with per-claim verdicts"
 ### Task 12: Acceptance run
 
 **Files:**
+
 - Modify: `.claude/skills/render-exam/SKILL.md` (only if the run exposes a gap)
 
 - [ ] **Step 1: Full verification**

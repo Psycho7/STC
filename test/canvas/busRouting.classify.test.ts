@@ -702,7 +702,12 @@ describe("routeFanoutEdges (6C)", () => {
     const dx = b[0] - a[0];
     const dy = b[1] - a[1];
     const p = [-dx, dx, -dy, dy];
-    const q = [a[0] - rect.left, rect.right - a[0], a[1] - rect.top, rect.bottom - a[1]];
+    const q = [
+      a[0] - rect.left,
+      rect.right - a[0],
+      a[1] - rect.top,
+      rect.bottom - a[1],
+    ];
     for (let i = 0; i < 4; i++) {
       if (p[i] === 0) {
         if (q[i]! < 0) return false;
@@ -806,7 +811,9 @@ describe("routeFanoutEdges (6C)", () => {
     expect(fanData(out, "e0").busMemberCount).toBe(3);
     expect(fanData(out, "e0").busTotalRate!.equals(new Fraction(3))).toBe(true);
     // One shared junction across all three branches.
-    const jx = new Set(["e0", "e1", "e2"].map((id) => fanData(out, id).junctionX));
+    const jx = new Set(
+      ["e0", "e1", "e2"].map((id) => fanData(out, id).junctionX),
+    );
     expect(jx.size).toBe(1);
     // Exactly the lex-smallest edge (e0) is the elected owner; the branches are
     // non-owners.
@@ -1246,7 +1253,14 @@ describe("routeFanoutEdges (6C)", () => {
     const clearJx = fanData(routeFanoutEdges(nodes, edges), "e0").junctionX!;
 
     // Full-height straddling block: covers the trunk row and both branch rows.
-    const block = inputProductNode("block", "ore", clearJx - 10, -200, 20, 1000);
+    const block = inputProductNode(
+      "block",
+      "ore",
+      clearJx - 10,
+      -200,
+      20,
+      1000,
+    );
     const out = routeFanoutEdges([...nodes, block], edges);
     ["e0", "e1"].forEach((id, i) => {
       const e = out.find((x) => x.id === id)!;
@@ -1401,7 +1415,6 @@ describe("routeBusEdges trunk rise-chip slots", () => {
       expect(busChipXOf(out, id)).toBeGreaterThan(0);
     }
   });
-
 });
 
 // A far-apart product source and several product targets, so every source->target

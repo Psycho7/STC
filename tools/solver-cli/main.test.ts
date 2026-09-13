@@ -50,7 +50,12 @@ describe("solver-cli smoke", () => {
   });
 
   it("rates mode omits invariants section", async () => {
-    const out = await runCli(["--plan", "xiranite_enr_powder=0.1", "--mode", "rates"]);
+    const out = await runCli([
+      "--plan",
+      "xiranite_enr_powder=0.1",
+      "--mode",
+      "rates",
+    ]);
     expect(out).not.toMatch(/^# invariants/m);
     expect(out).toMatch(/^status=/m);
   });
@@ -67,7 +72,12 @@ describe("solver-cli smoke", () => {
 
   it("parses explicit rational rate (num/denom)", async () => {
     // 6/60 = 0.1 per sec, same as the headline plan above.
-    const out = await runCli(["--plan", "xiranite_enr_powder=6/60", "--mode", "rates"]);
+    const out = await runCli([
+      "--plan",
+      "xiranite_enr_powder=6/60",
+      "--mode",
+      "rates",
+    ]);
     expect(out).toMatch(/^status=feasible/m);
   });
 
@@ -132,7 +142,12 @@ describe("solver-cli smoke", () => {
   });
 
   it("render mode produces units, edges, and render-invariants blocks", async () => {
-    const out = await runCli(["--plan", "xiranite_enr_powder=0.1", "--mode", "render"]);
+    const out = await runCli([
+      "--plan",
+      "xiranite_enr_powder=0.1",
+      "--mode",
+      "render",
+    ]);
     expect(out).not.toMatch(/^error:/);
     expect(out).toContain("# units");
     expect(out).toContain("# edges");

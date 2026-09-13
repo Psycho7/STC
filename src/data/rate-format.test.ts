@@ -130,9 +130,9 @@ test("ratePerSecToPerMin round-trips a huge rate through the panel parser", () =
   const rps = { num: "1000000000000000000000", denom: "60" };
   const text = ratePerSecToPerMin(rps);
   const reparsed = new Fraction(text).div(60);
-  expect(
-    reparsed.equals(new Fraction("1000000000000000000000").div(60)),
-  ).toBe(true);
+  expect(reparsed.equals(new Fraction("1000000000000000000000").div(60))).toBe(
+    true,
+  );
 });
 
 test("ratePerSecToPerMin round-trips a beyond-double rate through the panel parser", () => {

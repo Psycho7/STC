@@ -137,7 +137,9 @@ describe("LP small-rate / override producer-drop regressions", () => {
   // (a consumer-side snap error). Acceptable outcome: balanced, or an honest
   // deficit + softFeasible=false. Never a broken row reported feasible.
   it("D5: finite cap on copper_enr_cmpt for equip_script_4_2 is sound and honest", () => {
-    const targets: ItemTarget[] = [{ itemId: "equip_script_4_2", ratePerSec: ONE }];
+    const targets: ItemTarget[] = [
+      { itemId: "equip_script_4_2", ratePerSec: ONE },
+    ];
     const overrides: ItemOverride[] = [
       { itemId: "copper_enr_cmpt", ratePerSec: { num: "1", denom: "4" } },
     ];
@@ -178,9 +180,7 @@ describe("LP small-rate / override producer-drop regressions", () => {
     const r = solve(targets);
     expect(r.softFeasible).toBe(false);
     expect(
-      r.deficit
-        .get("proc_battery_5")
-        ?.equals(new Fraction(1, 100000000)),
+      r.deficit.get("proc_battery_5")?.equals(new Fraction(1, 100000000)),
     ).toBe(true);
     expectSoundAndHonest(r, targets);
   });
@@ -197,7 +197,10 @@ describe("LP small-rate bulk sweep (regression gate)", () => {
     const offenders: string[] = [];
     for (const recipe of targetable) {
       const targets: ItemTarget[] = [
-        { itemId: recipe.out[0]!.item, ratePerSec: { num: "1", denom: "1000" } },
+        {
+          itemId: recipe.out[0]!.item,
+          ratePerSec: { num: "1", denom: "1000" },
+        },
       ];
       const r = solveLp({ targets, pack, itemOverrides: [] });
       if (r.status !== "feasible" && r.status !== "empty") continue;

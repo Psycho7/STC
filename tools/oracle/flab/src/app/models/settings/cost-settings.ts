@@ -1,14 +1,14 @@
-import { Rational, rational } from '../rational';
+import { Rational, rational } from "../rational";
 
 export type CostKey =
-  | 'factor'
-  | 'machine'
-  | 'footprint'
-  | 'unproduceable'
-  | 'excluded'
-  | 'surplus'
-  | 'maximize'
-  | 'recycling';
+  | "factor"
+  | "machine"
+  | "footprint"
+  | "unproduceable"
+  | "excluded"
+  | "surplus"
+  | "maximize"
+  | "recycling";
 
 export type CostSettings = Record<CostKey, Rational>;
 

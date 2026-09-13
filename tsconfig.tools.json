@@ -11,5 +11,10 @@
   // from `include`, not from the import graph, and the exam CLI reaches src
   // modules that use import.meta.env and the ?url asset imports it declares.
   "extends": "./tsconfig.json",
-  "include": ["tools/color", "tools/exam", "tools/solver-cli", "src/vite-env.d.ts"]
+  "include": [
+    "tools/color",
+    "tools/exam",
+    "tools/solver-cli",
+    "src/vite-env.d.ts"
+  ]
 }

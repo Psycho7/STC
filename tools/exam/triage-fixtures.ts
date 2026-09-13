@@ -50,7 +50,8 @@ export const CHIP: Measurement = {
   kind: "chip-off-own-path",
   elementIds: ["chip:7", "e:0:A->B:iron"],
   footprint: { x: 100, y: 100, width: 20, height: 10 },
-  detail: 'label chip of e:0:A->B:iron ("30/min") sits 84.0 world units off its own polyline',
+  detail:
+    'label chip of e:0:A->B:iron ("30/min") sits 84.0 world units off its own polyline',
 };
 
 // The placement tier's OTHER kind, at the same place again. The placement row
@@ -91,7 +92,11 @@ export function finding(over: Partial<Finding> = {}): Finding {
     observation: 'the "30/min" chip sits well away from any edge',
     claimType: "geometric-placement",
     evidence: [
-      { image: TILE_A.file, rect: [290, 240, 60, 40], where: "on edge e:0:A->B:iron" },
+      {
+        image: TILE_A.file,
+        rect: [290, 240, 60, 40],
+        where: "on edge e:0:A->B:iron",
+      },
     ],
     severity: "major",
     aspect: "comprehension",

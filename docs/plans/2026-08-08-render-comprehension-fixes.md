@@ -32,6 +32,7 @@ All paths below are relative to `STC/.claude/worktrees/fix/render-comprehension/
 ### Task 1: Control rail icons (#36)
 
 **Files:**
+
 - Modify: `src/canvas/canvas.css:1447-1455` (the `.ak-canvas-theme .react-flow__controls-button` rule)
 - Test: `src/canvas/Canvas.test.tsx`
 
@@ -45,10 +46,7 @@ Add to `src/canvas/Canvas.test.tsx`, following the file-reading regex pattern us
 
 ```tsx
 test("controls buttons re-assert the vendor padding and border the app-shell rule overrides", () => {
-  const css = readFileSync(
-    join(__dirname, "canvas.css"),
-    "utf8",
-  );
+  const css = readFileSync(join(__dirname, "canvas.css"), "utf8");
   const rule = css.match(
     /\.ak-canvas-theme \.react-flow__controls-button \{[^}]*\}/,
   )?.[0];
@@ -106,6 +104,7 @@ git commit -m "Restore controls-button padding and border the app-shell rule col
 ### Task 2: Machine-title truncation (#38)
 
 **Files:**
+
 - Modify: `src/canvas/canvas.css:2093-2107` (`.rn-head`), `:2153-2162` (`.rn-rate-block`)
 - Create: `test/e2e/title-truncation.spec.ts`
 
@@ -177,10 +176,12 @@ multiplier chip clipped the name while the header showed empty space."
 ### Task 3: Remove the multi-member bus aggregate chip (#39, closes #37)
 
 **Files:**
+
 - Modify: `src/canvas/BusEdge.tsx:111-168` (drop-chip text/marker), `:295-297` (render gate)
 - Test: `test/canvas/BusEdge.test.tsx`, `test/canvas/focus-dim.test.tsx`
 
 **Interfaces:**
+
 - Consumes: `busMemberCount` from `BusAggregate` edge data (already stamped by `routeBusEdges`; default 1 when absent).
 - Produces: the drop chip renders only for single-member trunks (where it is the edge's plain label, no Sigma). Routing data (`busTotalRate`, `busDisplayTotalRate`, `busMemberCount`, `busChipOwner`) stays stamped and asserted - Task 4 handles the seating side.
 
@@ -225,33 +226,35 @@ Three edits:
 1. Delete `const sumMarker = memberCount > 1 ? "Σ" : "";` (`:157`) and remove `${sumMarker}` from `dropText`, `dropLabel`, and `dropTitle`:
 
 ```tsx
-  const dropText = showAggChip && dropRateStr ? `${dropRateStr}${unit}` : "";
-  const dropLabel =
-    edgeData && dropRateStr
-      ? `${i18n.displayName(edgeData.item)} x ${dropRateStr}${unit}`
-      : "";
-  const dropTitle =
-    edgeData && dropRateStr && totalRate
-      ? `${i18n.displayName(edgeData.item)} x ${formatRateExactPerMin(totalRate)}${unit}`
-      : "";
+const dropText = showAggChip && dropRateStr ? `${dropRateStr}${unit}` : "";
+const dropLabel =
+  edgeData && dropRateStr
+    ? `${i18n.displayName(edgeData.item)} x ${dropRateStr}${unit}`
+    : "";
+const dropTitle =
+  edgeData && dropRateStr && totalRate
+    ? `${i18n.displayName(edgeData.item)} x ${formatRateExactPerMin(totalRate)}${unit}`
+    : "";
 ```
 
 2. Change the render gate at `:295-297` (dropping the now-gone `sumMarker` argument):
 
 ```tsx
-      {isOwner && memberCount === 1 && dropText
-        ? renderChip("drop", aggX, aggY, dropText, dropLabel, dropTitle)
-        : null}
+{
+  isOwner && memberCount === 1 && dropText
+    ? renderChip("drop", aggX, aggY, dropText, dropLabel, dropTitle)
+    : null;
+}
 ```
 
 3. Rewrite the drop-chip comment block (`:119-126`) to state the new contract:
 
 ```tsx
-  // Drop chip: drawn only on a SINGLE-member trunk, where it is that edge's
-  // plain rate label at the junction. A multi-member trunk draws no aggregate:
-  // the summed total restated the source card's own rate while reading as one
-  // more flow, so the members' own chips and the card rates carry the
-  // information (issue #39). The junction dot still marks the trunk.
+// Drop chip: drawn only on a SINGLE-member trunk, where it is that edge's
+// plain rate label at the junction. A multi-member trunk draws no aggregate:
+// the summed total restated the source card's own rate while reading as one
+// more flow, so the members' own chips and the card rates carry the
+// information (issue #39). The junction dot still marks the trunk.
 ```
 
 - [ ] **Step 4: Run the suites to verify they pass**
@@ -276,10 +279,12 @@ chips and junction dots are unchanged."
 ### Task 4: Free the seating and bounds the aggregate reserved (#39 / #37)
 
 **Files:**
+
 - Modify: `src/canvas/chipSeating.ts` (`BusSlot` build ~`:855-916`, drop seat loop `:930-950`, capacity check `:951-991`, fan-out aggregate seat `:1121-1133`, `contentBounds` `:1673-1695`)
 - Test: `test/canvas/busRouting.chips.test.ts`, `test/canvas/chipSeating.bounds.test.ts`
 
 **Interfaces:**
+
 - Consumes: `busMemberCount` on lane and fan-out edge data.
 - Produces: no phantom aggregate box for multi-member trunks; lane capacity no longer reserves the aggregate's column, so previously `busRiseHidden` members may now seat. `busDropDy` is only ever stamped for single-member trunks.
 
@@ -331,10 +336,12 @@ stretches to a chip that does not render."
 ### Task 5: Restyle and re-anchor the fan-in Sigma (#39)
 
 **Files:**
+
 - Modify: `src/canvas/chipSeating.ts:1385-1400` (the fan-in seat job anchor), `src/canvas/ItemEdge.tsx` (`FlowChip` component + the fan-in call site), `src/canvas/canvas.css` (new `.flow-chip.sigma` rule)
 - Test: `src/canvas/ItemEdge.test.tsx` (or `test/canvas/ItemEdge.test.tsx`, wherever the fan-in Sigma test at `:199` lives), `test/canvas/faninMarkers.test.ts`
 
 **Interfaces:**
+
 - Produces: `FlowChip` accepts `variant?: "sigma"` and appends the `sigma` class; the fan-in chip's default anchor moves from the run midpoint to the junction side (`mergeX + keepoff`, the closest non-covering seat beside the merge dot).
 
 - [ ] **Step 1: Write the failing tests**
@@ -356,11 +363,11 @@ test("the fan-in Sigma chip carries the sigma variant class", () => {
 In `test/canvas/faninMarkers.test.ts`, extend the `:43` test with an anchor assertion (the fixture's merge point is 900 and `keepoff = min(CHIP_HALF_W_WIDE, runLen / 2)`):
 
 ```ts
-  // Anchored beside the junction (mergeX + keepoff), not mid-run, so the
-  // total visually binds to the merge dot it summarizes.
-  const runLen = tx - 900;
-  const keepoff = Math.min(120, runLen / 2);
-  expect(owner.faninSigmaX).toBe(900 + keepoff);
+// Anchored beside the junction (mergeX + keepoff), not mid-run, so the
+// total visually binds to the merge dot it summarizes.
+const runLen = tx - 900;
+const keepoff = Math.min(120, runLen / 2);
+expect(owner.faninSigmaX).toBe(900 + keepoff);
 ```
 
 (Adapt `tx` to how the test already computes the target port x; `120` is `CHIP_HALF_W_WIDE` = `MAX_CHIP_SCALE * CHIP_BOX_WIDTH / 2`.)
@@ -429,10 +436,12 @@ merge rather than one more flow."
 ### Task 6: Tap chrome for replicated raw-input cards (#40)
 
 **Files:**
+
 - Modify: `src/pipeline/types.ts:140-149` (`RenderUnitInputProduct`), `src/pipeline/render/boundary-products.ts:541-552` (slice emission), `src/canvas/layout.ts:816-832` (data threading), `src/canvas/ProductNode.tsx` (data type, chrome, share chip), `src/canvas/productNodeMetadata.ts:32-68` (`buildPnKind`), `src/data/i18n.ts` (two new keys, all four locales), `src/canvas/canvas.css` (tap chrome + share chip)
 - Test: `test/canvas/ProductNode.test.tsx`, `src/canvas/productNodeMetadata.test.ts`, `test/pipeline/policy-product-units.test.ts`
 
 **Interfaces:**
+
 - Produces: `RenderUnitInputProduct.parentRate?: RationalString` (the aggregate's total, stamped on every fanout slice); `ProductNodeData` inputProduct variant gains `parentRate?: RationalString`; fanout slices render class `product-node input tap`, caption `In · tap`, and a `.pn-rate__of` share chip reading `of <total>/min`.
 - Scope ruling: the chrome applies to ALL `isFanout` slices - per-consumer taps AND per-container slices - since both are derived views of the `u:in:<item>` aggregate card that is also on screen. The aggregate and single-bucket cards keep `In · raw` / `In · import` unchanged.
 
@@ -479,9 +488,9 @@ In `src/canvas/productNodeMetadata.test.ts`, add a `buildPnKind` case: an inputP
 In `test/pipeline/policy-product-units.test.ts`, extend the `:1420` multi-bucket test: every emitted slice carries `parentRate` equal to the aggregate's `rate`, and the aggregate itself carries none:
 
 ```ts
-  expect(byId.get("u:in:water")!.parentRate).toBeUndefined();
-  expect(tapA.parentRate).toBe(byId.get("u:in:water")!.rate);
-  expect(tapB.parentRate).toBe(byId.get("u:in:water")!.rate);
+expect(byId.get("u:in:water")!.parentRate).toBeUndefined();
+expect(tapA.parentRate).toBe(byId.get("u:in:water")!.rate);
+expect(tapB.parentRate).toBe(byId.get("u:in:water")!.rate);
 ```
 
 - [ ] **Step 2: Run to verify they fail**
@@ -521,44 +530,46 @@ function chromeClasses(data: ProductNodeData): string {
 2. `src/canvas/productNodeMetadata.ts` `buildPnKind` - change the inputProduct branch:
 
 ```ts
-  if (data.kind === "inputProduct") {
-    const classification = i18n.t(
-      data.isFanout
-        ? "product.class.tap"
-        : item.raw
-          ? "product.class.raw"
-          : "product.class.import",
-    );
-    return `${i18n.t("product.dir.in")} · ${classification}`;
-  }
+if (data.kind === "inputProduct") {
+  const classification = i18n.t(
+    data.isFanout
+      ? "product.class.tap"
+      : item.raw
+        ? "product.class.raw"
+        : "product.class.import",
+  );
+  return `${i18n.t("product.dir.in")} · ${classification}`;
+}
 ```
 
 3. `src/canvas/ProductNode.tsx` - beside the `capValue` computation add:
 
 ```tsx
-  // Share of the parent aggregate, fanout slices only: "of <total>/min" points
-  // the reader back at the source card this tap draws from.
-  const shareOf =
-    isInput && data.isFanout && data.parentRate !== undefined
-      ? formatRationalPerMin(data.parentRate)
-      : null;
+// Share of the parent aggregate, fanout slices only: "of <total>/min" points
+// the reader back at the source card this tap draws from.
+const shareOf =
+  isInput && data.isFanout && data.parentRate !== undefined
+    ? formatRationalPerMin(data.parentRate)
+    : null;
 ```
 
 and in the `pn-rate` row, after the cap chip:
 
 ```tsx
-        {shareOf !== null ? (
-          <span className="pn-rate__of">
-            {i18n.t("product.tap.share", { rate: shareOf })}
-          </span>
-        ) : null}
+{
+  shareOf !== null ? (
+    <span className="pn-rate__of">
+      {i18n.t("product.tap.share", { rate: shareOf })}
+    </span>
+  ) : null;
+}
 ```
 
 4. `src/data/i18n.ts` - add two keys to EVERY locale table, placed beside `product.class.raw`:
 
-| key | en | zh | ja | ru |
-| --- | --- | --- | --- | --- |
-| `product.class.tap` | `tap` | `分接` | `タップ` | `отвод` |
+| key                 | en              | zh              | ja              | ru              |
+| ------------------- | --------------- | --------------- | --------------- | --------------- |
+| `product.class.tap` | `tap`           | `分接`          | `タップ`        | `отвод`         |
 | `product.tap.share` | `of {rate}/min` | `共 {rate}/min` | `全 {rate}/min` | `из {rate}/min` |
 
 (Follow the table's existing `{rate}` interpolation convention, matching `inputs.rate.cap`.)
@@ -614,6 +625,7 @@ git commit -m "Mark raw-input fanout slices as taps of their aggregate source
 ### Task 7: Ratchets, visual verification, PR
 
 **Files:**
+
 - Modify: `test/e2e/geometry-audit.spec.ts` (baseline re-pins; a ruling note only if a count rises)
 
 - [ ] **Step 1: Full e2e run against the Task-0 baseline**

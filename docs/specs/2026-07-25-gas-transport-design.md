@@ -19,14 +19,14 @@ the extractor's only rule is "no stack size means pipe". Consequences:
 
 ## Decisions
 
-| # | Decision | Rationale |
-|---|---|---|
-| D1 | Gas is a full carrier: its own `transportKind`, its own pack `Transport`, its own `transport-config` carrier entry | Modelling gas as a render-only skin would leave lane packing wrong |
-| D2 | Gas items are discriminated by the `gas_` id prefix | The vendor snapshot carries no phase field; the prefix split is exact today (8 gas, 11 liquid) |
-| D3 | An unstackable item with an unrecognised prefix keeps falling back to `pipe` | Rejected failing the extract on drift: a hard throw would break the whole build on an upstream rename that only affects one item's stroke |
-| D4 | Gas pipe throughput is 2 items/s per lane, flagged as an uncalibrated placeholder | The vendor snapshot has no gas pipe entry; reusing the liquid pipe figure keeps throughput behaviour unchanged so only bucketing moves |
-| D5 | Gas line shape is dash-dot; gas port glyph is a hollow diamond | Belt is solid plus filled square, pipe is even-dash plus hollow circle; dash-dot and diamond stay distinguishable from both at fit zoom and at 8px |
-| D6 | Gas gets its own dim and hover treatment rather than inheriting the shared edge rules | A dash-dot stroke degrades differently from a solid one under both opacity fade and stroke-width emphasis |
+| #   | Decision                                                                                                           | Rationale                                                                                                                                          |
+| --- | ------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| D1  | Gas is a full carrier: its own `transportKind`, its own pack `Transport`, its own `transport-config` carrier entry | Modelling gas as a render-only skin would leave lane packing wrong                                                                                 |
+| D2  | Gas items are discriminated by the `gas_` id prefix                                                                | The vendor snapshot carries no phase field; the prefix split is exact today (8 gas, 11 liquid)                                                     |
+| D3  | An unstackable item with an unrecognised prefix keeps falling back to `pipe`                                       | Rejected failing the extract on drift: a hard throw would break the whole build on an upstream rename that only affects one item's stroke          |
+| D4  | Gas pipe throughput is 2 items/s per lane, flagged as an uncalibrated placeholder                                  | The vendor snapshot has no gas pipe entry; reusing the liquid pipe figure keeps throughput behaviour unchanged so only bucketing moves             |
+| D5  | Gas line shape is dash-dot; gas port glyph is a hollow diamond                                                     | Belt is solid plus filled square, pipe is even-dash plus hollow circle; dash-dot and diamond stay distinguishable from both at fit zoom and at 8px |
+| D6  | Gas gets its own dim and hover treatment rather than inheriting the shared edge rules                              | A dash-dot stroke degrades differently from a solid one under both opacity fade and stroke-width emphasis                                          |
 
 ## Data layer
 
@@ -34,11 +34,11 @@ the extractor's only rule is "no stack size means pipe". Consequences:
 
 `toItem()` in the extractor moves from a two-way to a three-way rule:
 
-| Signal | Kind |
-|---|---|
-| `stack` is a number | `belt` |
-| no stack, id starts with `gas_` | `gas` |
-| no stack, anything else | `pipe` |
+| Signal                          | Kind   |
+| ------------------------------- | ------ |
+| `stack` is a number             | `belt` |
+| no stack, id starts with `gas_` | `gas`  |
+| no stack, anything else         | `pipe` |
 
 `TRANSPORT_KIND` in the extractor schema gains a `GAS` member. `TransportKindId`
 stays an open string type, so no consumer needs a type change.

@@ -467,9 +467,9 @@ describe("clampBackwardRails overhang clearance", () => {
     // Rail sits at least (OBSTACLE_PAD_Y + CONTAINER_RAIL_GAP) off the slab's
     // raw border on whichever side it exits.
     const clearance = OBSTACLE_PAD_Y + CONTAINER_RAIL_GAP;
-    expect(
-      railY! <= gTop - clearance || railY! >= gBottom + clearance,
-    ).toBe(true);
+    expect(railY! <= gTop - clearance || railY! >= gBottom + clearance).toBe(
+      true,
+    );
   });
 
   it("clears a plain card of the same shape by only the CHAMFER gap", () => {

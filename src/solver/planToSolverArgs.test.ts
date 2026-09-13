@@ -48,15 +48,11 @@ describe("planToSolverArgs", () => {
 
   it("converts recipeCosts RationalString to number via Number(num)/Number(denom)", () => {
     const plan = makePlan({
-      recipeCosts: new Map([
-        ["copper_powder", { num: "3", denom: "4" }],
-      ]),
+      recipeCosts: new Map([["copper_powder", { num: "3", denom: "4" }]]),
     });
     const { recipeCosts } = planToSolverArgs(plan);
     expect(recipeCosts).toBeDefined();
-    expect(recipeCosts!.get("copper_powder")).toBe(
-      Number("3") / Number("4"),
-    );
+    expect(recipeCosts!.get("copper_powder")).toBe(Number("3") / Number("4"));
   });
 
   it("preserves multiple recipeCost entries", () => {

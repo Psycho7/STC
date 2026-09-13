@@ -348,7 +348,10 @@ describe("checkBoundaryProductsJustified", () => {
         {
           id: "recipe-main",
           in: [{ item: "R", qty: 1 }],
-          out: [{ item: "F", qty: 1 }, { item: "W", qty: 1 }],
+          out: [
+            { item: "F", qty: 1 },
+            { item: "W", qty: 1 },
+          ],
         },
       ],
     );
@@ -448,7 +451,11 @@ describe("checkBoundaryProductsJustified", () => {
       [{ id: "W", raw: true }, { id: "F" }],
       [
         { id: "w_extract", in: [], out: [{ item: "W", qty: 1 }] },
-        { id: "w_consumer", in: [{ item: "W", qty: 1 }], out: [{ item: "F", qty: 1 }] },
+        {
+          id: "w_consumer",
+          in: [{ item: "W", qty: 1 }],
+          out: [{ item: "F", qty: 1 }],
+        },
       ],
     );
     const rates: ReadonlyMap<string, Fraction> = new Map([
@@ -457,7 +464,13 @@ describe("checkBoundaryProductsJustified", () => {
     ]);
     const plan: RenderPlan = {
       units: [
-        { id: "u-in-W", kind: "inputProduct", itemId: "W", count: 1, rate: RATE_ONE },
+        {
+          id: "u-in-W",
+          kind: "inputProduct",
+          itemId: "W",
+          count: 1,
+          rate: RATE_ONE,
+        },
       ],
       edges: [],
       containers: [],
@@ -481,7 +494,11 @@ describe("checkBoundaryProductsJustified", () => {
       [{ id: "W", raw: true }, { id: "F" }],
       [
         { id: "w_extract", in: [], out: [{ item: "W", qty: 1 }] },
-        { id: "w_consumer", in: [{ item: "W", qty: 1 }], out: [{ item: "F", qty: 1 }] },
+        {
+          id: "w_consumer",
+          in: [{ item: "W", qty: 1 }],
+          out: [{ item: "F", qty: 1 }],
+        },
       ],
     );
     const rates: ReadonlyMap<string, Fraction> = new Map([
@@ -490,7 +507,13 @@ describe("checkBoundaryProductsJustified", () => {
     ]);
     const plan: RenderPlan = {
       units: [
-        { id: "u-in-W", kind: "inputProduct", itemId: "W", count: 1, rate: RATE_ONE },
+        {
+          id: "u-in-W",
+          kind: "inputProduct",
+          itemId: "W",
+          count: 1,
+          rate: RATE_ONE,
+        },
       ],
       edges: [],
       containers: [],
@@ -520,8 +543,16 @@ describe("checkInternalFlowConservation", () => {
     const pack = makeFullPack(
       [{ id: "R", raw: true }, { id: "M" }, { id: "F" }],
       [
-        { id: "recipe-b", in: [{ item: "R", qty: 1 }], out: [{ item: "M", qty: 1 }] },
-        { id: "recipe-a", in: [{ item: "M", qty: 1 }], out: [{ item: "F", qty: 1 }] },
+        {
+          id: "recipe-b",
+          in: [{ item: "R", qty: 1 }],
+          out: [{ item: "M", qty: 1 }],
+        },
+        {
+          id: "recipe-a",
+          in: [{ item: "M", qty: 1 }],
+          out: [{ item: "F", qty: 1 }],
+        },
       ],
     );
     const rates: ReadonlyMap<string, Fraction> = new Map([
@@ -530,8 +561,20 @@ describe("checkInternalFlowConservation", () => {
     ]);
     const plan: RenderPlan = {
       units: [
-        { id: "u-b", kind: "recipe", recipeId: "recipe-b", count: 1, multiplicity: RATE_ONE },
-        { id: "u-a", kind: "recipe", recipeId: "recipe-a", count: 1, multiplicity: RATE_ONE },
+        {
+          id: "u-b",
+          kind: "recipe",
+          recipeId: "recipe-b",
+          count: 1,
+          multiplicity: RATE_ONE,
+        },
+        {
+          id: "u-a",
+          kind: "recipe",
+          recipeId: "recipe-a",
+          count: 1,
+          multiplicity: RATE_ONE,
+        },
       ],
       // The M internal edge is missing.
       edges: [],
@@ -558,7 +601,11 @@ describe("checkInternalFlowConservation", () => {
     const pack = makeFullPack(
       [{ id: "R", raw: true }, { id: "M" }],
       [
-        { id: "recipe-b", in: [{ item: "R", qty: 1 }], out: [{ item: "M", qty: 1 }] },
+        {
+          id: "recipe-b",
+          in: [{ item: "R", qty: 1 }],
+          out: [{ item: "M", qty: 1 }],
+        },
       ],
     );
     const rates: ReadonlyMap<string, Fraction> = new Map([
@@ -566,7 +613,13 @@ describe("checkInternalFlowConservation", () => {
     ]);
     const plan: RenderPlan = {
       units: [
-        { id: "u-b", kind: "recipe", recipeId: "recipe-b", count: 1, multiplicity: RATE_ONE },
+        {
+          id: "u-b",
+          kind: "recipe",
+          recipeId: "recipe-b",
+          count: 1,
+          multiplicity: RATE_ONE,
+        },
         {
           id: "u-out-M",
           kind: "outputProduct",
@@ -598,7 +651,11 @@ describe("checkInternalFlowConservation", () => {
       [{ id: "W", raw: true }, { id: "F" }],
       [
         { id: "w_extract", in: [], out: [{ item: "W", qty: 1 }] },
-        { id: "w_consumer", in: [{ item: "W", qty: 1 }], out: [{ item: "F", qty: 1 }] },
+        {
+          id: "w_consumer",
+          in: [{ item: "W", qty: 1 }],
+          out: [{ item: "F", qty: 1 }],
+        },
       ],
     );
     const rates: ReadonlyMap<string, Fraction> = new Map([
@@ -607,8 +664,20 @@ describe("checkInternalFlowConservation", () => {
     ]);
     const plan: RenderPlan = {
       units: [
-        { id: "u-x", kind: "recipe", recipeId: "w_extract", count: 1, multiplicity: RATE_ONE },
-        { id: "u-c", kind: "recipe", recipeId: "w_consumer", count: 1, multiplicity: RATE_ONE },
+        {
+          id: "u-x",
+          kind: "recipe",
+          recipeId: "w_extract",
+          count: 1,
+          multiplicity: RATE_ONE,
+        },
+        {
+          id: "u-c",
+          kind: "recipe",
+          recipeId: "w_consumer",
+          count: 1,
+          multiplicity: RATE_ONE,
+        },
       ],
       edges: [],
       containers: [],
@@ -631,7 +700,11 @@ describe("checkInternalFlowConservation", () => {
       [{ id: "W", raw: true }, { id: "F" }],
       [
         { id: "w_extract", in: [], out: [{ item: "W", qty: 1 }] },
-        { id: "w_consumer", in: [{ item: "W", qty: 1 }], out: [{ item: "F", qty: 1 }] },
+        {
+          id: "w_consumer",
+          in: [{ item: "W", qty: 1 }],
+          out: [{ item: "F", qty: 1 }],
+        },
       ],
     );
     const rates: ReadonlyMap<string, Fraction> = new Map([
@@ -640,8 +713,20 @@ describe("checkInternalFlowConservation", () => {
     ]);
     const plan: RenderPlan = {
       units: [
-        { id: "u-x", kind: "recipe", recipeId: "w_extract", count: 1, multiplicity: RATE_ONE },
-        { id: "u-c", kind: "recipe", recipeId: "w_consumer", count: 1, multiplicity: RATE_ONE },
+        {
+          id: "u-x",
+          kind: "recipe",
+          recipeId: "w_extract",
+          count: 1,
+          multiplicity: RATE_ONE,
+        },
+        {
+          id: "u-c",
+          kind: "recipe",
+          recipeId: "w_consumer",
+          count: 1,
+          multiplicity: RATE_ONE,
+        },
       ],
       edges: [],
       containers: [],
@@ -696,7 +781,10 @@ describe("SCC/loop unit: no false positive on loop-internal flow", () => {
         {
           id: "cycA",
           in: [{ item: "R", qty: 1 }],
-          out: [{ item: "C", qty: 1 }, { item: "F", qty: 1 }],
+          out: [
+            { item: "C", qty: 1 },
+            { item: "F", qty: 1 },
+          ],
         },
         // cycB: consumes C, produces F
         {
@@ -730,15 +818,40 @@ describe("SCC/loop unit: no false positive on loop-internal flow", () => {
           ],
         },
         // Boundary input for raw R.
-        { id: "u-in-R", kind: "inputProduct", itemId: "R", count: 1, rate: RATE_ONE },
+        {
+          id: "u-in-R",
+          kind: "inputProduct",
+          itemId: "R",
+          count: 1,
+          rate: RATE_ONE,
+        },
         // Boundary output for F.
-        { id: "u-out-F", kind: "outputProduct", itemId: "F", count: 1, rate: RATE_ONE, flavor: "target" },
+        {
+          id: "u-out-F",
+          kind: "outputProduct",
+          itemId: "F",
+          count: 1,
+          rate: RATE_ONE,
+          flavor: "target",
+        },
       ],
       edges: [
         // R flows in to the loop unit.
-        { fromUnit: "u-in-R", toUnit: "u:scc:1", item: "R", rate: new Fraction(1), transportKind: "belt" },
+        {
+          fromUnit: "u-in-R",
+          toUnit: "u:scc:1",
+          item: "R",
+          rate: new Fraction(1),
+          transportKind: "belt",
+        },
         // F flows out from the loop unit.
-        { fromUnit: "u:scc:1", toUnit: "u-out-F", item: "F", rate: new Fraction(2), transportKind: "belt" },
+        {
+          fromUnit: "u:scc:1",
+          toUnit: "u-out-F",
+          item: "F",
+          rate: new Fraction(2),
+          transportKind: "belt",
+        },
       ],
       containers: [],
     };
@@ -783,7 +896,13 @@ describe("checkConsumerInputsSatisfied", () => {
     ]);
     const plan: RenderPlan = {
       units: [
-        { id: "u-R", kind: "recipe", recipeId: "R", count: 1, multiplicity: RATE_ONE },
+        {
+          id: "u-R",
+          kind: "recipe",
+          recipeId: "R",
+          count: 1,
+          multiplicity: RATE_ONE,
+        },
       ],
       // M arrives from nowhere.
       edges: [],
@@ -811,7 +930,13 @@ describe("checkConsumerInputsSatisfied", () => {
   it("(c) passes when input is fed by a boundary inputProduct edge", () => {
     const pack = makeFullPack(
       [{ id: "Rraw", raw: true }, { id: "F" }],
-      [{ id: "R", in: [{ item: "Rraw", qty: 1 }], out: [{ item: "F", qty: 1 }] }],
+      [
+        {
+          id: "R",
+          in: [{ item: "Rraw", qty: 1 }],
+          out: [{ item: "F", qty: 1 }],
+        },
+      ],
     );
     const rates: ReadonlyMap<string, Fraction> = new Map([
       ["R", new Fraction(1)],
@@ -825,7 +950,13 @@ describe("checkConsumerInputsSatisfied", () => {
           count: 1,
           rate: RATE_ONE,
         },
-        { id: "u-R", kind: "recipe", recipeId: "R", count: 1, multiplicity: RATE_ONE },
+        {
+          id: "u-R",
+          kind: "recipe",
+          recipeId: "R",
+          count: 1,
+          multiplicity: RATE_ONE,
+        },
       ],
       edges: [
         {
@@ -868,9 +999,27 @@ describe("checkConsumerInputsNotOverfed", () => {
     ]);
     const plan: RenderPlan = {
       units: [
-        { id: "u-src-1", kind: "recipe", recipeId: "R-src-1", count: 1, multiplicity: RATE_ONE },
-        { id: "u-src-2", kind: "recipe", recipeId: "R-src-2", count: 1, multiplicity: RATE_ONE },
-        { id: "u-R", kind: "recipe", recipeId: "R", count: 1, multiplicity: RATE_ONE },
+        {
+          id: "u-src-1",
+          kind: "recipe",
+          recipeId: "R-src-1",
+          count: 1,
+          multiplicity: RATE_ONE,
+        },
+        {
+          id: "u-src-2",
+          kind: "recipe",
+          recipeId: "R-src-2",
+          count: 1,
+          multiplicity: RATE_ONE,
+        },
+        {
+          id: "u-R",
+          kind: "recipe",
+          recipeId: "R",
+          count: 1,
+          multiplicity: RATE_ONE,
+        },
       ],
       edges: [
         {
@@ -916,17 +1065,35 @@ describe("checkNoOrphanUnits", () => {
   it("(a) fails for a recipe unit whose recipeId is absent from rates", () => {
     const pack = makeFullPack(
       [{ id: "M" }, { id: "F" }],
-      [{ id: "recipe-A", in: [{ item: "M", qty: 1 }], out: [{ item: "F", qty: 1 }] }],
+      [
+        {
+          id: "recipe-A",
+          in: [{ item: "M", qty: 1 }],
+          out: [{ item: "F", qty: 1 }],
+        },
+      ],
     );
     const rates: ReadonlyMap<string, Fraction> = new Map(); // no entry for recipe-A
     const plan: RenderPlan = {
       units: [
-        { id: "u-A", kind: "recipe", recipeId: "recipe-A", count: 1, multiplicity: RATE_ONE },
+        {
+          id: "u-A",
+          kind: "recipe",
+          recipeId: "recipe-A",
+          count: 1,
+          multiplicity: RATE_ONE,
+        },
       ],
       edges: [],
       containers: [],
     };
-    const result = checkNoOrphanUnits({ plan, rates, pack, targets: [], itemOverrides: [] });
+    const result = checkNoOrphanUnits({
+      plan,
+      rates,
+      pack,
+      targets: [],
+      itemOverrides: [],
+    });
     expect(result.ok).toBe(false);
     expect(result.violations).toHaveLength(1);
     expect(result.violations[0]).toContain("u-A");
@@ -944,12 +1111,24 @@ describe("checkNoOrphanUnits", () => {
     ]);
     const plan: RenderPlan = {
       units: [
-        { id: "u-A", kind: "recipe", recipeId: "recipe-A", count: 1, multiplicity: RATE_ONE },
+        {
+          id: "u-A",
+          kind: "recipe",
+          recipeId: "recipe-A",
+          count: 1,
+          multiplicity: RATE_ONE,
+        },
       ],
       edges: [],
       containers: [],
     };
-    const result = checkNoOrphanUnits({ plan, rates, pack, targets: [], itemOverrides: [] });
+    const result = checkNoOrphanUnits({
+      plan,
+      rates,
+      pack,
+      targets: [],
+      itemOverrides: [],
+    });
     expect(result.ok).toBe(false);
     expect(result.violations[0]).toContain("recipe-A");
   });
@@ -960,12 +1139,24 @@ describe("checkNoOrphanUnits", () => {
     const rates: ReadonlyMap<string, Fraction> = new Map();
     const plan: RenderPlan = {
       units: [
-        { id: "u-in", kind: "inputProduct", itemId: "F", count: 1, rate: RATE_ONE },
+        {
+          id: "u-in",
+          kind: "inputProduct",
+          itemId: "F",
+          count: 1,
+          rate: RATE_ONE,
+        },
       ],
       edges: [],
       containers: [],
     };
-    const result = checkNoOrphanUnits({ plan, rates, pack, targets: [], itemOverrides: [] });
+    const result = checkNoOrphanUnits({
+      plan,
+      rates,
+      pack,
+      targets: [],
+      itemOverrides: [],
+    });
     expect(result.ok).toBe(true);
     expect(result.violations).toHaveLength(0);
   });
@@ -974,9 +1165,17 @@ describe("checkNoOrphanUnits", () => {
 describe("checkTargetOutputsSatisfied", () => {
   const pack = makeFullPack(
     [{ id: "R", raw: true }, { id: "F" }],
-    [{ id: "recipe-A", in: [{ item: "R", qty: 1 }], out: [{ item: "F", qty: 1 }] }],
+    [
+      {
+        id: "recipe-A",
+        in: [{ item: "R", qty: 1 }],
+        out: [{ item: "F", qty: 1 }],
+      },
+    ],
   );
-  const rates: ReadonlyMap<string, Fraction> = new Map([["recipe-A", new Fraction(1)]]);
+  const rates: ReadonlyMap<string, Fraction> = new Map([
+    ["recipe-A", new Fraction(1)],
+  ]);
   const targets: ReadonlyArray<ItemTarget> = [
     { itemId: "F", ratePerSec: { num: "1", denom: "1" } },
   ];
@@ -984,12 +1183,33 @@ describe("checkTargetOutputsSatisfied", () => {
   function planWithOutEdgeRate(rate: number): RenderPlan {
     return {
       units: [
-        { id: "u-A", kind: "recipe", recipeId: "recipe-A", count: 1, multiplicity: RATE_ONE },
-        { id: "u:out:F", kind: "outputProduct", itemId: "F", count: 1, rate: RATE_ONE, flavor: "target" },
+        {
+          id: "u-A",
+          kind: "recipe",
+          recipeId: "recipe-A",
+          count: 1,
+          multiplicity: RATE_ONE,
+        },
+        {
+          id: "u:out:F",
+          kind: "outputProduct",
+          itemId: "F",
+          count: 1,
+          rate: RATE_ONE,
+          flavor: "target",
+        },
       ],
       edges:
         rate > 0
-          ? [{ fromUnit: "u-A", toUnit: "u:out:F", item: "F", rate: new Fraction(rate), transportKind: "belt" }]
+          ? [
+              {
+                fromUnit: "u-A",
+                toUnit: "u:out:F",
+                item: "F",
+                rate: new Fraction(rate),
+                transportKind: "belt",
+              },
+            ]
           : [],
       containers: [],
     };
@@ -1024,17 +1244,54 @@ describe("checkTargetOutputsSatisfied", () => {
   it("sums multiple producer edges into the same target output unit", () => {
     const plan: RenderPlan = {
       units: [
-        { id: "u-A", kind: "recipe", recipeId: "recipe-A", count: 1, multiplicity: RATE_ONE },
-        { id: "u-B", kind: "recipe", recipeId: "recipe-A", count: 1, multiplicity: RATE_ONE },
-        { id: "u:out:F", kind: "outputProduct", itemId: "F", count: 1, rate: RATE_ONE, flavor: "target" },
+        {
+          id: "u-A",
+          kind: "recipe",
+          recipeId: "recipe-A",
+          count: 1,
+          multiplicity: RATE_ONE,
+        },
+        {
+          id: "u-B",
+          kind: "recipe",
+          recipeId: "recipe-A",
+          count: 1,
+          multiplicity: RATE_ONE,
+        },
+        {
+          id: "u:out:F",
+          kind: "outputProduct",
+          itemId: "F",
+          count: 1,
+          rate: RATE_ONE,
+          flavor: "target",
+        },
       ],
       edges: [
-        { fromUnit: "u-A", toUnit: "u:out:F", item: "F", rate: new Fraction(1, 2), transportKind: "belt" },
-        { fromUnit: "u-B", toUnit: "u:out:F", item: "F", rate: new Fraction(1, 2), transportKind: "belt" },
+        {
+          fromUnit: "u-A",
+          toUnit: "u:out:F",
+          item: "F",
+          rate: new Fraction(1, 2),
+          transportKind: "belt",
+        },
+        {
+          fromUnit: "u-B",
+          toUnit: "u:out:F",
+          item: "F",
+          rate: new Fraction(1, 2),
+          transportKind: "belt",
+        },
       ],
       containers: [],
     };
-    const result = checkTargetOutputsSatisfied({ plan, rates, pack, targets, itemOverrides: [] });
+    const result = checkTargetOutputsSatisfied({
+      plan,
+      rates,
+      pack,
+      targets,
+      itemOverrides: [],
+    });
     expect(result.ok).toBe(true);
   });
 });
@@ -1055,20 +1312,57 @@ function cleanPlanArgs(): {
 } {
   const pack = makeFullPack(
     [{ id: "R", raw: true }, { id: "F" }],
-    [{ id: "recipe-A", in: [{ item: "R", qty: 1 }], out: [{ item: "F", qty: 1 }] }],
+    [
+      {
+        id: "recipe-A",
+        in: [{ item: "R", qty: 1 }],
+        out: [{ item: "F", qty: 1 }],
+      },
+    ],
   );
   const rates: ReadonlyMap<string, Fraction> = new Map([
     ["recipe-A", new Fraction(1)],
   ]);
   const plan: RenderPlan = {
     units: [
-      { id: "u-in-R", kind: "inputProduct", itemId: "R", count: 1, rate: RATE_ONE },
-      { id: "u-A", kind: "recipe", recipeId: "recipe-A", count: 1, multiplicity: RATE_ONE },
-      { id: "u:out:F", kind: "outputProduct", itemId: "F", count: 1, rate: RATE_ONE, flavor: "target" },
+      {
+        id: "u-in-R",
+        kind: "inputProduct",
+        itemId: "R",
+        count: 1,
+        rate: RATE_ONE,
+      },
+      {
+        id: "u-A",
+        kind: "recipe",
+        recipeId: "recipe-A",
+        count: 1,
+        multiplicity: RATE_ONE,
+      },
+      {
+        id: "u:out:F",
+        kind: "outputProduct",
+        itemId: "F",
+        count: 1,
+        rate: RATE_ONE,
+        flavor: "target",
+      },
     ],
     edges: [
-      { fromUnit: "u-in-R", toUnit: "u-A", item: "R", rate: new Fraction(1), transportKind: "belt" },
-      { fromUnit: "u-A", toUnit: "u:out:F", item: "F", rate: new Fraction(1), transportKind: "belt" },
+      {
+        fromUnit: "u-in-R",
+        toUnit: "u-A",
+        item: "R",
+        rate: new Fraction(1),
+        transportKind: "belt",
+      },
+      {
+        fromUnit: "u-A",
+        toUnit: "u:out:F",
+        item: "F",
+        rate: new Fraction(1),
+        transportKind: "belt",
+      },
     ],
     containers: [],
   };
@@ -1121,12 +1415,24 @@ describe("assertRenderInvariants", () => {
     const rates: ReadonlyMap<string, Fraction> = new Map(); // recipe-A not in rates: orphan
     const plan: RenderPlan = {
       units: [
-        { id: "u-A", kind: "recipe", recipeId: "recipe-A", count: 1, multiplicity: RATE_ONE },
+        {
+          id: "u-A",
+          kind: "recipe",
+          recipeId: "recipe-A",
+          count: 1,
+          multiplicity: RATE_ONE,
+        },
       ],
       edges: [],
       containers: [],
     };
-    const args = { plan, rates, pack, targets: [] as ReadonlyArray<ItemTarget>, itemOverrides: [] as ReadonlyArray<ItemOverride> };
+    const args = {
+      plan,
+      rates,
+      pack,
+      targets: [] as ReadonlyArray<ItemTarget>,
+      itemOverrides: [] as ReadonlyArray<ItemOverride>,
+    };
     expect(() => assertRenderInvariants(args)).toThrow(/recipe-A/);
   });
 
@@ -1137,7 +1443,13 @@ describe("assertRenderInvariants", () => {
     const rates: ReadonlyMap<string, Fraction> = new Map();
     const plan: RenderPlan = {
       units: [
-        { id: "u-input-1", kind: "inputProduct", itemId: "iron-ore", count: 1, rate: RATE_ONE },
+        {
+          id: "u-input-1",
+          kind: "inputProduct",
+          itemId: "iron-ore",
+          count: 1,
+          rate: RATE_ONE,
+        },
       ],
       edges: [
         {
@@ -1150,7 +1462,13 @@ describe("assertRenderInvariants", () => {
       ],
       containers: [],
     };
-    const args = { plan, rates, pack, targets: [] as ReadonlyArray<ItemTarget>, itemOverrides: [] as ReadonlyArray<ItemOverride> };
+    const args = {
+      plan,
+      rates,
+      pack,
+      targets: [] as ReadonlyArray<ItemTarget>,
+      itemOverrides: [] as ReadonlyArray<ItemOverride>,
+    };
     expect(() => assertRenderInvariants(args)).toThrow(/u-missing/);
   });
 
@@ -1168,9 +1486,21 @@ describe("assertRenderInvariants", () => {
     const plan: RenderPlan = {
       units: [
         // inputProduct provides the fromUnit for the dangling edge.
-        { id: "u-input-1", kind: "inputProduct", itemId: "iron-ore", count: 1, rate: RATE_ONE },
+        {
+          id: "u-input-1",
+          kind: "inputProduct",
+          itemId: "iron-ore",
+          count: 1,
+          rate: RATE_ONE,
+        },
         // recipe unit with no matching rate entry: orphan.
-        { id: "u-orphan", kind: "recipe", recipeId: "recipe-orphan", count: 1, multiplicity: RATE_ONE },
+        {
+          id: "u-orphan",
+          kind: "recipe",
+          recipeId: "recipe-orphan",
+          count: 1,
+          multiplicity: RATE_ONE,
+        },
       ],
       edges: [
         // toUnit "u-dangling" is not in units: endpoint integrity violation.
@@ -1265,7 +1595,13 @@ describe("checkUnitOutflowVsProduction", () => {
       ratePerSec: { num: "1", denom: "1" },
     }));
     const { full, plan } = solveForRender({ targets, pack: fullPack });
-    return { plan, rates: full.rates, pack: fullPack, targets, itemOverrides: [] };
+    return {
+      plan,
+      rates: full.rates,
+      pack: fullPack,
+      targets,
+      itemOverrides: [],
+    };
   }
 
   // P6: a sibling replica's co-product edge used to be dropped, so the surviving
@@ -1305,13 +1641,17 @@ describe("checkUnitOutflowVsProduction", () => {
   // seven existing checkers AND no solver mass-balance residual). They keep this
   // checker honest on plans the burn-down fixes must not regress.
   it("clean control plant glass_bottle reports no violations", () => {
-    const result = checkUnitOutflowVsProduction(fullPipelineArgs(["glass_bottle"]));
+    const result = checkUnitOutflowVsProduction(
+      fullPipelineArgs(["glass_bottle"]),
+    );
     expect(result.violations).toEqual([]);
     expect(result.ok).toBe(true);
   });
 
   it("clean control plant iron_cmpt reports no violations", () => {
-    const result = checkUnitOutflowVsProduction(fullPipelineArgs(["iron_cmpt"]));
+    const result = checkUnitOutflowVsProduction(
+      fullPipelineArgs(["iron_cmpt"]),
+    );
     expect(result.violations).toEqual([]);
     expect(result.ok).toBe(true);
   });
@@ -1356,10 +1696,7 @@ function mutableArgs(
   };
 }
 
-function scaleRational(
-  rate: RationalString,
-  factor: number,
-): RationalString {
+function scaleRational(rate: RationalString, factor: number): RationalString {
   const f = new Fraction(`${rate.num}/${rate.denom}`).mul(factor);
   return { num: f.n.toString(), denom: f.d.toString() };
 }
@@ -1502,8 +1839,8 @@ describe("checkProductUnitRates: boundary-unit chips and inputProduct edges", ()
         .transportKind,
     });
     const result = checkProductUnitRates(args);
-    expect(
-      result.violations.some((v) => v.includes("does not consume")),
-    ).toBe(true);
+    expect(result.violations.some((v) => v.includes("does not consume"))).toBe(
+      true,
+    );
   });
 });

@@ -752,9 +752,9 @@ describe("solveLp - bounded supply draw", () => {
       { itemId: "plant_moss_seed_1", ratePerSec: { num: "10", denom: "1" } },
     ];
     const control = solveLp({ targets, pack });
-    expect(
-      (control.rates.get("plant_moss_seed_1")?.valueOf() ?? 0) > 0,
-    ).toBe(true);
+    expect((control.rates.get("plant_moss_seed_1")?.valueOf() ?? 0) > 0).toBe(
+      true,
+    );
     const result = solveLp({ targets, pack, itemOverrides: overrides });
     expect(result.status).toBe("empty");
     expect(result.rates.size).toBe(0);
@@ -927,7 +927,9 @@ describe("solveLp - extraction recipes", () => {
         { itemId: "liquid_water", ratePerSec: { num: "1", denom: "1" } },
       ],
     });
-    expect([...result.rates.keys()].filter((id) => extractors.includes(id))).toEqual([]);
+    expect(
+      [...result.rates.keys()].filter((id) => extractors.includes(id)),
+    ).toEqual([]);
     // The pack has other water sources, so the plan reroutes rather than going
     // short: banning the pump is not the same as breaking a plan.
     expect(result.softFeasible).toBe(true);
@@ -949,7 +951,9 @@ describe("solveLp - extraction recipes", () => {
     expect(result.status).toBe("feasible");
     expect(result.rates.has("copper_ore-liquid_water")).toBe(false);
     // The cap is drawn in full and nothing tops it up.
-    expect(result.draws.get("copper_ore")!.equals(new Fraction(1, 2))).toBe(true);
+    expect(result.draws.get("copper_ore")!.equals(new Fraction(1, 2))).toBe(
+      true,
+    );
     expect(result.softFeasible).toBe(false);
     // The gap lands on gas_copper, not on the target: the plan covers the rest
     // of the nuggets through the phase-transition loop, which then runs short
@@ -975,7 +979,9 @@ describe("solveLp - extraction recipes", () => {
       ],
     });
     expect(result.status).toBe("feasible");
-    expect([...result.rates.keys()].filter((id) => worldNodes.includes(id))).toEqual([]);
+    expect(
+      [...result.rates.keys()].filter((id) => worldNodes.includes(id)),
+    ).toEqual([]);
     expect(result.softFeasible).toBe(true);
   });
 });

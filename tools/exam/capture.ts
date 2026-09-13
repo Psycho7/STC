@@ -529,11 +529,13 @@ async function capture(opts: Options): Promise<number> {
       return 4;
     }
 
-    const contentRect = await page.evaluate(
-      () => window.__stcExam!.contentBounds(),
+    const contentRect = await page.evaluate(() =>
+      window.__stcExam!.contentBounds(),
     );
     if (contentRect === null) {
-      console.error(`error: ${opts.planId} has an empty graph (no content bounds)`);
+      console.error(
+        `error: ${opts.planId} has an empty graph (no content bounds)`,
+      );
       return 3;
     }
 

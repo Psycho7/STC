@@ -169,7 +169,10 @@ export function checkRawOnlyBoundary(
     // estimate, or an honestly deficit-flagged shortfall would read here as an
     // illegal raw draw.
     const deficit = result.deficit.get(it.id) ?? new Fraction(0);
-    const externalSupply = consumption.sub(production).add(surplus).sub(deficit);
+    const externalSupply = consumption
+      .sub(production)
+      .add(surplus)
+      .sub(deficit);
 
     const cap = supply.supplyOf(it.id);
     if (cap === Infinity) continue; // unlimited external supply: always passes.

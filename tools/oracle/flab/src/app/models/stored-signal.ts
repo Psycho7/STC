@@ -1,8 +1,8 @@
-import { effect, signal, WritableSignal } from '@angular/core';
+import { effect, signal, WritableSignal } from "@angular/core";
 
-import { Optional } from './utils';
+import { Optional } from "./utils";
 
-type StorageKey = 'router' | 'preferences' | 'stepDetailTab';
+type StorageKey = "router" | "preferences" | "stepDetailTab";
 
 export function getStoredValue(key: StorageKey): Optional<string> {
   return localStorage.getItem(key) ?? undefined;

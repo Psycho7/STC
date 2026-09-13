@@ -49,7 +49,13 @@ function busData(
 // One trunk in the top band, one in the bottom band -> both region rects render.
 const BANDED_EDGES: Edge[] = [
   { id: "e1", type: "bus", source: "a", target: "b", data: busData("top", 80) },
-  { id: "e2", type: "bus", source: "a", target: "c", data: busData("bottom", 480) },
+  {
+    id: "e2",
+    type: "bus",
+    source: "a",
+    target: "c",
+    data: busData("bottom", 480),
+  },
 ];
 
 // No bus edges -> no lane bands -> BusBands renders null.

@@ -35,7 +35,12 @@ describe("STC -> FactorioLab adapter", () => {
       targets: headline,
     });
 
-    const result = new SimplexService().solve(objectives, settings, data, false);
+    const result = new SimplexService().solve(
+      objectives,
+      settings,
+      data,
+      false,
+    );
 
     expect(result.resultType).toBe(SimplexResultType.Solved);
     expect(result.steps.length).toBeGreaterThan(0);
@@ -92,10 +97,12 @@ describe("STC -> FactorioLab adapter", () => {
     // phase_trans_2-xiranite_enr_powder (2 per exec, time 10). Demand 1/10 /sec
     // forces exec = (1/10)/2 = 1/20 /sec, i.e. machines = 1/20 * 10 = 1/2.
     const targetProducer = "phase_trans_2-xiranite_enr_powder";
-    expect(stc.rates.get(targetProducer)?.equals(new Fraction(1, 20))).toBe(true);
-    expect(glpk.machinesByRecipe.get(targetProducer)?.eq(new Rational(1n, 2n))).toBe(
+    expect(stc.rates.get(targetProducer)?.equals(new Fraction(1, 20))).toBe(
       true,
     );
+    expect(
+      glpk.machinesByRecipe.get(targetProducer)?.eq(new Rational(1n, 2n)),
+    ).toBe(true);
 
     // Active sets agree, and every active recipe agrees exactly after the units
     // fix (machines/time == exec/sec). The stale poly route stays inactive.

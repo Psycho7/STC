@@ -1,7 +1,7 @@
-import { SelectItem } from 'primeng/api';
-import { data } from 'src/data';
+import { SelectItem } from "primeng/api";
+import { data } from "src/data";
 
-import { Game } from './enum/game';
+import { Game } from "./enum/game";
 
 export function modOptions(game: Game): SelectItem<string>[] {
   return data.mods

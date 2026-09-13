@@ -37,7 +37,9 @@ export function boundaryResidualShare(
       if (!draws.has(inp.item) || inp.qty <= 0) continue;
       consumption.set(
         inp.item,
-        (consumption.get(inp.item) ?? ZERO).add(rate.mul(new Fraction(inp.qty))),
+        (consumption.get(inp.item) ?? ZERO).add(
+          rate.mul(new Fraction(inp.qty)),
+        ),
       );
     }
   }

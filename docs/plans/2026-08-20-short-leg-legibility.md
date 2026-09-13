@@ -25,11 +25,13 @@
 ### Task 1: Commit the plan and harvest the pre-change ratchet actuals
 
 **Files:**
+
 - Create: `docs/plans/2026-08-20-short-leg-legibility.md` (this file)
 - Create (temporary): `test/e2e/ratchet-probe.spec.ts` - deleted again in this task
 - Ledger: `.superpowers/sdd/progress.md` (gitignored)
 
 **Interfaces:**
+
 - Produces: a recorded table of pre-change actuals for all five audits x seven scenarios in the ledger. Later tasks diff against it.
 
 - [x] **Step 1: Commit the plan doc**
@@ -46,6 +48,7 @@ systemd-run --user --scope -q -p MemoryMax=2200M -p MemorySwapMax=512M -- bun ru
 # then, in background:
 bun run preview --port 4173 --strictPort
 ```
+
 Expected: build green (tsc + vite), preview serving on 4173.
 
 - [x] **Step 3: Write the temporary probe spec**
@@ -68,6 +71,7 @@ for s in default battery5 battery5-xiranite crystal equip4 multi6 tundra:
 systemd-run --user --scope -q -p MemoryMax=2200M -p MemorySwapMax=512M -- \
   bunx playwright test test/e2e/ratchet-probe.spec.ts -g "<s>"
 ```
+
 Expected: printed actuals match the committed baselines (CROSSING default 9 / battery5 8 / battery5-xiranite 56 / crystal 1 / equip4 1 / multi6 415 / tundra 0; PADDED_GRAZE 0/8/3/3/3/12/0; CHIP_SEGMENT 0/3/11/0/1/0/0; CHIP_OFFPATH 0/1/3/0/0/0/0; OWN_PIERCE 0/0/2/0/0/0/0). Record the full table in the ledger. Any mismatch vs the committed tables is a STOP - report before proceeding.
 
 - [x] **Step 5: Delete the probe and verify clean tree**
@@ -82,10 +86,12 @@ git status --short   # only untracked run artifacts, no tracked changes
 ### Task 2: #42 - recipe-row chrome diet with collision guard (TDD)
 
 **Files:**
+
 - Create: `test/e2e/row-collisions.spec.ts`
 - Modify: `src/canvas/canvas.css:2053-2082` (`.rn-row`, `.rn-row.input`, `.rn-row.output`)
 
 **Interfaces:**
+
 - Consumes: nothing from other tasks (fully independent; zero ELK/ratchet impact - `RECIPE_WIDTH`, `RECIPE_ROW_HEIGHT`, port handles untouched).
 - Produces: nothing later tasks rely on.
 
@@ -164,6 +170,7 @@ Note: check how `title-truncation.spec.ts:9-11` actually seeds the locale and co
 systemd-run --user --scope -q -p MemoryMax=2200M -p MemorySwapMax=512M -- \
   bunx playwright test test/e2e/row-collisions.spec.ts -g "equip4"
 ```
+
 Expected: FAIL with two collisions ("Dense Ori..." pair and "Originiu..." pair). Also run `-g "default"`: expected PASS (0 collisions even pre-fix).
 
 - [x] **Step 3: Apply the row-chrome diet**
@@ -202,6 +209,7 @@ systemd-run ... -- bunx playwright test test/e2e/row-collisions.spec.ts -g "equi
 systemd-run ... -- bunx playwright test test/e2e/row-collisions.spec.ts -g "default"
 systemd-run ... -- bunx playwright test test/e2e/title-truncation.spec.ts
 ```
+
 Expected: all PASS. Visual check: capture equip4 fit + a Refining Unit zoom crop; both "Dense Orig..." rows must now read distinctly (83px reaches past the divergence point).
 
 - [x] **Step 5: Commit**
@@ -216,10 +224,12 @@ git commit -m "Slim recipe-row chrome so item names stay distinguishable (#42)"
 ### Task 3: #41-D - real inter-layer spacing inside loop slabs
 
 **Files:**
+
 - Modify: `src/canvas/layout.ts:355-367` (container `layoutOptions` block)
 - Create: `test/canvas/slabSpacing.test.ts`
 
 **Interfaces:**
+
 - Consumes: `NODE_NODE_SPACING` (30), `BETWEEN_LAYERS_SPACING` (110) from `src/canvas/dimensions.ts:67,71`.
 - Produces: slab-interior corridors >= BETWEEN_LAYERS_SPACING. Task 4 re-measures everything downstream; Task 6 re-checks whether battery5's Seed-Picking fan-out still declines `FANOUT_SPAN_MIN`.
 
@@ -243,8 +253,7 @@ describe("loop-slab interior spacing", () => {
     const [left, right] = [...members].sort(
       (a, b) => a.position.x - b.position.x,
     );
-    const gap =
-      right!.position.x - (left!.position.x + (left!.width ?? 0));
+    const gap = right!.position.x - (left!.position.x + (left!.width ?? 0));
     expect(gap).toBeGreaterThanOrEqual(BETWEEN_LAYERS_SPACING);
   });
 });
@@ -258,6 +267,7 @@ The fixture-builder call is whatever `layout-mapping.test.ts` names it - read th
 systemd-run --user --scope -q -p MemoryMax=2200M -p MemorySwapMax=512M -- \
   bunx vitest run test/canvas/slabSpacing.test.ts
 ```
+
 Expected: FAIL - gap ~30 (the NODE_NODE_SPACING fallback), well under 110.
 
 - [x] **Step 3: Add explicit spacing options to the container block**
@@ -290,6 +300,7 @@ If Step 4 still fails with gap ~30, the corridor is a same-layer node-node gap, 
 systemd-run ... -- bunx vitest run test/canvas/slabSpacing.test.ts   # PASS
 systemd-run ... -- bunx vitest run                                    # full suite
 ```
+
 Expected: full suite green. No unit test pins the container option string today (verified), so failures mean real geometry fallout - investigate, do not blind-fix.
 
 - [x] **Step 5: Commit**
@@ -304,11 +315,13 @@ git commit -m "Give loop-slab interiors real inter-layer spacing (#41)"
 ### Task 4: Post-slab-spacing re-measure and downward re-pin
 
 **Files:**
+
 - Modify: `test/e2e/geometry-audit.spec.ts:305-437` (the five baseline tables)
 - Create (temporary): `test/e2e/ratchet-probe.spec.ts` (same probe as Task 1, deleted again)
 - Ledger: record the full before/after table and the battery5 fan-out gap.
 
 **Interfaces:**
+
 - Consumes: Task 3's layout change.
 - Produces: re-pinned baselines that Tasks 5-6 measure against; the battery5 Seed-Picking gap measurement that decides Task 6's scope.
 
@@ -348,11 +361,13 @@ git commit -m "Re-pin geometry ratchets after slab spacing fix"
 ### Task 5: #41-C - collapse chips to icon-only on short legs
 
 **Files:**
+
 - Modify: `src/canvas/chipSeating.ts` (item phase + final stamping in `deconflictChipAnchors`)
 - Modify: `src/canvas/ItemEdge.tsx` (`ItemEdgeData` type :17-112, `FlowChip` :192-289, rate-chip call site :504-519)
 - Create: `test/canvas/shortLegChips.test.ts`
 
 **Interfaces:**
+
 - Consumes: `CHIP_HALF_W_WIDE` (chipSeating.ts:69), the item-phase `ItemGeom.pts` (chipSeating.ts:847-852), the `edge.data` stamping pattern (chipSeating.ts:1683-1755), `FlowChip`'s `iconOnly` gate (ItemEdge.tsx:250-252).
 - Produces: `ItemEdgeData.chipIconOnly?: boolean` (stamped on edges whose polyline is shorter than one chip); `FlowChip` prop `compact?: boolean`.
 
@@ -431,10 +446,10 @@ In the final `edges.map` stamping block (:1683-1755), alongside `labelDx`/`label
 `FlowChip` (:192-289): add prop `compact?: boolean | undefined` and widen the gate at :250-252:
 
 ```ts
-  const iconOnly =
-    (compact === true ||
-      (zoom !== undefined && zoom < CHIP_ICON_ONLY_MAX_ZOOM)) &&
-    !focused;
+const iconOnly =
+  (compact === true ||
+    (zoom !== undefined && zoom < CHIP_ICON_ONLY_MAX_ZOOM)) &&
+  !focused;
 ```
 
 Rate-chip call site (:504-519): pass `compact={edgeData?.chipIconOnly === true}`. Do NOT pass it to the Sigma call site (:554-568) - aggregates keep their digits.
@@ -458,11 +473,13 @@ git commit -m "Collapse rate chips to icon-only on legs shorter than a chip (#41
 ### Task 6: #43-B - divergence junction dot for declined fan-outs
 
 **Files:**
+
 - Modify: `src/canvas/chipSeating.ts` (new stamp block in `deconflictChipAnchors`, near the fan-in block :1394-1579)
 - Modify: `src/canvas/ItemEdge.tsx` (`ItemEdgeData` + render block near the fan-in dot :534-546)
 - Create: `test/canvas/fanoutMarkers.test.ts`
 
 **Interfaces:**
+
 - Consumes: `flowKeyOf` (chipSeating.ts:844-845), `FANIN_EPS` (:1396), `ItemGeom.pts`, the fan-in junction stamp pattern (`faninJunctionByIndex`, :1552; stamped :1730-1743), `JunctionDot` (ItemEdge.tsx:323-354), the staleness-guard pattern (:401-415).
 - Produces: `ItemEdgeData.fanoutJunctionX?/fanoutJunctionY?: number` stamped on one owner edge per declined fan-out group.
 
@@ -482,10 +499,14 @@ describe("declined fan-out divergence dot", () => {
     const owner = out.find((e) => e.id === "e:a")!; // lex-smallest id
     expect(owner.data?.["fanoutJunctionX"]).toBe(/* last shared x */);
     expect(owner.data?.["fanoutJunctionY"]).toBe(/* source port y */);
-    expect(out.find((e) => e.id === "e:b")!.data?.["fanoutJunctionX"]).toBeUndefined();
+    expect(
+      out.find((e) => e.id === "e:b")!.data?.["fanoutJunctionX"],
+    ).toBeUndefined();
   });
 
-  it("stamps nothing for a single edge", () => { /* one edge -> no stamp */ });
+  it("stamps nothing for a single edge", () => {
+    /* one edge -> no stamp */
+  });
 
   it("stamps nothing for a parallel bundle into one target", () => {
     /* two edges same source AND same target -> no stamp (not a fan-out) */
@@ -502,21 +523,21 @@ Fill the expected junction values from the synthetic geometry (e.g. source right
 New block in `deconflictChipAnchors`, after the fan-in group election (so it can reuse the same index/geometry maps), commented as the #43 counterpart:
 
 ```ts
-  // Declined fan-outs (#43): N >= 2 same-(item, source) item edges into >= 2
-  // distinct targets whose gap fell below FANOUT_SPAN_MIN stay plain ItemEdges
-  // with coincident prefixes -- the reader gets no signal a split happened and
-  // reads a member rate as the trunk rate. Mark the divergence with a junction
-  // dot on one owner edge. No aggregate chip: a total would sit a few pixels
-  // from the source card's own output row (the #39 redundancy) and the run is
-  // too short to hold it anyway.
-  const fanoutJunctionByIndex = new Map<number, { x: number; y: number }>();
-  const fanoutGroups = new Map<number, number[]>(); // keyed like flowKeyOf via a map from key->indices
-  // group plain item edges by flowKeyOf; skip groups with < 2 members or < 2
-  // distinct targets. For each member, walk its pts: the divergence candidate
-  // is the last vertex x before the path first leaves the source row
-  // (|y - sy| > FANIN_EPS). junctionX = min over bent members; skip the group
-  // if no member bends or junctionX is not strictly past the source point.
-  // Owner = lexicographically smallest edge id (mirrors the fan-in election).
+// Declined fan-outs (#43): N >= 2 same-(item, source) item edges into >= 2
+// distinct targets whose gap fell below FANOUT_SPAN_MIN stay plain ItemEdges
+// with coincident prefixes -- the reader gets no signal a split happened and
+// reads a member rate as the trunk rate. Mark the divergence with a junction
+// dot on one owner edge. No aggregate chip: a total would sit a few pixels
+// from the source card's own output row (the #39 redundancy) and the run is
+// too short to hold it anyway.
+const fanoutJunctionByIndex = new Map<number, { x: number; y: number }>();
+const fanoutGroups = new Map<number, number[]>(); // keyed like flowKeyOf via a map from key->indices
+// group plain item edges by flowKeyOf; skip groups with < 2 members or < 2
+// distinct targets. For each member, walk its pts: the divergence candidate
+// is the last vertex x before the path first leaves the source row
+// (|y - sy| > FANIN_EPS). junctionX = min over bent members; skip the group
+// if no member bends or junctionX is not strictly past the source point.
+// Owner = lexicographically smallest edge id (mirrors the fan-in election).
 ```
 
 Concrete divergence walk per member (pts from `ItemGeom`):
@@ -548,27 +569,31 @@ Stamp in the final `edges.map` exactly like `faninJunctionByIndex` (:1730-1743):
 `ItemEdgeData`: add `fanoutJunctionX?: number; fanoutJunctionY?: number;` with a comment naming the #43 declined-fan-out contract. Next to the fan-in guards (:401-415):
 
 ```ts
-  const fanoutMarkerLive =
-    edgeData?.fanoutJunctionY !== undefined &&
-    Math.abs(edgeData.fanoutJunctionY - sourceY) < HIDE_STALE_EPS;
+const fanoutMarkerLive =
+  edgeData?.fanoutJunctionY !== undefined &&
+  Math.abs(edgeData.fanoutJunctionY - sourceY) < HIDE_STALE_EPS;
 ```
 
 Render block beside the fan-in dot (:534-546):
 
 ```tsx
-      {/* Declined fan-out divergence dot (#43, owner only): where coincident
+{
+  /* Declined fan-out divergence dot (#43, owner only): where coincident
           same-flow item edges split. Same markup and stacking as the fan-in
-          merge dot; stale-dropped against the live source y. */}
-      {fanoutMarkerLive && edgeData?.fanoutJunctionX !== undefined ? (
-        <JunctionDot
-          testId={`fanout-junction-${id}`}
-          x={edgeData.fanoutJunctionX}
-          y={edgeData.fanoutJunctionY!}
-          color={kindStyle.stroke}
-          dimmed={edgeData.dimmed}
-          zoom={zoom}
-        />
-      ) : null}
+          merge dot; stale-dropped against the live source y. */
+}
+{
+  fanoutMarkerLive && edgeData?.fanoutJunctionX !== undefined ? (
+    <JunctionDot
+      testId={`fanout-junction-${id}`}
+      x={edgeData.fanoutJunctionX}
+      y={edgeData.fanoutJunctionY!}
+      color={kindStyle.stroke}
+      dimmed={edgeData.dimmed}
+      zoom={zoom}
+    />
+  ) : null;
+}
 ```
 
 - [x] **Step 5: Run the new tests + full unit suite** (systemd-run wrapped). Expected: all green, including `faninMarkers.test.ts` untouched.
@@ -585,11 +610,13 @@ git commit -m "Mark declined fan-out divergence with a junction dot (#43)"
 ### Task 7: Final re-measure, e2e sweep, and visual sign-off
 
 **Files:**
+
 - Modify: `test/e2e/geometry-audit.spec.ts` (tables, if Tasks 5-6 moved counts)
 - Create (temporary): `test/e2e/ratchet-probe.spec.ts` (deleted again)
 - Ledger: final before/after table; capture paths.
 
 **Interfaces:**
+
 - Consumes: everything above.
 - Produces: the evidence for Task 8's PR body and issue comments.
 

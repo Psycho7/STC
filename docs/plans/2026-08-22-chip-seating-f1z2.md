@@ -32,7 +32,7 @@
 - **R8 - Own-card intrusion is a two-level soft rule, not a hard block.** Tier-1 slide treats an over-budget intruding candidate as not-clear (walks past it); the graze tier scores intrusion as a soft penalty between crossings and dots. It never blocks nudge/escape and never applies to foreign cards (those stay hard). This avoids the issue-#9 blowback the source records at `chipSeating.ts:246-247` (a hard box rule flings short-leg chips into escape - the exact at-risk seats are script43 e:31/e:33/e:32/e:21 and gas-web e:25/e:17/e:18, A-R8).
 - **R10 - Card-intrusion residue is structural; Task 5 is judged on the deep class.** (Added after Task 2 review.) The census card-intrusion counter is a BOX-depth rule while the seating exemption is a CENTRE rule - same number (9), different rule - so shallow centre-legal seats (box wider than the corridor) can never reach zero. Task 5's acceptance: the deep class (intrusions saturating at the full chip extent - chips a reader sees ON the card, 21 cases at Task 2 baseline) reaches zero or an enumerated residue, AND the total drops; the counter's comment must not claim rule-parity with `chipEntersOwnCardBody`.
 - **R11 - Depth-above-crossings flip REJECTED; realistic seat box is the F1 lever.** (Added after Task 5 review.) Task 5 proved the 21 deep on-card seats are availability-bound: no within-budget clear on-line candidate exists for them under the reserved 240x48 box. Flipping the ranking (depth above crossings) was measured (deep 21->2, but foreign-stroke +19 concentrated on the same chips, one default-plan rate chip silently hidden, seat-validity +1) and rejected: it trades a legible-but-ugly defect for ownership ambiguity and inverts the precedence Task 6 assumes. Revisit only behind four gates recorded in the Task 5 review. Instead, Task 6b (below) narrows the RESERVED seat box toward a locale-safe upper bound on the drawn width. Corrected by the T6b audit: the "drawn 135" figure was census-camera scale 1.667; the seat invariant holds at scale 2, so the sound reserve for that chip is ~162 - which still fails the 153-unit corridor. The gain is the text slack (typically 240 -> ~189, zero for chips at the 120px CSS clamp), so Task 6b SHRINKS the deep class with an enumerated residue; it cannot promise closing it.
-- **R12 - Coincident-column braids are a permanent SEATING residual.** (Added after Task 6 review, which refuted the implementer's "wait for Task 6b" request with camera arithmetic.) Painted half-width h(s) = s*W/2 varies with zoom while the seat is camera-fixed; excluding a stroke at gap g while keeping the own line painted at every zoom requires g > W/2 - a braid is g <= 8 by definition. So no seat offset separates class A (3px columns: script43 e:15, gas-web e:5) at more than one camera zoom under ANY box model; the half-reach cap IS the counter-scale-1 containment bound and survives Task 6b unchanged (T6b actually shrinks reach). Class A joins class B (exactly-coincident) as ratified residual. Ownership disambiguation, if wanted, is a RENDER-layer feature (leader tick / owner cue) or a routing change (lane separation) - file as its own issue after the campaign; not in scope here. Task 6b must not re-open the cap, and its tier-1c interaction (1c still has an uncapped flush step) must be resolved: apply the same containment-bound cap to tier 1c or document the asymmetry with a measured justification.
+- **R12 - Coincident-column braids are a permanent SEATING residual.** (Added after Task 6 review, which refuted the implementer's "wait for Task 6b" request with camera arithmetic.) Painted half-width h(s) = s\*W/2 varies with zoom while the seat is camera-fixed; excluding a stroke at gap g while keeping the own line painted at every zoom requires g > W/2 - a braid is g <= 8 by definition. So no seat offset separates class A (3px columns: script43 e:15, gas-web e:5) at more than one camera zoom under ANY box model; the half-reach cap IS the counter-scale-1 containment bound and survives Task 6b unchanged (T6b actually shrinks reach). Class A joins class B (exactly-coincident) as ratified residual. Ownership disambiguation, if wanted, is a RENDER-layer feature (leader tick / owner cue) or a routing change (lane separation) - file as its own issue after the campaign; not in scope here. Task 6b must not re-open the cap, and its tier-1c interaction (1c still has an uncapped flush step) must be resolved: apply the same containment-bound cap to tier 1c or document the asymmetry with a measured justification.
 - **R13 - The battery5 `DOT_COVER_BASELINE` 0 -> 1 rise is RATIFIED.** (Added at Task 6b review.) battery5 `e:18` (Xircon Effluent 240/min) had no seat on its own polyline under the worst-case box and sat 40.9 units off it - an orphan chip whose fan-in merge dot was visible only because the chip had left. The per-chip seat box gives it an on-line seat, and that seat buys three things at once: `SEAT_VALIDITY_BASELINE` battery5 drops 2 -> 1 (the gain), `DOT_COVER_BASELINE` battery5 rises 0 -> 1 as the box now covers the merge dot (a cost), and the same chip's own-card intrusion on `u:class:q:17` deepens 27.7 -> 40.0, which also makes it one of the six deep-class arrivals in the card-intrusion note (the other cost). Ratified because the pass's own priority order settles it: seat validity is structural, while keeping off a junction dot is the weakest preference there is and never costs a chip its line or its tier (`chipSeating.ts` header, #50) - a chip on its line over a dot beats a chip floating 40.9 units beside its line with the dot showing. The depth cost rides the same seat and follows the crossings-over-depth ranking R11 measured and declined to flip. This is the campaign's only UP move on a pre-existing (non-campaign) pin. The `DOT_COVER_BASELINE` NOTE block in `test/e2e/geometry-audit.spec.ts` carries the same complete trade, gain and both costs.
 - **R9 - Seat-validity is structural.** The census seat-validity criterion is "own edge's polyline intersects the drawn chip box" (e2e analogue of `segIntersectsChipBox`), NOT a centre-distance rule. A sidestep seat keeps its line in the box by construction and must count as valid, or Task 6 red-flags its own fix (audit B8).
 
@@ -58,10 +58,12 @@ T0-T2 land the measurement surface BEFORE any fix so every fix task shows a meas
 **Files:** none (measurement only; record in `.superpowers/sdd/progress.md`).
 
 **Requirements:**
+
 - Build once, run the full e2e suite on this branch untouched, and record the complete failure list. Prior campaigns measured expected-red as MORE than the one ratified failure (battery5 + multi6 RAW, inputs-panel pins, a rotating placement-shots flake - see the NOTE block and `docs/plans/2026-08-08-chip-seating-saturated-zoom.md`); do not assume "exactly one red" (A-R18).
 - This list is the campaign's expected-red baseline: later tasks compare against it, not against an assumed set.
 
 **Acceptance:**
+
 - [x] Failure list recorded in the progress ledger with test names.
 
 ### Task 1: Register the three v1.4 scenarios
@@ -69,6 +71,7 @@ T0-T2 land the measurement surface BEFORE any fix so every fix task shows a meas
 **Files:** `test/e2e/scenarios.ts` (append), `test/e2e/geometry-audit.spec.ts` (add keys to all seven baseline tables).
 
 **Requirements:**
+
 - Append three `Scenario` entries - fields `id`, `title`, `targets`, `maxDiffPixels` (`scenarios.ts:17-29`); rates are per-second rationals with the per-minute figure in a trailing comment, matching file convention:
   - `script43`: `equip_script_4_3` `{1,2}` (30/min).
   - `coupon-web`: `jinlong_coupon` `{1,1}` (60/min), `filter_core` `{1,4}` (15/min), `copper_jar` `{1,2}` (30/min).
@@ -79,6 +82,7 @@ T0-T2 land the measurement surface BEFORE any fix so every fix task shows a meas
 - Watch the hard tier-1 RAW zero gate: if a new scenario lands a RAW pierce, that is a hard failure needing investigation (against the Task 0 baseline), not a pin.
 
 **Acceptance:**
+
 - [x] `bun run typecheck` + `bun run lint` clean.
 - [x] Geometry-audit e2e green for the three new scenarios with the recorded pins; existing scenarios' pins untouched; failure set == Task 0 baseline.
 - [x] `placement-shots` produces goldens locally for the three ids (one scenario per invocation).
@@ -89,6 +93,7 @@ T0-T2 land the measurement surface BEFORE any fix so every fix task shows a meas
 **Files:** `test/e2e/collect.ts` (bands), `test/e2e/geometry.ts` (census functions), `test/e2e/geometry-audit.spec.ts` (new describe + baseline tables).
 
 **Requirements:**
+
 - Extend `collectGeometry` (`collect.ts:204-286`) with a `bands` array: query `.bus-band`, read `data-testid` (`bus-band-top|bottom`), map client rects through the same `toGraphX/toGraphY` as the other rects. Bands exist only in `collectScene` today - the census needs them in the geometry collector (audit B2).
 - New census criterion in its OWN describe with its OWN page load (the P2 describe's criteria all measure at fit zoom and `auditDotsUnderChips` consumes `geom.zoom`; a mid-test camera change would corrupt them, A-R17). Camera per ruling R6, incl. the `ExamWindow` type declaration pattern from `tools/exam/probe.ts:89-90`.
 - Four counters, ALL chip kinds (label, bus, bus-drop) unless stated:
@@ -100,6 +105,7 @@ T0-T2 land the measurement surface BEFORE any fix so every fix task shows a meas
 - Failure messages name offending chip element ids (existing table style).
 
 **Acceptance:**
+
 - [x] New criterion green with measured pins on all 10 scenarios.
 - [x] Existing criteria untouched (same pins; failure set == Task 0 baseline).
 - [x] Commit.
@@ -109,6 +115,7 @@ T0-T2 land the measurement surface BEFORE any fix so every fix task shows a meas
 **Files:** `src/canvas/chipSeating.ts` (lane-bus phase `:1516-1529` clamp, stamp block `:1950-1995`, drop seat `:1562-1574`), `src/canvas/busRouting.ts` (stale comments `:527-539`, capacity-hide rationale comment in `chipSeating.ts:1583-1588`), unit tests (`test/canvas/busRouting.classify.test.ts`, `test/canvas/chipSeating.seat.test.ts` or siblings).
 
 **Requirements:**
+
 - **Clamp location is the seating pass, not `routeBusEdges`** (audit B4): at `chipSeating.ts:1516-1529` the member's RESOLVED `{dropX, riseX}` come from `chamferBusPath(...routingHintsFromData(edge.data))` - post-`assignEntryColumns`/`clearBusColumns`, so the drawn run is exact (the base columns can be dodged ~370px later; a chamfer of slack at `busRouting.ts:557` cannot hold the invariant).
 - Clamp each member's `riseChipX` into `[min(dropX, riseX) + slack, max(dropX, riseX) - slack]` with chamfer-scale slack; when the interval collapses (`max - min <= 2*slack`), use the run midpoint (audit B5 - backward/degenerate members like multi6 e:108 have riseX < dropX). The clamp is per-member and order-independent - do NOT re-sort slot assignment in `busRouting.ts` (keeps the documented shuffled-input determinism contract and its pinned test, audit B6). Slot collisions after clamping resolve through the existing capacity hide.
 - **Stamp the corrected x back onto edge data as `busChipX`** (stamp block `:1950-1995` already merges bus fields) so `BusEdge.tsx:252` and `contentBounds` (`:2134`) draw and frame the same x. The stamp block's early-return guard (`:1964-1982`) currently skips edges with nothing to stamp - extend it so a newly-clamped `busChipX` actually lands, or the clamp is a silent no-op. The lone-long-run member skips the CLAMP entirely (not just the stamp) so `busChipX === undefined` is preserved (`BusEdge.tsx:143-152` keys its zoom-gate exemption on that).
@@ -118,6 +125,7 @@ T0-T2 land the measurement surface BEFORE any fix so every fix task shows a meas
 - Unit tests: (a) clamp-into-own-run across a multi-member trunk incl. one backward member (riseX < dropX -> midpoint); (b) drop cascade never exceeds one pitch when a within-cap seat exists, preferring dot-overlap over exceeding it; (c) lone long-run member still has `busChipX === undefined`. `busRouting.classify.test.ts` stays GREEN UNMODIFIED - `routeBusEdges` is behaviourally untouched by this task (the clamp lives in the seating pass); an implementer editing those tests to pass is a red flag, not a re-pin.
 
 **Acceptance:**
+
 - [x] Unit tests green (`busRouting.classify.test.ts` and its shuffled-input determinism test pass unmodified).
 - [x] Census seat-validity drops sharply; record actuals, ratchet the campaign pins down.
 - [x] Fit-zoom / LOD cascade check: full audit run; any moved pin in the seven existing tables re-measured and recorded with a one-line cause (`contentBounds` shrink is expected; more drawn chips after a fit-zoom rise is the known cascade, A-R3). Failure set compared against Task 0 baseline.
@@ -129,12 +137,14 @@ T0-T2 land the measurement surface BEFORE any fix so every fix task shows a meas
 **Files:** `src/canvas/busRouting.ts` (`BAND_Y_PAD` `:638` + comment `:633-638`), affected tests.
 
 **Requirements:**
+
 - `BAND_Y_PAD`: `LANE_SPACING / 2` -> `LANE_SPACING + (MAX_CHIP_SCALE * CHIP_BOX_HEIGHT) / 2` (= 72), expressed exactly so - both operands already in scope in `busRouting.ts` (imports `:24-31`, `LANE_SPACING` `:87`); do not import from `chipSeating.ts` (cycle, A-R4).
 - Correct the comment at `:633-638`: the pad now covers chips lifted up to one cascade pitch, inclusively (boundary-touching at exactly one pitch - containment assertions must be inclusive, no eps margin, A-R5).
 - Depends on Task 3's drop cap: with kept bus chips within one pitch of the lane (the R7 soft-cap escape hatch expected to fire zero times in-corpus), 72 covers every kept chip box; a chip-forced overflow, if one ever appears, is caught by the outside-band counter and recorded rather than papered over.
 - Update census outside-band pins: expect 0 VERTICAL escapes; the one known x-overflow (multi6 e:3-rise, 25px past band right) is tracked separately and may or may not clear via Task 3 (A-R6).
 
 **Acceptance:**
+
 - [x] Census outside-band vertical escapes = 0, pins updated; x-overflow status recorded.
 - [x] multi6 top band tint does not touch the nearest node row (8px margin under `LANE_TOP_OFFSET` 80) - screenshot check.
 - [x] Commit.
@@ -144,6 +154,7 @@ T0-T2 land the measurement surface BEFORE any fix so every fix task shows a meas
 **Files:** `src/canvas/chipSeating.ts` (new predicate near `:266-279`; tier-1 clear check; graze scoring `:832-869`), unit tests (`test/canvas/portZoneDepth.test.ts`, `test/canvas/chipSeating.seat.test.ts` - both pin the CURRENT centre semantics and must keep passing for the shared helper).
 
 **Requirements:**
+
 - **Do NOT touch `chipEntersOwnCardBody`** - it is imported verbatim by `test/e2e/geometry.ts:22` and backs the tier-4 HARD-ZERO e2e gate plus two pinned unit surfaces (audit B3). Add a SEPARATE seat-side predicate (e.g. `chipIntrudesOwnCard`) consumed only by the seating pass.
 - Define ONE chip box for the predicate, derived from constants (e.g. half-extents from `CHIP_BOX_WIDTH/HEIGHT` and `MAX_CHIP_SCALE`), not from exam measurements (the "55x24" evidence box was camera-specific, A-R10); document the choice where the census can mirror it.
 - Two-level application per ruling R8:
@@ -155,6 +166,7 @@ T0-T2 land the measurement surface BEFORE any fix so every fix task shows a meas
 - Unit tests: boundary of the new predicate (9px-past-border legal, beyond rejected in tier-1), graze tie broken away from a card, and existing centre-rule pins untouched.
 
 **Acceptance:**
+
 - [x] Census card-intrusion: deep class (full-extent saturations, 21 at Task 2 baseline) -> zero or enumerated residue, total drops; pins ratcheted down to actuals (ruling R10).
 - [x] Census seat-validity does NOT rise (no escape blowback).
 - [x] All unit + e2e green vs Task 0 baseline; moved pins recorded with causes.
@@ -165,6 +177,7 @@ T0-T2 land the measurement surface BEFORE any fix so every fix task shows a meas
 **Files:** `src/canvas/chipSeating.ts` (ClearanceField window API `:295-409`, graze tier `:832-869`, sidestep `:792-812`), unit tests.
 
 **Requirements:**
+
 - ClearanceField gains a window-returning method (per-edge clipped segment window inside a candidate box) routed through the SAME `isForeignEdge`/`clusterExemptOf` pair as the counting predicates, preserving the documented "zero iff onForeignLine false" invariant (A-R13). The own line needs no new API - `seatRateChip` already holds `pts`.
 - Graze scoring gains an own-line-binding penalty: a candidate whose box contains a foreign-flow stroke within 8 world px of the own stroke's crossing is penalized, precedence (crossings, cardIntrusion, binding, dots). Extend the early-exit condition accordingly.
 - Scored sidestep inside the graze tier, gated on a DETECTED coincident foreign stroke (cost control: the graze walk is ~97 candidates x every segment; an ungated 16-offset sidestep scan is ~16x inside a synchronous pass, A-R12). The scorer must be able to prefer the FAR offset: with a 3px column and half-width 55, only the flush final step (offset 52-55) clears the foreign stroke - nearest-first ordering kills the fix (A-R11). Keep sidestep's box-contains-own-line invariant.
@@ -173,6 +186,7 @@ T0-T2 land the measurement surface BEFORE any fix so every fix task shows a meas
 - Unit tests: binding penalty ranks a clean candidate above a coincident one; sidestep fires only under coincidence and can select the far offset; determinism (same input, same seats).
 
 **Acceptance:**
+
 - [x] Census foreign-stroke count drops (record actuals); pins ratcheted down; residual coincident class enumerated.
 - [x] script43 capture: salmon 150/分 chip no longer sits on the green stroke. **SUPERSEDED by R12** - the Task 7 capture shows e:15 still on a column where its own gas stroke and a green stroke run ~3 world px apart. That is R12's class A, which the ruling proves no seat offset can clear; the box is closed on the ruling, not on the original wording.
 - [x] `CHIP_SEGMENT_BASELINE` moves re-measured and recorded; `faninMarkers.test.ts` green.
@@ -185,6 +199,7 @@ T0-T2 land the measurement surface BEFORE any fix so every fix task shows a meas
 **Why:** the seating pass reserves `CHIP_HALF_W_WIDE = 120` (240 wide, worst case at max counter-scale) for every non-icon chip, while the deep-class chips draw 135-200 wide. The corridor is blocked only for the SEAT, never for the reader. Narrowing the reserved box to a per-chip realistic width frees clear on-line candidates and closes the deep class without buying crossings (proof: battery5-xiranite e:11).
 
 **Requirements (as corrected by the T6b audit, .superpowers/sdd/plan-audit-t6b.md - read it first):**
+
 - Estimator (audit-recommended): `MAX_CHIP_SCALE * min(CHIP_BOX_WIDTH, 38 + 7.5*bodyChars + UNIT_MAX_PX) / 2` where 38 = sprite 16 + gap 6 + padding 14 + border 2 (from `.flow-chip` CSS, `canvas.css:1746-1791`), `bodyChars` counted from the string the pass reproduces exactly via `formatRatePerMin` on edge data (`rate` / `busTotalRate` / `busMemberCount`), and `UNIT_MAX_PX = 34` a locale-independent constant covering the WIDEST locale unit (en `/min` / ru; zh `/分` is the narrowest - the original zh premise was backwards; 0 for digits-only share chips; the 共-total is aria-only, never drawn). The layout pass MUST stay locale-independent (`layout.ts:281-282` pins this) - never read the active locale.
 - Change ONLY the `seatRateChip` half-width consumer (`chipSeating.ts:823` halfW): `contentBounds` (`:2285`) and `MIN_CHIP_SEP` (`:1779`) STAY at `CHIP_HALF_W_WIDE` - narrowing contentBounds triggers the fit-zoom/LOD cascade and narrowing MIN_CHIP_SEP reverses ruling R3's hides. Fallback `CHIP_HALF_W_WIDE` when no rate is available.
 - In-scope decision (decided): item chips stamped `chipIconOnly` currently reserve 240 while drawing 48 - give them the `CHIP_HALF_W_ICON` reserve (this was already a recorded follow-up candidate from the prior seating campaign). Attribute their census movement separately.
@@ -195,6 +210,7 @@ T0-T2 land the measurement surface BEFORE any fix so every fix task shows a meas
 - Locale verification: a Playwright check (probe.ts has --locale and --eval; jsdom stubs offsetWidth so vitest cannot do this) over all four locales (zh/en/ja/ru) asserting drawn `offsetWidth <= estimator's natural width` for a sample of chips on 2-3 plans.
 
 **Acceptance:**
+
 - [x] Deep class shrinks with per-instance enumeration of the remainder (no closure promise); card-intrusion total drops from 84; seat-validity and foreign-stroke do not rise; pins ratcheted with causes.
 - [x] Four-locale width-bound check green.
 - [x] All gates green vs Task 0 baseline; moved pins recorded with causes.
@@ -205,12 +221,14 @@ T0-T2 land the measurement surface BEFORE any fix so every fix task shows a meas
 **Files:** `test/e2e/geometry-audit.spec.ts` (final pins + NOTE entry), goldens (local), `.artifacts/` captures (gitignored).
 
 **Requirements:**
+
 - Full gate run: typecheck, lint, vitest, complete geometry-audit suite, placement-shots regenerated (one scenario per invocation). Failure set == Task 0 baseline (any delta explained and either fixed or ratified).
 - Final census table recorded with post-campaign pins; NOTE block gets one entry summarizing this campaign's pin movements and rulings R1-R9.
 - Visual verification per the mandatory protocol: default-plan captures + zoomed crops of every named defect site (multi6 e:108/e:30, battery5 e:16 float, script43 column + tap cluster + band, gas-web column, coupon-web e:13) at reading zoom; inspect for WRONGNESS not presence. Store under the worktree `.artifacts/seating-verify/`.
 - Confirm the two ratified item-chip escapes (battery5 e:18/e:1) still render as before (R5).
 
 **Acceptance:**
+
 - [x] All gates green vs Task 0 baseline.
 - [x] Every Task 3-6 before/after documented in the progress ledger with pin numbers.
 - [x] Plan checkboxes all ticked; commit close-out.

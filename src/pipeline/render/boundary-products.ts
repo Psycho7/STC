@@ -336,7 +336,12 @@ export function deriveBoundaryProducts(
         new Fraction(0);
       const deficit = rate.sub(recap);
       if (deficit.compare(new Fraction(0)) <= 0) return;
-      boundaryConsumers.push({ toUnit, item: itemId, rate: deficit, containerId });
+      boundaryConsumers.push({
+        toUnit,
+        item: itemId,
+        rate: deficit,
+        containerId,
+      });
       return;
     }
     // Finite positive supply -> dual-emit: the boundary input carries the
@@ -442,10 +447,7 @@ export function deriveBoundaryProducts(
       (acc, c) => acc.add(c.rate),
       new Fraction(0),
     );
-    realizedRateByKey.set(
-      key,
-      consumed.mul(containerDemand).div(totalDemand),
-    );
+    realizedRateByKey.set(key, consumed.mul(containerDemand).div(totalDemand));
   }
 
   // Group keys by item so the topology decision (single bucket vs aggregate +
@@ -815,7 +817,10 @@ export function deriveBoundaryProducts(
     qty: Fraction,
   ): void => {
     const k = unitItemKey(unitId, item);
-    producedByUnitItem.set(k, (producedByUnitItem.get(k) ?? new Fraction(0)).add(qty));
+    producedByUnitItem.set(
+      k,
+      (producedByUnitItem.get(k) ?? new Fraction(0)).add(qty),
+    );
   };
   for (const v of machineGraph.vertices) {
     const unitId = unitIdByVertex.get(v.id);
@@ -824,7 +829,11 @@ export function deriveBoundaryProducts(
       const recipe = recipeById.get(v.recipeId);
       if (!recipe) continue;
       for (const stoich of recipe.out)
-        addProduced(unitId, stoich.item, v.executionRate.mul(new Fraction(stoich.qty)));
+        addProduced(
+          unitId,
+          stoich.item,
+          v.executionRate.mul(new Fraction(stoich.qty)),
+        );
     } else if (isMachineSccVertex(v)) {
       for (const p of v.netIO)
         if (p.direction === "out") addProduced(unitId, p.item, p.rate);
@@ -840,7 +849,10 @@ export function deriveBoundaryProducts(
     const unitId = unitIdByVertex.get(vId);
     if (unitId === undefined) continue;
     const k = unitItemKey(unitId, item);
-    outgoingByUnitItem.set(k, (outgoingByUnitItem.get(k) ?? new Fraction(0)).add(rate));
+    outgoingByUnitItem.set(
+      k,
+      (outgoingByUnitItem.get(k) ?? new Fraction(0)).add(rate),
+    );
   }
   // Emit surplus = the genuine overproduction per item, exactly what
   // checkBoundaryProductsJustified validates: production - consumption - demand
@@ -866,7 +878,9 @@ export function deriveBoundaryProducts(
       item,
       (producedByItem.get(item) ?? new Fraction(0)).add(produced),
     );
-    const residual = produced.sub(outgoingByUnitItem.get(key) ?? new Fraction(0));
+    const residual = produced.sub(
+      outgoingByUnitItem.get(key) ?? new Fraction(0),
+    );
     if (residual.compare(0) > 0) {
       const arr = positivesByItem.get(item) ?? [];
       arr.push({ unitId, rate: residual });
@@ -901,7 +915,9 @@ export function deriveBoundaryProducts(
   // checkers use; suppressing with an absolute floor of 1 would swallow every
   // byproduct of a sub-unit plan and trip the production-vanish checker.
   const scaleFloor = toleranceScaleFloor(
-    new Map([...targetRateByItem].map(([item, rate]) => [item, rate.valueOf()])),
+    new Map(
+      [...targetRateByItem].map(([item, rate]) => [item, rate.valueOf()]),
+    ),
   );
   for (const [item, produced] of producedByItem) {
     const genuine = produced

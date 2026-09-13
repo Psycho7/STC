@@ -43,11 +43,13 @@ vitest, Playwright.
 > carrier registration exist. The three landed as one commit.
 
 **Files:**
+
 - Modify: `tools/extractor/src/schema.ts` (`TRANSPORT_KIND`)
 - Modify: `tools/extractor/src/extract.ts` (`toItem`)
 - Test: `tools/extractor/src/extract.test.ts`
 
 **Interfaces:**
+
 - Produces: `TRANSPORT_KIND.GAS === "gas"`; `toItem` returns `transportKind: "gas"` for ids matching `/^gas_/` that have no `stack`.
 
 - [x] **Step 1: Write the failing tests.** In the existing transport-classification describe block (near the current `liquid` / `solid` assertions around line 300), add three cases against the real vendored upstream: `gas_copper` classifies as `gas`; `liquid_water` still classifies as `pipe`; a stacked item still classifies as `belt`.
@@ -66,10 +68,12 @@ vitest, Playwright.
 ### Task 2: Synthesize the gas_pipe carrier and its translations
 
 **Files:**
+
 - Modify: `tools/extractor/src/extract.ts` (transport assembly in `main`, and `buildI18nSidecar` around line 393)
 - Test: `tools/extractor/src/extract.test.ts`
 
 **Interfaces:**
+
 - Consumes: `TRANSPORT_KIND.GAS` from Task 1.
 - Produces: a pack `Transport` `{ id: "gas_pipe", kind: "gas", name, icon: "pipe", speed: 2 }`, and a `transports["gas_pipe"]` entry in every locale of the i18n sidecar.
 
@@ -94,11 +98,13 @@ resolves to a `Transport.kind`" fails as soon as Task 1 lands.
 ### Task 3: Regenerate artifacts and register the gas carrier
 
 **Files:**
+
 - Modify: `data/aef/transport-config.json` (`carriers`, `source`)
 - Regenerate: `data/aef/recipe-pack.json`, `data/aef/recipe-pack.i18n.json`
 - Test: `test/transport-config-guard.test.ts`
 
 **Interfaces:**
+
 - Consumes: the pack shape from Task 2.
 - Produces: `carriers.gas = { transportId: "gas_pipe", itemsPerSecondPerLane: 2 }`.
 
@@ -124,11 +130,13 @@ resolves to a `Transport.kind`" fails as soon as Task 1 lands.
 > fixture's local carrier table, which had no gas entry.
 
 **Files:**
+
 - Test: `test/solver/ffd.test.ts`
 - Modify: none expected (`ffdPack` already buckets by `(groupId, carrier)`)
 - Possibly modify: pinned lane-count fixtures surfaced by the run
 
 **Interfaces:**
+
 - Consumes: `Item.transportKind === "gas"` from Task 3.
 
 **Note:** this task is a behaviour-confirmation plus fallout cleanup. No production
@@ -151,10 +159,12 @@ change is expected; if one turns out to be needed, the bucketing key in
 ### Task 5: Render gas edges as dash-dot
 
 **Files:**
+
 - Modify: `src/canvas/ItemEdge.tsx` (`strokeForKind`, and the fallback stroke constants above it)
 - Test: `test/canvas/ItemEdge-transport-kind.test.tsx`
 
 **Interfaces:**
+
 - Produces: `strokeForKind(kind, itemId)` returns `{ stroke, strokeDasharray: "6 2 1 2" }` when `kind === "gas"`.
 - `BusEdge.tsx` consumes `strokeForKind` unchanged, so bus trunks inherit the gas stroke with no edit there.
 
@@ -174,10 +184,12 @@ change is expected; if one turns out to be needed, the bucketing key in
 ### Task 6: Render gas ports as a hollow diamond
 
 **Files:**
+
 - Modify: `src/canvas/PortGlyph.tsx` (`glyphKind`, `baseStyle`, the `PortGlyph` body, and the size constants)
 - Test: `test/canvas/port-glyph.test.tsx`
 
 **Interfaces:**
+
 - Produces: `glyphKind("gas") === "gas"`; the rendered span carries `data-glyph="gas"`.
 
 **Sizing rationale:** the belt square and pipe circle occupy an 8px box. A square
@@ -206,10 +218,12 @@ creep toward the handle.
 ### Task 7: Give gas its own dim and hover reaction
 
 **Files:**
+
 - Modify: `src/canvas/canvas.css` (the ego-network dim block and the `hover-active` emphasis rule, currently around lines 1354-1385)
 - Test: `test/canvas/ItemEdge-transport-kind.test.tsx` (attribute contract only)
 
 **Interfaces:**
+
 - Consumes: the `data-transport-kind="gas"` attribute `ItemEdge` stamps on its `BaseEdge` path (Task 5).
 
 **Why gas needs its own rules:** the shared `.react-flow__edge.dimmed` opacity of
@@ -235,6 +249,7 @@ into blobs and the pattern stops reading as dash-dot.
 ### Task 8: Full verification and visual sign-off
 
 **Files:**
+
 - Modify: none expected; fixture re-pins only if justified
 
 - [x] **Step 1: Run `bun run typecheck`.** Expect clean.

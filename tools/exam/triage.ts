@@ -61,10 +61,18 @@ export type Finding = {
   title: string;
   observation: string;
   claimType: ClaimType;
-  evidence: Array<{ image: string; rect: [number, number, number, number]; where: string }>;
+  evidence: Array<{
+    image: string;
+    rect: [number, number, number, number];
+    where: string;
+  }>;
   severity: "major" | "minor" | "nit";
   aspect: "correctness" | "comprehension" | "ux";
-  falsifier?: { op: string; args: Record<string, string>; expectedIfFalse: string };
+  falsifier?: {
+    op: string;
+    args: Record<string, string>;
+    expectedIfFalse: string;
+  };
   mechanismHypothesis?: string;
 };
 
@@ -163,7 +171,9 @@ const GEOMETRIC_CLAIM_TYPES = [
   ...new Set(Object.values(KIND_WITNESSES)),
 ] as GeometricClaimType[];
 
-function isGeometricClaim(claimType: ClaimType): claimType is GeometricClaimType {
+function isGeometricClaim(
+  claimType: ClaimType,
+): claimType is GeometricClaimType {
   return (GEOMETRIC_CLAIM_TYPES as readonly ClaimType[]).includes(claimType);
 }
 
@@ -185,7 +195,11 @@ const COMPATIBLE_KINDS: Record<ClaimType, readonly MeasurementKind[]> = {
 // Exported so the workflow's evaluator schema can be held to it: the enum it
 // offers an evaluator has to be the set validateFinding accepts.
 export const CLAIM_TYPES = Object.keys(COMPATIBLE_KINDS) as ClaimType[];
-const SEVERITIES: ReadonlyArray<Finding["severity"]> = ["major", "minor", "nit"];
+const SEVERITIES: ReadonlyArray<Finding["severity"]> = [
+  "major",
+  "minor",
+  "nit",
+];
 const ASPECTS: ReadonlyArray<Finding["aspect"]> = [
   "correctness",
   "comprehension",
@@ -332,7 +346,12 @@ function intersect(a: Rect, b: Rect): Rect | null {
   const right = Math.min(a.x + a.width, b.x + b.width);
   const bottom = Math.min(a.y + a.height, b.y + b.height);
   if (right < x - EPS || bottom < y - EPS) return null;
-  return { x, y, width: Math.max(0, right - x), height: Math.max(0, bottom - y) };
+  return {
+    x,
+    y,
+    width: Math.max(0, right - x),
+    height: Math.max(0, bottom - y),
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -354,7 +373,8 @@ function evidenceEntries(finding: Finding): LooseEvidence[] {
   const raw: unknown = finding.evidence;
   if (!Array.isArray(raw)) return [];
   return (raw as unknown[]).filter(
-    (entry): entry is LooseEvidence => typeof entry === "object" && entry !== null,
+    (entry): entry is LooseEvidence =>
+      typeof entry === "object" && entry !== null,
   );
 }
 
@@ -437,7 +457,9 @@ export function validateFinding(finding: Finding): string[] {
   const violations: string[] = [];
 
   if (!CLAIM_TYPES.includes(finding.claimType)) {
-    violations.push(`claimType "${String(finding.claimType)}" is not a claim type`);
+    violations.push(
+      `claimType "${String(finding.claimType)}" is not a claim type`,
+    );
   }
   if (!SEVERITIES.includes(finding.severity)) {
     violations.push(`severity "${String(finding.severity)}" is not a severity`);
@@ -469,7 +491,9 @@ export function validateFinding(finding: Finding): string[] {
         violations.push(`evidence[${i}] names no image`);
       }
       if (rectFromTuple(entry.rect) === null) {
-        violations.push(`evidence[${i}] rect is not a finite [x, y, width, height] with a positive extent`);
+        violations.push(
+          `evidence[${i}] rect is not a finite [x, y, width, height] with a positive extent`,
+        );
       }
     });
   }
@@ -481,7 +505,8 @@ export function validateFinding(finding: Finding): string[] {
     finding.mechanismHypothesis !== undefined;
   if (needsFalsifier && finding.falsifier === undefined) {
     violations.push(
-      finding.mechanismHypothesis !== undefined && finding.claimType === "subjective"
+      finding.mechanismHypothesis !== undefined &&
+        finding.claimType === "subjective"
         ? "a mechanismHypothesis requires a falsifier"
         : `claimType "${finding.claimType}" requires a falsifier`,
     );

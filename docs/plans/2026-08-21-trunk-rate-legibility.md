@@ -26,11 +26,13 @@
 ### Task 1: Commit the plan and harvest the pre-change baseline
 
 **Files:**
+
 - Create: `docs/plans/2026-08-21-trunk-rate-legibility.md` (this file)
 - Create (temporary): `test/e2e/ratchet-probe.spec.ts` - copied from the short-leg worktree's `.superpowers/sdd/ratchet-probe.spec.ts.keep`, deleted again in this task
 - Ledger: `.superpowers/sdd/progress.md` (gitignored)
 
 **Interfaces:**
+
 - Produces: the pre-change actuals table (five audits x seven scenarios) and the five fit zooms, recorded in the ledger. Every later re-measure diffs against it.
 
 - [x] **Step 1: Commit the plan doc**
@@ -74,10 +76,12 @@ Record the passing test count in the ledger.
 ### Task 2: Workstream D - contract pin tests
 
 **Files:**
+
 - Modify: `test/canvas/layout-invariants.test.ts` (root pin at :134; add the container-level pin beside it)
 - Create: `test/canvas/portZoneDepth.test.ts`
 
 **Interfaces:**
+
 - Consumes: `buildElkGraph` (or the same fixture path layout-invariants already uses) for the container options; `PORT_ZONE_DEPTH` from `src/canvas/chipSeating.ts:219`; the `.rn-row` rule from `src/canvas/canvas.css:2055`.
 - Produces: nothing later tasks rely on (pure guards).
 
@@ -96,6 +100,7 @@ git add -A && git commit -m "Pin container ELK spacing strings and port-zone dep
 ### Task 3: Workstream A - remove the fan-in Sigma, restore the owner chip
 
 **Files:**
+
 - Modify: `src/canvas/chipSeating.ts` (phase 3.5 sigma-job build :1502-1599 minus the group/merge detection the dot needs, phase 5 deferred seating :1737-1767, `edges.map` stamp :1830-1840, total/display-total accumulation and DEV rate-less tripwire :1478-1487 and :1558-1566, `ChipAnchorData` sigma fields and `contentBounds` sigma reader :1877-1882 and :1934-1940)
 - Modify: `src/canvas/ItemEdge.tsx` (`faninSigma*` + `faninTotalRate`/`faninDisplayTotalRate`/`faninMemberCount` data fields :96-115, sigma render block :593-615, faninText :466-486, FlowChip `variant`/`marker` props :233-254 and :277-288, owner-suppression comment and restore at :430-437, `CHIP_ICON_ONLY_MAX_ZOOM` doc line :152-163)
 - Modify: `src/canvas/canvas.css` (`.flow-chip.sigma` :1811-1817)
@@ -103,6 +108,7 @@ git add -A && git commit -m "Pin container ELK spacing strings and port-zone dep
 - Modify: `test/canvas/ItemEdge.test.tsx` (:199-241, :276-311), `test/canvas/faninMarkers.test.ts`, `test/canvas/shortLegChips.test.ts:20`
 
 **Interfaces:**
+
 - Consumes: nothing from other tasks.
 - Produces: the fan-in surface later tasks touch is now junction stamp + non-owner hide only. `faninChipHidden`, `faninChipHiddenAtY`, `faninMemberRunByIndex`, `faninExcludedKeys`, and the dot stamp survive UNCHANGED - Task 8 (E2) depends on exactly this surface.
 
@@ -122,11 +128,13 @@ Key decisions (from the spec - do not relitigate): owner-only restore; non-owner
 ### Task 4: Workstream B - compact share chrome on trunk member chips
 
 **Files:**
+
 - Modify: `src/canvas/BusEdge.tsx` (member chip text/label/title :200-215; consume `busDisplayTotalRate` beside the existing :156 drop-chip use)
 - Modify: `src/data/i18n.ts` (new key `canvas.chip.share` in all four locale blocks)
 - Modify: `test/canvas/BusEdge.test.tsx` (:243, :287, :344-352, :524 - the plain-text pins on multi-member fixtures)
 
 **Interfaces:**
+
 - Consumes: `busMemberCount`, `busDisplayTotalRate`, `busTotalRate` - already stamped on lane members (`busRouting.ts:592-615`) and fan-out branches (:882-899).
 - Produces: member chip text contract for Task 6's census: on `busMemberCount > 1`, chip text is `"{rate}/{displayTotal}"` (digits only, no unit); tooltip/aria carry the full share wording with the localized unit and the exact `busTotalRate`.
 
@@ -145,10 +153,12 @@ Key decisions: chip text is locale-independent digits (`${memberRateStr}/${displ
 ### Task 5: Workstream C prerequisite - hoist junction-dot geometry ahead of seating
 
 **Files:**
+
 - Modify: `src/canvas/chipSeating.ts` (fan-in junctions from phase 3.5, divergence dots from phase 3.6 :1613-1665, lane junctions currently uncached, fan-out junctions in `fanoutGeomByIndex` :864-871)
 - Test: `test/canvas/faninMarkers.test.ts` + the divergence dot spec (whichever file pins `fanout-junction-*` today - locate by `rg -n "fanout-junction" test/`)
 
 **Interfaces:**
+
 - Consumes: Task 3's reduced fan-in surface.
 - Produces: `dotKeepoffs: ReadonlyArray<{x: number; y: number; kind: "lane" | "fanout" | "fanin" | "divergence"}>` available BEFORE seating phase 1, covering all four dot families. Task 6 consumes it. Dot POSITIONS must be identical to current behavior - this task is a pure reorder/cache.
 
@@ -162,12 +172,14 @@ Key decisions: chip text is locale-independent digits (`${memberRateStr}/${displ
 ### Task 6: Workstream C - junction-dot keepoff + committed census (#50)
 
 **Files:**
+
 - Modify: `src/canvas/chipSeating.ts` (seating tiers consume `dotKeepoffs`)
 - Modify: `src/canvas/canvas.css` (:1750-1757 and :1819-1823 - update the chips-over-dots ruling comments: seating now avoids dots; z-order unchanged as the fallback)
 - Modify: `test/e2e/geometry.ts` (new `auditDotsUnderChips`), `test/e2e/geometry-audit.spec.ts` (sixth soft table + NOTE-block update: enumerate the new ruling supersession)
 - Test: unit fixture in `test/canvas/` for the keepoff (a seat that would cover a dot moves off it)
 
 **Interfaces:**
+
 - Consumes: `dotKeepoffs` from Task 5; share-chip text contract from Task 4 (census reads final chip boxes).
 - Produces: `auditDotsUnderChips(chips, dots, fitZoom)` in `test/e2e/geometry.ts` returning covered dots; a pinned per-scenario baseline table.
 
@@ -186,10 +198,12 @@ Key decisions: keepoff rect = dot's graph-unit extent at the plan's FIT zoom (do
 ### Task 7: Workstream E1 - endpoint-parity audit
 
 **Files:**
+
 - Modify: `test/e2e/geometry.ts` (parity helper), `test/e2e/geometry-audit.spec.ts` (seventh soft table + NOTE update)
 - Reference: `src/canvas/chipSeating.ts:783-833` (`PORT_DRIFT` + `edgeEndpoints` at :817)
 
 **Interfaces:**
+
 - Consumes: `edgeEndpoints`-equivalent reconstruction (model + `PORT_DRIFT`) vs the drawn path's first/last points from the collected SVG geometry.
 - Produces: per-scenario max parity delta, pinned. Task 9 (E3) relies on this table to witness the cards[] frame move.
 
@@ -203,10 +217,12 @@ Key decisions: keepoff rect = dot's graph-unit extent at the plan's FIT zoom (do
 ### Task 8: Workstream E2 - fan-in stamp on the drawn frame
 
 **Files:**
+
 - Modify: `src/canvas/chipSeating.ts` (fan-in run tx/ty from `edgeEndpoints` instead of raw model :1470-1471; the `FANIN_EPS` detection gate :1473 and the on-run hide test :1723-1726 both compare in the drawn frame)
 - Test: `test/canvas/faninMarkers.test.ts`
 
 **Interfaces:**
+
 - Consumes: Task 3's surface (dot stamp + non-owner hide); `edgeEndpoints` (chipSeating.ts:817).
 - Produces: `FANIN_EPS = 1` is a real tolerance (no longer saturated by the recipe `dy: +1` drift, and tx no longer omits `PORT_DRIFT.recipe.targetDx = -3`).
 
@@ -220,10 +236,12 @@ Key decisions: keepoff rect = dot's graph-unit extent at the plan's FIT zoom (do
 ### Task 9: Workstream E3 - cards[] to the drawn frame (atomic)
 
 **Files:**
+
 - Modify: `src/canvas/chipSeating.ts` (`cards[]` construction :950-960 moves to the drawn frame: 302-wide border box at the drawn position, consistent with `PORT_DRIFT`'s derivation comment; the `chipEntersOwnCardBody` frame assumptions and the `PORT_ZONE_DEPTH` application move in the SAME commit)
 - Test: existing `chipSeating` unit fixtures; `test/e2e/geometry-audit.spec.ts` tier-1
 
 **Interfaces:**
+
 - Consumes: Task 7's parity table (witnesses the frame move: parity deltas must NOT change, card-relative audits may).
 - Produces: seating and the e2e audit measure card boxes in the same frame; the audit itself does not relocate (it imports the predicate, `test/e2e/geometry.ts:13`, and already collects drawn-frame rects).
 
@@ -237,6 +255,7 @@ Key decisions: keepoff rect = dot's graph-unit extent at the plan's FIT zoom (do
 ### Task 10: Final board, sign-off, PR
 
 **Files:**
+
 - Modify: this plan (checkboxes + close-out), ledger.
 
 - [x] **Step 1: Full e2e board** (all specs, one scenario per invocation) vs the expected-red baseline; full vitest; tsc; lint. Correct the stale `~0.28` calibration comment near `CHIP_ICON_ONLY_MAX_ZOOM` (`ItemEdge.tsx:158`) with the harvested figure.

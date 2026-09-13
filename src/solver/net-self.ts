@@ -66,7 +66,8 @@ function netRecipe(r: Recipe, outByItem: ReadonlyMap<string, Stoich>): Recipe {
       continue;
     }
     const net = new Fraction(out.qty).sub(new Fraction(s.qty));
-    if (net.compare(0) < 0) nettedIn.push({ item: s.item, qty: Number(net.neg().valueOf()) });
+    if (net.compare(0) < 0)
+      nettedIn.push({ item: s.item, qty: Number(net.neg().valueOf()) });
   }
   for (const s of r.out) {
     const inp = inByItem.get(s.item);
@@ -75,7 +76,8 @@ function netRecipe(r: Recipe, outByItem: ReadonlyMap<string, Stoich>): Recipe {
       continue;
     }
     const net = new Fraction(s.qty).sub(new Fraction(inp.qty));
-    if (net.compare(0) > 0) nettedOut.push({ item: s.item, qty: Number(net.valueOf()) });
+    if (net.compare(0) > 0)
+      nettedOut.push({ item: s.item, qty: Number(net.valueOf()) });
   }
   return { ...r, in: nettedIn, out: nettedOut };
 }

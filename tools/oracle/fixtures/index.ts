@@ -77,7 +77,11 @@ const chain: Fixture = {
         { id: "a", time: 1, in: { M: 1 }, out: { F: 1 } },
         { id: "b", time: 2, in: { R: 2 }, out: { M: 1 } },
       ],
-      [{ id: "F", stack: 1 }, { id: "M", stack: 1 }, { id: "R", raw: true, stack: 1 }],
+      [
+        { id: "F", stack: 1 },
+        { id: "M", stack: 1 },
+        { id: "R", raw: true, stack: 1 },
+      ],
     ),
     // Item target: F is produced only by recipe "a", so demand on F forces a
     // (and, transitively, b). Item-shaped targets ({itemId, ratePerSec}) let
@@ -167,7 +171,10 @@ const rawDraw: Fixture = {
     name: "raw-draw",
     pack: makePack(
       [{ id: "a", time: 2, in: { R: 2 }, out: { F: 1 } }],
-      [{ id: "F", stack: 1 }, { id: "R", raw: true, stack: 1 }],
+      [
+        { id: "F", stack: 1 },
+        { id: "R", raw: true, stack: 1 },
+      ],
     ),
     // Item target F (single producer a, which draws raw R directly).
     targets: [{ itemId: "F", ratePerSec: { num: "3", denom: "1" } }],
@@ -207,7 +214,10 @@ const cyclicTarget: Fixture = {
         { id: "make_F", time: 1, in: { M: 1 }, out: { F: 1 } },
         { id: "make_M", time: 1, in: { F: 1 }, out: { M: 1 } },
       ],
-      [{ id: "F", stack: 1 }, { id: "M", stack: 1 }],
+      [
+        { id: "F", stack: 1 },
+        { id: "M", stack: 1 },
+      ],
     ),
     targets: [{ itemId: "F", ratePerSec: { num: "1", denom: "1" } }],
   },
@@ -236,7 +246,10 @@ const noProducer: Fixture = {
     name: "no-producer",
     pack: makePack(
       [{ id: "a", time: 1, in: { X: 1 }, out: { F: 1 } }],
-      [{ id: "F", stack: 1 }, { id: "X", stack: 1 }],
+      [
+        { id: "F", stack: 1 },
+        { id: "X", stack: 1 },
+      ],
     ),
     targets: [{ itemId: "F", ratePerSec: { num: "1", denom: "1" } }],
   },

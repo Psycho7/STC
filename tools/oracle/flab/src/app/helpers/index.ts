@@ -1,8 +1,8 @@
 // VENDOR PATCH: upstream helpers/index.ts pulls in primeng/api and rxjs (for
 // UI/Observable helpers the solver never calls). Trimmed to the helpers the
 // simplex/rate/recipe closure actually uses.
-import { Rational, rational } from '~/models/rational';
-import { Entities, Optional } from '~/models/utils';
+import { Rational, rational } from "~/models/rational";
+import { Entities, Optional } from "~/models/utils";
 
 /**
  * Function equivalent to `value ?? fallback`. Primarily intended to reduce test

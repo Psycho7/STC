@@ -125,7 +125,10 @@ describe("pickTearEdges computes a feedback arc set", () => {
 
   // Real-pack witnesses: the 4-member xiranite SCC used to keep a full
   // directed 3-cycle untorn on these plans.
-  const WITNESS_TARGETS: ReadonlyArray<{ name: string; targets: ItemTarget[] }> = [
+  const WITNESS_TARGETS: ReadonlyArray<{
+    name: string;
+    targets: ItemTarget[];
+  }> = [
     {
       name: "proc_battery_5",
       targets: [
@@ -143,9 +146,7 @@ describe("pickTearEdges computes a feedback arc set", () => {
   for (const { name, targets } of WITNESS_TARGETS) {
     it(`real pack ${name}: every multi-member SCC is acyclic after tearing`, () => {
       const g = buildRecipeGraphMulti(targets, pack);
-      expect(
-        tarjanScc(g).some((s) => s.recipeIds.length > 1),
-      ).toBe(true);
+      expect(tarjanScc(g).some((s) => s.recipeIds.length > 1)).toBe(true);
       expect(residualCycleSccs(g)).toBe(0);
     });
   }

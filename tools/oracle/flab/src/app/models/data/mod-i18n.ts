@@ -1,4 +1,4 @@
-import { Entities } from '../utils';
+import { Entities } from "../utils";
 
 export interface ModI18n {
   name?: string;

@@ -94,7 +94,10 @@ describe("validatePlan - rational wire fields", () => {
       name: "a target rate with a zero denominator",
       mutate: (plan: Plan) => {
         plan.targets = [
-          { itemId: plan.targets[0]!.itemId, ratePerSec: { num: "1", denom: "0" } },
+          {
+            itemId: plan.targets[0]!.itemId,
+            ratePerSec: { num: "1", denom: "0" },
+          },
         ];
       },
     },
@@ -102,7 +105,10 @@ describe("validatePlan - rational wire fields", () => {
       name: "a target rate with a non-numeric numerator",
       mutate: (plan: Plan) => {
         plan.targets = [
-          { itemId: plan.targets[0]!.itemId, ratePerSec: { num: "abc", denom: "1" } },
+          {
+            itemId: plan.targets[0]!.itemId,
+            ratePerSec: { num: "abc", denom: "1" },
+          },
         ];
       },
     },
@@ -110,7 +116,10 @@ describe("validatePlan - rational wire fields", () => {
       name: "a negative target rate",
       mutate: (plan: Plan) => {
         plan.targets = [
-          { itemId: plan.targets[0]!.itemId, ratePerSec: { num: "-5", denom: "2" } },
+          {
+            itemId: plan.targets[0]!.itemId,
+            ratePerSec: { num: "-5", denom: "2" },
+          },
         ];
       },
     },
@@ -133,7 +142,9 @@ describe("validatePlan - rational wire fields", () => {
     {
       name: "a recipeCost with a zero denominator",
       mutate: (plan: Plan) => {
-        plan.recipeCosts = new Map([["copper_bottle", { num: "1", denom: "0" }]]);
+        plan.recipeCosts = new Map([
+          ["copper_bottle", { num: "1", denom: "0" }],
+        ]);
       },
     },
     // The quotient check alone accepts this: Number() of a 1e5-digit string is

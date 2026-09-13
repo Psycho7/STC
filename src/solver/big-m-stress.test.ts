@@ -23,8 +23,11 @@ const stressPack = makePack(
     { id: "bad", time: 1, in: { X: 1 }, out: { G: 1 } },
   ],
   [
-    { id: "F", stack: 1 }, { id: "G", stack: 1 }, { id: "M", stack: 1 },
-    { id: "R", raw: true, stack: 1 }, { id: "S", raw: true, stack: 1 },
+    { id: "F", stack: 1 },
+    { id: "G", stack: 1 },
+    { id: "M", stack: 1 },
+    { id: "R", raw: true, stack: 1 },
+    { id: "S", raw: true, stack: 1 },
     { id: "X", stack: 1 },
   ],
 );
@@ -35,7 +38,11 @@ const stressTargets: ItemTarget[] = [
 
 describe("big-M numerical conditioning", () => {
   it("deficit domination does not corrupt the satisfiable sub-solution or the lex tie-break", () => {
-    const r = solveLp({ targets: stressTargets, pack: stressPack, itemOverrides: [] });
+    const r = solveLp({
+      targets: stressTargets,
+      pack: stressPack,
+      itemOverrides: [],
+    });
 
     // Honest infeasibility for the unsourceable target: the deficit lands on
     // the demanded item (running bad would only relocate it onto X).
@@ -48,7 +55,9 @@ describe("big-M numerical conditioning", () => {
 
     // Lex tie-break stays deterministic (b1 over b2) despite the swamped cost-cap.
     expect(r.rates.get("b1")!.equals(new Fraction(2))).toBe(true);
-    expect((r.rates.get("b2") ?? new Fraction(0)).equals(new Fraction(0))).toBe(true);
+    expect((r.rates.get("b2") ?? new Fraction(0)).equals(new Fraction(0))).toBe(
+      true,
+    );
   });
 });
 

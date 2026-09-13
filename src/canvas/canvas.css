@@ -1102,7 +1102,8 @@
   /* Cool tint (the lit-container cyan-soft family, resting at reduced alpha) so a
      gray return edge hugging the slab reads as a distinct line, not a second gray
      border (#29). The brighter lit-container state keeps full cyan-soft. */
-  border: 1px solid color-mix(in srgb, var(--ak-accent-cyan-soft) 40%, transparent);
+  border: 1px solid
+    color-mix(in srgb, var(--ak-accent-cyan-soft) 40%, transparent);
   border-radius: 6px;
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.04);
 }
@@ -1140,7 +1141,8 @@
 /* SCC loop box. */
 .scc-box {
   background: rgba(26, 28, 32, 0.55);
-  border: 1px solid color-mix(in srgb, var(--ak-accent-cyan-soft) 40%, transparent);
+  border: 1px solid
+    color-mix(in srgb, var(--ak-accent-cyan-soft) 40%, transparent);
   box-shadow:
     inset 0 0 0 1px rgba(255, 255, 255, 0.04),
     0 16px 32px rgba(0, 0, 0, 0.5);
@@ -1326,8 +1328,7 @@
    survive, so a dimmed gas line reads as broken geometry instead of a faded
    edge. The :has() selector is needed because the opacity lives on the edge
    wrapper while the kind is stamped on the path inside it. */
-.ak-canvas-theme
-  .react-flow__edge.dimmed:has(path[data-transport-kind="gas"]) {
+.ak-canvas-theme .react-flow__edge.dimmed:has(path[data-transport-kind="gas"]) {
   opacity: 0.45;
 }
 

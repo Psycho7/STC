@@ -227,7 +227,10 @@ function readHoverAt(point: { x: number; y: number }): HoverSampleRead {
     hit = {
       kind: edge !== null ? "edge" : node !== null ? "node" : "other",
       id: owner === null ? null : owner.getAttribute("data-id"),
-      topClass: (top.getAttribute("class") ?? top.tagName.toLowerCase()).slice(0, 120),
+      topClass: (top.getAttribute("class") ?? top.tagName.toLowerCase()).slice(
+        0,
+        120,
+      ),
     };
   }
 
@@ -455,7 +458,10 @@ function chipBinding(id: string): ChipBindingRead {
   for (const el of Array.from(
     document.querySelectorAll<HTMLElement>(".flow-chip"),
   )) {
-    if (el.getAttribute("data-testid") === id || el.getAttribute("data-edge-id") === id) {
+    if (
+      el.getAttribute("data-testid") === id ||
+      el.getAttribute("data-edge-id") === id
+    ) {
       chips.push(el);
     }
   }
@@ -681,7 +687,13 @@ async function runHover(
   for (let i = 0; i < points.length; i++) {
     const p = points[i]!;
     if (!usable[i]) {
-      samples.push({ ...p, usable: false, hoverActive: false, hit: null, engaged: false });
+      samples.push({
+        ...p,
+        usable: false,
+        hoverActive: false,
+        hit: null,
+        engaged: false,
+      });
       continue;
     }
     pointsTried++;
@@ -828,7 +840,8 @@ async function runOp(
         selector: args.selector!,
         props,
       });
-      if (styles === null) throw new Error(`no element matches ${args.selector!}`);
+      if (styles === null)
+        throw new Error(`no element matches ${args.selector!}`);
       return {
         properties: styles,
         // Hoisted out of the per-property records so a mistyped property name is
@@ -841,7 +854,8 @@ async function runOp(
     }
     case "text-overflow": {
       const overflow = await page.evaluate(readTextOverflow, args.selector!);
-      if (overflow === null) throw new Error(`no element matches ${args.selector!}`);
+      if (overflow === null)
+        throw new Error(`no element matches ${args.selector!}`);
       return overflow;
     }
   }
@@ -852,19 +866,31 @@ async function runOp(
 // ---------------------------------------------------------------------------
 
 function paneFrame(scene: SceneCollection): Rect {
-  return { x: 0, y: 0, width: scene.paneRect.width, height: scene.paneRect.height };
+  return {
+    x: 0,
+    y: 0,
+    width: scene.paneRect.width,
+    height: scene.paneRect.height,
+  };
 }
 
 // page.evaluate has no per-call timeout, so every budget in this file is imposed
 // here. The timer is cleared on the winning path so a bounded call that returned
 // promptly does not hold the event loop open for its whole budget.
-async function withTimeout<T>(work: Promise<T>, ms: number, what: string): Promise<T> {
+async function withTimeout<T>(
+  work: Promise<T>,
+  ms: number,
+  what: string,
+): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     return await Promise.race([
       work,
       new Promise<never>((_, reject) => {
-        timer = setTimeout(() => reject(new Error(`${what} exceeded ${ms}ms`)), ms);
+        timer = setTimeout(
+          () => reject(new Error(`${what} exceeded ${ms}ms`)),
+          ms,
+        );
       }),
     ]);
   } finally {
@@ -903,9 +929,7 @@ async function probe(
     };
   }
 
-  const hookPresent = await page.evaluate(
-    () => window.__stcExam !== undefined,
-  );
+  const hookPresent = await page.evaluate(() => window.__stcExam !== undefined);
   if (!hookPresent) {
     return {
       result: {
@@ -926,12 +950,20 @@ async function probe(
     const scene = await page.evaluate(collectScene);
     const safe = safeRegion(
       paneFrame(scene),
-      scene.overlays.map((o) => ({ x: o.x, y: o.y, width: o.width, height: o.height })),
+      scene.overlays.map((o) => ({
+        x: o.x,
+        y: o.y,
+        width: o.width,
+        height: o.height,
+      })),
       RIM_INSET,
     );
-    await page.evaluate((v: Viewport) => {
-      window.__stcExam!.setViewport(v);
-    }, viewportFor(center, zoom, safe));
+    await page.evaluate(
+      (v: Viewport) => {
+        window.__stcExam!.setViewport(v);
+      },
+      viewportFor(center, zoom, safe),
+    );
     await page.waitForTimeout(VIEWPORT_SETTLE_MS);
   }
 
@@ -958,7 +990,9 @@ async function probe(
   // would photograph the idle canvas the finding was never about.
   if (opts.shot !== null && error === undefined) {
     await mkdir(path.dirname(path.resolve(opts.shot)), { recursive: true });
-    await page.locator(".react-flow").screenshot({ path: opts.shot, scale: "css" });
+    await page
+      .locator(".react-flow")
+      .screenshot({ path: opts.shot, scale: "css" });
   }
 
   // Bounded, and bounded for the same reason --eval is. A hung expression pins
@@ -1050,7 +1084,9 @@ if (import.meta.main) {
   try {
     await withTimeout(browser.close(), CLOSE_TIMEOUT_MS, "closing the browser");
   } catch (err: unknown) {
-    console.error(`warning: ${err instanceof Error ? err.message : String(err)}`);
+    console.error(
+      `warning: ${err instanceof Error ? err.message : String(err)}`,
+    );
   }
   process.exit(outcome.code);
 }

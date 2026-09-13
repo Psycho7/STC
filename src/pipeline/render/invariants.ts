@@ -90,7 +90,10 @@ function productionByItem(
     const rate = rates.get(r.id);
     if (!rate) continue;
     for (const o of r.out) {
-      result.set(o.item, (result.get(o.item) ?? FRAC_ZERO).add(new Fraction(o.qty).mul(rate)));
+      result.set(
+        o.item,
+        (result.get(o.item) ?? FRAC_ZERO).add(new Fraction(o.qty).mul(rate)),
+      );
     }
   }
   return result;
@@ -108,7 +111,12 @@ function consumptionByItem(
     const rate = rates.get(r.id);
     if (!rate) continue;
     for (const inp of r.in) {
-      result.set(inp.item, (result.get(inp.item) ?? FRAC_ZERO).add(new Fraction(inp.qty).mul(rate)));
+      result.set(
+        inp.item,
+        (result.get(inp.item) ?? FRAC_ZERO).add(
+          new Fraction(inp.qty).mul(rate),
+        ),
+      );
     }
   }
   return result;
@@ -235,10 +243,7 @@ export function checkBoundaryProductsJustified(
       const slack = Math.max(scaleFloor, Math.abs(magnitude)) * REL_TOL;
       const shortSlack =
         Math.max(scaleFloor, Math.abs(exportShortfall.valueOf())) * REL_TOL;
-      if (
-        net.valueOf() <= slack &&
-        exportShortfall.valueOf() <= shortSlack
-      ) {
+      if (net.valueOf() <= slack && exportShortfall.valueOf() <= shortSlack) {
         violations.push(
           `inputProduct for "${x}": item is not net-consumed from outside (consumption - production = ${magnitude})`,
         );
@@ -628,9 +633,7 @@ export function targetOutputShortfalls(
  * from rates, or whose rate is <= 0, is an orphan: the render pipeline
  * materialized a unit the solver never ran.
  */
-export function checkNoOrphanUnits(
-  args: RenderInvariantArgs,
-): InvariantResult {
+export function checkNoOrphanUnits(args: RenderInvariantArgs): InvariantResult {
   const { plan, rates } = args;
   const violations: string[] = [];
 

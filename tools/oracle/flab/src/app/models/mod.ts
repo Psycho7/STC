@@ -1,6 +1,6 @@
-import { ModData } from './data/mod-data';
-import { Game } from './enum/game';
-import { FlagSet } from './flags';
+import { ModData } from "./data/mod-data";
+import { Game } from "./enum/game";
+import { FlagSet } from "./flags";
 
 export interface ModInfo {
   /**

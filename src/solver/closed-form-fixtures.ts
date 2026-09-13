@@ -28,7 +28,10 @@ function toStoich(m: Record<string, number>): Stoich[] {
   return Object.entries(m).map(([item, qty]) => ({ item, qty }));
 }
 
-export function makePack(recipes: MicroRecipe[], items: MicroItem[]): RecipePack {
+export function makePack(
+  recipes: MicroRecipe[],
+  items: MicroItem[],
+): RecipePack {
   const recs: Recipe[] = recipes.map((r) => ({
     id: r.id,
     name: r.id,
@@ -56,12 +59,26 @@ export function makePack(recipes: MicroRecipe[], items: MicroItem[]): RecipePack
 
   return {
     schemaVersion: "0.2",
-    source: { name: "micro", sourceRepo: "", sourceCommit: "", gameVersion: "", extractedAt: "" },
+    source: {
+      name: "micro",
+      sourceRepo: "",
+      sourceCommit: "",
+      gameVersion: "",
+      extractedAt: "",
+    },
     categories: [{ id: "cat", name: "cat", icon: "cat" }],
     locations: [],
     items: its,
     machines: [
-      { id: "machine", name: "machine", icon: "machine", speed: 1, powerType: "electric", powerKw: 1, hideRate: false },
+      {
+        id: "machine",
+        name: "machine",
+        icon: "machine",
+        speed: 1,
+        powerType: "electric",
+        powerKw: 1,
+        hideRate: false,
+      },
     ],
     transports: [],
     recipes: recs,
@@ -116,7 +133,11 @@ const chain: ClosedFormFixture = {
       { id: "a", time: 1, in: { M: 1 }, out: { F: 1 } },
       { id: "b", time: 2, in: { R: 2 }, out: { M: 1 } },
     ],
-    [{ id: "F", stack: 1 }, { id: "M", stack: 1 }, { id: "R", raw: true, stack: 1 }],
+    [
+      { id: "F", stack: 1 },
+      { id: "M", stack: 1 },
+      { id: "R", raw: true, stack: 1 },
+    ],
   ),
   targets: [{ itemId: "F", ratePerSec: { num: "2", denom: "1" } }],
   expected: {
@@ -139,8 +160,10 @@ const multiProducer: ClosedFormFixture = {
       { id: "b2", time: 1, in: { S: 1 }, out: { M: 1 } },
     ],
     [
-      { id: "F", stack: 1 }, { id: "M", stack: 1 },
-      { id: "R", raw: true, stack: 1 }, { id: "S", raw: true, stack: 1 },
+      { id: "F", stack: 1 },
+      { id: "M", stack: 1 },
+      { id: "R", raw: true, stack: 1 },
+      { id: "S", raw: true, stack: 1 },
     ],
   ),
   targets: [{ itemId: "F", ratePerSec: { num: "2", denom: "1" } }],
@@ -153,7 +176,11 @@ const byproduct: ClosedFormFixture = {
   name: "byproduct",
   pack: makePack(
     [{ id: "b", time: 1, in: { R: 1 }, out: { F: 1, W: 1 } }],
-    [{ id: "F", stack: 1 }, { id: "W", stack: 1 }, { id: "R", raw: true, stack: 1 }],
+    [
+      { id: "F", stack: 1 },
+      { id: "W", stack: 1 },
+      { id: "R", raw: true, stack: 1 },
+    ],
   ),
   targets: [{ itemId: "F", ratePerSec: { num: "2", denom: "1" } }],
   expected: {
@@ -169,7 +196,10 @@ const rawDraw: ClosedFormFixture = {
   name: "raw-draw",
   pack: makePack(
     [{ id: "a", time: 2, in: { R: 2 }, out: { F: 1 } }],
-    [{ id: "F", stack: 1 }, { id: "R", raw: true, stack: 1 }],
+    [
+      { id: "F", stack: 1 },
+      { id: "R", raw: true, stack: 1 },
+    ],
   ),
   targets: [{ itemId: "F", ratePerSec: { num: "3", denom: "1" } }],
   expected: { softFeasible: true, rates: [{ recipeId: "a", num: 3, den: 1 }] },
@@ -188,7 +218,10 @@ const cyclicTarget: ClosedFormFixture = {
       { id: "make_F", time: 1, in: { M: 1 }, out: { F: 1 } },
       { id: "make_M", time: 1, in: { F: 1 }, out: { M: 1 } },
     ],
-    [{ id: "F", stack: 1 }, { id: "M", stack: 1 }],
+    [
+      { id: "F", stack: 1 },
+      { id: "M", stack: 1 },
+    ],
   ),
   targets: [{ itemId: "F", ratePerSec: { num: "1", denom: "1" } }],
   expected: { softFeasible: false, deficitItems: ["F"] },
@@ -202,14 +235,22 @@ const noProducer: ClosedFormFixture = {
   name: "no-producer",
   pack: makePack(
     [{ id: "a", time: 1, in: { X: 1 }, out: { F: 1 } }],
-    [{ id: "F", stack: 1 }, { id: "X", stack: 1 }],
+    [
+      { id: "F", stack: 1 },
+      { id: "X", stack: 1 },
+    ],
   ),
   targets: [{ itemId: "F", ratePerSec: { num: "1", denom: "1" } }],
   expected: { softFeasible: false, deficitItems: ["F"] },
 };
 
 export const CLOSED_FORM_FIXTURES: ClosedFormFixture[] = [
-  chain, multiProducer, byproduct, rawDraw, cyclicTarget, noProducer,
+  chain,
+  multiProducer,
+  byproduct,
+  rawDraw,
+  cyclicTarget,
+  noProducer,
 ];
 
 export const CYCLIC_TARGET_FIXTURE = cyclicTarget;

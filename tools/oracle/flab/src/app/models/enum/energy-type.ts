@@ -1,4 +1,4 @@
 export enum EnergyType {
-  Burner = 'burner',
-  Electric = 'electric',
+  Burner = "burner",
+  Electric = "electric",
 }
