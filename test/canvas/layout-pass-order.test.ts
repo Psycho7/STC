@@ -7,7 +7,7 @@
 
 import { describe, it, expect } from "vitest";
 
-import { ROUTING_PASSES } from "../../src/canvas/layout";
+import { LAYOUT_PREPASS, ROUTING_PASSES } from "../../src/canvas/layout";
 
 describe("canvas/ROUTING_PASSES", () => {
   it("runs the six routing passes in the documented order", () => {
@@ -30,6 +30,26 @@ describe("canvas/ROUTING_PASSES", () => {
       "clampBackwardRails",
       "deconflictChipAnchors",
     ]);
+  });
+
+  it("runs the gap-widening pre-pass ahead of all six", () => {
+    expect([LAYOUT_PREPASS.name, ...ROUTING_PASSES.map((p) => p.name)]).toEqual(
+      [
+        "widenLayerGaps",
+        "routeFanoutEdges",
+        "assignEntryColumns",
+        "assignBendColumns",
+        "jogForwardLegs",
+        "clampBackwardRails",
+        "deconflictChipAnchors",
+      ],
+    );
+    expect(LAYOUT_PREPASS.run.name).toBe("widenLayerGaps");
+    // The pre-pass moves nodes and returns no edges, so it is not one of the
+    // routing entries and must never be folded in with them.
+    expect(ROUTING_PASSES.map((p) => p.name)).not.toContain(
+      LAYOUT_PREPASS.name,
+    );
   });
 
   it("is a no-op chain on an empty edge list", () => {

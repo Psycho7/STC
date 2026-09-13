@@ -6,7 +6,11 @@ import Fraction from "fraction.js";
 import type { Recipe } from "@aef/schema";
 import type { Edge } from "@xyflow/react";
 
-import type { RFProductNode, RFRecipeNode } from "../../src/canvas/layout";
+import type {
+  RFContainerNode,
+  RFProductNode,
+  RFRecipeNode,
+} from "../../src/canvas/layout";
 
 export const emptyPorts = new Map<string, never>();
 
@@ -110,3 +114,33 @@ export const productNode = (
     portTransportKinds: emptyPorts,
   },
 });
+
+// A container ("group") node: a root-level box with an absolute position and an
+// explicit size, whose children carry `parentId` and a PARENT-RELATIVE position
+// (what fromElkRenderLayout emits, no React Flow `extent`).
+export const containerNode = (
+  id: string,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+): RFContainerNode => ({
+  id,
+  type: "group",
+  position: { x, y },
+  width,
+  height,
+  style: { width, height },
+  data: {
+    containerKind: "blueprint-group",
+    containerId: id,
+    memberCount: 0,
+  },
+});
+
+// Re-parent a laid-out leaf node into a container: the caller hands in the
+// node's PARENT-RELATIVE position, the same frame ELK's children come back in.
+export const inContainer = <T extends RFRecipeNode | RFProductNode>(
+  node: T,
+  parentId: string,
+): T => ({ ...node, parentId });
