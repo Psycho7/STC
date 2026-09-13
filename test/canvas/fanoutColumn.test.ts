@@ -19,7 +19,6 @@ import type { Edge } from "@xyflow/react";
 
 import { ROUTING_PASSES } from "../../src/canvas/layout";
 import { routeTrunkEdges } from "../../src/canvas/busRouting";
-import { deconflictChipAnchors } from "../../src/canvas/chipSeating";
 import { drawnPortsOf, nodeWidth } from "../../src/canvas/nodeGeometry";
 import {
   CHAMFER,
@@ -173,8 +172,8 @@ describe("routeTrunkEdges: one shared column for near and far members", () => {
       ...ends,
       ...routingHintsFromData(data),
     });
-    const anchorX = labelX + ((data.labelDx as number | undefined) ?? 0);
-    const anchorY = labelY + ((data.labelDy as number | undefined) ?? 0);
+    const anchorX = labelX;
+    const anchorY = labelY;
 
     // Premise: this member really is pinned and really was not jogged, so the
     // anchor below is about the shared column's own rule.
@@ -188,8 +187,6 @@ describe("routeTrunkEdges: one shared column for near and far members", () => {
     const bendX = data.bendX as number;
     expect(anchorX).toBeGreaterThan(bendX + DOT_KEEPOFF);
     expect(anchorX).toBeLessThan(ends.targetX);
-    // The leg is far wider than the chip, so the chip stays numeric.
-    expect(data.chipIconOnly).toBeUndefined();
   });
 });
 
@@ -288,13 +285,39 @@ describe("routeTrunkEdges: the shared column and its neighbours", () => {
     expect(typeOf(routed, "e:3")).toBe("item");
     expect(dataOf(routed, "e:3").bendX).toBe(dataOf(routed, "e:1").junctionX);
   });
+
+  it("elects the aggregate owner among the NEAR members only", () => {
+    // The same mixed trunk with the FAR member lex-smallest. The aggregate chip
+    // rides the trunk segment of the fan-out shape, which only a near member
+    // draws, so electing over all members would hand the trunk's total to an
+    // edge that draws no trunk and the total would never appear.
+    const src = producer("src", 0, 0);
+    const nodes: RFAnyNode[] = [
+      src,
+      consumer("near1", nodeWidth(src) + 260, 260),
+      consumer("near2", nodeWidth(src) + 260, 560),
+      layerFiller("mid", 2 * LAYER_PITCH),
+      consumer("far", 3 * LAYER_PITCH, 900),
+    ];
+    const routed = routeTrunkEdges(nodes, [
+      edge("e:1", "src", "far"),
+      edge("e:2", "src", "near1"),
+      edge("e:3", "src", "near2"),
+    ]);
+    // Premise: the lex-smallest member really is the far one.
+    expect(typeOf(routed, "e:1")).toBe("item");
+    const owners = ["e:1", "e:2", "e:3"].filter(
+      (id) => dataOf(routed, id).busChipOwner === true,
+    );
+    expect(owners).toEqual(["e:2"]);
+  });
 });
 
 describe("chamferStepPath: where a pinned member's label anchor lands", () => {
-  // The path builder's own answer, with no seating pass involved. The seat can
-  // slide a chip back onto its leg, so a seated assertion alone would still
-  // pass if the builder anchored on the shared column -- these two pin the
-  // builder itself.
+  // The path builder's own answer. A far member pinned to a trunk's shared
+  // column needs no special case: the run into its target is its longest
+  // horizontal, so the ONE rule already puts its chip there instead of on the
+  // column every sibling draws.
   const ends = {
     sourceX: 100,
     sourceY: 200,
@@ -312,10 +335,11 @@ describe("chamferStepPath: where a pinned member's label anchor lands", () => {
     expect(labelY).toBe(ends.targetY);
     expect(labelX).toBeGreaterThan(BEND_X + DOT_KEEPOFF);
     expect(labelX).toBeLessThan(ends.targetX);
-    // Without the pin the same step anchors on the bend column, mid-vertical.
+    // The pin changes nothing: the anchor is a property of the drawn polyline,
+    // so the unpinned step answers the same point.
     const [, plainX, plainY] = chamferStepPath({ ...ends, bendX: BEND_X });
-    expect(plainX).toBe(BEND_X);
-    expect(plainY).toBe((ends.sourceY + ends.targetY) / 2);
+    expect(plainX).toBe(labelX);
+    expect(plainY).toBe(labelY);
   });
 
   it("anchors a jogged step on the jog's clear horizontal", () => {
@@ -331,23 +355,25 @@ describe("chamferStepPath: where a pinned member's label anchor lands", () => {
     expect(labelY).toBe(legY);
     expect(labelX).toBeGreaterThan(BEND_X + DOT_KEEPOFF);
     expect(labelX).toBeLessThan(jogDescentX);
-    // Without the pin the same jog anchors on the descent vertical.
+    // The jog's cleared horizontal is the longest run of that polyline, so the
+    // unpinned jog answers the same point.
     const [, plainX, plainY] = chamferStepPath({
       ...ends,
       bendX: BEND_X,
       legY,
       jogDescentX,
     });
-    expect(plainX).toBe(jogDescentX);
-    expect(plainY).toBe((legY + ends.targetY) / 2);
+    expect(plainX).toBe(labelX);
+    expect(plainY).toBe(labelY);
   });
 });
 
-describe("chip seating: a pinned member's chip stays off the shared column", () => {
-  it("seats a JOGGED member's chip on the jog's clear horizontal", () => {
+describe("chip placement: a pinned member's chip stays off the shared column", () => {
+  it("puts a JOGGED member's chip on a horizontal run, off the column", () => {
     // A card in the first layer straddling the far member's approach row, so
-    // jogForwardLegs bends that member's leg to a clear y. Its chip must follow
-    // the jog, not fall back onto the column its six siblings draw.
+    // jogForwardLegs bends that member's leg to a clear y. Whichever run the
+    // rule picks, the chip stands on a HORIZONTAL one -- never on the vertical
+    // column its siblings share, where every one of their chips would stack.
     const src = producer("src", 0, 0);
     const blocker = recipeNode(
       "blk",
@@ -373,53 +399,25 @@ describe("chip seating: a pinned member's chip stays off the shared column", () 
     const legY = data.legY as number;
     expect(typeof legY).toBe("number");
 
-    const [, labelX, labelY] = chamferStepPath({
+    const [path, anchorX, anchorY] = chamferStepPath({
       ...drawnPortsFor(src, nodes[3] as RFRecipeNode),
       ...routingHintsFromData(data),
     });
-    const anchorX = labelX + ((data.labelDx as number | undefined) ?? 0);
-    const anchorY = labelY + ((data.labelDy as number | undefined) ?? 0);
-    expect(anchorY).toBe(legY);
-    expect(anchorX).toBeGreaterThan((data.bendX as number) + DOT_KEEPOFF);
-  });
-
-  it("collapses a pinned member whose own leg is narrower than its chip", () => {
-    // The stamps a formed trunk leaves, applied to a member whose column sits
-    // late in its corridor: the whole polyline is roomy, but the run the chip
-    // may use -- past the column's keep-off, on the member's own leg -- is not.
-    // The window has to be measured on that run, or the chip keeps a full box
-    // it has nowhere to draw.
-    const src = producer("src", 0, 0);
-    const tgt = consumer("tgt", nodeWidth(src) + 300, 300);
-    const nodes: RFAnyNode[] = [src, tgt];
-    const ends = drawnPortsFor(src, tgt);
-    const bendX = ends.targetX - 70;
-    const pinned: Edge[] = [
-      {
-        ...edge("e:1", "src", "tgt"),
-        data: {
-          item: ITEM,
-          rate: new Fraction(1),
-          bendX,
-          fanoutColumn: true,
-        },
-      },
-    ];
-
-    const seated = deconflictChipAnchors(nodes, pinned);
-    expect(dataOf(seated, "e:1").chipIconOnly).toBe(true);
-
-    // Control: the same geometry without the pin keeps the full chip -- the
-    // collapse is the shared column's rule, not the corridor's.
-    const unpinned: Edge[] = [
-      {
-        ...edge("e:1", "src", "tgt"),
-        data: { item: ITEM, rate: new Fraction(1), bendX },
-      },
-    ];
-    expect(
-      dataOf(deconflictChipAnchors(nodes, unpinned), "e:1").chipIconOnly,
-    ).toBeUndefined();
+    // The jogged shape draws three horizontals -- the source run, the cleared
+    // run at legY, and the final stub -- and the anchor sits on one of them.
+    const pts = parsePathPoints(path);
+    const onHorizontal = pts.some(
+      ([x0, y0], i) =>
+        i > 0 &&
+        pts[i - 1]![1] === y0 &&
+        anchorY === y0 &&
+        anchorX >= Math.min(pts[i - 1]![0], x0) &&
+        anchorX <= Math.max(pts[i - 1]![0], x0),
+    );
+    expect(onHorizontal).toBe(true);
+    expect(Math.abs(anchorX - (data.bendX as number))).toBeGreaterThan(
+      DOT_KEEPOFF,
+    );
   });
 });
 
@@ -482,8 +480,7 @@ describe("the gas_xiranite fan-out of equip_script_4_3", () => {
         ...drawnPortsOfEdge(e, byId),
         ...routingHintsFromData(data),
       });
-      const seatedX = labelX + ((data.labelDx as number | undefined) ?? 0);
-      expect(seatedX).toBeGreaterThan(column + DOT_KEEPOFF);
+      expect(labelX).toBeGreaterThan(column + DOT_KEEPOFF);
     }
     // Every non-jogged member is a trunk member, not an unclaimed plain edge.
     for (const e of onColumn) {
@@ -544,9 +541,6 @@ describe("the gas-web copper_nugget fan-out", () => {
       const branch = e.type === "bus" && data.fanout === true;
       const pinned = e.type === "item" && data.fanoutColumn === true;
       if (!branch && !pinned) continue;
-      // A hidden branch chip draws nothing, so it has no seat to check.
-      if (data.fanoutBranchHidden === true) continue;
-
       const ends = drawnPortsOfEdge(e, byId);
       const hints = routingHintsFromData(data);
       let column: number;
@@ -558,14 +552,14 @@ describe("the gas-web copper_nugget fan-out", () => {
         pts = parsePathPoints(fan.path);
         // The drawn column: the junction dot sits one chamfer before it.
         column = fan.junction.x + CHAMFER;
-        chipX = fan.branchAnchor.x + ((data.fanoutBranchDx as number) ?? 0);
-        chipY = fan.branchAnchor.y + ((data.fanoutBranchDy as number) ?? 0);
+        chipX = fan.branchAnchor.x;
+        chipY = fan.branchAnchor.y;
       } else {
         const [path, lx, ly] = chamferStepPath({ ...ends, ...hints });
         pts = parsePathPoints(path);
         column = hints.srcColX ?? (data.bendX as number);
-        chipX = lx + ((data.labelDx as number) ?? 0);
-        chipY = ly + ((data.labelDy as number) ?? 0);
+        chipX = lx;
+        chipY = ly;
       }
 
       const leg = ownLeg(pts, data.legY as number | undefined);

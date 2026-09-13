@@ -36,10 +36,10 @@ import { drawnPortsOf } from "../../src/canvas/nodeGeometry";
 import {
   crossingPartnerBits,
   liveCrossingCues,
+  CUE_STALE_EPS,
   type CrossingCue,
   type CrossingCuePartner,
 } from "../../src/canvas/crossings";
-import { HIDE_STALE_EPS } from "../../src/canvas/dimensions";
 import { measureRecipe } from "../../src/canvas/recipeGeometry";
 import { type DrawnPorts } from "../../src/canvas/edgePath";
 import type { RFAnyNode } from "../../src/canvas/layout";
@@ -366,7 +366,7 @@ describe("deconflictChipAnchors: crossing cues", () => {
     const movedState = stateOf(
       [partnerEdge],
       [
-        { id: "A1", x: 0 + HIDE_STALE_EPS + 5, y: 0 },
+        { id: "A1", x: 0 + CUE_STALE_EPS + 5, y: 0 },
         { id: "A2", x: 1000, y: 0 },
       ],
     );
@@ -402,7 +402,7 @@ describe("deconflictChipAnchors: crossing cues", () => {
         [twoPartners],
         stateOf(bothEdges, [
           { id: "A1", x: 0, y: 0 },
-          { id: "A2", x: 1000 + HIDE_STALE_EPS * 2, y: 0 },
+          { id: "A2", x: 1000 + CUE_STALE_EPS * 2, y: 0 },
           a3Still,
         ]),
       ),
@@ -412,8 +412,8 @@ describe("deconflictChipAnchors: crossing cues", () => {
         [twoPartners],
         stateOf(bothEdges, [
           { id: "A1", x: 0, y: 0 },
-          { id: "A2", x: 1000 + HIDE_STALE_EPS * 2, y: 0 },
-          { id: "A3", x: 1400 + HIDE_STALE_EPS * 2, y: 0 },
+          { id: "A2", x: 1000 + CUE_STALE_EPS * 2, y: 0 },
+          { id: "A3", x: 1400 + CUE_STALE_EPS * 2, y: 0 },
         ]),
       ),
     ).toEqual([false]);

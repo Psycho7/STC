@@ -13,7 +13,6 @@ import { formatRateExactPerMin, formatRatePerMin } from "../data/rate-format";
 import {
   CHIP_ICON_ONLY_MAX_ZOOM,
   LABEL_MIN_ZOOM,
-  anchorStampLive,
   portRowStampLive,
 } from "./dimensions";
 import { drawnEdge, parsePathPoints, type DrawnEdge } from "./edgePath";
@@ -72,20 +71,6 @@ export type ItemEdgeData = {
   // to bend the leg around an intervening card. Optional: absent for unblocked
   // forward edges and every backward edge.
   legY?: number;
-  // Vertical nudge for the midpoint rate chip, assigned by deconflictChipAnchors
-  // when the chip would otherwise land on top of another edge's chip. Added to
-  // the label y so the two chips clear each other. Optional and defaults to 0.
-  labelDy?: number;
-  // Horizontal slide for the midpoint rate chip, assigned by
-  // deconflictChipAnchors when the vertical cascade cannot clear a dense
-  // corridor: together with labelDy it moves the chip to a clear point ALONG
-  // its own polyline, so the label stays attached to the line it names. Added
-  // to the label x. Optional and defaults to 0.
-  labelDx?: number;
-  // Stamped by the seating pass on an edge whose whole polyline is shorter
-  // than one rendered chip: the chip renders icon-only (rate on hover) because
-  // no seat on the line can hold the full box.
-  chipIconOnly?: boolean;
   // Set by Canvas's hover focus on every non-focused edge. The chips read it
   // because EdgeLabelRenderer portals them outside the edge wrapper that carries
   // the `dimmed` class, so the wrapper's fade never reaches them; the chip's own
@@ -95,16 +80,6 @@ export type ItemEdgeData = {
   // the zoom LOD gates, so the hover answers the rate question it asks instead
   // of lighting an edge that shows no number. Optional, defaults to falsy.
   focused?: boolean;
-  // Set on an item edge whose seated rate chip ended up MORE THAN ONE chip
-  // pitch off its own polyline: ItemEdge then draws no rate chip at all,
-  // because at that distance the line runs clear of the box and the chip names
-  // no flow. A seat at or under a pitch still draws, the #28 sidestep among
-  // them. The exact rate stays on the hover path and the target card's input
-  // row. itemChipHiddenAt records the label
-  // anchor the hide was decided at, so a drag that moves the anchor drops the
-  // hide.
-  itemChipHidden?: true;
-  itemChipHiddenAt?: { x: number; y: number };
   // Declined fan-out marker (deconflictChipAnchors, #43). Where N >= 2 edges of
   // the same (item, source) run to >= 2 distinct targets but their span falls
   // outside routeTrunkEdges' band, no bus trunk forms: the members stay plain
@@ -205,7 +180,6 @@ export function FlowChip({
   title,
   dimmed,
   focused,
-  compact,
   zoom,
 }: {
   testId: string;
@@ -224,10 +198,6 @@ export function FlowChip({
   // Set on a hover-lit edge's chip: it keeps its digits below the icon-only
   // zoom so the hover surfaces the rate.
   focused?: boolean | undefined;
-  // Set on a chip whose edge has no room for the full box at any zoom (a leg
-  // shorter than one chip): it collapses to icon-only regardless of zoom. A
-  // hover-lit chip still wins, so the rate stays one hover away.
-  compact?: boolean | undefined;
   // Live pane zoom, read only for the digits gate: a chip draws its box at its
   // natural size at every zoom. Optional -- a caller without a zoom draws the
   // full chip.
@@ -236,13 +206,10 @@ export function FlowChip({
   // Below the digits gate every chip sheds its rate digits and renders as the
   // bare item icon, so a dense fit view stops blanketing. The exact rate stays
   // on the title tooltip. Chips below the mount gate never reach here: their
-  // call sites drop them. `compact` collapses a chip at every zoom (its line is
-  // too short for the full box); the hover reveal overrides both, so no chip is
+  // call sites drop them. The hover reveal overrides the gate, so no chip is
   // permanently rate-less.
   const iconOnly =
-    (compact === true ||
-      (zoom !== undefined && zoom < CHIP_ICON_ONLY_MAX_ZOOM)) &&
-    !focused;
+    zoom !== undefined && zoom < CHIP_ICON_ONLY_MAX_ZOOM && !focused;
   const bodyText = iconOnly ? "" : text;
   return (
     <EdgeLabelRenderer>
@@ -268,8 +235,8 @@ export function FlowChip({
         <Sprite iconId={iconIdForItem(item)} size={16} />
         {/* The text rides in its own span so the .flow-chip max-width clamp can
             ellipsize it (text-overflow does not reach a bare text node inside a
-            flex container). The title attribute above keeps the full value. A
-            collapsed chip has no body at all. */}
+            flex container). The title attribute above keeps the full value. An
+            icon-only chip has no body at all. */}
         {bodyText ? <span className="chip-text">{bodyText}</span> : null}
       </div>
     </EdgeLabelRenderer>
@@ -649,14 +616,10 @@ export default function ItemEdge({
 
   // The drawn shape of this edge: the polyline, its vertices and its label
   // anchor, resolved by drawnEdge from the live React Flow endpoints and this
-  // edge's stamped data, so the render and the seating pass's reconstruction
-  // read one derivation. The anchor sits on the polyline's PREFERRED CLEAR
-  // SEGMENT (a corridor leg away from the card rows), not the geometric
-  // midpoint. deconflictChipAnchors then seats the chip from there via
-  // labelDx/labelDy: it slides along the polyline to a clear point and normally
-  // keeps the chip on the line it labels, but its escape tier deliberately
-  // seats it OFF the line when that is the only way to uphold the hard
-  // chip-vs-chip / chip-vs-card invariants (the ratcheted off-path residue).
+  // edge's stamped data, so the render and the bookkeeping pass's
+  // reconstruction read one derivation. The anchor is the centre of the
+  // polyline's longest horizontal run, and that is where the chip draws:
+  // nothing seats or moves it afterwards.
   // This component renders the "item" edge type alone (Canvas's edgeTypes map),
   // the type drawnEdge answers with the item shape, so the union's two bus arms
   // are unreachable here.
@@ -693,23 +656,11 @@ export default function ItemEdge({
       dotPts,
     );
 
-  // A seat more than one chip pitch off the line it labels is hidden by the
-  // seating pass rather than floated (itemChipHidden). The hide holds only
-  // while the live label anchor still matches the stamp: nodes stay draggable
-  // and the pass reruns on drop, so mid-drag the chip returns rather than
-  // vanish where the geometry has since opened room. Same per-axis,
-  // absent-stamp-still-hides rule as BusEdge's branch hide.
-  const seatChipHidden =
-    edgeData?.itemChipHidden === true &&
-    anchorStampLive(edgeData.itemChipHiddenAt, drawn.labelAnchor);
   // The zoom gate yields to the hover focus: a lit edge shows its rate at any
-  // zoom. The overlap-driven hide above still wins, since it is a placement
-  // ruling, not level of detail.
+  // zoom. Nothing else can take a chip away: no chip is hidden for lack of
+  // room.
   const chipText =
-    edgeData &&
-    rateStr &&
-    (zoom >= LABEL_MIN_ZOOM || edgeData.focused === true) &&
-    !seatChipHidden
+    edgeData && rateStr && (zoom >= LABEL_MIN_ZOOM || edgeData.focused === true)
       ? `${rateStr}${unit}`
       : "";
 
@@ -736,24 +687,16 @@ export default function ItemEdge({
         <FlowChip
           testId={`item-edge-label-${id}`}
           edgeId={id}
-          x={labelX + (edgeData?.labelDx ?? 0)}
-          y={labelY + (edgeData?.labelDy ?? 0)}
+          x={labelX}
+          y={labelY}
           item={edgeData?.item}
           text={chipText}
           label={fullLabel}
           title={exactTitle}
           dimmed={edgeData?.dimmed}
           focused={edgeData?.focused}
-          compact={edgeData?.chipIconOnly === true}
           zoom={zoom}
         />
-      ) : null}
-      {/* A hidden chip (a seat more than one chip pitch off its own polyline)
-          drew no rate chip, so keep its exact rate reachable on the edge
-          itself: a transparent hover path over the same geometry carries the
-          native SVG tooltip (mirrors BusEdge). */}
-      {seatChipHidden && exactTitle ? (
-        <HoverTitlePath d={edgePath} title={exactTitle} />
       ) : null}
       {/* Declined fan-out divergence dot (#43, owner only): where coincident
           same-flow item edges leave the shared out-port run for their own

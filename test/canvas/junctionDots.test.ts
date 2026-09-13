@@ -113,11 +113,9 @@ describe("junction dots: fan-out trunk (BusEdge split dot)", () => {
         ...drawnPortsFor(src, tgt),
         ...routingHintsFromData(data),
       }).branchAnchor;
-      const cx = branch.x + ((data.fanoutBranchDx as number | undefined) ?? 0);
-      const cy = branch.y + ((data.fanoutBranchDy as number | undefined) ?? 0);
       expect(
-        Math.abs(cx - upJunction.x) >= CHIP_HALF_W ||
-          Math.abs(cy - upJunction.y) >= CHIP_HALF_H,
+        Math.abs(branch.x - upJunction.x) >= CHIP_HALF_W ||
+          Math.abs(branch.y - upJunction.y) >= CHIP_HALF_H,
       ).toBe(true);
     }
   });
@@ -189,16 +187,7 @@ describe("junction dots: fan-in trunk (BusEdge merge dot)", () => {
       const data = dataOf(seated, id);
       const drawn = drawnEdge(drawnPortsFor(src, tgt), "bus", data);
       if (drawn.shape !== "fanin") throw new Error("not a fan-in shape");
-      const chips = [
-        {
-          x: drawn.trunkAnchor.x + ((data.faninAggDx as number) ?? 0),
-          y: drawn.trunkAnchor.y + ((data.faninAggDy as number) ?? 0),
-        },
-        {
-          x: drawn.branchAnchor.x + ((data.faninMemberDx as number) ?? 0),
-          y: drawn.branchAnchor.y + ((data.faninMemberDy as number) ?? 0),
-        },
-      ];
+      const chips = [drawn.trunkAnchor, drawn.branchAnchor];
       for (const chip of chips) {
         expect(
           Math.abs(chip.x - drawn.junction.x) >= CHIP_HALF_W ||

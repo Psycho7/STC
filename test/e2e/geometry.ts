@@ -997,7 +997,8 @@ export type EndpointParity = {
 // construction. Here the row index comes from the port list and the y from
 // recipeRowY, so a port resolving to the wrong row shows up as a full row-pitch
 // delta. That is the disagreement class this audit exists for; sub-unit
-// residue is documented noise (ItemEdge's HIDE_STALE_EPS comment), which is why
+// residue is documented noise (the stamp-staleness comment in crossings.ts),
+// which is why
 // its callers pin a tolerance rather than expect zero.
 //
 // Endpoints whose node is absent from the collected set are skipped, mirroring

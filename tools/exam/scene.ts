@@ -154,7 +154,7 @@ export type SceneDoc = {
   // could not achieve it fails rather than writing this field, so a reader may
   // treat it as a measurement and not as a request.
   targetZoom: number;
-  lodGates: { labelMinZoom: number; chipIconOnlyMaxZoom: number };
+  lodGates: { labelMinZoom: number; iconOnlyMaxZoom: number };
   tiles: TileRecord[];
   elements: Record<string, SceneElementRecord>;
   edges: Array<{ id: string; d: string }>;

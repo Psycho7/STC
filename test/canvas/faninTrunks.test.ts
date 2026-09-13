@@ -31,9 +31,15 @@ import {
 } from "../../src/canvas/layerModel";
 import {
   CHAMFER,
+  PORT_STUB,
   drawnEdge,
   routingHintsFromData,
 } from "../../src/canvas/edgePath";
+import {
+  aggregateChipText,
+  branchChipText,
+  chipSeatHalfW,
+} from "../../src/canvas/chipMetrics";
 import { deconflictChipAnchors } from "../../src/canvas/chipSeating";
 import { drawnPortsOf } from "../../src/canvas/nodeGeometry";
 import type { RFAnyNode, RFRecipeNode } from "../../src/canvas/layout";
@@ -155,14 +161,18 @@ describe("routeTrunkEdges: fan-in trunks", () => {
     const other = shapeOf(routed, "e:2");
     expect(other.shape === "fanin" && other.junction).toEqual(drawn.junction);
 
-    // The aggregate rides the shared leg from that dot into the port; the
-    // member's own chip rides its stub out of the source port.
+    // The aggregate rides the shared leg from that dot into the port, its BOX
+    // one port stub back from the port -- the card-side pad of the reserve the
+    // gap was widened for. The member's own chip rides its stub out of the
+    // source port, its box one port stub out of it.
+    const aggHalfW = chipSeatHalfW(aggregateChipText(e), false);
+    const memberHalfW = chipSeatHalfW(branchChipText(e), false);
     expect(drawn.trunkAnchor).toEqual({
-      x: (jx + CHAMFER + ports.targetX) / 2,
+      x: ports.targetX - PORT_STUB - aggHalfW,
       y: ports.targetY,
     });
     expect(drawn.branchAnchor).toEqual({
-      x: (ports.sourceX + jx - CHAMFER) / 2,
+      x: ports.sourceX + PORT_STUB + memberHalfW,
       y: ports.sourceY,
     });
     // The member's own sub-polyline stops at the dot: nothing of the shared leg
@@ -336,16 +346,14 @@ describe("routeTrunkEdges: a member of a fan-out AND a fan-in", () => {
     // behind: that stub carries the fan-out trunk's aggregate instead.
     expect(ports.sourceY).not.toBe(ports.targetY);
 
-    // Seated, the chip is still on that run: the seat slides along the
-    // member's own stretch, and it has exactly one -- no fan-in member chip is
-    // stamped on it beside the fan-out branch one.
+    // The bookkeeping pass stamps nothing about it: a dual member draws ONE
+    // own chip, at the anchor the fan-out shape handed back.
     const seated = deconflictChipAnchors(routed.nodes, routed.edges);
-    const data = dataOf(seated, "e:1");
-    expect(data.faninMemberDx).toBeUndefined();
-    expect(data.faninMemberDy).toBeUndefined();
-    expect(data.faninAggDx).toBeUndefined();
-    const chipX = drawn.branchAnchor.x + ((data.fanoutBranchDx as number) ?? 0);
-    const chipY = drawn.branchAnchor.y + ((data.fanoutBranchDy as number) ?? 0);
+    expect(seated.find((e) => e.id === "e:1")).toBe(
+      routed.edges.find((e) => e.id === "e:1"),
+    );
+    const chipX = drawn.branchAnchor.x;
+    const chipY = drawn.branchAnchor.y;
     expect(chipY).toBe(ports.targetY);
     expect(chipX).toBeGreaterThan(fanoutX + CHAMFER);
     expect(chipX).toBeLessThan(faninX + CHAMFER);

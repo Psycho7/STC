@@ -7,9 +7,9 @@
 // sizes); they pass through untouched. Passes merge routing fields onto edge
 // `data` (bus members are retyped `type: "bus"`).
 //
-// The sixth and final pipeline pass -- chip seating (deconflictChipAnchors)
-// -- lives in chipSeating.ts; it consumes this module's edge-data readers and
-// padding constants. The model-frame node accessors both modules read live in
+// The sixth and final pipeline pass -- the chip bookkeeping stamps
+// (deconflictChipAnchors) -- lives in chipSeating.ts; it consumes this module's
+// edge-data readers. The model-frame node accessors both modules read live in
 // nodeGeometry.ts.
 
 import type { Edge } from "@xyflow/react";
@@ -84,38 +84,14 @@ export function isTrunkOwner(data: Partial<BusAggregate> | undefined): boolean {
 // same-source-port edges onto one shared junction column in a single layer gap.
 // `fanout: true` is always set, so BusEdge draws the short in-corridor trunk
 // (chamferFanoutPath). `junctionX` is the shared column, the slot the trunk
-// took in its gap's reserved column zone. The aggregate reuses
-// BusAggregate. Its chip offsets are the four fanout* below, threaded by
-// deconflictChipAnchors and added to the fan-out chip anchors by BusEdge (dx +
-// dy because the aggregate slides along the horizontal trunk and a branch along
-// its vertical leg).
+// took in its gap's reserved column zone. The aggregate reuses BusAggregate;
+// where its two chips stand is the path builder's rule, not a stamp.
 export type FanoutBusEdgeData = BusAggregate & {
   fanout: true;
   // The absent half of the discriminated union below, so a reader can ask
   // either question of a BusEdgeData without narrowing it first.
   fanin?: undefined;
   junctionX?: number;
-  fanoutAggDx?: number;
-  fanoutAggDy?: number;
-  fanoutBranchDx?: number;
-  fanoutBranchDy?: number;
-  // Set by deconflictChipAnchors when no chip/card-clear seat exists anywhere
-  // on this member's own polyline (a narrow-corridor fan-out whose aggregate
-  // box covers the whole short path). BusEdge then skips the branch chip: an
-  // off-line seat would float in empty canvas, and the member's rate is
-  // already on its target card's input row. The companion anchor records the
-  // branch anchor the hide was decided at: nodes stay mouse-draggable and the
-  // seating pass reruns only when a drag ends, so mid-drag BusEdge drops a
-  // hide whose live recomputed anchor no longer matches the stamp.
-  fanoutBranchHidden?: true;
-  fanoutBranchHiddenAt?: { x: number; y: number };
-  // Set by deconflictChipAnchors when this member's whole polyline is shorter
-  // than one rendered chip: BusEdge collapses the branch chip to its icon-only
-  // variant at every zoom, the same rule chipIconOnly applies to a short item
-  // edge. The full box is wider than such a leg, so no seat on it can keep the
-  // chip off the trunk's split dot; the narrow box can. The rate stays readable
-  // on the chip's aria-label and hover title.
-  fanoutBranchIconOnly?: true;
 };
 
 // Fan-in trunk member (routeTrunkEdges), the mirror of the fan-out payload
@@ -124,18 +100,11 @@ export type FanoutBusEdgeData = BusAggregate & {
 // `junctionX` is the trunk's shared merge column, the slot it took from the
 // RIGHT of its gap's reserved column zone. The aggregate reuses BusAggregate:
 // here busChipOwner marks the member that draws the trunk's one aggregate chip
-// on the shared leg into the port. Its chip offsets are the four fanin* below,
-// threaded by deconflictChipAnchors and added to the fan-in chip anchors by
-// BusEdge (the aggregate slides along the shared leg, a member along its own
-// source stub).
+// on the shared leg into the port.
 export type FaninBusEdgeData = BusAggregate & {
   fanin: true;
   fanout?: undefined;
   junctionX?: number;
-  faninAggDx?: number;
-  faninAggDy?: number;
-  faninMemberDx?: number;
-  faninMemberDy?: number;
 };
 
 // Data fields the bus pass merges onto a member edge's existing `data`: a
@@ -405,6 +374,24 @@ export function routeTrunkEdges(
     }
   }
 
+  // The member that draws a fan-out trunk's ONE aggregate chip: the lex-smallest
+  // NEAR member, i.e. one BusEdge draws the fan-out shape (and therefore the
+  // trunk anchor) for. Trunk.owner is elected over ALL members, so a trunk whose
+  // lex-smallest member is far or backward would hand the aggregate to an edge
+  // that draws no trunk segment and the trunk would show no total at all. A
+  // trunk with no near member draws its aggregate on nothing, the same way a
+  // fan-in trunk of all-dual members does.
+  const fanoutAggOwnerByTrunk = new Map<Trunk, string>();
+  for (const geom of geoms) {
+    if (geom.trunk.kind !== "fanOut") continue;
+    let owner: string | undefined;
+    for (const [id, reach] of geom.reachByEdgeId) {
+      if (reach !== "near") continue;
+      if (owner === undefined || id < owner) owner = id;
+    }
+    if (owner !== undefined) fanoutAggOwnerByTrunk.set(geom.trunk, owner);
+  }
+
   // The member that draws a fan-in trunk's ONE aggregate chip. It has to be a
   // member BusEdge draws the fan-in shape for, and a dual member already draws
   // its fan-out trunk's aggregate on the same `-drop` chip, so the election runs
@@ -452,7 +439,10 @@ export function routeTrunkEdges(
         data: {
           ...edge.data,
           ...rails,
-          ...aggregateOf(out.geom.trunk, edge.id === out.geom.trunk.owner),
+          ...aggregateOf(
+            out.geom.trunk,
+            edge.id === fanoutAggOwnerByTrunk.get(out.geom.trunk),
+          ),
           fanout: true,
           junctionX: out.junctionX,
           ...(into?.reach === "near" ? { faninJoinX: into.junctionX } : {}),
@@ -960,8 +950,7 @@ export function assignBendColumns(
   // The stagger cannot re-place these edges, but it must not fan another
   // edge's vertical onto one of them either: a staggered column half a stub
   // from a trunk column braids it, and the trunk column carries every member's
-  // stroke, so the seating pass has no clear seat to slide that chip to. The
-  // band's left margin below starts past them.
+  // stroke. The band's left margin below starts past them.
   const pinnedColumnsByBand = new Map<number, number[]>();
   for (const edge of edges) {
     if (edge.type !== "item") continue; // only forward item edges get staggered

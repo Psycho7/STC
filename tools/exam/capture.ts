@@ -720,7 +720,7 @@ async function capture(opts: Options): Promise<number> {
       targetZoom: opts.targetZoom,
       lodGates: {
         labelMinZoom: LABEL_MIN_ZOOM,
-        chipIconOnlyMaxZoom: CHIP_ICON_ONLY_MAX_ZOOM,
+        iconOnlyMaxZoom: CHIP_ICON_ONLY_MAX_ZOOM,
       },
       tiles,
       elements,

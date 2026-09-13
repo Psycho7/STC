@@ -375,41 +375,9 @@ describe("canvas/BusEdge trunk labels", () => {
     expect(rise!.textContent).toBe("60/min");
   });
 
-  it("collapses a short-leg fan-out branch chip to icon-only at every zoom", async () => {
-    // A branch leg shorter than one chip box has no seat that keeps the full
-    // box off the trunk's split dot, so the seating pass stamps
-    // fanoutBranchIconOnly and the chip renders as the bare sprite -- at zoom 1,
-    // where no zoom LOD gate applies. The rate survives on the
-    // aria-label and the hover title, so the number is one hover away.
-    // "belt" carries a sprite, so the icon survives the collapse.
-    renderEdge(
-      {
-        item: "belt",
-        rate: new Fraction(1, 1),
-        trunkKey: "belt|src",
-        fanout: true,
-        busChipOwner: true,
-        busTotalRate: new Fraction(2, 1),
-        busMemberCount: 2,
-        fanoutBranchIconOnly: true,
-      } as BusData,
-      1,
-    );
-    await findEdgePath();
-    const rise = document.querySelector<HTMLElement>(
-      '[data-testid="bus-edge-label-e1-rise"]',
-    );
-    expect(rise).not.toBeNull();
-    expect(rise!.classList.contains("icon-only")).toBe(true);
-    expect(rise!.textContent).toBe("");
-    expect(rise!.querySelector(".ico.ico-16 .spr")).not.toBeNull();
-    expect(rise!.getAttribute("aria-label")).toBe("Transport Belt x 60/min");
-    expect(rise!.getAttribute("title")).toBe("Transport Belt x 60/min");
-  });
-
-  it("keeps a long-leg fan-out branch chip's digits", async () => {
-    // The control for the collapse above: without the flag the same trunk's
-    // branch chip keeps its rate digits (R3: plain rate, not the share form).
+  it("keeps a fan-out branch chip's digits at a readable zoom", async () => {
+    // Nothing but the zoom LOD can take a chip's digits away: no placement rule
+    // collapses or hides one (R3: plain rate, not the share form).
     renderEdge(
       {
         item: "belt",
@@ -429,119 +397,6 @@ describe("canvas/BusEdge trunk labels", () => {
     expect(rise).not.toBeNull();
     expect(rise!.classList.contains("icon-only")).toBe(false);
     expect(rise!.textContent).toBe("60/min");
-  });
-
-  it("skips the branch chip of a fan-out member flagged fanoutBranchHidden", async () => {
-    // deconflictChipAnchors hides a branch chip when no chip/card-clear seat
-    // exists anywhere on the member's own polyline (a narrow-corridor fan-out
-    // whose aggregate covers the whole short path). The member's own rate is
-    // left to the hover tooltip (next test); the trunk's aggregate still
-    // draws, since this member is its owner.
-    renderEdge(
-      {
-        item: "Iron Plate",
-        rate: new Fraction(1, 1),
-        trunkKey: "Iron Plate|src",
-        fanout: true,
-        busChipOwner: true,
-        busTotalRate: new Fraction(2, 1),
-        busMemberCount: 2,
-        fanoutBranchHidden: true,
-      } as BusData,
-      1,
-    );
-    await findEdgePath();
-    expect(
-      document.querySelector('[data-testid="bus-edge-label-e1-rise"]'),
-    ).toBeNull();
-    expect(chips().map((l) => l.getAttribute("data-testid"))).toEqual([
-      "bus-edge-label-e1-drop",
-    ]);
-  });
-
-  it("drops a stale hide on real anchor divergence but rides out reconstruction noise", async () => {
-    // fanoutBranchHidden is decided from layout-time geometry, but nodes stay
-    // mouse-draggable. The hide carries the branch anchor it was decided at;
-    // once the live recomputed anchor truly diverges (the user dragged the
-    // fan-out apart), the hide is stale and the member's rate chip must
-    // return. The stamp comes from the seating pass's port reconstruction,
-    // which disagrees with React Flow's measured handles by up to ~1 unit, so
-    // a mismatch that small is noise, not a drag, and must keep the hide.
-    const fanData = {
-      item: "Iron Plate",
-      rate: new Fraction(1, 1),
-      trunkKey: "Iron Plate|src",
-      fanout: true,
-      busChipOwner: true,
-      busTotalRate: new Fraction(2, 1),
-      busMemberCount: 2,
-    } as BusData;
-    // Measure the live branch anchor from an unhidden render's rise chip.
-    renderEdge(fanData, 1);
-    await findEdgePath();
-    const rise = document.querySelector<HTMLElement>(
-      '[data-testid="bus-edge-label-e1-rise"]',
-    );
-    const m = rise!.style.transform.match(
-      /translate\((-?[\d.]+)px, (-?[\d.]+)px\)/,
-    );
-    const anchor = { x: Number(m![1]), y: Number(m![2]) };
-    cleanup();
-
-    // A stamp off by a unit is reconstruction noise: the hide holds, leaving
-    // the trunk's aggregate as the owner's only chip.
-    renderEdge(
-      {
-        ...fanData,
-        fanoutBranchHidden: true,
-        fanoutBranchHiddenAt: { x: anchor.x + 1, y: anchor.y - 1 },
-      } as BusData,
-      1,
-    );
-    await findEdgePath();
-    expect(chips().map((l) => l.getAttribute("data-testid"))).toEqual([
-      "bus-edge-label-e1-drop",
-    ]);
-    cleanup();
-
-    // A stamp a hundred units away is a drag: the hide is stale, chip returns.
-    renderEdge(
-      {
-        ...fanData,
-        fanoutBranchHidden: true,
-        fanoutBranchHiddenAt: { x: anchor.x - 100, y: anchor.y },
-      } as BusData,
-      1,
-    );
-    await findEdgePath();
-    const labels = chips();
-    expect(labels).toHaveLength(2);
-    expect(labels.map((l) => l.getAttribute("data-testid"))).toContain(
-      "bus-edge-label-e1-rise",
-    );
-  });
-
-  it("keeps a hidden branch's rate reachable as a native tooltip on its path", async () => {
-    // The hidden branch chip was the only carrier of the member's exact-rate
-    // title. A transparent hover path with an SVG <title> keeps the rate
-    // reachable on the edge itself, so hiding the chip loses no information.
-    renderEdge(
-      {
-        item: "Iron Plate",
-        rate: new Fraction(1, 1),
-        trunkKey: "Iron Plate|src",
-        fanout: true,
-        busChipOwner: true,
-        busTotalRate: new Fraction(2, 1),
-        busMemberCount: 2,
-        fanoutBranchHidden: true,
-      } as BusData,
-      1,
-    );
-    await findEdgePath();
-    const title = document.querySelector(".react-flow__edge title");
-    expect(title).not.toBeNull();
-    expect(title!.textContent).toBe("Iron Plate x 60/min");
   });
 
   it("draws no chip at all below the label zoom, aggregate included", async () => {
@@ -718,28 +573,5 @@ describe("canvas/BusEdge fan-in members", () => {
     expect(
       document.querySelector('[data-testid="bus-edge-label-e1-rise"]'),
     ).not.toBeNull();
-  });
-
-  it("adds the fan-in seat offsets to the two anchors", async () => {
-    // The seating pass stamps faninAgg* / faninMember*; BusEdge adds each to
-    // the anchor its own chip family rides, and never to the other one.
-    renderEdge(faninData({ faninAggDy: 40, faninMemberDy: -40 }));
-    await findEdgePath();
-    const yOf = (testId: string): number => {
-      const el = document.querySelector<HTMLElement>(
-        `[data-testid="${testId}"]`,
-      )!;
-      return Number(
-        /translate\(-?[\d.]+px, (-?[\d.]+)px\)$/.exec(el.style.transform)![1],
-      );
-    };
-    const plain = { drop: 0, rise: 0 };
-    plain.drop = yOf("bus-edge-label-e1-drop");
-    plain.rise = yOf("bus-edge-label-e1-rise");
-    cleanup();
-    renderEdge(faninData());
-    await findEdgePath();
-    expect(plain.drop - yOf("bus-edge-label-e1-drop")).toBe(40);
-    expect(plain.rise - yOf("bus-edge-label-e1-rise")).toBe(-40);
   });
 });

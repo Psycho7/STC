@@ -165,6 +165,24 @@ export function branchChipText(edge: Edge): ChipText | undefined {
   return rateChipText(edge);
 }
 
+// The half-widths of the two chips one TRUNK MEMBER can draw -- its trunk's
+// aggregate and its own member rate -- taken off the edge payload alone. The
+// path builders' anchor rule needs them (a chip is seated by its box, not by
+// its centre) and they hold `data`, not the Edge the two builders above take,
+// so this wraps the payload in the minimal edge shape rather than restating
+// either rule. An un-rateable payload falls back to the worst-case box exactly
+// as chipSeatHalfW does.
+export function chipHalfWidthsOf(data: unknown): {
+  aggHalfW: number;
+  memberHalfW: number;
+} {
+  const edge = { id: "", source: "", target: "", data } as Edge;
+  return {
+    aggHalfW: chipSeatHalfW(aggregateChipText(edge), false),
+    memberHalfW: chipSeatHalfW(branchChipText(edge), false),
+  };
+}
+
 // One row per chip an edge CAN draw, keyed by the FlowChip testId, carrying the
 // ChipText the seat measures and the width it reserves
 // (reservedPx: min(CHIP_BOX_WIDTH, estimated natural width)). Exam-only: the width-bound spec walks the rendered

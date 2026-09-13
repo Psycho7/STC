@@ -7,7 +7,7 @@ import ItemEdge, {
   LABEL_MIN_ZOOM,
   type ItemEdgeData,
 } from "../../src/canvas/ItemEdge";
-import { HIDE_STALE_EPS } from "../../src/canvas/dimensions";
+import { STAMP_ROW_EPS } from "../../src/canvas/dimensions";
 import { properCrossPoint } from "../../src/canvas/crossings";
 import { parsePathPoints } from "../../src/canvas/edgePath";
 import { itemColor } from "../../src/canvas/itemColor";
@@ -216,14 +216,10 @@ describe("canvas/ItemEdge icon-only collapse", () => {
     expect(label).toBeNull();
   });
 
-  it("collapses a chipIconOnly rate chip above the icon-only zoom", async () => {
-    // The seating pass stamps chipIconOnly on a leg too short for the full box,
-    // so the collapse must come from the edge data, not from the zoom gate:
-    // zoom 1 is well ABOVE CHIP_ICON_ONLY_MAX_ZOOM and would keep the digits.
-    renderEdge(
-      { item: "belt", rate: new Fraction(2, 1), chipIconOnly: true },
-      1,
-    );
+  it("keeps the icon and drops the digits in the icon-only band", async () => {
+    // The collapse is level of detail and nothing else: no placement rule can
+    // take a chip's digits away at a readable zoom.
+    renderEdge({ item: "belt", rate: new Fraction(2, 1) }, belowIconOnly);
     const label = await findLabel();
     expect(label).not.toBeNull();
     expect(label!.classList.contains("icon-only")).toBe(true);
@@ -233,17 +229,15 @@ describe("canvas/ItemEdge icon-only collapse", () => {
     expect(label!.getAttribute("title")).toContain("120/min");
   });
 
-  it("keeps a focused chipIconOnly chip's digits", async () => {
-    // Hover overrides the short-leg collapse the same way it overrides the zoom
-    // one, so no chip is permanently rate-less.
+  it("keeps a focused chip's digits inside the icon-only band", async () => {
+    // Hover overrides the LOD gate, so no chip is permanently rate-less.
     renderEdge(
       {
         item: "belt",
         rate: new Fraction(2, 1),
-        chipIconOnly: true,
         focused: true,
       },
-      1,
+      belowIconOnly,
     );
     const label = await findLabel();
     expect(label).not.toBeNull();
@@ -264,7 +258,7 @@ describe("canvas/ItemEdge icon-only collapse", () => {
     expect(icon).not.toBe(item);
     expect(iconPosition(item)).toBeUndefined();
 
-    renderEdge({ item, rate: new Fraction(2, 1), chipIconOnly: true }, 1);
+    renderEdge({ item, rate: new Fraction(2, 1) }, belowIconOnly);
     const label = await findLabel();
     expect(label).not.toBeNull();
     const spr = label!.querySelector<HTMLElement>(".ico.ico-16 .spr");
@@ -331,7 +325,7 @@ describe("canvas/ItemEdge declined fan-out dot", () => {
     renderEdge({ item: "belt", rate: new Fraction(1, 1) }, 1, SPLIT_ROW_NODES);
     const { sourceY, targetY } = await portRows();
     // Premise: the two rows are far enough apart to tell the axes apart.
-    expect(Math.abs(targetY - sourceY)).toBeGreaterThan(HIDE_STALE_EPS);
+    expect(Math.abs(targetY - sourceY)).toBeGreaterThan(STAMP_ROW_EPS);
     cleanup();
 
     renderEdge(
@@ -356,7 +350,7 @@ describe("canvas/ItemEdge declined fan-out dot", () => {
     // not survive because the other end happens to agree with it.
     renderEdge({ item: "belt", rate: new Fraction(1, 1) }, 1, SPLIT_ROW_NODES);
     const { sourceY, targetY } = await portRows();
-    expect(Math.abs(targetY - sourceY)).toBeGreaterThanOrEqual(HIDE_STALE_EPS);
+    expect(Math.abs(targetY - sourceY)).toBeGreaterThanOrEqual(STAMP_ROW_EPS);
     cleanup();
 
     renderEdge(
@@ -378,7 +372,7 @@ describe("canvas/ItemEdge declined fan-out dot", () => {
 
     // Drag the source past the stamp, but not by more than the eps: the stamp
     // is off the end of the line now and still close enough to count.
-    const dx = PEEL_OFF_DX + HIDE_STALE_EPS - 8;
+    const dx = PEEL_OFF_DX + STAMP_ROW_EPS - 8;
     renderEdge(
       {
         item: "belt",
@@ -400,7 +394,7 @@ describe("canvas/ItemEdge declined fan-out dot", () => {
     const { sourceX, sourceY } = await portRows();
     cleanup();
 
-    const dx = PEEL_OFF_DX + HIDE_STALE_EPS * 2;
+    const dx = PEEL_OFF_DX + STAMP_ROW_EPS * 2;
     renderEdge(
       {
         item: "belt",
@@ -580,7 +574,7 @@ describe("canvas/ItemEdge crossing cues", () => {
     // a stroke that no longer crosses there.
     const moved = {
       edgeId: "eP",
-      source: { x: 500 + HIDE_STALE_EPS * 2, y: 100 },
+      source: { x: 500 + STAMP_ROW_EPS * 2, y: 100 },
       target: { x: 900, y: 100 },
     };
     await renderPair(moved);
@@ -764,11 +758,10 @@ describe("canvas/ItemEdge label placement", () => {
     return label.style.transform;
   }
 
-  it("anchors the label on its clear corridor (bend-vertical) segment", async () => {
-    // Nodes at different y so the drawn path bends: the forward step has a
-    // vertical bend column. The clear-segment anchor (2B) rides that vertical,
-    // NOT the geometric midpoint (which drifts onto a horizontal) and NOT the
-    // target y.
+  it("anchors the label on a horizontal run of its own polyline", async () => {
+    // Nodes at different y so the drawn path bends. The chip is a horizontal
+    // box, so it stands on the centre of the longest HORIZONTAL run -- never on
+    // the bend column, where the box would cut across the line it labels.
     const nodes: Node[] = [
       { id: "src", position: { x: 0, y: 0 }, data: { label: "src" } },
       { id: "tgt", position: { x: 300, y: 100 }, data: { label: "tgt" } },
@@ -821,12 +814,9 @@ describe("canvas/ItemEdge label placement", () => {
     }
     // The anchor lies on the polyline...
     expect(host).not.toBeNull();
-    // ...and specifically on a VERTICAL segment (the preferred corridor leg).
-    expect(host![0][0]).toBe(host![1][0]);
-    // The old behavior pinned y to targetY (the path's final point); the
-    // clear-segment anchor must not sit at the target level.
-    const targetY = Number(d.match(/(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)$/)![2]);
-    expect(ay).not.toBe(targetY);
+    // ...and specifically on a HORIZONTAL segment, at its centre.
+    expect(host![0][1]).toBe(host![1][1]);
+    expect(ax).toBeCloseTo((host![0][0] + host![1][0]) / 2, 1);
   });
 
   it("falls back to the smoothstep midpoint", async () => {

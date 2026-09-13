@@ -2,7 +2,6 @@ import { useStore, type EdgeProps } from "@xyflow/react";
 import { useMemo } from "react";
 import {
   FlowChip,
-  HoverTitlePath,
   JunctionDot,
   LABEL_MIN_ZOOM,
   MaskedEdge,
@@ -13,7 +12,6 @@ import {
 } from "./ItemEdge";
 import { isTrunkOwner, type BusEdgeData } from "./busRouting";
 import { drawnEdge } from "./edgePath";
-import { anchorStampLive } from "./dimensions";
 import { useI18n } from "../data/i18n-context";
 import { formatRateExactPerMin, formatRatePerMin } from "../data/rate-format";
 
@@ -52,10 +50,6 @@ export default function BusEdge({
   const edgeData = data as (ItemEdgeData & BusEdgeData) | undefined;
   const zoom = useStore((state) => state.transform[2]);
   const i18n = useI18n();
-  // The member's own stamps (junction / chip offsets), read off whichever of
-  // the two discriminants its routing pass wrote.
-  const fanoutData = edgeData?.fanout === true ? edgeData : undefined;
-  const faninData = edgeData?.fanin === true ? edgeData : undefined;
   // Either shape exposes one aggregate chip anchor (the shared stretch) and one
   // per-member chip anchor (the member's own stretch). drawnEdge resolves the
   // routing hints, the shape and the own-stretch slice.
@@ -72,14 +66,10 @@ export default function BusEdge({
   const fan =
     drawn.shape === "fanout" || drawn.shape === "fanin" ? drawn : null;
   const path = drawn.path;
-  // Aggregate chip anchor: the shared stretch's midpoint. Per-member chip
-  // anchor: the own stretch's midpoint. Each carries its own de-confliction
-  // offset (fanoutAgg* / fanoutBranch* on a fan-out, faninAgg* / faninMember*
-  // on a fan-in).
-  const aggDx = fanoutData?.fanoutAggDx ?? faninData?.faninAggDx ?? 0;
-  const aggDy = fanoutData?.fanoutAggDy ?? faninData?.faninAggDy ?? 0;
-  const aggX = (fan?.trunkAnchor.x ?? 0) + aggDx;
-  const aggY = (fan?.trunkAnchor.y ?? 0) + aggDy;
+  // Aggregate chip anchor: the rule seat on the stretch the trunk shares. The
+  // path builder put it there; nothing moves it afterwards.
+  const aggX = fan?.trunkAnchor.x ?? 0;
+  const aggY = fan?.trunkAnchor.y ?? 0;
 
   const { stroke, style: mergedStyle } = edgeStrokeStyle(
     edgeData?.transportKind,
@@ -137,44 +127,24 @@ export default function BusEdge({
       ? rateLabel(itemName, `${totalExactStr}${unit}`)
       : "";
 
-  // Branch chip: each member draws its own, showing that member's rate. A member
-  // flagged fanoutBranchHidden draws no branch chip at all: the seating pass
-  // found no chip/card-clear point on its own polyline, and an off-line chip
-  // would float in empty canvas (the rate stays on the target card's row and
-  // this edge's hover tooltip below). The hide was taken at this member's own
-  // branch anchor, so it is checked against the anchor rebuilt from the live
-  // props -- and only when there is one: a null fan path leaves nothing to
-  // compare, and a stamped hide with no live anchor drops.
-  const hiddenAt = fanoutData?.fanoutBranchHiddenAt;
-  const branchHidden =
-    fanoutData?.fanoutBranchHidden === true &&
-    (hiddenAt === undefined ||
-      (fan !== null && anchorStampLive(hiddenAt, fan.branchAnchor)));
-  const memberChipHidden = branchHidden;
   // Branch chip text: this member's own rate plus the unit, the same reading
   // as the plain item edges beside it. The trunk total prints on the aggregate
   // chip alone.
   const plainRate = `${memberRateStr}${unit}`;
-  const riseText =
-    showMemberChip && memberRateStr && !memberChipHidden ? plainRate : "";
+  const riseText = showMemberChip && memberRateStr ? plainRate : "";
   const riseLabel =
     edgeData && memberRateStr ? rateLabel(itemName, plainRate) : "";
   const riseTitle =
     edgeData && memberRateStr
       ? rateLabel(itemName, `${memberExactStr}${unit}`)
       : "";
-  // Per-member chip anchor: the own-stretch midpoint plus its offset.
-  const memberDx = fanoutData?.fanoutBranchDx ?? faninData?.faninMemberDx ?? 0;
-  const memberDy = fanoutData?.fanoutBranchDy ?? faninData?.faninMemberDy ?? 0;
-  const branchX = (fan?.branchAnchor.x ?? 0) + memberDx;
-  const branchY = (fan?.branchAnchor.y ?? 0) + memberDy;
+  // Per-member chip anchor: the rule seat on the stretch that is this member's
+  // alone.
+  const branchX = fan?.branchAnchor.x ?? 0;
+  const branchY = fan?.branchAnchor.y ?? 0;
 
   // One chip on the trunk segment (where the flow enters the trunk) and one on
   // the branch leg (where it leaves toward the target).
-  // `compact` collapses a chip to its item sprite at every zoom: the seating
-  // pass stamps it on a fan-out branch whose leg is shorter than one chip box,
-  // where the full box has no seat that keeps it off the trunk's split dot. The
-  // rate stays readable on the chip's label and title.
   const renderChip = (
     suffix: string,
     x: number,
@@ -182,7 +152,6 @@ export default function BusEdge({
     text: string,
     label: string,
     title: string,
-    compact = false,
   ) => (
     <FlowChip
       testId={`bus-edge-label-${id}-${suffix}`}
@@ -195,7 +164,6 @@ export default function BusEdge({
       title={title}
       dimmed={edgeData?.dimmed}
       focused={edgeData?.focused}
-      compact={compact}
       zoom={zoom}
     />
   );
@@ -212,13 +180,6 @@ export default function BusEdge({
         transportKind={edgeData?.transportKind}
         markerEnd={markerEnd}
       />
-      {/* A hidden branch chip was this
-          member's only exact-rate tooltip carrier, so keep the rate reachable
-          on the edge itself: a transparent hover path over the same geometry
-          carries the native SVG tooltip. */}
-      {memberChipHidden && riseTitle ? (
-        <HoverTitlePath d={path} title={riseTitle} />
-      ) : null}
       {/* Junction dot where the trunk's members coincide -- the split for a
           fan-out, the merge for a fan-in -- reusing the shared JunctionDot
           markup. It sits BELOW the flow chips in the shared edgelabel-renderer
@@ -243,15 +204,7 @@ export default function BusEdge({
         ? renderChip("drop", aggX, aggY, dropText, dropLabel, dropTitle)
         : null}
       {riseText
-        ? renderChip(
-            "rise",
-            branchX,
-            branchY,
-            riseText,
-            riseLabel,
-            riseTitle,
-            fanoutData?.fanoutBranchIconOnly === true,
-          )
+        ? renderChip("rise", branchX, branchY, riseText, riseLabel, riseTitle)
         : null}
     </>
   );
