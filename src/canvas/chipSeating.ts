@@ -59,6 +59,7 @@ import type { Edge } from "@xyflow/react";
 import {
   CHIP_BOX_HEIGHT,
   DOT_KEEPOFF,
+  ENV_FRAME_EXTENTS,
   GLYPH_SIDE_OFFSET,
   MAX_CHIP_SCALE,
   anchorStampLive,
@@ -1845,6 +1846,15 @@ function cardBorder(type: string | undefined): number {
 // frames two units apart on every recipe -- a chip could clear a card in the
 // seating pass and overlap its drawn border in the browser.
 //
+// One kind grows further: an environment recipe's frame rectangle (plates and
+// haze beyond the card box, ENV_FRAME_EXTENTS) is an obstacle too, or a chip
+// seats on a plate. That growth is per-node, on top of the neutral
+// cardGrowth; the e2e card-frame criterion still compares the DRAWN card box
+// against the model box plus cardGrowth alone, which is what keeps proving
+// the DOM box did not grow. The rect's `border` absorbs the side extent so
+// the port-zone strip (measured border-inward from the rect edge) still
+// starts at the card's own row edge.
+//
 // Exported so a unit test can observe the growth actually being applied: the
 // e2e card-frame criterion rebuilds the same constants and so cannot see this
 // call site at all.
@@ -1856,13 +1866,24 @@ export function cardRectsFor(
     const left = absoluteLeft(n, byId);
     const top = absoluteTop(n, byId);
     const growth = cardGrowth(n.type);
+    const env = n.type === "recipe" && n.data.recipe.environment !== undefined;
+    if (!env) {
+      return {
+        id: n.id,
+        left,
+        top,
+        right: left + nodeWidth(n) + growth,
+        bottom: top + nodeHeight(n) + growth,
+        border: cardBorder(n.type),
+      };
+    }
     return {
       id: n.id,
-      left,
-      top,
-      right: left + nodeWidth(n) + growth,
-      bottom: top + nodeHeight(n) + growth,
-      border: cardBorder(n.type),
+      left: left - ENV_FRAME_EXTENTS.left,
+      top: top - ENV_FRAME_EXTENTS.top,
+      right: left + nodeWidth(n) + growth + ENV_FRAME_EXTENTS.right,
+      bottom: top + nodeHeight(n) + growth + ENV_FRAME_EXTENTS.bottom,
+      border: cardBorder(n.type) + ENV_FRAME_EXTENTS.left,
     };
   });
 }
@@ -3390,6 +3411,7 @@ type ChipAnchorData = Partial<
     ItemEdgeData,
     | "labelDx"
     | "labelDy"
+    | "chipIconOnly"
     | "faninChipHidden"
     | "faninChipHiddenAtY"
     | "itemChipHidden"
@@ -3411,12 +3433,152 @@ type ChipAnchorData = Partial<
       | "fanoutAggDy"
       | "fanoutBranchDx"
       | "fanoutBranchDy"
+      | "fanoutBranchIconOnly"
       | "fanoutBranchHidden"
       | "fanoutBranchHiddenAt"
     >
   // `fanout` is the only name this view declares itself: the two union arms
   // type it `false` and `true`, so the intersection cannot Pick it.
 > & { fanout?: boolean };
+
+// One seated chip's drawn box, at the anchor its render component draws and
+// the size its seat reserved: halfW is the same per-family chipSeatHalfW the
+// seat reserved (the max counter-scale box the chip paints, so the box here is
+// never narrower than the box the browser shows), halfH the chip pitch height
+// every family shares. Hidden chips draw nothing, so they enumerate none.
+// Exported for the seating suites, which assert chip/obstacle clearance
+// against the boxes the renderers actually draw.
+export type SeatedChipBox = {
+  edgeId: string;
+  family: "label" | "fanout-agg" | "fanout-branch" | "bus-drop" | "bus-rise";
+  source: string;
+  target: string;
+  x: number;
+  y: number;
+  halfW: number;
+  halfH: number;
+};
+
+// Every chip family, anchored exactly as its render component anchors it:
+// rebuild the polyline with the same builder and hints, then apply the nudge
+// the seating pass stamped. contentBounds folds these into the camera frame;
+// the suites read them individually.
+export function seatedChipBoxes(
+  nodes: ReadonlyArray<RFAnyNode>,
+  edges: ReadonlyArray<Edge>,
+): SeatedChipBox[] {
+  const byId = nodeIndexOf(nodes);
+  const out: SeatedChipBox[] = [];
+  const push = (
+    edge: Edge,
+    family: SeatedChipBox["family"],
+    cx: number,
+    cy: number,
+    halfW: number,
+  ): void => {
+    out.push({
+      edgeId: edge.id,
+      family,
+      source: edge.source,
+      target: edge.target,
+      x: cx,
+      y: cy,
+      halfW,
+      halfH: CHIP_HALF_H,
+    });
+  };
+  for (const edge of edges) {
+    const data = edge.data as ChipAnchorData | undefined;
+    // The canvas draws two edge types (Canvas's edgeTypes map); anything else
+    // carries no chip family to draw, and drawnEdge would answer it with the
+    // item shape, so it is skipped before the per-shape arms below.
+    if (edge.type !== "item" && edge.type !== "bus") continue;
+    const ends = drawnPortsOf(edge, byId);
+    if (ends === null) continue;
+    const drawn = drawnEdge(ends, edge.type, edge.data);
+    if (drawn.shape === "item") {
+      // Staleness parity with ItemEdge: the hide was taken at the target port
+      // row, so it is checked against this reconstruction's own target y. A
+      // chip the renderer brings back mid-drag has to be drawn here too.
+      if (
+        data?.faninChipHidden === true &&
+        faninHideLive(data.faninChipHiddenAtY, ends.targetY)
+      ) {
+        continue;
+      }
+      // Staleness parity with ItemEdge's off-line hide (a seat more than one
+      // chip pitch off its own polyline), per-axis against the live label
+      // anchor; an absent stamp still hides.
+      if (
+        data?.itemChipHidden === true &&
+        anchorStampLive(data.itemChipHiddenAt, drawn.labelAnchor)
+      ) {
+        continue;
+      }
+      push(
+        edge,
+        "label",
+        drawn.labelAnchor.x + (data?.labelDx ?? 0),
+        drawn.labelAnchor.y + (data?.labelDy ?? 0),
+        chipSeatHalfW(rateChipText(edge), data?.chipIconOnly === true),
+      );
+    } else if (drawn.shape === "fanout") {
+      // A multi-member trunk renders no aggregate chip (issue #39), so it
+      // draws none.
+      if (isTrunkOwner(data) && (data?.busMemberCount ?? 1) === 1) {
+        push(
+          edge,
+          "fanout-agg",
+          drawn.trunkAnchor.x + (data?.fanoutAggDx ?? 0),
+          drawn.trunkAnchor.y + (data?.fanoutAggDy ?? 0),
+          chipSeatHalfW(aggregateChipText(edge), false),
+        );
+      }
+      // Staleness parity with BusEdge: the hide was taken at this member's own
+      // branch anchor, checked against the one this reconstruction rebuilt.
+      // (BusEdge also un-hides when its fan path is null; here the branch
+      // already resolved a fan-out path, so that arm cannot arise.)
+      const branchHidden =
+        data?.fanoutBranchHidden === true &&
+        anchorStampLive(data.fanoutBranchHiddenAt, drawn.branchAnchor);
+      if (!branchHidden) {
+        push(
+          edge,
+          "fanout-branch",
+          drawn.branchAnchor.x + (data?.fanoutBranchDx ?? 0),
+          drawn.branchAnchor.y + (data?.fanoutBranchDy ?? 0),
+          chipSeatHalfW(
+            branchChipText(edge),
+            data?.fanoutBranchIconOnly === true,
+          ),
+        );
+      }
+      // A bus member with no stamped laneY rides drawnEdge's target-row
+      // fallback: the renderer draws it, but the seating pass reserved no lane
+      // chip on it, so there is no seated box to draw.
+    } else if (data?.laneY !== undefined) {
+      if (isTrunkOwner(data) && (data.busMemberCount ?? 1) === 1) {
+        push(
+          edge,
+          "bus-drop",
+          drawn.dropX,
+          drawn.laneY + (data.busDropDy ?? 0),
+          chipSeatHalfW(aggregateChipText(edge), false),
+        );
+      }
+      if (data.busRiseHidden !== true) {
+        push(
+          edge,
+          "bus-rise",
+          data.busChipX ?? drawn.riseX,
+          drawn.laneY + (data.busChipDy ?? 0),
+          chipSeatHalfW(branchChipText(edge), false),
+        );
+      }
+    }
+  }
+  return out;
+}
 
 // Content bounding box (flow coords) covering both the node cards AND every
 // seated edge-label chip, for the camera fit. React Flow's fitView frames node
@@ -3452,85 +3614,14 @@ export function contentBounds(
     bottom = Math.max(bottom, t + nodeHeight(n));
   }
 
-  // One chip box, centred at its seated position, into the frame.
-  const unionChip = (cx: number, cy: number): void => {
-    left = Math.min(left, cx - CHIP_HALF_W_WIDE);
-    right = Math.max(right, cx + CHIP_HALF_W_WIDE);
-    top = Math.min(top, cy - CHIP_HALF_H);
-    bottom = Math.max(bottom, cy + CHIP_HALF_H);
-  };
-
-  // Every chip family, anchored exactly as its render component anchors it:
-  // rebuild the polyline with the same builder and hints, then apply the nudge
-  // the seating pass stamped. Hidden chips draw nothing, so they frame nothing.
-  for (const edge of edges) {
-    const data = edge.data as ChipAnchorData | undefined;
-    // The canvas draws two edge types (Canvas's edgeTypes map); anything else
-    // carries no chip family to frame, and drawnEdge would answer it with the
-    // item shape, so it is skipped before the per-shape arms below.
-    if (edge.type !== "item" && edge.type !== "bus") continue;
-    const ends = drawnPortsOf(edge, byId);
-    if (ends === null) continue;
-    const drawn = drawnEdge(ends, edge.type, edge.data);
-    if (drawn.shape === "item") {
-      // Staleness parity with ItemEdge: the hide was taken at the target port
-      // row, so it is checked against this reconstruction's own target y. A
-      // chip the renderer brings back mid-drag has to be framed here too.
-      if (
-        data?.faninChipHidden === true &&
-        faninHideLive(data.faninChipHiddenAtY, ends.targetY)
-      ) {
-        continue;
-      }
-      // Staleness parity with ItemEdge's off-line hide (a seat more than one
-      // chip pitch off its own polyline), per-axis against the live label
-      // anchor; an absent stamp still hides.
-      if (
-        data?.itemChipHidden === true &&
-        anchorStampLive(data.itemChipHiddenAt, drawn.labelAnchor)
-      ) {
-        continue;
-      }
-      unionChip(
-        drawn.labelAnchor.x + (data?.labelDx ?? 0),
-        drawn.labelAnchor.y + (data?.labelDy ?? 0),
-      );
-    } else if (drawn.shape === "fanout") {
-      // A multi-member trunk renders no aggregate chip (issue #39), so it
-      // frames none.
-      if (isTrunkOwner(data) && (data?.busMemberCount ?? 1) === 1) {
-        unionChip(
-          drawn.trunkAnchor.x + (data?.fanoutAggDx ?? 0),
-          drawn.trunkAnchor.y + (data?.fanoutAggDy ?? 0),
-        );
-      }
-      // Staleness parity with BusEdge: the hide was taken at this member's own
-      // branch anchor, checked against the one this reconstruction rebuilt.
-      // (BusEdge also un-hides when its fan path is null; here the branch
-      // already resolved a fan-out path, so that arm cannot arise.)
-      const branchHidden =
-        data?.fanoutBranchHidden === true &&
-        anchorStampLive(data.fanoutBranchHiddenAt, drawn.branchAnchor);
-      if (!branchHidden) {
-        unionChip(
-          drawn.branchAnchor.x + (data?.fanoutBranchDx ?? 0),
-          drawn.branchAnchor.y + (data?.fanoutBranchDy ?? 0),
-        );
-      }
-      // A bus member with no stamped laneY rides drawnEdge's target-row
-      // fallback: the renderer draws it, but the seating pass reserved no lane
-      // chip on it, so there is no seated box to frame.
-    } else if (data?.laneY !== undefined) {
-      if (isTrunkOwner(data) && (data.busMemberCount ?? 1) === 1) {
-        unionChip(drawn.dropX, drawn.laneY + (data.busDropDy ?? 0));
-      }
-      if (data.busRiseHidden !== true) {
-        unionChip(
-          data.busChipX ?? drawn.riseX,
-          drawn.laneY + (data.busChipDy ?? 0),
-        );
-      }
-    }
+  // The frame is deliberately the WIDEST box: the camera must not clip a chip
+  // that draws wider than its seat reserved, so every centre unions the
+  // worst-case half-extents, not the per-family reservation.
+  for (const chip of seatedChipBoxes(nodes, edges)) {
+    left = Math.min(left, chip.x - CHIP_HALF_W_WIDE);
+    right = Math.max(right, chip.x + CHIP_HALF_W_WIDE);
+    top = Math.min(top, chip.y - CHIP_HALF_H);
+    bottom = Math.max(bottom, chip.y + CHIP_HALF_H);
   }
 
   return { x: left, y: top, width: right - left, height: bottom - top };
