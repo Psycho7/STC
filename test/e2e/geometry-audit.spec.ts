@@ -36,8 +36,8 @@ import { collectAudit, collectGeometry, type AuditChipRect } from "./collect";
 // The P1 acceptance gate for the placement campaign: a DOM-geometry audit run
 // against the live client rects the user actually sees. Two invariants per
 // scenario at fit zoom on 1920x1080:
-//   (a) no two .flow-chip boxes overlap (chips counter-scale about their centre,
-//       so their client rects are the on-screen boxes - no unscaling needed);
+//   (a) no two .flow-chip boxes overlap (a chip draws its natural CSS box, so
+//       its client rect is the on-screen box - no unscaling needed);
 //   (b) every recipe handle sits vertically centred on its .rn-row (handles are
 //       row-embedded, xyflow centres them with top:50% translate(-50%,-50%)).
 // Nothing is selected during measurement: a selected node draws a 2px border vs
@@ -45,8 +45,8 @@ import { collectAudit, collectGeometry, type AuditChipRect } from "./collect";
 
 test.use({ viewport: { width: 1920, height: 1080 } });
 
-// Chips can legitimately abut edge-to-edge when the trunk pitch equals the
-// max-scale box height (boxes touch at zoom <= 0.5). A shared boundary
+// Chips can legitimately abut edge-to-edge when the trunk pitch equals the chip
+// box height. A shared boundary
 // (a.bottom == b.top) is not an overlap, so require strict interpenetration of
 // more than this many pixels on BOTH axes before flagging a pair.
 const OVERLAP_EPS_PX = 0.5;
@@ -226,9 +226,8 @@ test.describe("DOM geometry audit", () => {
       ).toEqual([]);
 
       // (d2) Flow chips paint ABOVE bus junction dots. Both are portaled into
-      // the shared .react-flow__edgelabel-renderer stacking context, and a chip
-      // counter-scales up to 2x about its centre, so an enlarged aggregate chip
-      // envelops the world-fixed dot. The dot is decorative (aria-hidden); the
+      // the shared .react-flow__edgelabel-renderer stacking context, and a
+      // chip's box can envelop the world-fixed dot. The dot is decorative (aria-hidden); the
       // chip carries the digits, so it must win. A strict order is required: the
       // lowest chip z-index must exceed the highest dot z-index, or a sibling
       // member edge's dot could still paint over the owner's chip on DOM order.
@@ -403,7 +402,7 @@ test.describe("DOM geometry audit", () => {
 //   R3  A bus rise slot is clamped into its own member's resolved run even when
 //       that hides more chips for capacity: a hidden chip keeps its rate on the
 //       target card's input row, a stranded one names nothing.
-//   R4  The band pad is a constant -- one lane spacing plus a max-scale chip
+//   R4  The band pad is a constant -- one lane spacing plus a chip
 //       half height -- and covers a chip lifted one cascade pitch INCLUSIVELY,
 //       so containment assertions carry no eps margin.
 //   R5  Item rate chips are never hidden. An off-path item chip stays visible
@@ -612,17 +611,22 @@ const CROSSING_BASELINE: Record<string, number> = {
 // the campaign): rot-bottled_food_3 2 (one plant_moss_3 drop column grazing
 // two cards' padding), rot-bottled_food_4 1 (an iron_ore tap approach into
 // loop:plant_grass_1).
+// CHIP-BOX RE-MEASURE (the graph-object chip box): a chip's box in graph units
+// is now its natural CSS box at every zoom -- at worst 120 x 20 where it used to
+// be 240 x 48 -- so every counter measured against a chip box drops. Re-pinned
+// DOWN from the zero-pin harvest: battery5 1 -> 0, script43 2 -> 0,
+// coupon-web 2 -> 0, gas-web 1 -> 0.
 const PADDED_GRAZE_BASELINE: Record<string, number> = {
   default: 0,
-  battery5: 1,
+  battery5: 0,
   "battery5-xiranite": 0,
   crystal: 0,
   equip4: 0,
   multi6: 0,
   tundra: 0,
-  script43: 2,
-  "coupon-web": 2,
-  "gas-web": 1,
+  script43: 0,
+  "coupon-web": 0,
+  "gas-web": 0,
   "rot-bottled_food_3": 0,
   "rot-bottled_food_4": 0,
 };
@@ -715,19 +719,25 @@ const PADDED_GRAZE_BASELINE: Record<string, number> = {
 // corpus reaching a seat on the leg it labels (FANOUT_LEG_BASELINE stays 0).
 // R14: 15 -> 42. R16: 42 -> 43.
 // FAN-OUT LEG SEAT: default 2 -> 3, the e:12-on-e:8's-leg-row chip.
+// CHIP-BOX RE-MEASURE (the graph-object chip box): a chip's box in graph units
+// is now its natural CSS box at every zoom -- at worst 120 x 20 where it used to
+// be 240 x 48 -- so every counter measured against a chip box drops. Re-pinned
+// DOWN from the zero-pin harvest: default 3 -> 1, battery5 10 -> 1,
+// battery5-xiranite 15 -> 2, crystal 1 -> 0, equip4 1 -> 0, script43 10 -> 0,
+// coupon-web 5 -> 0, gas-web 5 -> 3, rot-bottled_food_4 2 -> 0.
 const CHIP_SEGMENT_BASELINE: Record<string, number> = {
-  default: 3,
-  battery5: 10,
-  "battery5-xiranite": 15,
-  crystal: 1,
-  equip4: 1,
+  default: 1,
+  battery5: 1,
+  "battery5-xiranite": 2,
+  crystal: 0,
+  equip4: 0,
   multi6: 0,
   tundra: 0,
-  script43: 10,
-  "coupon-web": 5,
-  "gas-web": 5,
+  script43: 0,
+  "coupon-web": 0,
+  "gas-web": 3,
   "rot-bottled_food_3": 0,
-  "rot-bottled_food_4": 2,
+  "rot-bottled_food_4": 0,
 };
 
 // battery5 rose 5 -> 6 when chip-vs-card went hard: one pinned chip's on-line
@@ -775,17 +785,22 @@ const CHIP_SEGMENT_BASELINE: Record<string, number> = {
 // CARD_INTRUSION 77 -> 0. R16 (shrink pass): 35 -> 5.
 // R14: 0 -> 38, buying PORT_COVER 126 -> 0 and CARD_INTRUSION 79 -> 0.
 // R16: 38 -> 8.
+// CHIP-BOX RE-MEASURE (the graph-object chip box): a chip's box in graph units
+// is now its natural CSS box at every zoom -- at worst 120 x 20 where it used to
+// be 240 x 48 -- so every counter measured against a chip box drops. Re-pinned
+// DOWN from the zero-pin harvest: battery5 2 -> 0, battery5-xiranite 4 -> 0,
+// script43 1 -> 0, gas-web 1 -> 0.
 const CHIP_OFFPATH_BASELINE: Record<string, number> = {
   default: 0,
-  battery5: 2,
-  "battery5-xiranite": 4,
+  battery5: 0,
+  "battery5-xiranite": 0,
   crystal: 0,
   equip4: 0,
   multi6: 0,
   tundra: 0,
-  script43: 1,
+  script43: 0,
   "coupon-web": 0,
-  "gas-web": 1,
+  "gas-web": 0,
   "rot-bottled_food_3": 0,
   "rot-bottled_food_4": 0,
 };
@@ -966,6 +981,10 @@ const FRAME_RIDE_BASELINE: Record<string, number> = {
 // SINGLE-BAND RE-MEASURE (eeda816, the commit that made every plan ONE
 // left-to-right band): rot-bottled_food_4 0 -> 2.
 // The one survivor is battery5's fan-in owner chip (e:18, ruling R13).
+// CHIP-BOX RE-MEASURE (the graph-object chip box): a chip's box in graph units
+// is now its natural CSS box at every zoom -- at worst 120 x 20 where it used to
+// be 240 x 48 -- so every counter measured against a chip box drops. Re-pinned
+// DOWN from the zero-pin harvest: rot-bottled_food_4 2 -> 0.
 const DOT_COVER_BASELINE: Record<string, number> = {
   default: 0,
   battery5: 0,
@@ -978,7 +997,7 @@ const DOT_COVER_BASELINE: Record<string, number> = {
   "coupon-web": 0,
   "gas-web": 0,
   "rot-bottled_food_3": 0,
-  "rot-bottled_food_4": 2,
+  "rot-bottled_food_4": 0,
 };
 
 // Endpoint-parity tolerance, in GRAPH UNITS, per scenario: the largest
@@ -1416,17 +1435,16 @@ test.describe("segment placement audit", () => {
 // multi6's fit zoom (~0.21) BOTH chip LOD gates fire and nearly every chip is
 // not drawn, so a fit-zoom census of that plan measures almost nothing --
 // exactly why CHIP_OFFPATH_BASELINE["multi6"] is "unmeasured rather than clean".
-// 0.6 clears LABEL_MIN_ZOOM (0.35) and CHIP_ICON_ONLY_MAX_ZOOM (0.32) on every
+// 0.6 clears LABEL_MIN_ZOOM (0.35) and CHIP_ICON_ONLY_MAX_ZOOM (0.5) on every
 // plan, so every chip is drawn with its digits. React Flow does not virtualise
 // nodes or the edge-label layer here, so the chips that fall outside the pane at
 // that zoom are still mounted and still measure.
 //
-// The camera also fixes the chip BOX SIZE, which is why the numbers below are
-// only comparable to each other. A chip counter-scales by min(2, 1/zoom) about
-// its centre, so in graph units its box is 1.667x its natural size here, against
-// 2x at any fit zoom below 0.5 and 1.333x at the 0.75 the exam evidence was
-// gathered at. Every count in the four tables is therefore a reading at zoom
-// 0.6 and nothing else; re-measure the whole table if the camera moves.
+// The camera fixes which chips are DRAWN (the two LOD gates) and nothing else
+// about their size: a chip draws its natural box in graph units at every zoom.
+// Every count in the four tables is still a reading at zoom 0.6, since the gates
+// and the pan frame are part of it; re-measure the whole table if the camera
+// moves.
 //
 // The pan keeps the world point that was at the pane centre at fit zoom in the
 // pane centre, so the frame is the middle of the plan on every scenario. It is
@@ -1463,11 +1481,9 @@ test.describe("segment placement audit", () => {
 // relation in numbers.
 //
 // It does NOT make the counter immune to a sidestep, as first recorded here.
-// The seat reserves a worst-case box (max counter-scale, full label width) and
-// the reach that keeps the own line "inside the box" is measured against THAT,
-// while this census measures the box the chip actually paints -- 20% narrower
-// at this camera before any label-width slack. A step at the flush end of the
-// reach therefore holds the line inside the reserve and outside the paint.
+// The seat reserves the box the chip draws, and the reach that keeps the own
+// line "inside the box" is half of its half-width, so a step at the flush end
+// of the reach leaves the line in the outer half of the box.
 // Measured: an unbounded scored sidestep put multi6 e:18 at the flush 120 and
 // this counter read 19, the chip floating a full half-width off its line with
 // its two foreign strokes shed. The shipped tier caps its reach at half the
@@ -1499,10 +1515,14 @@ test.describe("segment placement audit", () => {
 // measurement 2026-09-04, exam-surfaced-families Task 0, re-measurable within
 // the campaign): both zero; every chip holds its own line inside its box.
 // R14: 2 -> 35. R16: 35 -> 1.
+// CHIP-BOX RE-MEASURE (the graph-object chip box): a chip's box in graph units
+// is now its natural CSS box at every zoom -- at worst 120 x 20 where it used to
+// be 240 x 48 -- so every counter measured against a chip box drops. Re-pinned
+// DOWN from the zero-pin harvest: battery5-xiranite 1 -> 0.
 const SEAT_VALIDITY_BASELINE: Record<string, number> = {
   default: 0,
   battery5: 0,
-  "battery5-xiranite": 1,
+  "battery5-xiranite": 0,
   crystal: 0,
   equip4: 0,
   multi6: 0,
@@ -1663,19 +1683,25 @@ const CARD_INTRUSION_BASELINE: Record<string, number> = {
 // its own leg row, now has e:8's stroke through its box.
 // R14: 32 -> 49. R16: 49 -> 45.
 // FAN-OUT LEG SEAT: default 2 -> 3.
+// CHIP-BOX RE-MEASURE (the graph-object chip box): a chip's box in graph units
+// is now its natural CSS box at every zoom -- at worst 120 x 20 where it used to
+// be 240 x 48 -- so every counter measured against a chip box drops. Re-pinned
+// DOWN from the zero-pin harvest: default 3 -> 1, battery5 3 -> 2,
+// battery5-xiranite 5 -> 3, crystal 1 -> 0, multi6 19 -> 15, script43 5 -> 2,
+// coupon-web 3 -> 0, gas-web 5 -> 2, rot-bottled_food_4 2 -> 0.
 const FOREIGN_STROKE_BASELINE: Record<string, number> = {
-  default: 3,
-  battery5: 3,
-  "battery5-xiranite": 5,
-  crystal: 1,
+  default: 1,
+  battery5: 2,
+  "battery5-xiranite": 3,
+  crystal: 0,
   equip4: 1,
-  multi6: 19,
+  multi6: 15,
   tundra: 0,
-  script43: 5,
-  "coupon-web": 3,
-  "gas-web": 5,
+  script43: 2,
+  "coupon-web": 0,
+  "gas-web": 2,
   "rot-bottled_food_3": 0,
-  "rot-bottled_food_4": 2,
+  "rot-bottled_food_4": 0,
 };
 
 // PORT-COVER: chips whose drawn box covers a handle, glyph or row strip of
@@ -1699,16 +1725,23 @@ const PORT_COVER_BASELINE: Record<string, number> = {
 // Not a defect counter but the trade dial every keep-out or cap pays into.
 // 35 -> 48 at the port-clear render (R14),
 // 48 -> 43 at the shrink pass (R16).
+// CHIP-BOX RE-MEASURE (the graph-object chip box): a chip's box in graph units
+// is now its natural CSS box at every zoom -- at worst 120 x 20 where it used to
+// be 240 x 48 -- so every counter measured against a chip box drops. Re-pinned
+// DOWN from the zero-pin harvest: battery5-xiranite 4 -> 2, coupon-web 6 -> 5.
+// The three-band LOD leaves this camera (zoom 0.6) above the digits gate, so
+// what it still counts is the
+// short-leg and contested stamps alone, and the narrower box earns fewer of them.
 const CHIP_COLLAPSE_BASELINE: Record<string, number> = {
   default: 4,
   battery5: 2,
-  "battery5-xiranite": 4,
+  "battery5-xiranite": 2,
   crystal: 2,
   equip4: 2,
   multi6: 13,
   tundra: 0,
   script43: 3,
-  "coupon-web": 6,
+  "coupon-web": 5,
   "gas-web": 3,
   "rot-bottled_food_3": 4,
   "rot-bottled_food_4": 0,
@@ -1791,11 +1824,13 @@ const CENSUS_TOTALS: {
 } = {
   // R14: seatValidity 2 -> 35, cardIntrusion 79 -> 0, foreignStroke
   // 32 -> 49. R16: seatValidity 35 -> 1, foreignStroke 49 -> 45.
-  seatValidity: 1,
+  // CHIP-BOX RE-MEASURE: seatValidity 1 -> 0, foreignStroke 47 -> 26, following
+  // the two tables above.
+  seatValidity: 0,
   cardIntrusion: 0,
   // SINGLE-BAND RE-MEASURE (eeda816): 45 -> 46 (default 1 -> 2).
   // FAN-OUT LEG SEAT: 46 -> 47 (default 2 -> 3).
-  foreignStroke: 47,
+  foreignStroke: 26,
 };
 
 function censusInventory(hits: ReadonlyArray<ChipCensusHit>): string {

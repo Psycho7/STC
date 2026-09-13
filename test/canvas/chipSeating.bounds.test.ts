@@ -18,7 +18,6 @@ import {
   CHIP_BOX_HEIGHT,
   CHIP_BOX_WIDTH,
   HIDE_STALE_EPS,
-  MAX_CHIP_SCALE,
 } from "../../src/canvas/dimensions";
 import {
   absoluteLeft,
@@ -33,8 +32,8 @@ import type { Plan } from "../../src/data/plan";
 import { solveFromPlan } from "../../src/pipeline/solveForRender";
 import { layoutSolved } from "../../src/canvas/layoutSolved";
 
-const CHIP_HALF_W = (MAX_CHIP_SCALE * CHIP_BOX_WIDTH) / 2;
-const CHIP_HALF_H = (MAX_CHIP_SCALE * CHIP_BOX_HEIGHT) / 2;
+const CHIP_HALF_W = CHIP_BOX_WIDTH / 2;
+const CHIP_HALF_H = CHIP_BOX_HEIGHT / 2;
 
 // Two product cards a corridor apart: 148 x 78 at x = 0 and x = 600, so the
 // node box spans (0, 0) - (748, 78) and a forward step path runs between them.

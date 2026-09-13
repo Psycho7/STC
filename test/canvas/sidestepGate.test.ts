@@ -171,17 +171,17 @@ describe("seatRateChip: the vertical leg's sidestep gate", () => {
     anchorY: 500,
   };
 
-  // Transversal strokes every box-height down the whole leg, so a box of any
-  // seatable height always straddles one and NO point on the line is fully clear
-  // -- the state that reaches the sidestep tiers. Each one stops 65 units LEFT of
-  // the own line, so a step out to the reach (half of the 120 half-width) does
+  // Transversal strokes closer together than one box height down the whole leg,
+  // so every seatable box straddles one and NO point on the line is fully clear
+  // -- the state that reaches the sidestep tiers. Each one stops 40 units LEFT of
+  // the own line, so a step out to the reach (half of the 60 half-width) does
   // clear them all: the old ungated tier took exactly that step and carried the
-  // chip 60 units off its own vertical. Every one of them crosses the box side to
+  // chip 30 units off its own vertical. Every one of them crosses the box side to
   // side; none runs alongside the own line, so none is a stroke a step is for.
-  const CROSS_PITCH = 48;
-  const CROSS_RIGHT_END = -65;
+  const CROSS_PITCH = 19;
+  const CROSS_RIGHT_END = -40;
   const crossings = (): EdgeSegments[] =>
-    Array.from({ length: 21 }, (_, i) => i * CROSS_PITCH).map((y, i) => ({
+    Array.from({ length: 54 }, (_, i) => i * CROSS_PITCH).map((y, i) => ({
       id: `cross${i}`,
       flowKey: `cross${i}`,
       target: "elsewhere",

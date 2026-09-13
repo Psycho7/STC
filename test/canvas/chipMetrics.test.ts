@@ -12,10 +12,11 @@ import {
   chipSeatHalfW,
   examChipReservations,
 } from "../../src/canvas/chipMetrics";
-import { CHIP_BOX_WIDTH, MAX_CHIP_SCALE } from "../../src/canvas/dimensions";
+import { CHIP_BOX_HEIGHT, CHIP_BOX_WIDTH } from "../../src/canvas/dimensions";
 
-// Chip half-extents at max scale: a wide box is 120 half-wide.
-const HALF_W = (MAX_CHIP_SCALE * CHIP_BOX_WIDTH) / 2;
+// Chip half-extents: a chip draws its natural box at every zoom, so a wide box
+// is CHIP_BOX_WIDTH / 2 half-wide.
+const HALF_W = CHIP_BOX_WIDTH / 2;
 
 // Per-chip seat box (Task 6b): the seat reserves an upper bound on what the chip
 // will DRAW instead of the widest box the CSS clamp allows.
@@ -26,13 +27,13 @@ describe("chipSeatHalfW: the per-chip reserved box", () => {
   const CHROME = 16 + 6 + 2 * 7 + 2 * 1;
   const GLYPH = 7.5;
   const UNIT = 34;
-  const ICON = (MAX_CHIP_SCALE * 24) / 2;
+  const ICON = CHIP_BOX_HEIGHT / 2;
 
   it("reserves the chip's own text width, not the worst-case box", () => {
-    // "150" plus the unit: 38 + 3 glyphs + the widest localized unit = 94.5px
-    // natural, reserved at MAX_CHIP_SCALE and halved.
+    // "150" plus the unit: 38 + 3 glyphs + the widest localized unit = 94.5px,
+    // halved.
     expect(chipSeatHalfW({ body: "150", unit: true }, false)).toBe(
-      (MAX_CHIP_SCALE * (CHROME + 3 * GLYPH + UNIT)) / 2,
+      (CHROME + 3 * GLYPH + UNIT) / 2,
     );
     expect(chipSeatHalfW({ body: "150", unit: true }, false)).toBeLessThan(
       HALF_W,
@@ -111,9 +112,7 @@ describe("aggregateChipText / branchChipText", () => {
     const noRate = member({});
     expect(branchChipText(noRate)).toBeUndefined();
     expect(aggregateChipText(noRate)).toBeUndefined();
-    expect(chipSeatHalfW(undefined, false)).toBe(
-      (MAX_CHIP_SCALE * CHIP_BOX_WIDTH) / 2,
-    );
+    expect(chipSeatHalfW(undefined, false)).toBe(CHIP_BOX_WIDTH / 2);
   });
 });
 
@@ -142,25 +141,19 @@ describe("examChipReservations", () => {
         testId: "item-edge-label-i1",
         body: "30",
         unit: true,
-        reservedPx:
-          (2 * chipSeatHalfW({ body: "30", unit: true }, false)) /
-          MAX_CHIP_SCALE,
+        reservedPx: 2 * chipSeatHalfW({ body: "30", unit: true }, false),
       },
       {
         testId: "bus-edge-label-f1-drop",
         body: "270",
         unit: true,
-        reservedPx:
-          (2 * chipSeatHalfW({ body: "270", unit: true }, false)) /
-          MAX_CHIP_SCALE,
+        reservedPx: 2 * chipSeatHalfW({ body: "270", unit: true }, false),
       },
       {
         testId: "bus-edge-label-f1-rise",
         body: "30",
         unit: true,
-        reservedPx:
-          (2 * chipSeatHalfW({ body: "30", unit: true }, false)) /
-          MAX_CHIP_SCALE,
+        reservedPx: 2 * chipSeatHalfW({ body: "30", unit: true }, false),
       },
     ]);
   });

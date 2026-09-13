@@ -47,19 +47,15 @@ export function recipeHeight(inPorts: number, outPorts: number): number {
 export const PORT_WIDTH = 8;
 export const PORT_HEIGHT = 8;
 
-// Shared chip metrics for the two edge-label chip families (entry-port stack and
-// midpoint rate chips). CHIP_BOX_HEIGHT is the on-screen box height of the
-// TALLEST chip variant at natural scale, the midpoint rate chip: a 16px item
-// sprite plus 3px of padding and a 1px border on each side (see the .flow-chip
-// rule in canvas.css). The compact entry variant (2px padding, 22px box) is
-// covered with margin. MAX_CHIP_SCALE is the counter-scale cap the chips reach
-// at the fit-zoom floor (they scale by 1/zoom about their centre, clamped
-// here), so the tallest a chip ever renders is MAX_CHIP_SCALE * CHIP_BOX_HEIGHT.
-// Both busRouting (stack pitch, midpoint collision box and nudge step) and
-// ItemEdge (chip counter-scale) read these so the on-screen no-overlap
-// guarantee stays coupled to one source of truth.
-export const CHIP_BOX_HEIGHT = 24;
-export const MAX_CHIP_SCALE = 2;
+// The height of every edge-label chip box, in graph units AND in px: a chip
+// draws at its natural CSS size at every zoom, so the two are the same number.
+// It is the .flow-chip rule in canvas.css added up -- a 16px item sprite plus
+// 1px of vertical padding and a 1px border on each side -- and the icon-only
+// variant is the same number square. Kept just under RECIPE_ROW_HEIGHT so two
+// chips seated on adjacent rows of one card cannot touch. busRouting (stack
+// pitch, midpoint collision box and nudge step) and the seating pass read it,
+// so the no-overlap guarantee stays coupled to one source of truth.
+export const CHIP_BOX_HEIGHT = 20;
 
 // The PortGlyph box beside each handle, and how far its outer edge hangs
 // outside the row edge. The seating pass keeps chips clear of that reach.
@@ -75,10 +71,9 @@ export const GLYPH_SIDE_OFFSET = GLYPH_SIZE + 2;
 // unmarked merge, and the renderers drop the hide. The threshold sits well
 // above the ~1-unit port-model disagreement between the seating pass's
 // reconstruction and React Flow's measured handles, and well below any drag
-// that frees real seating room -- half the height of a chip box at its
-// counter-scale cap. Note the coupling: changing either chip-box constant moves
-// this threshold with it.
-export const HIDE_STALE_EPS = (MAX_CHIP_SCALE * CHIP_BOX_HEIGHT) / 2;
+// that frees real seating room -- half the height of a chip box. Note the
+// coupling: changing the chip-box height moves this threshold with it.
+export const HIDE_STALE_EPS = CHIP_BOX_HEIGHT / 2;
 
 // The two shapes of the staleness question, stated here beside the threshold
 // that sizes them so no caller restates the rule. Both answer the same thing:
@@ -109,12 +104,10 @@ export function anchorStampLive(
   );
 }
 
-// Horizontal chip-box metrics, the x-axis analogs of CHIP_BOX_HEIGHT. A chip's
-// on-screen width is roughly constant at low zoom (it counter-scales by 1/zoom,
-// capped at MAX_CHIP_SCALE), so in graph units its box is at most
-// MAX_CHIP_SCALE * CHIP_BOX_WIDTH wide. CHIP_BOX_WIDTH bounds the natural box of
-// a WIDE chip: the rendered body is the 16px item sprite plus the rounded rate
-// text and optional count marker (e.g. an icon followed by "222.22/min x2"; the
+// Horizontal chip-box metrics, the x-axis analogs of CHIP_BOX_HEIGHT, in the
+// same graph-units-are-px terms. CHIP_BOX_WIDTH bounds the box of a WIDE chip:
+// the rendered body is the 16px item sprite plus the rounded rate text and
+// optional count marker (e.g. an icon followed by "222.22/min x2"; the
 // item name rides only on aria-label/title, never in the box). The widest corpus
 // chip measured ~115px; 120 adds headroom, and the .flow-chip max-width clamp in
 // canvas.css enforces the bound at runtime by ellipsizing any off-corpus rate
@@ -138,9 +131,10 @@ export const DOT_KEEPOFF = 16;
 
 // Left overhang a routed vertical (rise / bend / rail column) keeps clear of a
 // target's Left port, in graph units. The retired icon-only entry chips
-// reached this far left of the port (a 12 inset plus half a 22-wide max-scale
-// box); the pad keeps that footprint so arrival corridors stay uncluttered and
-// the routing geometry is unchanged by the chips' removal.
+// reached this far left of the port (a 12 inset plus half a 22-wide box at the
+// counter-scale those chips took); the pad keeps that footprint so arrival
+// corridors stay uncluttered and the routing geometry is unchanged by the
+// chips' removal.
 export const ENTRY_GUTTER_OVERHANG = 34;
 
 export const NODE_NODE_SPACING = 30;
@@ -163,27 +157,29 @@ export function loopBoxDimensions(interiorLayout: {
   };
 }
 
-// Zoom LOD gates. Below LABEL_MIN_ZOOM the rate chips are dropped. Dense plans
-// fit at roughly 0.35-0.55, so the gate sits just under that band: chips appear
-// at the dense-plan fit zooms instead of only after zooming in. Below the gate
-// the overview reads as clean lines. ItemEdge and BusEdge read transform[2]
-// (zoom only) so an edge re-renders on zoom changes but not on pan.
+// Zoom LOD gates, the same three bands for EVERY chip family: at or above
+// CHIP_ICON_ONLY_MAX_ZOOM a chip draws in full, between the two gates it draws
+// as its item icon alone, and below LABEL_MIN_ZOOM it is not drawn at all. A
+// hover-lit chip is the one exception: it keeps its digits and stays drawn at
+// any zoom, because the hover is the reader asking for that rate.
+//
+// The mount gate. Below it the overview reads as clean lines; the rate stays on
+// the boundary cards and on the edge's hover tooltip. ItemEdge and BusEdge read
+// transform[2] (zoom only) so an edge re-renders on zoom changes but not on pan.
 export const LABEL_MIN_ZOOM = 0.35;
 
-// Second, lower zoom LOD gate. Below it the chips that are EXEMPT from
-// LABEL_MIN_ZOOM (the bus aggregate drop chip and a lone member's long-detour
-// rise chip) collapse to icon-only: the item icon alone, with the rate digits
-// dropped. This preserves the "something flows here" signal while un-blanketing
-// dense clusters at fit zoom; the exact rate stays reachable on the chip's hover
-// tooltip. Calibrated against the corpus fit zooms measured in-browser at
-// 1920x1080: the gate sits in the gap between the one plan that must collapse
-// (multi6, 0.21) and the densest plan that must stay full (battery5-xiranite,
-// 0.35 - just above LABEL_MIN_ZOOM, so nothing on it collapses either). The
-// remaining plans sit well clear: equip4 0.44, battery5 0.45, crystal 0.50,
-// tundra 0.66, default 0.90. Kept below LABEL_MIN_ZOOM so the LOD stays
-// monotonic: per-member chips drop first, then the surviving aggregates shed
-// their digits.
-export const CHIP_ICON_ONLY_MAX_ZOOM = 0.32;
+// The digits gate, ABOVE the mount gate so the LOD stays monotonic: a chip
+// mounts as an icon first and earns its digits only further in. Below it a chip
+// draws the item icon alone, which keeps the "something flows here" signal while
+// a dense cluster stops blanketing at fit zoom; the rate stays reachable on the
+// chip's hover tooltip. A chip draws at its natural size at every zoom, so its
+// digits go sub-legible well before the box itself does -- which is what puts
+// this gate above the mount gate rather than below it. The corpus fit zooms
+// measured in-browser at 1920x1080 are the calibration record: multi6 0.21,
+// battery5-xiranite 0.35, equip4 0.44, battery5 0.45, crystal 0.50, tundra
+// 0.66, default 0.90 -- so multi6 opens with no chips, the next three open
+// icon-only and the last three open in full.
+export const CHIP_ICON_ONLY_MAX_ZOOM = 0.5;
 
 // Delay before a hover registers, so sweeping the pointer across the canvas does
 // not strobe the dim state on every element crossed. A leave within the window

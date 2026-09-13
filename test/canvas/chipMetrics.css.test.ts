@@ -27,7 +27,7 @@ describe("the chip's horizontal chrome matches the stylesheet it mirrors", () =>
   });
 
   it("charges the horizontal half of the .flow-chip padding shorthand", () => {
-    // padding: 3px 7px -- index 0 is the vertical pad portZoneDepth pins, so
+    // padding: 1px 7px -- index 0 is the vertical pad portZoneDepth pins, so
     // the horizontal one is index 1. Reading index 0 here would silently
     // under-charge every chip by 8px.
     expect(cssPx(".flow-chip", "padding", 1)).toBe(CHIP_PAD_X_PX);

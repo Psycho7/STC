@@ -589,11 +589,11 @@ async function capture(opts: Options): Promise<number> {
     // `tiles.length - 1` wherever the cap is compared.
     const tiles: TileRecord[] = [fitRecord];
     const tileWorldRects: Rect[] = [];
-    // The inventory has to be built at the TARGET zoom, not at fit: per-member
-    // rate chips do not mount below the label LOD gate, and chips and junction
-    // dots counter-scale, so their world footprint is zoom-specific. A plan
-    // computed from a fit-zoom walk would cover elements that do not exist and
-    // miss the ones that do.
+    // The inventory has to be built at the TARGET zoom, not at fit: rate chips
+    // do not mount below the label LOD gate, and junction dots counter-scale, so
+    // what exists and how big it is are zoom-specific. A plan computed from a
+    // fit-zoom walk would cover elements that do not exist and miss the ones
+    // that do.
     const inventory = new Map<string, SceneElement>();
     const chipOwner = new Map<string, string>();
     const edgePaths = new Map<string, string>();
@@ -677,12 +677,11 @@ async function capture(opts: Options): Promise<number> {
     }
 
     // Measured at the camera the last shot left behind, which is the TARGET
-    // zoom: chips counter-scale, so their world footprints are zoom-specific and
-    // the frame that matters is the one the images were taken in. That
-    // counter-scaling is the whole reason a chip-tier count here differs from
-    // one taken at the app's fit camera - the LOD gate runs the other way, since
-    // it suppresses chips BELOW its threshold and so can only lower a count at a
-    // low fit zoom, never raise it. Both collectors are read
+    // zoom: the frame that matters is the one the images were taken in, and the
+    // chip LOD gates make which chips exist zoom-specific, which is why a
+    // chip-tier count here differs from one taken at the app's fit camera -- the
+    // gates only suppress chips BELOW their thresholds, so a low fit zoom can
+    // only lower a count, never raise it. Both collectors are read
     // back to back with no camera move between them, which is what the chip join
     // inside measurementsFor requires. Whole-document collectors, so a tile
     // camera still returns the entire graph and not just what is on screen.

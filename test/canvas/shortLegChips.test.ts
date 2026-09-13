@@ -33,7 +33,6 @@ import {
   nodeWidth,
   portOffsetY,
 } from "../../src/canvas/nodeGeometry";
-import { MAX_CHIP_SCALE } from "../../src/canvas/dimensions";
 import type { RFAnyNode, RFRecipeNode } from "../../src/canvas/layout";
 import {
   inputProductNode,
@@ -151,10 +150,15 @@ const polylineXExtent = (
 // Three product cards in a row, each `gap` apart, and the two item edges
 // between them: a chain of two short legs whose chips sit close enough to
 // contest each other under the WIDE reserve and not under the collapsed one.
-const chainFixture = (gap: number): { nodes: RFAnyNode[]; edges: Edge[] } => {
-  const xs = [0, CARD_W + gap, 2 * (CARD_W + gap)];
+// The card width is a parameter because it is what sets how far apart the two
+// chip anchors land, which is the distance those cases state premises about.
+const chainFixture = (
+  gap: number,
+  cardW: number = CARD_W,
+): { nodes: RFAnyNode[]; edges: Edge[] } => {
+  const xs = [0, cardW + gap, 2 * (cardW + gap)];
   const nodes: RFAnyNode[] = xs.map((x, i) =>
-    productNode(`n${i}`, x, CARD_Y, CARD_W, CARD_H),
+    productNode(`n${i}`, x, CARD_Y, cardW, CARD_H),
   );
   const edges: Edge[] = [0, 1].map((i) => ({
     id: `e:${i}:n${i}->n${i + 1}:w`,
@@ -188,7 +192,7 @@ describe("deconflictChipAnchors: short-leg icon-only flag", () => {
     // width at natural scale (94.5 for a "180/min" body), the per-chip bound
     // the collapse gates on, not the widest box the CSS clamp allows.
     expect(legLen).toBeLessThan(
-      (2 * chipSeatHalfW({ body: "180", unit: true }, false)) / MAX_CHIP_SCALE,
+      2 * chipSeatHalfW({ body: "180", unit: true }, false),
     );
 
     const out = deconflictChipAnchors(nodes, edges);
@@ -209,16 +213,19 @@ describe("deconflictChipAnchors: short-leg icon-only flag", () => {
     const arcs = legs.map((l) => polylineLength(l.pts));
     const extents = legs.map((l) => polylineXExtent(l.pts));
     // Premises, old rule's split first: the straight leg measured under the
-    // threshold, both doglegs over it (why this test is red at the arc gate).
-    expect(arcs[0]).toBeLessThan(CHIP_HALF_W_WIDE);
-    expect(arcs[1]).toBeGreaterThanOrEqual(CHIP_HALF_W_WIDE);
-    expect(arcs[2]).toBeGreaterThanOrEqual(CHIP_HALF_W_WIDE);
+    // retired arc gate -- 120, the half-width of the worst-case box back when a
+    // chip counter-scaled -- and both doglegs over it (why this test is red at
+    // the arc gate).
+    const RETIRED_ARC_GATE = 120;
+    expect(arcs[0]).toBeLessThan(RETIRED_ARC_GATE);
+    expect(arcs[1]).toBeGreaterThanOrEqual(RETIRED_ARC_GATE);
+    expect(arcs[2]).toBeGreaterThanOrEqual(RETIRED_ARC_GATE);
     // ...and the new rule's: one corridor, three times over, all wider than
     // this chip's own box ("180/min" reserves 94.5), so all three carry it.
     expect(extents[0]).toBe(extents[1]);
     expect(extents[0]).toBe(extents[2]);
     expect(extents[0]).toBeGreaterThan(
-      (2 * chipSeatHalfW({ body: "180", unit: true }, false)) / MAX_CHIP_SCALE,
+      2 * chipSeatHalfW({ body: "180", unit: true }, false),
     );
 
     const out = deconflictChipAnchors(nodes, edges);
@@ -231,8 +238,8 @@ describe("deconflictChipAnchors: short-leg icon-only flag", () => {
 
   it("escapes a chip whose window cannot hold even the icon square (R15)", () => {
     // A 36-unit gap leaves each leg a 16-unit band-clipped window, narrower
-    // than the 24-unit icon square the seat reserves (the counter-scale cap
-    // floors at 1, so the square is the least a chip draws). No on-line seat
+    // than the 20-unit icon square the seat reserves, which is the least a chip
+    // draws. No on-line seat
     // clears both port bands, and the ruling is that the chip escapes off its
     // line rather than covering a port or hiding.
     const { nodes, edges } = chainFixture(36);
@@ -258,16 +265,17 @@ describe("deconflictChipAnchors: short-leg icon-only flag", () => {
 
   it("reserves the collapsed box for the stamped chip, not the wide one", () => {
     // The stamp used to be render-only for ITEM chips: the seat still reserved
-    // the 240-wide worst case for a chip that draws 48, which is the largest
+    // the 120-wide worst case for a chip that draws 20, which is the largest
     // single conservatism the pass carried (Task 6b). Two short legs in a chain
-    // put their chips 160 apart -- inside the 240 of centre separation two wide
-    // boxes need, outside the 48 two collapsed ones need. Under the wide
-    // reserve the second chip is shoved off its anchor; under the collapsed one
-    // both sit where they belong. The 60-unit gap leaves each leg a 40-unit
-    // band-clipped window: wide enough for the 24-unit icon square the seat
-    // reserves (a narrower window cannot hold the drawn square and evicts the
-    // chip for a different reason, the port band), too narrow for the text.
-    const { nodes, edges } = chainFixture(60);
+    // of 60-wide cards put their chips 105 apart -- inside the 120 of centre
+    // separation two wide boxes need, outside the 20 two collapsed ones need.
+    // Under the wide reserve the second chip is shoved off its anchor; under
+    // the collapsed one both sit where they belong. The 45-unit gap leaves each
+    // leg a 25-unit band-clipped window: wide enough for the 20-unit icon
+    // square the seat reserves (a narrower window cannot hold the drawn square
+    // and evicts the chip for a different reason, the port band), too narrow
+    // for the text.
+    const { nodes, edges } = chainFixture(45, 60);
     const anchors = edges.map((e) => chipAnchorOf(nodes, e));
     // Premise: the two anchors are in exactly that window.
     const apart = Math.abs(anchors[1]! - anchors[0]!);
@@ -286,55 +294,6 @@ describe("deconflictChipAnchors: short-leg icon-only flag", () => {
   });
 });
 
-// The rest of the same change (Task 6b): a chip that is NOT collapsed reserves
-// the box its own rate text will draw rather than the widest box the CSS clamp
-// allows, so two chips the worst case reads as contesting each other are
-// actually clear.
-describe("deconflictChipAnchors: per-chip reserved box", () => {
-  it("leaves two chips at their anchors when only the worst-case box collides", () => {
-    // 130 units of corridor -> a 122-unit leg (past the collapse threshold, so
-    // both chips draw their digits) with the two anchors 230 apart. Two
-    // worst-case boxes need 240 of centre separation and would shove the second
-    // chip along its leg; two boxes sized to "180/min" need 189, so neither
-    // moves.
-    const { nodes, edges } = chainFixture(130);
-    const anchors = edges.map((e) => chipAnchorOf(nodes, e));
-    const apart = Math.abs(anchors[1]! - anchors[0]!);
-    expect(apart).toBeLessThan(2 * CHIP_HALF_W_WIDE); // premise: wide boxes clash
-    // ...and estimated ones do not. Taken from the seat's own estimator so a
-    // change to the chrome, glyph or unit constants fails here rather than
-    // silently invalidating the premise.
-    expect(apart).toBeGreaterThan(
-      2 * chipSeatHalfW({ body: "180", unit: true }, false),
-    );
-
-    const out = deconflictChipAnchors(nodes, edges);
-    for (const e of edges) {
-      expect(iconOnlyOf(out, e.id)).toBeUndefined(); // premise: neither collapsed
-      const data = out.find((o) => o.id === e.id)?.data as
-        | { labelDx?: number; labelDy?: number }
-        | undefined;
-      expect(data?.labelDx).toBeUndefined();
-      expect(data?.labelDy).toBeUndefined();
-    }
-  });
-
-  it("caps a full chip's box at the corridor window narrower than 2x natural (#82)", () => {
-    // The window (gap 160 less the 20 the two product bands clip) holds the
-    // natural box but not the max-scale one: the chip stays full and its
-    // reserved box is exactly the window.
-    const { nodes, edges } = rowFixture(160);
-    const out = deconflictChipAnchors(nodes, edges);
-    const data = out.find((e) => e.id === "e:1:src->tgt:w")!.data as
-      | { chipIconOnly?: boolean; chipScaleCap?: number }
-      | undefined;
-    expect(data?.chipIconOnly).toBeUndefined(); // full chip: window >= natural
-    const natural =
-      (2 * chipSeatHalfW({ body: "180", unit: true }, false)) / MAX_CHIP_SCALE;
-    expect(data?.chipScaleCap).toBeCloseTo(140 / natural, 5);
-  });
-});
-
 // The same rule for a fan-out trunk's per-member BRANCH chip (issue #50). A
 // member whose whole polyline is shorter than one chip has no seat on its own
 // leg that keeps the full box off the trunk's split dot -- the box is wider than
@@ -344,9 +303,9 @@ describe("deconflictChipAnchors: per-chip reserved box", () => {
 
 const FAN_ITEM = "s";
 
-// An icon-only chip is a square: the 16px sprite plus the same 3px padding and
+// An icon-only chip is a square: the 16px sprite plus the same 1px padding and
 // 1px border the full chip carries (.flow-chip.icon-only in canvas.css), so its
-// half-width at max counter-scale is the shared half-HEIGHT. With chipSeating's
+// half-width is the shared half-HEIGHT. With chipSeating's
 // DOT_KEEPOFF this is the separation a collapsed chip needs from a dot.
 const CHIP_HALF_W_ICON = CHIP_HALF_H;
 const DOT_KEEPOFF = 16;
@@ -434,7 +393,7 @@ const fanoutFixture = (
 // single-diagonal branch, far too little vertical for its own chip -- and the
 // other 300 below (an ordinary long leg that keeps the trunk multi-member, so
 // no aggregate chip rides it). The corridor is wide enough that the member's
-// WHOLE polyline (shared trunk prefix included) clears one max-scale chip box,
+// WHOLE polyline (shared trunk prefix included) clears one chip box,
 // which is what let the old arc-length stamp vouch for the riser's full box.
 const RISER_GAP = 158; // card-edge gap -> a 150-unit port-to-port corridor
 const RISER_DY = 13;
@@ -507,7 +466,7 @@ const riserPushFixture = (): {
 } => {
   const base = riserFixture();
   const sy = drawnFanPorts(base.src, base.riser).sourceY;
-  const lineY = sy - 27;
+  const lineY = sy - 20;
   const fs = productNode("fs", -1054, lineY - CARD_H / 2, CARD_W, CARD_H);
   const ft = productNode("ft", 1000, lineY - CARD_H / 2, CARD_W, CARD_H);
   const nodes: RFAnyNode[] = [...base.nodes, fs, ft];
@@ -536,8 +495,7 @@ describe("deconflictChipAnchors: short-leg fan-out branch chips", () => {
     // members collapse now (and the collapse is what lets each seat clear the
     // split dot on the narrow corridor).
     expect(routed.map((e) => e.type)).toEqual(["bus", "bus"]);
-    const reserved =
-      (2 * chipSeatHalfW({ body: "1", unit: true }, false)) / MAX_CHIP_SCALE;
+    const reserved = 2 * chipSeatHalfW({ body: "1", unit: true }, false);
     expect(levelExtent).toBeLessThan(reserved);
     expect(downExtent).toBeLessThan(reserved);
 
@@ -553,8 +511,7 @@ describe("deconflictChipAnchors: short-leg fan-out branch chips", () => {
     // rule that collapsed every branch would pass the suite.
     const { nodes, routed, levelExtent, downExtent } = fanoutFixture(ROOMY_GAP);
     expect(routed.map((e) => e.type)).toEqual(["bus", "bus"]);
-    const reserved =
-      (2 * chipSeatHalfW({ body: "1", unit: true }, false)) / MAX_CHIP_SCALE;
+    const reserved = 2 * chipSeatHalfW({ body: "1", unit: true }, false);
     expect(levelExtent).toBeGreaterThanOrEqual(reserved);
     expect(downExtent).toBeGreaterThanOrEqual(reserved);
 
@@ -580,15 +537,10 @@ describe("deconflictChipAnchors: short-leg fan-out branch chips", () => {
     });
     const cx = fan.branchAnchor.x + ((data.fanoutBranchDx as number) ?? 0);
     const cy = fan.branchAnchor.y + ((data.fanoutBranchDy as number) ?? 0);
-    // The keep-off is against the capped box the chip reserves and draws.
-    const cappedHalf =
-      (((data.fanoutBranchScaleCap as number | undefined) ?? MAX_CHIP_SCALE) *
-        CHIP_HALF_W_ICON) /
-      MAX_CHIP_SCALE;
+    // The keep-off is against the collapsed box the chip reserves and draws.
     expect(Math.abs(cx - fan.junction.x)).toBeGreaterThanOrEqual(
-      cappedHalf + DOT_KEEPOFF,
+      CHIP_HALF_W_ICON + DOT_KEEPOFF,
     );
-    expect(data.fanoutBranchScaleCap).toBeCloseTo(38 / 24, 5);
     // ...and it did not leave its leg to get there: the seat is on the straight
     // run between the two ports, at the port y.
     expect(cy).toBe(fan.branchAnchor.y);
@@ -599,7 +551,7 @@ describe("deconflictChipAnchors: short-leg fan-out branch chips", () => {
   it("collapses a long-trunk riser whose own leg cannot hold its chip", () => {
     // The rot-bottled_food_3 finding (Task 8): a 13-unit diagonal branch off a
     // long trunk. The member's WHOLE polyline (shared trunk prefix included)
-    // spans more than one max-scale chip box, so the old TOTAL-ARC-LENGTH stamp
+    // spans more than one chip box, so the old TOTAL-ARC-LENGTH stamp
     // never fired and the seat reserved a full "300/min" box on a leg whose own
     // horizontal run is a fraction of it -- every seat on the leg buries the
     // trunk's split dot, and the box reads as a trunk label. The gate now
@@ -616,7 +568,7 @@ describe("deconflictChipAnchors: short-leg fan-out branch chips", () => {
     expect(Math.abs(ends.targetY - ends.sourceY)).toBe(RISER_DY);
     expect(polylineLength(geom.pts)).toBeGreaterThanOrEqual(CHIP_HALF_W_WIDE);
     expect(polylineXExtent(geom.suffix)).toBeLessThan(
-      (2 * chipSeatHalfW({ body: "300", unit: true }, false)) / MAX_CHIP_SCALE,
+      2 * chipSeatHalfW({ body: "300", unit: true }, false),
     );
 
     const seated = deconflictChipAnchors(fixture.nodes, fixture.routed);
@@ -630,7 +582,7 @@ describe("deconflictChipAnchors: short-leg fan-out branch chips", () => {
     // trunk -- its box reading as a trunk label stood at the split. The push
     // here is a foreign stroke crossing the corridor: it is a HARD tier-1
     // blocker, it sits inside every leg-side candidate's box band (the whole
-    // leg is a 13-unit riser, so every leg candidate's box reaches it) and
+    // leg is a 13-unit riser, so every leg candidate's box band reaches it) and
     // outside the trunk candidates' band, so on the full polyline the only
     // fully-clear seats are on the shared prefix. On the member's OWN leg the
     // same push has nowhere left to go: the chip keeps its anchor (graze) or
@@ -651,7 +603,7 @@ describe("deconflictChipAnchors: short-leg fan-out branch chips", () => {
       "bus",
       "bus",
     ]);
-    expect(Math.abs(fixture.lineY - fixture.sy)).toBe(27);
+    expect(Math.abs(fixture.lineY - fixture.sy)).toBe(20);
     expect(Math.abs(fixture.lineY - (fixture.sy - RISER_DY))).toBeLessThan(
       CHIP_HALF_W_ICON,
     );
@@ -669,16 +621,12 @@ describe("deconflictChipAnchors: short-leg fan-out branch chips", () => {
 });
 
 // Two taps feeding adjacent input rows of one recipe across a 119-unit
-// corridor: only one of the pair fits the one band-clear seat at max scale, and
-// the other has to shrink to scale 1 to stay on its own line. Which one shrinks
-// is the scarcity-first seat order's call -- the WATER leg's anchor sits on a
-// vertical run with few clear windows, so it is seated first and keeps the full
-// reserve, and the ORE chip, which has a wide upper run to fall back on, takes
-// the cap. (Under the old id order the two were the other way round; the
-// invariant this fixture exists for -- both chips on their own lines, one of
-// them capped -- is the same either way.)
-describe("deconflictChipAnchors: adjacent-row pair shrinks onto its line", () => {
-  it("caps the chip with the richer line and keeps both on their own lines", () => {
+// corridor, the tightest pair the default plan produces: both chips still have
+// to find a seat on their OWN line inside it. The seat order is the
+// scarcity-first one -- the water leg's anchor sits on a vertical run with few
+// clear windows, so it is seated first.
+describe("deconflictChipAnchors: adjacent-row pair seats on its own lines", () => {
+  it("keeps both chips of the pair on their own lines", () => {
     const recipe = mkRecipe("r", ["ore", "water"], ["out"]);
     const nodes: RFAnyNode[] = [
       recipeNode("r", 560, 29, recipe),
@@ -727,7 +675,6 @@ describe("deconflictChipAnchors: adjacent-row pair shrinks onto its line", () =>
       const data = out.find((o) => o.id === e.id)?.data as {
         labelDx?: number;
         labelDy?: number;
-        chipScaleCap?: number;
       };
       const [d, lx, ly] = chamferStepPath({
         ...drawnPortsOfEdge(e, nodes),
@@ -742,9 +689,5 @@ describe("deconflictChipAnchors: adjacent-row pair shrinks onto its line", () =>
         ),
       ).toBeLessThan(0.01);
     }
-    const ore = out.find((o) => o.id === edges[0]!.id)?.data as {
-      chipScaleCap?: number;
-    };
-    expect(ore.chipScaleCap).toBe(1);
   });
 });

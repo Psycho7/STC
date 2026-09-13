@@ -1198,13 +1198,9 @@ function censusHit(chip: ChipRect, detail: string): ChipCensusHit {
 // seating pass's segIntersectsChipBox, and deliberately NOT a centre-distance
 // rule like auditChipsOnOwnPath: a sidestep seat holds its own line inside the
 // box it RESERVED while moving the centre off it, so a centre-distance rule
-// would red-flag a seat the reader still reads as bound to its line. Note this
-// counter measures the box the chip PAINTS, which is narrower than the reserve
-// at any camera below max counter-scale, so a sidestep seat can in principle
-// still redden it -- see the sidestep paragraph on SEAT_VALIDITY_BASELINE in the
-// audit spec for the measured case. Both sidestep tiers now cap their reach at
-// half the reserved half-width, the offset at which the own line is still inside
-// the box the chip paints at counter-scale 1.
+// would red-flag a seat the reader still reads as bound to its line. Both
+// sidestep tiers cap their reach at half the reserved half-width, which keeps
+// the own line inside the box and so inside this counter's rule.
 //
 // Takes the RAW collected edges ({ id, d }) rather than parsed RawEdges so a
 // chip is never judged against an edge list that dropped its owner for id-shape

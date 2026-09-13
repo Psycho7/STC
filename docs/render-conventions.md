@@ -106,17 +106,22 @@ Chips, machine cards, boundary cards, product-chip captions and the totals lines
 all draw from one formatter, so a plan shows one rate unit throughout. A mix
 inside a single plan, `/min` beside `/MIN`, is a defect and not a style.
 
+Every chip draws at one fixed size: a 20px-tall box, the same in graph units at
+every zoom, so zooming out shrinks a chip with the plan instead of holding it at
+a reading size. Three zoom bands, the same for every chip family: from zoom 0.5
+up a chip draws in full (icon, rate and unit), between 0.35 and 0.5 it draws as
+its item icon alone, and below 0.35 it is not drawn at all. A hover-lit chip is
+the one exception -- it keeps its digits and stays drawn at any zoom. So a fit
+view of a mid-density plan showing icon-only squares is the level of detail
+working, not a missing rate.
+
 A seating pass places each chip on the line it labels, sliding it along that line
 past cards, dots and other chips. A chip never covers its own endpoint card's
 port glyph, port handle or row text: the furniture band straddling the port is
 a keep-out, so an on-line chip sits in the corridor stretch between its two
-ports' furniture. On a corridor too narrow for the chip's full box the chip
-holds a capped size -- counter-scaled by less than the usual maximum so the
-widest box it can draw fits that stretch -- or renders icon-only when even the
-natural text does not fit. A corridor shared with another chip works the same
-way: when the full box has no seat left on the line, the chip shrinks to its
-natural size before it takes any seat off the line. A chip that had to move is
-still bound to its own polyline; dragging a card re-seats every chip when the
+ports' furniture. On a corridor too narrow for the chip's own box the chip
+renders icon-only, whose square box fits stretches the text cannot. A chip that
+had to move is still bound to its own polyline; dragging a card re-seats every chip when the
 drag ends, so a dropped plan obeys the same rules (mid-drag, chips ride the
 live line with their last seat offsets); one that reads as belonging to a neighbouring line is a defect.
 A decision the pass recorded against an anchor -- a hidden chip, a junction dot --
@@ -128,21 +133,16 @@ anchor stands until the next re-seat.
 
 Do not report these as defects.
 
-- Rate chips are hidden below zoom 0.35. A fit shot of a dense plan therefore
-  shows few chips or none, and card detail fades at low zoom by design.
+- Every rate chip is hidden below zoom 0.35, the trunk's aggregate chip
+  included. A fit shot of a dense plan therefore shows no chips, and card detail
+  fades at low zoom by design.
+- Between zoom 0.35 and 0.5 every chip renders icon-only. A digit-less square
+  chip is the level of detail, not a missing rate: the rate stays on the hover
+  title and the aria label, and hovering the edge restores the digits.
 - A chip on a leg too short for its box renders icon-only at any zoom, fan-out
   branch chips and item-edge chips alike, and so does a fan-out branch chip on a
-  contested corridor. A chip whose corridor holds its natural text but not the
-  full counter-scaled box instead draws at a capped size, smaller than the
-  usual counter-scale maximum, and so does a chip whose full box has no seat
-  left on its line beside a neighbouring chip (the second of two chips into
-  adjacent rows of one card, a member chip on a merged fan-in run): it draws
-  at its natural size and stays on its line rather than leaving it. A capped
-  chip keeps its digits down to the same zoom as every other chip; they are
-  simply drawn smaller. Low zoom is a third cause: below zoom 0.32 the chip
-  exempt from the 0.35 gate (the trunk's aggregate chip) renders icon-only as
-  well. All of them keep the rate on the hover title and the aria label. A
-  digit-less square chip is intentional, not a missing rate.
+  contested corridor. These too keep the rate on the hover title and the aria
+  label.
 - A fan-out branch chip, or a fan-in member chip that would land on the shared
   run, may be deliberately hidden. The rate remains on the target card's input
   row and on the edge's hover tooltip.

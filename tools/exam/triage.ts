@@ -266,8 +266,7 @@ export function corroborationsFor(
 // so a footprint is only a place in an image shot at THAT camera. `fit` is not:
 // it is a whole-graph overview at a much lower zoom, where the LOD gates change
 // what is mounted - below the label gate no rate chip exists in the picture at
-// all - and where chips counter-scale, so a chip's world footprint recorded at
-// the target zoom is the wrong size as well as of the wrong thing. Projecting
+// all. Projecting
 // into it would still land somewhere plausible, on whatever the overview happens
 // to draw there, which is exactly the false corroboration this module exists to
 // prevent. Excluding by `kind` rather than by comparing zooms because the

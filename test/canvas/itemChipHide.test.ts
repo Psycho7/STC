@@ -1,5 +1,5 @@
-// The item phase's displaced-chip hide. A rate chip seated MORE THAN ONE
-// max-scale chip pitch off its own polyline reads as an orphan naming nothing
+// The item phase's displaced-chip hide. A rate chip seated MORE THAN ONE chip
+// pitch off its own polyline reads as an orphan naming nothing
 // (the issue-#9 shape), so it is hidden instead, the way a fan-out branch chip
 // with no on-line seat is: the exact rate stays on the target card's input row
 // and on the edge's hover tooltip. The rule is a distance, not a tier: a seat
@@ -11,7 +11,7 @@ import { describe, it, expect } from "vitest";
 import type { Edge } from "@xyflow/react";
 
 import { deconflictChipAnchors } from "../../src/canvas/chipSeating";
-import { CHIP_BOX_HEIGHT, MAX_CHIP_SCALE } from "../../src/canvas/dimensions";
+import { CHIP_BOX_HEIGHT } from "../../src/canvas/dimensions";
 import { layoutSolved } from "../../src/canvas/layoutSolved";
 import type { RFAnyNode } from "../../src/canvas/layout";
 import { pack } from "../../src/data/load";
@@ -20,9 +20,9 @@ import type { ItemTarget } from "../../src/data/targets";
 import { mkEdge, productNode } from "./busRouting.testkit";
 
 // chipSeating's CHIP_PITCH_Y, mirrored from the exported dimensions the way
-// the other seating suites mirror it: the vertical separation two max-scale
-// boxes need, and the threshold this hide is judged at.
-const CHIP_PITCH_Y = MAX_CHIP_SCALE * CHIP_BOX_HEIGHT;
+// the other seating suites mirror it: the vertical separation two chip boxes
+// need, and the threshold this hide is judged at.
+const CHIP_PITCH_Y = CHIP_BOX_HEIGHT;
 
 const CARD_W = 100;
 const CARD_H = 60;
