@@ -106,9 +106,11 @@ export type ItemEdgeData = {
   faninJunctionY?: number;
   // Set on a NON-OWNER fan-in member whose OWN rate chip would sit ON the shared
   // run (between the merge point and the port), where the owner's own rate chip
-  // reads: ItemEdge then draws no rate chip, keeping the exact member rate on a
-  // transparent hover path (and the target card's input row). Members whose chip
-  // sits on their own PRE-merge leg keep it. Mirrors the bus member-hide.
+  // reads: ItemEdge then draws no rate chip, keeping the exact member rate on
+  // the edge's hover tooltip (the transparent hover path) and on the target
+  // card's input row, which reveals its rate on hover or selection. Members
+  // whose chip sits on their own PRE-merge leg keep it. Mirrors the bus
+  // member-hide.
   // faninChipHiddenAtY records the port y the hide was decided at, so the hide
   // (like the whole marker) drops once a drag moves the live port off the stamp.
   faninChipHidden?: boolean;
@@ -117,10 +119,11 @@ export type ItemEdgeData = {
   // chip pitch off its own polyline: ItemEdge then draws no rate chip at all,
   // because at that distance the line runs clear of the box and the chip names
   // no flow. A seat at or under a pitch still draws, the #28 sidestep among
-  // them. The exact rate stays on the hover path and the target card's input
-  // row, as with the fan-in hide above. itemChipHiddenAt records the label
-  // anchor the hide was decided at, so a drag that moves the anchor drops the
-  // hide.
+  // them. The exact rate stays on the edge's hover tooltip (the transparent
+  // hover path) and on the target card's input row, which reveals its rate on
+  // hover or selection, as with the fan-in hide above. itemChipHiddenAt records
+  // the label anchor the hide was decided at, so a drag that moves the anchor
+  // drops the hide.
   itemChipHidden?: true;
   itemChipHiddenAt?: { x: number; y: number };
   // Declined fan-out marker (deconflictChipAnchors, #43). Where N >= 2 edges of
@@ -667,10 +670,11 @@ export default function ItemEdge({
   // rounding hides (chips now accept pointer events, so hovering shows it).
   // A non-owner fan-in member whose own rate chip would sit on the shared merged
   // run draws no rate chip -- the owner's own chip reads there instead. The exact
-  // member rate stays reachable on the transparent hover path below (and the
-  // target card's input row), mirroring the bus member-hide. The hide was taken
-  // at the target port row, so it is checked against the LIVE target port y
-  // React Flow measured (the targetY prop).
+  // member rate stays reachable on the edge's hover tooltip, the transparent
+  // hover path below (and on the target card's input row, which reveals its
+  // rate on hover or selection), mirroring the bus member-hide. The hide was
+  // taken at the target port row, so it is checked against the LIVE target
+  // port y React Flow measured (the targetY prop).
   const ownChipHidden =
     edgeData?.faninChipHidden === true &&
     faninHideLive(edgeData.faninChipHiddenAtY, targetY);

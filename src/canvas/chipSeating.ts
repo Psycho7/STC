@@ -2837,7 +2837,8 @@ export function deconflictChipAnchors(
   // to seatChip the crowded rises cascade off the band into empty canvas
   // above/below the graph (issue #24). Instead keep only the rises the run
   // supports and hide the overflow: each hidden member's rate remains on its
-  // target card's input row and its edge tooltip (mirroring fanoutBranchHidden).
+  // edge tooltip and on the target card's input row, which reveals its rate
+  // on hover or selection (mirroring fanoutBranchHidden).
   // No aggregate chip exists on a multi-member trunk (issue #39); the run's
   // capacity all goes to member rises, farthest from the junction first (edge-id
   // tie-break). The keep order measures the distance from the shared junction to
@@ -2914,8 +2915,9 @@ export function deconflictChipAnchors(
     // capacity check above hides a crowded rise to avoid (issue #37). One step
     // still reads as sitting beside the lane; two or more do not, so past that
     // the rise is unseatable: release its seat (seatChip reserves exactly one
-    // box, and hands it back) and hide it, its rate staying on the target card's
-    // input row and the edge tooltip like every other hidden member's.
+    // box, and hands it back) and hide it, its rate staying on the edge
+    // tooltip and on the target card's input row, which reveals its rate on
+    // hover or selection, like every other hidden member's.
     if (Math.abs(riseDy) > CHIP_PITCH_Y) {
       field.unseat(riseBox);
       busRiseHiddenByIndex.add(slot.index);
@@ -3124,7 +3126,8 @@ export function deconflictChipAnchors(
     // parked off-line: a narrow-corridor fan-out cannot host two max-scale chip
     // boxes side by side, so once the owner's aggregate covers the short path
     // an off-line seat would float in empty canvas. The rate it would have
-    // shown remains on the target card's input row and in the edge tooltip.
+    // shown remains on the edge tooltip and on the target card's input row,
+    // which reveals its rate on hover or selection.
     // The hide is stamped with the branch anchor it was decided at, so BusEdge
     // can drop it once a node drag moves the live anchor away from the stamp.
     // Release the seat the off-line tiers reserved so the phantom box never
@@ -3248,8 +3251,9 @@ export function deconflictChipAnchors(
     // and a chip pitch is the separation the whole pass is built on. Past a
     // pitch the line runs a full box-height clear of the box and the chip
     // names nothing where it sits (the issue-#9 shape), so hide it the way a
-    // fan-out branch chip with no on-line seat hides: the rate stays on the
-    // target card's input row and on this edge's tooltip. The measure is the
+    // fan-out branch chip with no on-line seat hides: the rate stays on this
+    // edge's tooltip and on the target card's input row, which reveals its
+    // rate on hover or selection. The measure is the
     // geometry audit's own -- the seated CENTRE against the drawn polyline --
     // so a slide ALONG the line, however long, never counts. One exemption:
     // a chip whose own line is too short to hold even its collapsed box steps
@@ -3273,7 +3277,8 @@ export function deconflictChipAnchors(
     // A non-owner fan-in member whose own chip SEATED on the shared run (at the
     // port y, between the merge and the port) crowds the run the owner's chip
     // reads on: release its box and hide it (ItemEdge draws no rate chip, the exact
-    // rate stays on the hover path and the target card's input row). A member
+    // rate stays on the edge's hover tooltip and on the target card's input
+    // row, which reveals its rate on hover or selection). A member
     // seated on its own PRE-merge leg (off the run) keeps its chip. Anchor-based
     // hiding cannot catch a member that SLID onto the run, so this reads the
     // seated centre.

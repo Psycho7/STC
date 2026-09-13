@@ -13,12 +13,16 @@ pixels.
 
 ## Cards
 
-A recipe card has a header carrying the recipe name and the machine multiplier
-(xN), then input rows down its left side and output rows down its right, each
-row ending in a port handle with a small item glyph. Output rows read in the
-recipe's own declared order, so two cards of one recipe read alike. Cyan
-product chips are boundary inputs and outputs rather than machines. Group slabs
-and loop boxes are containers, and the cards inside one are its members.
+A recipe card has a header carrying the machine icon, the machine name and the
+machine multiplier (xN), then input rows down its left side and output rows
+down its right, each row ending in a port handle with a small item glyph.
+Output rows read in the recipe's own declared order, so two cards of one recipe
+read alike. At rest a card shows no digits anywhere: no rate column, no
+products line, no footer. Each row's rate appears as an overlay at the row's
+inner end when the pointer is over the card or the card is selected, and it is
+hidden again under the low-zoom band. Cyan product chips are boundary inputs
+and outputs rather than machines. Group slabs and loop boxes are containers,
+and the cards inside one are its members.
 
 An item imported at the boundary draws one input chip. Consumers outside any
 container draw straight from that chip; a container gets a chip of its own,
@@ -26,7 +30,7 @@ marked as a tap and fed by the item's chip, because an edge entering a
 container has to enter it once. So several tap chips of one item mean several
 containers, not several consumers.
 
-A name too long for its row, its title or the products line elides
+A name too long for its row or its title elides
 tail-first: a distinguishing trailing bracket group or word is kept whole with
 the ellipsis in front of it. When the whole tail cannot fit beside a readable
 head, a partial tail is preserved instead -- a window into the tail over the
@@ -134,9 +138,10 @@ rate. The single exception is a lane member's chip on a multi-member trunk,
 which reads as that member's share of the trunk ("30/270"); a lone member is
 its own total and keeps the plain rate and unit. A fan-out branch chip is not
 that exception: it keeps the plain rate and unit the item edges beside it
-carry. Totals otherwise live on the node cards' rows. A trunk total on a chip
-and the same total on a card come from one formatter, so they should read
-alike; members rounded independently can still sum a cent off that number.
+carry. Totals otherwise live on the node cards' rows, which reveal their rates
+on hover or selection. A trunk total on a chip and the same total on a card
+come from one formatter, so they should read alike; members rounded
+independently can still sum a cent off that number.
 
 Chips, machine cards, boundary cards, product-chip captions and the totals lines
 all draw from one formatter, so a plan shows one rate unit throughout. A mix
@@ -172,6 +177,9 @@ the lane buys no lift at all.
 
 Do not report these as defects.
 
+- A card at rest shows no row rates: each row's rate is an overlay that appears
+  only while the pointer is over the card or the card is selected, and below
+  the low-zoom band the overlay stays hidden even then.
 - Rate chips are hidden below zoom 0.35. A fit shot of a dense plan therefore
   shows few chips or none, and card detail fades at low zoom by design.
 - A chip on a leg too short for its box renders icon-only at any zoom, fan-out
@@ -191,15 +199,15 @@ Do not report these as defects.
 - A lane rise chip may cover its own junction dot. The dot is decorative, a rate
   chip lifted clear of the lane it labels is not.
 - A fan-out branch chip, or a fan-in member chip that would land on the shared
-  run, may be deliberately hidden. The rate remains on the target card's input
-  row and on the edge's hover tooltip.
+  run, may be deliberately hidden. The rate remains on the edge's hover tooltip
+  and on the target card's input row, which reveals it on hover or selection.
 - A plain item edge may draw no chip at all: a bare stroke with no chip on it,
   not even an icon-only square, is the seating pass hiding a chip whose only
   remaining seat was more than one chip pitch off the line it labels (a
   crowded corridor, a foreign stroke or a neighbouring chip on every on-line
-  seat). The rate stays on the target card's input row and on the edge's hover
-  tooltip. A step of a pitch or less still reads as sitting beside its line and
-  still draws.
+  seat). The rate stays on the edge's hover tooltip and on the target card's
+  input row, which reveals it on hover or selection. A step of a pitch or less
+  still reads as sitting beside its line and still draws.
 - Mid-drag, a fan-in merge dot can vanish while the merged run still shows one
   member's rate. The dot hides as soon as its stamped x leaves the owner's live
   polyline, while a non-owner member's chip hide is pinned to the port ROW
@@ -210,9 +218,9 @@ Do not report these as defects.
   chip's separation from its neighbours, and when its seat would have to leave
   the lane by more than one pitch and float in empty canvas. A lane with three
   members and one share chip is that hide, not a missing label; the rate stays
-  on the edge's hover tooltip and on the target card's input row. Only a lone
-  trunk is guaranteed a label, by the drop chip that returns when its rise is
-  hidden.
+  on the edge's hover tooltip and on the target card's input row, which reveals
+  it on hover or selection. Only a lone trunk is guaranteed a label, by the
+  drop chip that returns when its rise is hidden.
 - The short break in a stroke at a crossing (see Edges) is not-a-break. No flow
   is interrupted there: the passing-under edge is continuous in the model, and
   the gap exists only to say "crossing, not a merge". Likewise the stroke that

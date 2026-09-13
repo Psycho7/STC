@@ -216,7 +216,7 @@ gets; a relative path resolves against the repo root, whatever directory the run
 
 A finding here is a failure of `test/e2e/geometry-audit.spec.ts`, and nothing else: either a
 baseline EXCEEDANCE, or one of its hard zero-tolerance assertions (off-centre handles,
-mult-chip/rate-block overlaps, chip-vs-chip overlaps, chips clipped outside the pane,
+chip-vs-chip overlaps, chips clipped outside the pane,
 flow-chip-over-junction z-order, tier 1 segments entering a foreign raw card, the tundra
 ore-feed presence check). That spec already encodes every ruling this repo has made about
 acceptable geometry; the exam must not compute defects from its own numbers.
