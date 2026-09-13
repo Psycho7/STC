@@ -56,6 +56,22 @@ oracle; nothing under tools/ is bundled into the planner application. The MIT
 license text above covers it.
 
 ------------------------------------------------------------------------------
+AKEData (vendored snapshot at vendor/akedata/)
+------------------------------------------------------------------------------
+
+Source:    https://data.akedata.wiki (site: https://www.akedata.wiki)
+Code repo: https://github.com/NagiYume/AKEDatabase
+Snapshot:  TableCfg tables; the game version and hotfix are recorded in
+           vendor/akedata/SOURCE.json
+License:   AGPL-3.0 per the repository README; the LICENSE file carries
+           GPLv3 text
+
+Scope note: the license covers the AKEDatabase site code only, and no code
+from that repository is vendored, so no GPL text is reproduced here. The 14
+vendored tables are the game's own TableCfg data (Hypergryph / Gryphline game
+content) and fall under the game-content section below.
+
+------------------------------------------------------------------------------
 Game content: Arknights: Endfield
 ------------------------------------------------------------------------------
 
