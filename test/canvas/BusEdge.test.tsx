@@ -293,11 +293,10 @@ describe("canvas/BusEdge trunk labels", () => {
     }
   });
 
-  it("draws no aggregate chip on a multi-member trunk", async () => {
-    // A multi-member trunk draws no drop chip: its summed total restated the
-    // source card's own rate one card-width away while reading as one more
-    // flow, so the members' own chips and the card rates carry the information
-    // (issue #39).
+  it("draws the aggregate chip on a multi-member trunk", async () => {
+    // Every trunk draws its one aggregate on the owner: the whole port's total
+    // beside the trunk segment, with each member's own rate on its branch. The
+    // gap was widened for both chips before the trunk was routed.
     renderEdge(
       {
         item: "Iron Plate",
@@ -311,11 +310,13 @@ describe("canvas/BusEdge trunk labels", () => {
       1,
     );
     await findEdgePath();
-    expect(
-      document.querySelector('[data-testid="bus-edge-label-e1-drop"]'),
-    ).toBeNull();
-    // The member's own branch chip carries its own rate instead (R3: a fan-out
-    // branch keeps the plain rate + unit reading its unformed siblings read).
+    const drop = document.querySelector<HTMLElement>(
+      '[data-testid="bus-edge-label-e1-drop"]',
+    );
+    expect(drop).not.toBeNull();
+    expect(drop!.textContent).toBe("120/min");
+    // The member's own branch chip carries its own rate (R3: a fan-out branch
+    // keeps the plain rate + unit reading its unformed siblings read).
     const rise = document.querySelector<HTMLElement>(
       '[data-testid="bus-edge-label-e1-rise"]',
     );
@@ -433,9 +434,9 @@ describe("canvas/BusEdge trunk labels", () => {
   it("skips the branch chip of a fan-out member flagged fanoutBranchHidden", async () => {
     // deconflictChipAnchors hides a branch chip when no chip/card-clear seat
     // exists anywhere on the member's own polyline (a narrow-corridor fan-out
-    // whose aggregate covers the whole short path). This trunk is multi-member,
-    // so it draws no aggregate either: the member is left with no chip at all
-    // and its rate rides the hover tooltip (next test).
+    // whose aggregate covers the whole short path). The member's own rate is
+    // left to the hover tooltip (next test); the trunk's aggregate still
+    // draws, since this member is its owner.
     renderEdge(
       {
         item: "Iron Plate",
@@ -453,7 +454,9 @@ describe("canvas/BusEdge trunk labels", () => {
     expect(
       document.querySelector('[data-testid="bus-edge-label-e1-rise"]'),
     ).toBeNull();
-    expect(chips()).toHaveLength(0);
+    expect(chips().map((l) => l.getAttribute("data-testid"))).toEqual([
+      "bus-edge-label-e1-drop",
+    ]);
   });
 
   it("drops a stale hide on real anchor divergence but rides out reconstruction noise", async () => {
@@ -485,8 +488,8 @@ describe("canvas/BusEdge trunk labels", () => {
     const anchor = { x: Number(m![1]), y: Number(m![2]) };
     cleanup();
 
-    // A stamp off by a unit is reconstruction noise: the hide holds. The trunk
-    // is multi-member, so no aggregate chip stands in for it either.
+    // A stamp off by a unit is reconstruction noise: the hide holds, leaving
+    // the trunk's aggregate as the owner's only chip.
     renderEdge(
       {
         ...fanData,
@@ -496,7 +499,9 @@ describe("canvas/BusEdge trunk labels", () => {
       1,
     );
     await findEdgePath();
-    expect(chips()).toHaveLength(0);
+    expect(chips().map((l) => l.getAttribute("data-testid"))).toEqual([
+      "bus-edge-label-e1-drop",
+    ]);
     cleanup();
 
     // A stamp a hundred units away is a drag: the hide is stale, chip returns.
@@ -510,7 +515,7 @@ describe("canvas/BusEdge trunk labels", () => {
     );
     await findEdgePath();
     const labels = chips();
-    expect(labels).toHaveLength(1);
+    expect(labels).toHaveLength(2);
     expect(labels.map((l) => l.getAttribute("data-testid"))).toContain(
       "bus-edge-label-e1-rise",
     );

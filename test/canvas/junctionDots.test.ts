@@ -10,7 +10,7 @@ import Fraction from "fraction.js";
 import type { Edge } from "@xyflow/react";
 
 import { deconflictChipAnchors } from "../../src/canvas/chipSeating";
-import { routeFanoutEdges, FANOUT_SPAN_MIN } from "../../src/canvas/busRouting";
+import { routeFanoutEdges } from "../../src/canvas/busRouting";
 import {
   drawnPortsOf,
   nodeWidth,
@@ -155,10 +155,10 @@ describe("junction dots: fan-in merge (stamped on the owner item edge)", () => {
 
 describe("junction dots: declined fan-out divergence (stamped on the owner)", () => {
   it("stamps the column where the coincident members first split", () => {
-    // A gap below FANOUT_SPAN_MIN: routeFanoutEdges declines the group, so both
-    // members stay plain item edges leaving one out-port coincident.
-    const gap = 28;
-    expect(gap).toBeLessThanOrEqual(FANOUT_SPAN_MIN);
+    // Two members two layers over: routeFanoutEdges pins both to the trunk's
+    // shared column and retypes neither, so they leave one out-port coincident
+    // as plain item edges. The filler card makes the layer between.
+    const gap = 1000;
     const src = producer("src", 0, 0);
     // Row tops that put a consumer's in-port on the source's out-port row, so
     // "straight" never leaves that row and "bent" peels off 200 units below it.
@@ -167,19 +167,20 @@ describe("junction dots: declined fan-out divergence (stamped on the owner)", ()
     const rowTop = portOffsetY(src, ITEM, "out") - inY;
     const straight = consumer("straight", nodeWidth(src) + gap, rowTop);
     const bent = consumer("bent", nodeWidth(src) + gap, rowTop + 200);
-    const nodes: RFAnyNode[] = [src, straight, bent];
-    const edges = [
+    const mid = consumer("mid", nodeWidth(src) + 300, rowTop + 2800);
+    const nodes: RFAnyNode[] = [src, mid, straight, bent];
+    const routed = routeFanoutEdges(nodes, [
       rateEdge("e:a", "src", "straight"),
       rateEdge("e:b", "src", "bent"),
-    ];
-    expect(routeFanoutEdges(nodes, edges).map((e) => e.type)).toEqual([
-      "item",
-      "item",
     ]);
+    expect(routed.map((e) => e.type)).toEqual(["item", "item"]);
 
-    const out = deconflictChipAnchors(nodes, edges);
+    const out = deconflictChipAnchors(nodes, routed);
     const owner = dataOf(out, "e:b"); // smallest id among the BENDING members
-    expect(owner.fanoutJunctionX).toBe(312.5);
+    // The shared column (the corridor midpoint, 800) less one chamfer: the last
+    // vertex both members still share is where the bent one starts turning.
+    expect((routed[1]!.data as { bendX?: number }).bendX).toBe(800);
+    expect(owner.fanoutJunctionX).toBe(792);
     expect(owner.fanoutJunctionY).toBe(drawnPortsFor(src, straight).sourceY);
     expect(owner.fanoutJunctionY).toBe(98);
     // One dot per split: the non-owner carries none.
@@ -189,8 +190,10 @@ describe("junction dots: declined fan-out divergence (stamped on the owner)", ()
 
 describe("junction dots: declined fan-out divergence owner election", () => {
   it("elects a bending member, so the stamp lies on the owner's own line", () => {
-    // Same declined-fan-out shape as above, but the smallest-id member is the
-    // STRAIGHT leg and its target stops short of the sibling's peel-off column:
+    // Two item edges off one out-port, hand-built: the shape a pair of members
+    // one of which a jog pushed onto its own column draws. The smallest-id
+    // member is the STRAIGHT leg and its target stops short of the sibling's
+    // peel-off column:
     // stamping the dot on that member would leave it off the line it is drawn
     // from, and ItemEdge's on-own-polyline gate would hide it at rest.
     const src = producer("src", 0, 0);
@@ -204,13 +207,6 @@ describe("junction dots: declined fan-out divergence owner election", () => {
       rateEdge("e:a", "src", "straight"),
       rateEdge("e:b", "src", "bent"),
     ];
-    // Only the bent member clears FANOUT_SPAN_MIN, so the trunk never reaches
-    // two members and both stay plain item edges.
-    expect(routeFanoutEdges(nodes, edges).map((e) => e.type)).toEqual([
-      "item",
-      "item",
-    ]);
-
     const out = deconflictChipAnchors(nodes, edges);
     const stamped = edges.find(
       (e) => dataOf(out, e.id).fanoutJunctionX !== undefined,

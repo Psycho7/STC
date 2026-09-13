@@ -180,7 +180,7 @@ describe("deconflictChipAnchors: merged collision set", () => {
 
 describe("deconflictChipAnchors: fan-out aggregate seat (3b)", () => {
   const r = mkRecipe("r", ["a"], ["b"]);
-  const oneGap = 410; // 410 - 300 = 110, inside FANOUT_SPAN_MAX
+  const oneGap = 410; // one layer over: a 110-unit gap right of the source
 
   const aggOf = (edges: Edge[], id: string) =>
     edges.find((e) => e.id === id)!.data as {
@@ -189,11 +189,10 @@ describe("deconflictChipAnchors: fan-out aggregate seat (3b)", () => {
       busChipOwner?: boolean;
     };
 
-  it("stamps no aggregate offset on a multi-member fan-out trunk", () => {
-    // A clean 2-member fan-out. A trunk with more than one member draws no
-    // aggregate chip (issue #39), so phase 3b seats none and neither member
-    // carries an aggregate offset: not the owner (nothing was seated) and not the
-    // non-owner (phase 3b only ever ran under `if (geom.owner)`).
+  it("seats the aggregate on a multi-member fan-out trunk's owner", () => {
+    // A clean 2-member fan-out. Every trunk draws one aggregate chip, on its
+    // owner, so phase 3b seats the owner's -- and only the owner's: it runs
+    // under `if (geom.owner)`, so a non-owner never carries an offset.
     const nodes: RFAnyNode[] = [
       recipeNode("s", 0, 0, r),
       recipeNode("t1", oneGap, 0, r),
@@ -209,9 +208,13 @@ describe("deconflictChipAnchors: fan-out aggregate seat (3b)", () => {
     // The non-owner never had an aggregate offset.
     expect(aggOf(out, "e1").fanoutAggDx).toBeUndefined();
     expect(aggOf(out, "e1").fanoutAggDy).toBeUndefined();
-    // The owner has none either: no aggregate chip is seated on a 2-member trunk.
-    expect(aggOf(out, "e0").fanoutAggDx).toBeUndefined();
-    expect(aggOf(out, "e0").fanoutAggDy).toBeUndefined();
+    // The owner's aggregate WAS seated: this short in-corridor trunk is crowded
+    // by the members' own chips, so the seat steps off the anchor rather than
+    // parking on it (an offset stamped on at least one axis).
+    const owner = aggOf(out, "e0");
+    expect(
+      (owner.fanoutAggDx ?? 0) !== 0 || (owner.fanoutAggDy ?? 0) !== 0,
+    ).toBe(true);
   });
 
   it("seats the short-path branch chip the removed aggregate used to cover", () => {
@@ -219,8 +222,7 @@ describe("deconflictChipAnchors: fan-out aggregate seat (3b)", () => {
     // junction, and that leg is narrower than the chip's own reserved box, so
     // while the owner's aggregate box sat on that corridor there was no
     // chip/card-clear point anywhere on the member's own leg and its branch
-    // chip was hidden. The multi-member trunk draws no aggregate (issue #39),
-    // so the corridor is free and the branch chip seats. Task 8 re-derivation:
+    // chip was hidden. Task 8 re-derivation:
     // the branch short-leg rule now measures the member's OWN leg (the suffix
     // after the junction) against the chip's natural width, so BOTH members
     // collapse to the icon-only variant here -- the short member's riser leg

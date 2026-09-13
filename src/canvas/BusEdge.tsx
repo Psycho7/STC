@@ -86,14 +86,13 @@ export default function BusEdge({
     edgeData !== undefined &&
     (zoom >= LABEL_MIN_ZOOM || edgeData.focused === true);
 
-  // Drop chip: drawn only on a SINGLE-member trunk, where it is that edge's
-  // plain rate label at the junction. A multi-member trunk draws no aggregate:
-  // the summed total restated the source card's own rate while reading as one
-  // more flow, so the members' own chips and the card rates carry the
-  // information (issue #39). The junction dot still marks the trunk.
+  // Drop chip: the trunk's ONE aggregate, drawn by the elected owner on the
+  // shared trunk segment. It shows the whole port's total -- on a single-member
+  // trunk that is simply that edge's own rate. The gap the trunk runs through
+  // was widened for this chip before routing, so it has room beside the
+  // members' own chips.
   const isOwner = isTrunkOwner(edgeData);
   const totalRate = edgeData?.busTotalRate ?? edgeData?.rate;
-  const memberCount = edgeData?.busMemberCount ?? 1;
   // Per-member (branch) chip gate: zoom-gated, except that a hover-lit member is
   // exempt -- the hover asks for this member's rate, so the zoom gate must not
   // swallow the answer.
@@ -225,7 +224,7 @@ export default function BusEdge({
           zoom={zoom}
         />
       ) : null}
-      {isOwner && memberCount === 1 && dropText
+      {isOwner && dropText
         ? renderChip("drop", aggX, aggY, dropText, dropLabel, dropTitle)
         : null}
       {riseText

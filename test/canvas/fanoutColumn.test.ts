@@ -2,14 +2,16 @@
 // out of the members whose target sits one layer over; everything further took
 // its own staggered bend column, so an input card feeding N consumers drew N
 // parallel verticals beside the card. Now every member of one (item, source
-// port) group rides ONE column: the near ones as retyped bus fan-out branches
-// (a straight leg and the junction dot), the far ones as plain item edges pinned
-// to the same column with { bendX, fanoutColumn } -- keeping jogForwardLegs and
-// the rest of the item-edge passes, which a bus-typed member would lose.
+// port) group rides ONE column: the ones ending in the NEXT layer as retyped
+// bus fan-out branches (a straight leg and the junction dot), the ones further
+// right as plain item edges pinned to the same column with { bendX,
+// fanoutColumn } -- keeping jogForwardLegs and the rest of the item-edge
+// passes, which a bus-typed member would lose.
 //
 // These suites pin the split between the two member kinds, the single column,
-// the chip anchor that moves off that column onto each member's own leg, and the
-// column's leg floor.
+// and the chip anchor that moves off that column onto each member's own leg.
+// Near / far is LAYER distance, so a fixture that wants a far member puts a
+// card in the layer between.
 
 import { describe, it, expect } from "vitest";
 import Fraction from "fraction.js";
@@ -45,9 +47,13 @@ const JOG_RECOLUMNED_MEMBERS = 0;
 
 const ITEM = "s";
 
-// One layer is a column gap plus a recipe card, the pitch routeFanoutEdges'
-// near / far bound is derived from.
+// One layer is a column gap plus a recipe card.
 const LAYER_PITCH = 410;
+
+// A card parked in the layer between, far below the trunk's own rows: it makes
+// the layer the near / far split needs without obstructing any leg.
+const layerFiller = (id: string, x: number): RFRecipeNode =>
+  consumer(id, x, 2800);
 
 const producer = (id: string, x: number, y: number): RFRecipeNode =>
   recipeNode(id, x, y, mkRecipe(id, [], [ITEM]));
@@ -192,6 +198,7 @@ describe("routeFanoutEdges: a trunk of far members only", () => {
     const src = producer("src", 0, 0);
     const nodes: RFAnyNode[] = [
       src,
+      layerFiller("mid", LAYER_PITCH),
       consumer("far1", 3 * LAYER_PITCH, 0),
       consumer("far2", 3 * LAYER_PITCH, 420),
       consumer("far3", 3 * LAYER_PITCH, 840),
@@ -222,70 +229,14 @@ describe("routeFanoutEdges: a trunk of far members only", () => {
     // out of the port and never peels off, so it carries no split of its own.
     expect(owners).toEqual(["e:2"]);
     const owner = dataOf(routed, "e:2");
-    const ends = drawnPortsFor(src, nodes[2] as RFRecipeNode);
+    const ends = drawnPortsFor(src, nodes[3] as RFRecipeNode);
     expect(owner.fanoutJunctionY).toBe(ends.sourceY);
     expect(owner.fanoutJunctionX).toBeGreaterThan(ends.sourceX);
     expect(owner.fanoutJunctionX).toBeLessThan(ends.targetX);
   });
 });
 
-describe("routeFanoutEdges: the column's chip leg floor", () => {
-  // Two members off one port whose nearest target sits `gap` away, plus one far
-  // member so the shape is the mixed one the floor governs. With only ONE near
-  // member the trunk retypes nothing: both members ride the column as item
-  // edges (a lone near branch has no sibling branch to share a junction render
-  // with, and the bus form would cost it its plain rate chip).
-  const floorFixture = (
-    gap: number,
-  ): { nodes: RFAnyNode[]; routed: Edge[]; nearTx: number } => {
-    const src = producer("src", 0, 0);
-    const near = consumer("near", nodeWidth(src) + gap, 260);
-    const far1 = consumer("far1", 3 * LAYER_PITCH, 620);
-    const far2 = consumer("far2", 3 * LAYER_PITCH, 980);
-    const nodes: RFAnyNode[] = [src, near, far1, far2];
-    const routed = routeFanoutEdges(nodes, [
-      edge("e:1", "src", "near"),
-      edge("e:2", "src", "far1"),
-      edge("e:3", "src", "far2"),
-    ]);
-    return { nodes, routed, nearTx: drawnPortsFor(src, near).targetX };
-  };
-
-  it("shifts the column left when the nearest leg cannot hold a chip", () => {
-    // A 260-unit corridor: the midpoint would leave the near member ~100 units
-    // of leg, less than a wide chip, so the column moves left toward corLo.
-    const gap = 260;
-    const { nodes, routed } = floorFixture(gap);
-    const src = nodes[0] as RFRecipeNode;
-    const sx = src.position.x + nodeWidth(src);
-    const tx = (nodes[1] as RFRecipeNode).position.x;
-    const column = dataOf(routed, "e:1").bendX as number;
-
-    expect(typeOf(routed, "e:1")).toBe("item");
-    expect(dataOf(routed, "e:1").fanoutColumn).toBe(true);
-    expect(column).toBeLessThan((sx + tx) / 2);
-    // Still inside the corridor, and still left of the floor it was shifted to.
-    expect(column).toBeGreaterThanOrEqual(sx + PORT_STUB + CHAMFER);
-    expect(column).toBeLessThanOrEqual(tx - PORT_STUB - CHAMFER - DOT_KEEPOFF);
-  });
-
-  it("leaves out a near member no column can give a chip leg", () => {
-    // A corridor too narrow for even corLo to leave a chip-wide leg. Joining
-    // this member would cost it the rate chip it reads today (the leg cannot
-    // hold the box, so the seat would collapse it to icon-only), so it stays a
-    // plain edge with its own bend column while the far pair still forms.
-    const gap = 100;
-    const { routed } = floorFixture(gap);
-    const near = dataOf(routed, "e:1");
-    expect(near.fanoutColumn).toBeUndefined();
-    expect(near.bendX).toBeUndefined();
-    expect(typeOf(routed, "e:1")).toBe("item");
-
-    const column = dataOf(routed, "e:2").bendX as number;
-    expect(typeof column).toBe("number");
-    expect(dataOf(routed, "e:3").bendX).toBe(column);
-  });
-
+describe("routeFanoutEdges: the shared column and its neighbours", () => {
   it("keeps the stagger of other edges off the shared column", () => {
     // assignBendColumns cannot re-place a pinned member, but it must not fan
     // ANOTHER edge's vertical onto the column either: a staggered column half a
@@ -295,6 +246,7 @@ describe("routeFanoutEdges: the column's chip leg floor", () => {
     const nodes: RFAnyNode[] = [
       src,
       other,
+      layerFiller("mid", LAYER_PITCH),
       consumer("far1", 3 * LAYER_PITCH, 0),
       consumer("far2", 3 * LAYER_PITCH, 420),
       consumer("plain", 3 * LAYER_PITCH, 1400),
@@ -306,23 +258,24 @@ describe("routeFanoutEdges: the column's chip leg floor", () => {
     ]);
     const column = dataOf(routed, "e:1").bendX as number;
     expect(dataOf(routed, "e:2").bendX).toBe(column);
-    // The unpinned edge shares the band (both sources are one layer) and takes
-    // its staggered column a full stub clear of the claimed one.
+    // The unpinned edge shares the band (both sources are one layer) and keeps
+    // its staggered column a full stub clear of the claimed one, either side.
     expect(dataOf(routed, "e:3").fanoutColumn).toBeUndefined();
-    expect(dataOf(routed, "e:3").bendX as number).toBeGreaterThanOrEqual(
-      column + PORT_STUB,
-    );
+    expect(
+      Math.abs((dataOf(routed, "e:3").bendX as number) - column),
+    ).toBeGreaterThanOrEqual(PORT_STUB);
   });
 
-  it("keeps the bus retype where TWO near members share the junction", () => {
-    // The control for the lone-near rule above: a second near member restores
-    // the branch-and-junction render, so the retype is about the near GROUP,
-    // not about the presence of far siblings.
+  it("retypes both near members and pins the far one beside them", () => {
+    // A mixed trunk: the two members ending one layer over draw the
+    // branch-and-junction render, the third borrows their column as an item
+    // edge.
     const src = producer("src", 0, 0);
     const nodes: RFAnyNode[] = [
       src,
       consumer("near1", nodeWidth(src) + 260, 260),
       consumer("near2", nodeWidth(src) + 260, 560),
+      layerFiller("mid", 2 * LAYER_PITCH),
       consumer("far", 3 * LAYER_PITCH, 900),
     ];
     const routed = routeFanoutEdges(nodes, [
@@ -398,12 +351,13 @@ describe("chip seating: a pinned member's chip stays off the shared column", () 
     const src = producer("src", 0, 0);
     const blocker = recipeNode(
       "blk",
-      LAYER_PITCH,
+      2 * LAYER_PITCH,
       560,
       mkRecipe("blk", ["z"], ["z"]),
     );
     const nodes: RFAnyNode[] = [
       src,
+      layerFiller("mid", LAYER_PITCH),
       blocker,
       consumer("far1", 3 * LAYER_PITCH, 600),
       consumer("far2", 3 * LAYER_PITCH, 900),
@@ -420,7 +374,7 @@ describe("chip seating: a pinned member's chip stays off the shared column", () 
     expect(typeof legY).toBe("number");
 
     const [, labelX, labelY] = chamferStepPath({
-      ...drawnPortsFor(src, nodes[2] as RFRecipeNode),
+      ...drawnPortsFor(src, nodes[3] as RFRecipeNode),
       ...routingHintsFromData(data),
     });
     const anchorX = labelX + ((data.labelDx as number | undefined) ?? 0);

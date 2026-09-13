@@ -23,10 +23,10 @@
 // node objects and never touches the input array or its positions. Every routing
 // pass runs on the widened nodes and keeps its read-only contract.
 //
-// Membership in a trunk is TOPOLOGICAL here, not geometric: any (item, unit)
-// port with two or more edges is a trunk whatever the gap widths are.
-// routeFanoutEdges still groups geometrically; the two are independent, and this
-// module is the one the reserves are measured from.
+// Membership in a trunk is TOPOLOGICAL, not geometric: any (item, unit) port
+// with two or more edges is a trunk whatever the gap widths are. routeFanoutEdges
+// takes its trunks from classifyTrunks here, so the trunks the reserves are
+// measured for are exactly the ones that get routed.
 
 import Fraction from "fraction.js";
 import type { Edge } from "@xyflow/react";

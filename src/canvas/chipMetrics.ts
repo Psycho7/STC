@@ -145,8 +145,9 @@ export function rateChipText(edge: Edge): ChipText | undefined {
 }
 
 // The chip text a fan-out trunk's AGGREGATE chip draws: the trunk total (falling
-// back to this member's own rate, as BusEdge does) plus the unit. Only seated on
-// a single-member trunk, where the total IS that member's rate (issue #39).
+// back to this member's own rate, as BusEdge does) plus the unit. Every trunk
+// draws one, on its owner; on a single-member trunk the total IS that member's
+// rate.
 export function aggregateChipText(edge: Edge): ChipText | undefined {
   const total = (edge.data as BusEdgeData | undefined)?.busTotalRate;
   return total === undefined

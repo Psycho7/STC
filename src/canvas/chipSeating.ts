@@ -1800,16 +1800,12 @@ export function deconflictChipAnchors(
       });
       // The branch gate reads the member's own leg, never the trunk-including
       // polyline, and its window also subtracts the split dot's keep-off: the
-      // chip must fit between the split and the target's furniture. A
-      // contested corridor collapses the chip too: the wide box reaches the
-      // sibling trunk's column from every seat there.
+      // chip must fit between the split and the target's furniture.
       const bands = ownPortBandXs(edge);
       bands.push({ lo: -Infinity, hi: drawn.junction.x + DOT_KEEPOFF });
-      if (
-        !measureWindow(edge.id, branchPts, bands, branchChipText(edge)) ||
-        (edge.data as FanoutBusEdgeData).fanoutContested === true
-      )
+      if (!measureWindow(edge.id, branchPts, bands, branchChipText(edge))) {
         branchIconOnlyByIndex.add(index);
+      }
     } else {
       itemGeomById.set(edge.id, {
         pts: drawn.pts,
@@ -2341,8 +2337,6 @@ export function deconflictChipAnchors(
   for (const { edge, index } of fanoutEdges) {
     const geom = fanoutGeomById.get(edge.id)!;
     if (!geom.owner) continue;
-    // Multi-member trunks draw no aggregate chip (issue #39), so seat none.
-    if (((edge.data as BusEdgeData).busMemberCount ?? 1) > 1) continue;
     // The aggregate seats on the SHARED TRUNK sub-polyline only (source port ->
     // junction), never the owner's private branch leg: the tier-1 slide runs
     // horizontally along [source port, trunkEnd]. trunkEnd sits a keep-off left
@@ -2821,9 +2815,8 @@ export function contentBounds(
         drawn.labelAnchor.y + (data?.labelDy ?? 0),
       );
     } else if (drawn.shape === "fanout") {
-      // A multi-member trunk renders no aggregate chip (issue #39), so it
-      // frames none.
-      if (isTrunkOwner(data) && (data?.busMemberCount ?? 1) === 1) {
+      // Every trunk draws one aggregate chip, on its owner.
+      if (isTrunkOwner(data)) {
         unionChip(
           drawn.trunkAnchor.x + (data?.fanoutAggDx ?? 0),
           drawn.trunkAnchor.y + (data?.fanoutAggDy ?? 0),

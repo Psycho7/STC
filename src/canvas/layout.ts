@@ -884,14 +884,16 @@ export const ROUTING_PASSES: ReadonlyArray<{
   readonly run: RoutingPass;
   readonly because: string;
 }> = [
-  // Consolidate N >= 2 same-source-port edges in one layer gap onto a shared
-  // junction column (a fan-out trunk, retyped bus).
+  // Put every fan-out trunk of the layer model on one shared junction column,
+  // taken from its gap's reserved column zone (members reaching the next layer
+  // retyped bus, the ones further right pinned to the same column).
   {
     name: "routeFanoutEdges",
     run: routeFanoutEdges,
     because:
-      "Consumes no stamp: it reads the placed nodes alone. It writes the " +
-      'type: "bus" retype and the junction column every pass below keys on.',
+      "Consumes no stamp: it reads the placed nodes and the pre-pass's gap " +
+      'records alone. It writes the type: "bus" retype and the junction ' +
+      "column every pass below keys on.",
   },
   // Stake out per-target entry-gutter columns so backward rails into one node
   // stay parallel.
