@@ -141,6 +141,32 @@ describe("solver status handling", () => {
       lpStatusOverride.status = undefined;
     }
   });
+
+  // A catalyst row never enters the LP, so it can never be the reason a solve
+  // came back infeasible; only the general caps are implicated.
+  it("infeasible error skips a catalyst-role capped override", () => {
+    lpStatusOverride.status = "infeasible";
+    const overrides = [
+      { itemId: "liquid_water", ratePerSec: { num: "0", denom: "1" } },
+      {
+        itemId: "gas_xiranite",
+        role: "catalyst" as const,
+        ratePerSec: { num: "0", denom: "1" },
+      },
+    ];
+    try {
+      let caught: unknown;
+      try {
+        solvePlanWithIntermediates(targets, pack, overrides);
+      } catch (e) {
+        caught = e;
+      }
+      const err = caught as LpInfeasibleError;
+      expect(err.cappedItemIds).toEqual(["liquid_water"]);
+    } finally {
+      lpStatusOverride.status = undefined;
+    }
+  });
 });
 
 describe("multi-producer input of a split SCC member (assemble re-route)", () => {

@@ -16,6 +16,10 @@ export type LpInput = {
   pack: RecipePack;
   itemOverrides?: ItemOverride[];
   recipeCosts?: Map<RecipeId, number>;
+  // Test seam: called once per model built, with the pass label. The model is
+  // the object handed to the engine; observing it is how a suite pins the model
+  // itself rather than the solution it produces.
+  onModel?: (mode: string, model: LpModel) => void;
 };
 
 export type LpResult = {
@@ -45,7 +49,7 @@ type LpModelConstraints = Record<
   string,
   { equal?: number; min?: number; max?: number }
 >;
-type LpModel = {
+export type LpModel = {
   optimize: string;
   opType: "min" | "max";
   constraints: LpModelConstraints;
@@ -340,7 +344,14 @@ export function solveLp(input: LpInput): LpResult {
       }
     }
 
-    return { optimize: "objective", opType: "min", constraints, variables };
+    const model: LpModel = {
+      optimize: "objective",
+      opType: "min",
+      constraints,
+      variables,
+    };
+    input.onModel?.(mode, model);
+    return model;
   };
 
   const pass1 = solver.Solve(buildModel("primary")) as LpRaw;

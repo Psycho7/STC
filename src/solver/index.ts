@@ -60,8 +60,10 @@ function assertSolvable(
 ): void {
   switch (status) {
     case "infeasible": {
+      // Role-less rows only: a catalyst row is never part of the LP, so it
+      // cannot be what made the solve infeasible.
       const cappedItemIds = (itemOverrides ?? [])
-        .filter((o) => o.ratePerSec !== undefined)
+        .filter((o) => o.role === undefined && o.ratePerSec !== undefined)
         .map((o) => o.itemId);
       const targetItemIds = targets.map((t) => t.itemId);
       throw new LpInfeasibleError(cappedItemIds, targetItemIds);

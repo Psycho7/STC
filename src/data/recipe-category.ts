@@ -73,6 +73,17 @@ export function isSinkRecipe(recipe: Recipe): boolean {
 // a real miner and byproduct-only items both qualify; an item that only ever
 // comes out of an internal or input-supply recipe, or only ever at zero qty,
 // does not.
+// The set of items at least one recipe cycles as a catalyst. Only these items
+// can carry a catalyst-role override: every other item has no catalyst supply
+// pool to address.
+export function catalystItemIds(recipes: readonly Recipe[]): Set<string> {
+  const ids = new Set<string>();
+  for (const r of recipes) {
+    for (const c of r.catalyst ?? []) ids.add(c.item);
+  }
+  return ids;
+}
+
 export function producibleItemIds(recipes: readonly Recipe[]): Set<string> {
   const ids = new Set<string>();
   for (const r of recipes) {

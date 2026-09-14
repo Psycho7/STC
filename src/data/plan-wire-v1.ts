@@ -53,10 +53,19 @@ export function toWire(plan: Plan): PlanWireV1 {
     targets,
   };
   if (plan.itemOverrides && plan.itemOverrides.length > 0) {
+    // Overrides are identified by (itemId, role), so the canonical order
+    // breaks an item tie on the role: the role-less row before the catalyst
+    // one ("" sorts below "catalyst").
     wire.itemOverrides = [...plan.itemOverrides]
-      .sort((a, b) => (a.itemId < b.itemId ? -1 : a.itemId > b.itemId ? 1 : 0))
+      .sort((a, b) => {
+        if (a.itemId !== b.itemId) return a.itemId < b.itemId ? -1 : 1;
+        const ra = a.role ?? "";
+        const rb = b.role ?? "";
+        return ra < rb ? -1 : ra > rb ? 1 : 0;
+      })
       .map((o) => ({
         itemId: o.itemId,
+        ...(o.role !== undefined ? { role: o.role } : {}),
         ...(o.plan !== undefined ? { plan: o.plan } : {}),
         ...(o.ratePerSec !== undefined
           ? { ratePerSec: canonicalRational(o.ratePerSec) }
