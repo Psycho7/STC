@@ -288,10 +288,13 @@ describe("catalyst supply edges", () => {
   // container, each slice carrying its own edges.
   it("fans a multi-bucket catalyst item out to container slices", () => {
     const targets: ItemTarget[] = [
-      { itemId: "liquid_copper", ratePerSec: { num: "1", denom: "1" } },
-      { itemId: "liquid_copper_enr", ratePerSec: { num: "1", denom: "10" } },
+      { itemId: "proc_battery_5", ratePerSec: { num: "1", denom: "1" } },
     ];
-    const out = solveForRender({ targets });
+    // Off the smelted-nugget route the copper chain closes a loop, and the
+    // transmuters inside that loop box are catalyst consumers while the rest of
+    // the plan's transmuters stay loose: two buckets on one catalyst item.
+    const recipeCosts = new Map<string, number>([["copper_nugget", 1000]]);
+    const out = solveForRender({ targets, recipeCosts });
     const { full, plan } = out;
     assertClean(out);
 
