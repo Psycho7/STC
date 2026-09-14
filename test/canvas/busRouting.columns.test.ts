@@ -15,6 +15,7 @@ import {
   jogForwardLegs,
   entryGutterRects,
   paddedObstacles,
+  rawCardRects,
   gutterWidth,
   ENTRY_SLOT_PITCH,
   CONTAINER_COLUMN_GAP,
@@ -503,6 +504,28 @@ describe("paddedObstacles", () => {
     expect(framed.bottom - bare.bottom).toBe(
       drawnFramed.bottom - drawnBare.bottom,
     );
+  });
+
+  it("grows an environment recipe's RAW rect by the plate frame too", () => {
+    // The raw-fallback tiers (clearColumnKeepingLeg's tier 2, its leg check and
+    // desiredPierces) resolve against rawCardRects. A frame the padded model
+    // blocks and the raw model does not is a column the fallback happily seats
+    // inside the plates.
+    const plain = recipeNode("p", 0, 0, mkRecipe("p", ["a"], ["b"]));
+    const env: RFAnyNode = {
+      ...plain,
+      id: "e",
+      data: {
+        ...plain.data,
+        recipe: { ...plain.data.recipe, environment: "acidic" },
+      },
+    };
+    const bare = rawCardRects([plain])[0]!;
+    const framed = rawCardRects([env])[0]!;
+    expect(bare.left - framed.left).toBe(ENV_FRAME_EXTENTS.left);
+    expect(framed.right - bare.right).toBe(ENV_FRAME_EXTENTS.right);
+    expect(bare.top - framed.top).toBe(ENV_FRAME_EXTENTS.top);
+    expect(framed.bottom - bare.bottom).toBe(ENV_FRAME_EXTENTS.bottom);
   });
 
   it("includes each node's entry-gutter rect as a first-class obstacle tagged with its node id", () => {
@@ -1277,6 +1300,38 @@ describe("column families keep the pitch floor off each other", () => {
     const out = clampBackwardRails(nodes, edges);
     // One rail keeps its preferred level (unstamped) and the other steps off
     // it, so read each level through its own default.
+    const levelA = railOf(out, "e0").railY ?? preferredOf(edges[0]!);
+    const levelB = railOf(out, "e1").railY ?? preferredOf(edges[1]!);
+    expect(Math.abs(levelA - levelB)).toBeGreaterThanOrEqual(CHAMFER);
+  });
+
+  it("separates two backward rails whose preferred levels are 2px apart", () => {
+    // The near-miss case: two rails in one corridor that want levels a couple
+    // of pixels apart still draw as one line, so the level a placed rail
+    // occupies has to block its whole clearance band, not just the exact y.
+    const sink = mkRecipe("sink", ["b"], ["c"]);
+    const back = mkRecipe("back", ["c"], ["b"]);
+    // t2 sits 4 units below the mirrored position, which moves e0's midpoint
+    // level by 2.
+    const nodes: RFAnyNode[] = [
+      recipeNode("t1", 0, 0, sink),
+      recipeNode("t2", 0, 404, sink),
+      recipeNode("s1", 900, 0, back),
+      recipeNode("s2", 900, 400, back),
+    ];
+    const edges = [
+      mkEdge("e0", "s1", "t2", "b"),
+      mkEdge("e1", "s2", "t1", "b"),
+    ];
+    const byId = nodeIndexOf(nodes);
+    const preferredOf = (edge: Edge): number => {
+      const ports = edgePortsModel(edge, byId)!;
+      return (ports.sy + ports.ty) / 2;
+    };
+    // Premise: the two preferred levels are a hair apart, not equal.
+    expect(preferredOf(edges[0]!) - preferredOf(edges[1]!)).toBe(2);
+
+    const out = clampBackwardRails(nodes, edges);
     const levelA = railOf(out, "e0").railY ?? preferredOf(edges[0]!);
     const levelB = railOf(out, "e1").railY ?? preferredOf(edges[1]!);
     expect(Math.abs(levelA - levelB)).toBeGreaterThanOrEqual(CHAMFER);

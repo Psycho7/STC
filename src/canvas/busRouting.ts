@@ -18,8 +18,8 @@ import Fraction from "fraction.js";
 import {
   BETWEEN_LAYERS_SPACING,
   ENTRY_GUTTER_OVERHANG,
-  ENV_FRAME_EXTENTS,
   RECIPE_WIDTH,
+  frameExtentsOf,
 } from "./dimensions";
 import {
   CHAMFER,
@@ -1519,10 +1519,6 @@ export type PaddedObstacle = ObstacleRect & {
 // Each pass therefore rebuilds the field instead of sharing one hoisted to a
 // stage boundary. Hoisting would give the same rects today and go silently
 // wrong the day a pass that retypes an edge is added after it.
-// The frame a node that draws none contributes: every growth term is zero, so
-// the obstacle is the plain padded card box it has always been.
-const NO_FRAME = { top: 0, bottom: 0, left: 0, right: 0 } as const;
-
 export function paddedObstacles(
   nodes: ReadonlyArray<RFAnyNode>,
   edges: ReadonlyArray<Edge>,
@@ -1532,15 +1528,11 @@ export function paddedObstacles(
   for (const node of nodes) {
     const left = absoluteLeft(node, byId);
     const top = absoluteTop(node, byId);
-    // An environment recipe draws plates and haze ENV_FRAME_EXTENTS beyond its
-    // card box, and that frame is as solid to a routed stroke as the card is.
-    // cardRectsFor grows the DRAWN rect the same way; without this the router
-    // reads a band the plate occupies as clear air and threads a rail through
-    // the frame.
-    const frame =
-      node.type === "recipe" && node.data.recipe.environment !== undefined
-        ? ENV_FRAME_EXTENTS
-        : NO_FRAME;
+    // An environment recipe's plate frame is as solid to a routed stroke as
+    // the card is. cardRectsFor grows the DRAWN rect the same way; without
+    // this the router reads a band the plate occupies as clear air and threads
+    // a rail through the frame.
+    const frame = frameExtentsOf(node);
     out.push({
       left: left - frame.left - OBSTACLE_PAD_LEFT,
       right: left + nodeWidth(node) + frame.right + OBSTACLE_PAD_RIGHT,
@@ -1654,16 +1646,24 @@ export function clearColumnX(
 // column exists: a run that at least threads the raw gaps never slices a card
 // the user sees, even where sibling paddings overlap and the padded model calls
 // the whole corridor blocked.
-function rawCardRects(nodes: ReadonlyArray<RFAnyNode>): PaddedObstacle[] {
+// Exported for the column suite, which observes the frame growth directly; a
+// routed edge only shows the column that won.
+export function rawCardRects(
+  nodes: ReadonlyArray<RFAnyNode>,
+): PaddedObstacle[] {
   const byId = nodeIndexOf(nodes);
   return nodes.map((node) => {
     const left = absoluteLeft(node, byId);
     const top = absoluteTop(node, byId);
+    // The frame is part of the drawn card here too: the raw-fallback tiers
+    // resolve against these rects, so a frame they left out would be a band
+    // the fallback seats a column inside.
+    const frame = frameExtentsOf(node);
     return {
-      left,
-      right: left + nodeWidth(node),
-      top,
-      bottom: top + nodeHeight(node),
+      left: left - frame.left,
+      right: left + nodeWidth(node) + frame.right,
+      top: top - frame.top,
+      bottom: top + nodeHeight(node) + frame.bottom,
       kind: "card" as const,
       nodeId: node.id,
       // Same container tag paddedObstacles stamps: the raw-fallback tiers read
@@ -1950,16 +1950,21 @@ function drawnColumnBands(
   return out;
 }
 
-// A rail's own horizontal run, as a zero-height obstacle for the NEXT rail's
-// clearRailY. Two rails that share an x-corridor and land on one y are drawn
-// one on top of the other for the whole overlap, so each placed rail blocks
-// its own level for the rails resolved after it.
+// A rail's own horizontal run, as an obstacle for the NEXT rail's clearRailY.
+// Two rails that share an x-corridor and land on one y are drawn one on top of
+// the other for the whole overlap, so each placed rail blocks its own level
+// for the rails resolved after it.
+//
+// The band is CHAMFER tall on each side of the run, not the zero-height line
+// the run actually is: clearRailY strikes only inside the rect, so a line
+// would let the next rail sit 1..CHAMFER-1 units away -- far enough to miss
+// the strike test, near enough to read as one thick stroke.
 function railLevelBand(xl: number, xr: number, railY: number): ObstacleRect {
   return {
     left: Math.min(xl, xr),
     right: Math.max(xl, xr),
-    top: railY,
-    bottom: railY,
+    top: railY - CHAMFER,
+    bottom: railY + CHAMFER,
   };
 }
 
@@ -2006,15 +2011,17 @@ export function clampBackwardRails(
     if (source === undefined || target === undefined) return false;
     return nodeGap(source, target, byId) <= 0;
   };
-  // The columns already on the canvas, keyed by the edge that drew them so a
-  // rail never bands itself. Rails add their own as they resolve, in index
-  // order, so the result is deterministic and every pair separates once.
-  const bandsByEdgeId = new Map<string, PaddedObstacle[]>();
+  // The columns already on the canvas. Rails append their own as they resolve,
+  // in index order, so a rail never bands itself, the result is deterministic
+  // and every pair separates once.
+  const foreignColumnBands: PaddedObstacle[] = [];
   for (const edge of edges) {
     if (isRail(edge)) continue;
-    bandsByEdgeId.set(edge.id, drawnColumnBands(edge, byId));
+    foreignColumnBands.push(...drawnColumnBands(edge, byId));
   }
-  const railLevels: ObstacleRect[] = [];
+  // The rail-level field: every card / gutter obstacle, plus the level each
+  // rail resolved before this one occupies.
+  const levelObstacles: ObstacleRect[] = [...obstacles];
 
   const railYByIndex = new Map<number, number>();
   const railXRightByIndex = new Map<number, number>();
@@ -2055,7 +2062,7 @@ export function clampBackwardRails(
       preferredY,
       xlDesired,
       xrDesired,
-      [...obstacles, ...railLevels],
+      levelObstacles,
       CHAMFER,
       CONTAINER_RAIL_GAP,
     );
@@ -2100,11 +2107,6 @@ export function clampBackwardRails(
         { ...slab, left: slab.right, container: true },
       ];
     };
-    const foreignColumnBands: PaddedObstacle[] = [];
-    for (const [edgeId, bands] of bandsByEdgeId) {
-      if (edgeId === edge.id) continue;
-      foreignColumnBands.push(...bands);
-    }
     const xrExempt = ownExempt([source]);
     const xr =
       pinnedRight ??
@@ -2159,8 +2161,10 @@ export function clampBackwardRails(
     if (xl !== defaults.xl) railXLeftByIndex.set(index, xl);
 
     // Record what this rail now occupies, so the rails after it separate from
-    // it the same way it separated from the earlier families.
-    bandsByEdgeId.set(edge.id, [
+    // it the same way it separated from the earlier families. Both fields are
+    // read only by LATER rails, so pushing here is what keeps a rail out of
+    // its own bands.
+    foreignColumnBands.push(
       ...drawnColumnBands(
         {
           ...edge,
@@ -2168,8 +2172,8 @@ export function clampBackwardRails(
         },
         byId,
       ),
-    ]);
-    railLevels.push(railLevelBand(xl, xr, railY));
+    );
+    levelObstacles.push(railLevelBand(xl, xr, railY));
   });
 
   if (

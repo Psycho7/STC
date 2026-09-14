@@ -65,12 +65,14 @@ export type ProductNodeType = Node<ProductNodeData, "product">;
 // casing (unit-casing-mix family).
 //
 // Direction is "In" for an inputProduct and "Out" for an outputProduct.
-// For an inputProduct, the classification is "tap" when the node is a fanout
-// slice of an aggregate input card, "catalyst" on a card of the item's
-// catalyst pool, otherwise "raw" when item.raw is true and "import" when it is
-// not. A catalyst card states the pool rather than the item's provenance: the
-// charge is cycled, not consumed, and the same item can carry an ordinary card
-// beside it. For an outputProduct, it is data.flavor ("target" or "surplus").
+// For an inputProduct, a card of the item's catalyst pool states the pool
+// rather than the item's provenance ("In · catalyst"): the charge is cycled,
+// not consumed, and the same item can carry an ordinary card beside it. Any
+// other card reads "tap" when it is a fanout slice of an aggregate, otherwise
+// "raw" when item.raw is true and "import" when it is not. A fanout slice OF a
+// catalyst card keeps both words ("In · catalyst · tap"), since a slice of the
+// pool is still catalyst supply. For an outputProduct, the classification is
+// data.flavor ("target" or "surplus").
 //
 // The NBSP after each middle dot keeps a wrapped caption from stranding the
 // dot at line end; a break lands before the dot instead.
@@ -80,16 +82,18 @@ export function buildPnKind(
   i18n: I18nIndex,
 ): string {
   if (data.kind === "inputProduct") {
-    const classification = i18n.t(
-      data.isFanout
-        ? "product.class.tap"
-        : data.role === "catalyst"
-          ? "product.class.catalyst"
-          : item.raw
-            ? "product.class.raw"
-            : "product.class.import",
-    );
-    return `${i18n.t("product.dir.in")} ·\u00A0${classification}`;
+    const words = [i18n.t("product.dir.in")];
+    if (data.role === "catalyst") {
+      words.push(i18n.t("product.class.catalyst"));
+    }
+    if (data.isFanout) {
+      words.push(i18n.t("product.class.tap"));
+    } else if (data.role !== "catalyst") {
+      words.push(
+        i18n.t(item.raw ? "product.class.raw" : "product.class.import"),
+      );
+    }
+    return words.join(` ·\u00A0`);
   }
   const flavor = i18n.t(
     data.flavor === "surplus"

@@ -36,12 +36,13 @@ import Fraction from "fraction.js";
 import {
   BETWEEN_LAYERS_SPACING,
   CONTAINER_CAPTION_BAND,
-  ENV_FRAME_EXTENTS,
   NODE_NODE_SPACING,
   PORT_HEIGHT,
   PORT_WIDTH,
   PRODUCT_HEIGHT,
   PRODUCT_WIDTH,
+  type FrameExtents,
+  frameExtentsOf,
   loopBoxDimensions,
 } from "./dimensions";
 import { measureRecipe, type RecipeGeometry } from "./recipeGeometry";
@@ -525,9 +526,16 @@ function buildRecipePorts(
 function envFrameOrigin(
   recipe: Recipe | undefined,
 ): { x: number; y: number } | undefined {
-  return recipe?.environment === undefined
-    ? undefined
-    : { x: ENV_FRAME_EXTENTS.left, y: ENV_FRAME_EXTENTS.top };
+  const { left, top } = recipeFrameExtents(recipe);
+  // A card that draws no frame must keep its ports unstamped (buildRecipePorts
+  // reads "no origin" that way), so zero extents map back to no origin.
+  if (left === 0 && top === 0) return undefined;
+  return { x: left, y: top };
+}
+
+// The frame extents of a recipe the adapter has not built a node for yet.
+function recipeFrameExtents(recipe: Recipe | undefined): FrameExtents {
+  return frameExtentsOf({ type: "recipe", data: { recipe } });
 }
 
 // An environment recipe's ELK box is the CARD box grown by the frame extents:
@@ -542,18 +550,11 @@ function recipeUnitToElk(
 ): ElkNode {
   const geom = measureRecipe(recipe);
   const origin = envFrameOrigin(recipe);
+  const frame = recipeFrameExtents(recipe);
   return {
     id: u.id,
-    width:
-      geom.width +
-      (origin === undefined
-        ? 0
-        : ENV_FRAME_EXTENTS.left + ENV_FRAME_EXTENTS.right),
-    height:
-      geom.height +
-      (origin === undefined
-        ? 0
-        : ENV_FRAME_EXTENTS.top + ENV_FRAME_EXTENTS.bottom),
+    width: geom.width + frame.left + frame.right,
+    height: geom.height + frame.top + frame.bottom,
     layoutOptions: { ...RECIPE_LAYOUT_OPTIONS },
     ports: buildRecipePorts(u.id, recipe, kindOf, geom, origin),
   };
