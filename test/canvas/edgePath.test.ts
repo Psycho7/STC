@@ -24,6 +24,27 @@ import {
   expectRightwardFinish,
   distanceToPolyline,
 } from "./pathAssertions";
+import { RECIPE_ROW_HEIGHT } from "../../src/canvas/dimensions";
+
+// Segments of a `d` string that run in both axes at once (the bevels and the
+// collapsed single diagonal).
+function diagonalCount(d: string): number {
+  const pts = parsePathPoints(d);
+  return pts.filter(
+    (p, i) => i > 0 && p[0] !== pts[i - 1]![0] && p[1] !== pts[i - 1]![1],
+  ).length;
+}
+
+// Lengths of every axis-vertical segment shorter than one CHAMFER: the zigzag
+// stub a collapsed column must never leave behind.
+function shortVerticals(d: string): number[] {
+  const pts = parsePathPoints(d);
+  return pts
+    .map((p, i) =>
+      i > 0 && p[0] === pts[i - 1]![0] ? Math.abs(p[1] - pts[i - 1]![1]) : 0,
+    )
+    .filter((len) => len > 0 && len < CHAMFER);
+}
 
 describe("pathPointAtPts", () => {
   // Two segments of length 10 (horizontal) then 30 (vertical); total 40. The
@@ -131,6 +152,21 @@ describe("chamferStepPath", () => {
     expectRightwardFinish(d);
   });
 
+  it("draws one diagonal for a one-row step", () => {
+    // A step of exactly one recipe row: the full shape would be bevel 8,
+    // vertical 6, bevel 8, which reads as a zigzag, so the column collapses.
+    const [d] = chamferStepPath({
+      sourceX: 0,
+      sourceY: 0,
+      targetX: 200,
+      targetY: RECIPE_ROW_HEIGHT,
+    });
+    expect(d).toBe("M 0,0 L 92,0 L 108,22 L 200,22");
+    expect(diagonalCount(d)).toBe(1);
+    expect(shortVerticals(d)).toEqual([]);
+    expectRightwardFinish(d);
+  });
+
   it("takes the jog shape when a blocked small-dy leg carries a legY", () => {
     // The small-dy diagonal closes on the same long target-y horizontal the
     // normal step does, so a blocked one carries a stamped legY (jogForwardLegs)
@@ -166,7 +202,8 @@ describe("chamferStepPath", () => {
 
   it("keeps the label anchor continuous across the small-dy branch boundary", () => {
     // The forward step flips between the diagonal (small-dy) and the full
-    // vertical-run shape at |dy| = 2 * chamfer. Live handle coordinates and an
+    // vertical-run shape at |dy| = 3 * chamfer, the height at which the straight
+    // run between the bevels reaches one CHAMFER. Live handle coordinates and an
     // offline port model can disagree by a pixel, so a dy that straddles the
     // boundary must not teleport the anchor. One rule covers both shapes: the
     // long run into the target wins on each side, and it moves by the pixel the
@@ -186,6 +223,16 @@ describe("chamferStepPath", () => {
     expect(atY).toBe(2 * CHAMFER);
     expect(pastX).toBe(334);
     expect(pastY).toBe(2 * CHAMFER + 1);
+    // Same check either side of the collapse boundary itself.
+    const [, underX, underY] = chamferStepPath({
+      ...base,
+      targetY: 3 * CHAMFER - 1,
+    });
+    const [, overX, overY] = chamferStepPath({ ...base, targetY: 3 * CHAMFER });
+    expect(underX).toBe(334);
+    expect(underY).toBe(3 * CHAMFER - 1);
+    expect(overX).toBe(334);
+    expect(overY).toBe(3 * CHAMFER);
   });
 
   it("anchors a same-rail straight line on its one run", () => {
@@ -641,6 +688,20 @@ describe("chamferFanoutPath", () => {
       junctionX: 100,
     });
     expect(path).toBe("M 0,0 L 92,0 L 108,16 L 200,16");
+    expectRightwardFinish(path);
+  });
+
+  it("joins a one-row branch with a single diagonal", () => {
+    const { path } = chamferFanoutPath({
+      sourceX: 0,
+      sourceY: 0,
+      targetX: 200,
+      targetY: RECIPE_ROW_HEIGHT,
+      junctionX: 100,
+    });
+    expect(path).toBe("M 0,0 L 92,0 L 108,22 L 200,22");
+    expect(diagonalCount(path)).toBe(1);
+    expect(shortVerticals(path)).toEqual([]);
     expectRightwardFinish(path);
   });
 

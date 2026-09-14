@@ -616,14 +616,32 @@ export function deconflictChipAnchors(
   // horizontal run of the live polyline. A rule seat that is already clear is
   // left alone, and so is a member no run of which can hold a clear box -- it
   // keeps the named seat, which at least states which port the rate belongs to.
+  //
+  // The surface it slides against is the cards PLUS their port furniture
+  // (portKeepOutRect): the PortGlyph reaches outside the card edge, so a box
+  // seated flush against that edge clears the card and still buries every glyph
+  // on it. Where the reserve model widened the corridor (every gap-crossing
+  // edge) a run holds the box past the furniture; where it did not -- two cards
+  // of ONE layer standing a few dozen units apart, a pair no gap was ever
+  // charged for -- no seat on the run clears the strips, and the slide falls
+  // back to the cards alone rather than giving up and leaving the box on a card.
   const chipSeatByIndex = new Map<number, { x: number; y: number }>();
   {
     const cards = cardRectsFor(
       nodes.filter((node) => node.type !== "group"),
       byId,
     );
-    const boxHitsCard = (x: number, y: number, halfW: number): boolean =>
-      !chipBoxClearsCards(x, y, halfW, cards);
+    const withFurniture: PortZoneRect[] = cards.flatMap((card) => [
+      card,
+      portKeepOutRect(card, "source"),
+      portKeepOutRect(card, "target"),
+    ]);
+    const boxHits = (
+      x: number,
+      y: number,
+      halfW: number,
+      blockers: ReadonlyArray<PortZoneRect>,
+    ): boolean => !chipBoxClearsCards(x, y, halfW, blockers);
     edges.forEach((edge, index) => {
       if (edge.type !== "item") return;
       const pts = itemPtsById.get(edge.id);
@@ -637,11 +655,19 @@ export function deconflictChipAnchors(
         ports.sourceX,
         ports.targetX,
       );
-      if (!boxHitsCard(ruleX, ruleY, halfW)) return;
-      const [x, y] = cardClearRunAnchor(pts, halfW, cards);
-      if (x === ruleX && y === ruleY) return;
-      if (boxHitsCard(x, y, halfW)) return;
-      chipSeatByIndex.set(index, { x, y });
+      if (!boxHits(ruleX, ruleY, halfW, withFurniture)) return;
+      // The slide against one obstacle tier, or nothing when no run of this
+      // polyline can hold a box clear of it.
+      const slide = (
+        blockers: ReadonlyArray<PortZoneRect>,
+      ): { x: number; y: number } | undefined => {
+        const [x, y] = cardClearRunAnchor(pts, halfW, blockers);
+        return boxHits(x, y, halfW, blockers) ? undefined : { x, y };
+      };
+      const seat = slide(withFurniture) ?? slide(cards);
+      if (seat === undefined) return;
+      if (seat.x === ruleX && seat.y === ruleY) return;
+      chipSeatByIndex.set(index, seat);
     });
   }
 

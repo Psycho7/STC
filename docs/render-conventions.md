@@ -98,6 +98,15 @@ share that line: a forward tap's jog descent, dropping into its consumer, may
 share an entry-gutter line with a container border. That column is a tap
 approach, not a return riding the frame.
 
+A forward edge between two adjacent layers drops LATE. It holds its source
+port's row from the port all the way across the gap and turns down only in the
+approach band in front of its target, so two such edges into neighbouring rows
+of one card share that band and nothing else: they no longer run a row pitch
+apart the whole width of the gap. A step spanning one row is drawn as a single
+diagonal rather than a bevel-vertical-bevel. Trunk members and edges that skip a
+layer keep their old shape -- they turn where their structure says, not at the
+entry column.
+
 Where two strokes of DIFFERENT flows properly cross, the stroke passing under
 shows a gap: a short break is cut out of that stroke around the crossing, the
 other stroke runs through it unbroken, and whatever lies beneath the pair (a
@@ -134,6 +143,17 @@ The columns of one corridor are spread apart so that no two dots' keep-offs
 overlap, and the gap they run in is widened before routing to hold them plus
 the chips on either side (see the reserve model under Rate chips). Several
 fan-outs forced into one corridor therefore stand apart rather than braiding.
+
+The spread is a floor, not a preference, and it covers every vertical in a gap,
+whichever pass placed it: a junction column, a target's entry column, a
+staggered 1-to-1 bend and a jogged leg's descent all keep at least one entry
+slot pitch from each other, and a neighbour of a trunk column keeps a whole port
+stub off it because that column carries every member's stroke. Verticals of the
+SAME edge, and the members of one trunk sharing their column on purpose, are
+exempt. Two verticals of different edges a few units apart read as one thick
+line, which is the defect the floor exists to prevent. The gap's column zone is
+charged for the columns it must hold at that spacing, so the room is bought
+before anything is routed.
 
 ## Rate chips
 
@@ -172,6 +192,14 @@ of a chip and a dot keep-off on the column side. A trunk chip therefore stands
 beside the port it labels, inside its own side's zone, clear of its dot and
 clear of the columns; a trunk chip out among the columns, or lapping the
 neighbouring card, is a defect.
+
+A 1-to-1 edge's chip is paid for by the same reserve, from the other side. Such
+an edge has two horizontal legs, one out of its source port and one into its
+target port, and its bend column stays inside the gap's column zone so neither
+leg is shorter than the chip box it may have to carry: a column parked in the
+source reserve shortens the first leg, one parked in the target reserve shortens
+the last. A chip seat also clears the port furniture -- handles, glyphs, the row
+strip -- not only the card box.
 
 Every chip draws at one fixed size: a 20px-tall box, the same in graph units at
 every zoom, so zooming out shrinks a chip with the plan instead of holding it at

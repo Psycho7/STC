@@ -15,7 +15,9 @@
 //
 //   sourceZone  the widest chip any edge leaving layer k owes beside its source
 //               port, plus its pads
-//   columnZone  the shared junction columns the trunks in this gap need
+//   columnZone  the shared junction columns the trunks in this gap need, plus
+//               one pitch floor per staggered 1-to-1 bend column, so the
+//               routing passes can keep the floor between any two columns
 //   targetZone  the widest chip any edge entering layer k+1 owes beside its
 //               target port, plus its pads
 //
@@ -32,7 +34,7 @@ import Fraction from "fraction.js";
 import type { Edge } from "@xyflow/react";
 
 import { DOT_KEEPOFF } from "./dimensions";
-import { FORWARD_STEP_BUDGET, PORT_STUB } from "./edgePath";
+import { CHAMFER, FORWARD_STEP_BUDGET, PORT_STUB } from "./edgePath";
 import {
   aggregateChipText,
   chipNaturalWidth,
@@ -58,6 +60,16 @@ import type { RFAnyNode } from "./layout";
 export const RESERVE_CARD_PAD = PORT_STUB;
 export const RESERVE_COLUMN_PAD = DOT_KEEPOFF;
 export const COLUMN_PITCH = 2 * DOT_KEEPOFF;
+
+// The floor between the centres of ANY two columns in one gap, trunk columns
+// included: two columns closer than this have touching bevels and read as one
+// thick line. busRouting re-exports it as ENTRY_SLOT_PITCH (the pitch a target's
+// own arrival columns already stood at) and enforces it; the reserve below
+// charges the column zone for it, because a floor is only keepable in a gap wide
+// enough to hold every column it owes at that spacing. It lives here, not in
+// busRouting, so both the reserve and the passes read one value -- busRouting
+// imports this module, never the other way round.
+export const COLUMN_MIN_PITCH = 2 * CHAMFER;
 
 // One layer of the laid-out graph: a maximal run of leaf nodes whose x-intervals
 // overlap transitively. `left` is the leftmost left edge over the members,
@@ -463,6 +475,10 @@ function requirementsOf(
   const sourceZone = new Array<number>(spans.length).fill(0);
   const targetZone = new Array<number>(spans.length).fill(0);
   const columns = new Array<number>(spans.length).fill(0);
+  // Staggered 1-to-1 bend columns, counted apart from the trunk columns: they
+  // stand at the floor rather than the whole COLUMN_PITCH a trunk column owes
+  // its neighbours.
+  const bendColumns = new Array<number>(spans.length).fill(0);
 
   const charge = (zone: number[], index: number, width: number): void => {
     if (index < 0 || index >= spans.length) return;
@@ -483,6 +499,12 @@ function requirementsOf(
       j - 1,
       reserveWidth(chipTextForSide(edge, "target", trunkByEdgeId)),
     );
+    // A forward 1-to-1 edge takes its own staggered bend column in the gap right
+    // of its source layer. A trunk member takes none: the trunk router puts it
+    // on its trunk's shared column, charged below.
+    if (j > i && !trunkByEdgeId.has(edge.id) && i >= 0 && i < spans.length) {
+      bendColumns[i] = bendColumns[i]! + 1;
+    }
   }
 
   // One shared junction column per trunk, in the gap beside the unit it fans
@@ -504,6 +526,7 @@ function requirementsOf(
     const source = sourceZone[span.index]!;
     const target = targetZone[span.index]!;
     const count = columns[span.index]!;
+    const bends = bendColumns[span.index]!;
     // A gap no edge crosses owes nothing and keeps the width ELK gave it.
     if (source === 0 && target === 0 && count === 0) {
       return {
@@ -515,7 +538,12 @@ function requirementsOf(
         required: 0,
       };
     }
-    const columnZone = FORWARD_STEP_BUDGET + COLUMN_PITCH * count;
+    // The zone holds one COLUMN_PITCH per trunk column plus one floor per
+    // staggered bend column, so the fan can keep the floor between every pair
+    // instead of squeezing them together. A trunk column's own pitch already
+    // covers the floor its two neighbours owe it.
+    const columnZone =
+      FORWARD_STEP_BUDGET + COLUMN_PITCH * count + COLUMN_MIN_PITCH * bends;
     return {
       index: span.index,
       sourceZone: source,

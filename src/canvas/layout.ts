@@ -1020,7 +1020,8 @@ export const ROUTING_PASSES: ReadonlyArray<{
     because:
       'Reads the bus retype from routeTrunkEdges (it fans only still-"item" ' +
       "edges) and leaves the bendX routeTrunkEdges pinned on a far member " +
-      "alone. Writes bendX for everything else.",
+      "alone, plus the pre-pass's gap records, whose column zone is the " +
+      "corridor it fans across. Writes bendX for everything else.",
   },
   // Bend a blocked forward final leg to a clear y so it does not cross an
   // intervening card (reads bendX).

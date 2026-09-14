@@ -28,6 +28,7 @@ import {
   clamp,
   clearRailY,
   fanJunctionX,
+  forwardDropX,
   forwardStepGeometry,
   routingHintsFromData,
   type ObstacleRect,
@@ -43,6 +44,7 @@ import {
   portOffsetY,
 } from "./nodeGeometry";
 import {
+  COLUMN_MIN_PITCH,
   COLUMN_PITCH,
   buildLayerModel,
   classifyTrunks,
@@ -641,7 +643,9 @@ export function directCorridorClear(
 // a node with a single entry keeps the minimal band (and its geometry stays
 // byte-identical to the pre-gutter default).
 const ENTRY_GUTTER_MIN = PORT_STUB + CHAMFER; // 32
-export const ENTRY_SLOT_PITCH = 2 * CHAMFER; // 16
+// Also the FLOOR every pass keeps between any two columns in one gap; the value
+// lives in layerModel beside the reserve that pays for it.
+export const ENTRY_SLOT_PITCH = COLUMN_MIN_PITCH; // 16
 
 // Band width for a node hosting `columnCount` staggered entry columns. Zero or
 // one column -> the minimal band; each extra column adds one pitch.
@@ -710,14 +714,175 @@ function occupiesGutterColumn(
   return false;
 }
 
-// Resolved input-port index of an edge at its target, or -1 when unknown. Only
-// recipe/loop nodes carry the ELK-resolved `inputOrder`; product targets have a
-// single port. Used to order a target's staggered entry columns top to bottom.
-function inputPortIndex(target: RFAnyNode, item: string | undefined): number {
-  if (item === undefined) return -1;
-  if (target.type !== "recipe" && target.type !== "loop") return -1;
-  const order = target.data.inputOrder;
-  return order ? order.indexOf(item) : -1;
+// Does an edge take one of its target's ARRIVAL columns -- the vertical run that
+// drops to the port row in front of the card? A backward rail does (its left rail
+// column) and so does a fan-in member (the trunk's shared merge column), as they
+// always have. Since the LATE DROP a forward step does too, for the shapes listed
+// below: it holds its source row across the gap and turns down at the entry
+// column, so two flows into adjacent rows of one card share only the approach
+// band instead of running a row pitch apart the whole way.
+//
+// Wider than occupiesGutterColumn, which answers the narrower question of which
+// columns stand inside the target's gutter BAND and so set its width: an entry
+// column stands left of the gap's target chip reserve, outside the band.
+function takesArrivalColumn(
+  edge: Edge,
+  source: RFAnyNode,
+  target: RFAnyNode,
+  byId: ReadonlyMap<string, RFAnyNode>,
+  layerByNodeId: ReadonlyMap<string, number>,
+): boolean {
+  if (edge.type !== "item") {
+    return occupiesGutterColumn(edge, source, target, byId);
+  }
+  if (nodeGap(source, target, byId) <= 0) return true; // backward rail
+  const from = layerByNodeId.get(edge.source);
+  const to = layerByNodeId.get(edge.target);
+  if (from === undefined || to === undefined) return false;
+  // A forward step drops late only where the drop buys something and costs
+  // nothing else. Three shapes are left out:
+  //   layer-SKIPPING  -- its drop column would span every row between the two
+  //     layers, so it braids the drops of the cards in between, and holding the
+  //     source row that far puts the run through the cards standing on it (the
+  //     jog pass would then bend it back into the old shape anyway);
+  //   trunk member    -- a far member is pinned to its trunk's shared line
+  //     (fanoutColumn / faninColumn), which is the formation the trunk exists to
+  //     draw, and its own leg carries its chip;
+  //   ports on ONE row -- drawn as a straight line, port to port; there is no
+  //     vertical to move.
+  if (to - from !== 1) return false;
+  const data = edge.data as ItemEdgeData | undefined;
+  if (data?.fanoutColumn === true || data?.faninColumn === true) return false;
+  const ports = edgePortsModel(edge, byId);
+  return ports !== null && ports.sy !== ports.ty;
+}
+
+// One ARRIVAL ROW: a target port row every edge that arrives on it drops into,
+// and the vertical extent those drops span (each edge turns down from its own
+// source row, so the row's column reaches from the highest source row to the
+// port). Rows are keyed by the drawn port y rather than by port index, so a
+// catalyst row and an input row carrying the SAME item stay two rows.
+type ArrivalRow = {
+  key: string;
+  targetId: string;
+  y: number;
+  yLo: number;
+  yHi: number;
+};
+
+const arrivalRowKey = (targetId: string, y: number): string =>
+  `${targetId}@row${Math.round(y * 100)}`;
+
+// The arrival row of one edge, or undefined when it takes no arrival column or
+// its ports cannot be resolved.
+function arrivalRowOf(
+  edge: Edge,
+  byId: ReadonlyMap<string, RFAnyNode>,
+  layerByNodeId: ReadonlyMap<string, number>,
+): ArrivalRow | undefined {
+  const source = byId.get(edge.source);
+  const target = byId.get(edge.target);
+  if (source === undefined || target === undefined) return undefined;
+  if (!takesArrivalColumn(edge, source, target, byId, layerByNodeId)) {
+    return undefined;
+  }
+  const ports = edgePortsModel(edge, byId);
+  if (ports === null) return undefined;
+  const { sy, ty } = ports;
+  // A forward step's drop runs from its source row to the port row. A BACKWARD
+  // rail's column runs from its detour rail, whose level clampBackwardRails only
+  // settles two passes later and may push clear across the graph, so its extent
+  // is unknown here and taken as unbounded: the row then shares a slot with
+  // nothing and no rail braids a drop.
+  const backward = nodeGap(source, target, byId) <= 0;
+  return {
+    key: arrivalRowKey(edge.target, ty),
+    targetId: edge.target,
+    y: ty,
+    yLo: backward ? -Infinity : Math.min(sy, ty),
+    yHi: backward ? Infinity : Math.max(sy, ty),
+  };
+}
+
+// The arrival SLOT of every row: which of its gap's arrival columns the row's
+// drops stand on, counting 0 at the rightmost.
+//
+// Two rules, and they fight: inside one card the fan must be monotonic (the
+// topmost row takes the leftmost column) so the entering runs do not cross each
+// other in front of the card, while ACROSS the cards of one layer a slot index
+// means one absolute x -- the columns are measured off the gap, not off the card
+// -- so two cards using index 0 draw their drops on one line wherever their
+// verticals share rows. So each card keeps its rows in port order and the card
+// as a whole is pushed to the first base offset at which none of its rows meets
+// an already-placed row of another card on the same slot: an interval colouring,
+// with the cards taken top to bottom and rows whose verticals miss each other in
+// y free to share a slot. The column zone is charged one pitch per forward edge
+// (gapRequirements), which is the worst case this can ask for.
+function arrivalSlots(
+  nodes: ReadonlyArray<RFAnyNode>,
+  edges: ReadonlyArray<Edge>,
+  byId: ReadonlyMap<string, RFAnyNode>,
+): Map<string, number> {
+  const { layerByNodeId } = buildLayerModel(nodes);
+  const rows = new Map<string, ArrivalRow>();
+  for (const edge of edges) {
+    const row = arrivalRowOf(edge, byId, layerByNodeId);
+    if (row === undefined) continue;
+    const seen = rows.get(row.key);
+    if (seen === undefined) {
+      rows.set(row.key, row);
+      continue;
+    }
+    seen.yLo = Math.min(seen.yLo, row.yLo);
+    seen.yHi = Math.max(seen.yHi, row.yHi);
+  }
+
+  // Rows of one card, cards of one layer: the two nesting levels the colouring
+  // walks.
+  const byLayer = new Map<number, Map<string, ArrivalRow[]>>();
+  for (const row of rows.values()) {
+    const layer = layerByNodeId.get(row.targetId);
+    if (layer === undefined) continue;
+    const cards = byLayer.get(layer) ?? new Map<string, ArrivalRow[]>();
+    const list = cards.get(row.targetId) ?? [];
+    list.push(row);
+    cards.set(row.targetId, list);
+    byLayer.set(layer, cards);
+  }
+
+  const slots = new Map<string, number>();
+  for (const cards of byLayer.values()) {
+    const placed: Array<{ slot: number; yLo: number; yHi: number }> = [];
+    const ordered = [...cards.entries()]
+      .map(([targetId, list]) => ({
+        targetId,
+        rows: [...list].sort((a, b) => a.y - b.y),
+      }))
+      .sort((a, b) => a.rows[0]!.y - b.rows[0]!.y);
+    for (const card of ordered) {
+      const slotAt = (base: number, rank: number): number =>
+        base + (card.rows.length - 1 - rank); // topmost row -> leftmost column
+      let base = 0;
+      while (
+        card.rows.some((row, rank) =>
+          placed.some(
+            (other) =>
+              other.slot === slotAt(base, rank) &&
+              other.yLo < row.yHi &&
+              row.yLo < other.yHi,
+          ),
+        )
+      ) {
+        base += 1;
+      }
+      card.rows.forEach((row, rank) => {
+        const slot = slotAt(base, rank);
+        slots.set(row.key, slot);
+        placed.push({ slot, yLo: row.yLo, yHi: row.yHi });
+      });
+    }
+  }
+  return slots;
 }
 
 // Count of gutter columns each target node hosts, keyed by node id. Both passes
@@ -762,6 +927,135 @@ export function entryGutterRects(
   return rects;
 }
 
+// -- Pinned columns and the pitch floor ---------------------------------------
+//
+// Several families of vertical run share one layer gap: a trunk's junction
+// column, the same column pinned as a far member's bend, a target's arrival
+// columns, the staggered 1-to-1 bend columns, a jogged leg's descent and its
+// source column. Nothing made them keep off each other, so a 1-to-1 vertical
+// could land a few units from a trunk column and the pair read as one thick
+// line. Every pass that places a column now keeps ENTRY_SLOT_PITCH from the
+// columns the passes above it already pinned, and gapRequirements charges the
+// column zone so the gap is wide enough to hold them at that spacing.
+//
+// A column stands in the gap the stamp implies: a departing column (a fan-out
+// junction, the bend of a forward edge) in the gap right of its SOURCE layer, an
+// arriving one (a fan-in junction, an entry column) in the gap left of its
+// TARGET layer.
+//
+// Floating-point slack on a column-to-column distance: both sides are sums of
+// the same fractional layout coordinates, so a pair exactly one floor apart must
+// not read as a hair short of it.
+const COLUMN_EPS = 1e-6;
+
+type PinnedColumn = {
+  x: number;
+  // A trunk column carries every member's stroke, so a neighbour keeps a whole
+  // port stub off it rather than the bare floor.
+  trunk: boolean;
+};
+
+// The columns already pinned when a pass runs, keyed by gap index. Jog descents
+// and jogged source columns are absent by construction: jogForwardLegs runs
+// after every caller of this, so those columns do not exist yet -- it keeps off
+// the ones here instead.
+function pinnedColumnsByGap(
+  nodes: ReadonlyArray<RFAnyNode>,
+  edges: ReadonlyArray<Edge>,
+): Map<number, PinnedColumn[]> {
+  const { layerByNodeId } = buildLayerModel(nodes);
+  const out = new Map<number, PinnedColumn[]>();
+  const add = (
+    gapIndex: number | undefined,
+    x: number | undefined,
+    trunk: boolean,
+  ): void => {
+    if (gapIndex === undefined || x === undefined) return;
+    const list = out.get(gapIndex) ?? [];
+    list.push({ x, trunk });
+    out.set(gapIndex, list);
+  };
+  for (const edge of edges) {
+    const data = edge.data as (BusEdgeData & ItemEdgeData) | undefined;
+    const sourceGap = layerByNodeId.get(edge.source);
+    const targetLayer = layerByNodeId.get(edge.target);
+    const targetGap = targetLayer === undefined ? undefined : targetLayer - 1;
+    if (edge.type === "bus") {
+      if (data?.fanout === true) add(sourceGap, data.junctionX, true);
+      if (data?.fanin === true) add(targetGap, data.junctionX, true);
+      continue;
+    }
+    if (data?.bendX !== undefined) {
+      const trunkPin = data.fanoutColumn === true || data.faninColumn === true;
+      add(
+        data.faninColumn === true ? targetGap : sourceGap,
+        data.bendX,
+        trunkPin,
+      );
+    }
+    add(targetGap, data?.entryX, false);
+  }
+  return out;
+}
+
+// The nearest column at or `dir`-ward of `x` that stands at least the floor from
+// every pinned column in `blockers`: step past each one that bites and re-test,
+// so the walk is monotonic and ends just clear of a whole cluster. Returns `x`
+// itself when nothing bites.
+function columnClearOfPinned(
+  x: number,
+  dir: 1 | -1,
+  blockers: ReadonlyArray<PinnedColumn>,
+): number {
+  let out = x;
+  for (let i = 0; i < ARRIVAL_SCAN_LIMIT; i += 1) {
+    const hit = blockers.find(
+      (b) => Math.abs(b.x - out) < ENTRY_SLOT_PITCH - COLUMN_EPS,
+    );
+    if (hit === undefined) return out;
+    out = hit.x + dir * ENTRY_SLOT_PITCH;
+  }
+  return out;
+}
+
+// A closed x-interval a fan may place columns in.
+type Span = { lo: number; hi: number };
+
+// `corridor` minus each pinned column's keep-out band, left to right. A trunk
+// column claims a port stub either side, anything else the bare floor. An
+// interval of zero width survives: it still seats one column.
+function freeSpans(
+  corridor: Span,
+  pinned: ReadonlyArray<PinnedColumn>,
+): Span[] {
+  let spans: Span[] = [corridor];
+  for (const column of [...pinned].sort((a, b) => a.x - b.x)) {
+    const keepOut = column.trunk ? PORT_STUB : ENTRY_SLOT_PITCH;
+    const next: Span[] = [];
+    for (const span of spans) {
+      const leftHi = Math.min(span.hi, column.x - keepOut);
+      if (leftHi >= span.lo) next.push({ lo: span.lo, hi: leftHi });
+      const rightLo = Math.max(span.lo, column.x + keepOut);
+      if (span.hi >= rightLo) next.push({ lo: rightLo, hi: span.hi });
+    }
+    spans = next;
+  }
+  return spans;
+}
+
+// The absolute x that lies `offset` along the free spans, treating them as one
+// line with the blocked bands cut out: so two columns `d` apart on that line are
+// at least `d` apart in absolute x, whichever spans they fall in.
+function spanColumnAt(spans: ReadonlyArray<Span>, offset: number): number {
+  let left = Math.max(0, offset);
+  for (const span of spans) {
+    const width = span.hi - span.lo;
+    if (left <= width) return span.lo + left;
+    left -= width;
+  }
+  return spans[spans.length - 1]!.hi;
+}
+
 // -- Arrival columns ----------------------------------------------------------
 //
 // Every vertical run that drops into a target port from in front of it -- a
@@ -774,11 +1068,12 @@ export function entryGutterRects(
 // is the room the pre-pass reserved for the chips the arriving edges carry, so a
 // column inside it would stand on the chips it was widened for. The first slot
 // sits half a slot pitch left of the zone, each next one a pitch further left,
-// and any candidate closer than half a COLUMN_PITCH to a fan-in column already
-// stamped in the same gap is skipped -- that column carries a whole trunk's
-// stroke, and an arrival braiding it reads as one line. Without a record (a
-// hand-built fixture, or a caller re-running the passes on its own) the
-// pre-zone rule stands: the first slot one stub before the port.
+// and each one is walked further left until it clears every column already
+// pinned in the same gap by the floor (see the pitch floor above) -- a trunk
+// column carries a whole trunk's stroke and a bend column its own, and an
+// arrival braiding either reads as one line. Without a record (a hand-built
+// fixture, or a caller re-running the passes on its own) the pre-zone rule
+// stands: the first slot one stub before the port.
 type ArrivalModel = {
   // The k-th arrival column in front of one target, k counting from 0.
   columnOf: (target: RFAnyNode, k: number) => number;
@@ -807,25 +1102,7 @@ function arrivalModelOf(
   }
   const { layerByNodeId } = buildLayerModel(nodes);
   const gapByIndex = new Map(gaps.map((gap) => [gap.index, gap]));
-  // The fan-in columns already stamped in each gap, from the pass that placed
-  // them: a near member carries its trunk's column as junctionX, a far member as
-  // the pinned bendX.
-  const faninColumnsByGap = new Map<number, number[]>();
-  for (const edge of edges) {
-    const data = edge.data as (BusEdgeData & ItemEdgeData) | undefined;
-    const column =
-      edge.type === "bus" && data?.fanin === true
-        ? data.junctionX
-        : data?.faninColumn === true
-          ? data.bendX
-          : undefined;
-    if (column === undefined) continue;
-    const targetLayer = layerByNodeId.get(edge.target);
-    if (targetLayer === undefined) continue;
-    const list = faninColumnsByGap.get(targetLayer - 1) ?? [];
-    list.push(column);
-    faninColumnsByGap.set(targetLayer - 1, list);
-  }
+  const pinnedByGap = pinnedColumnsByGap(nodes, edges);
   const gapOf = (target: RFAnyNode): GapRecord | undefined => {
     const layer = layerByNodeId.get(target.id);
     return layer === undefined ? undefined : gapByIndex.get(layer - 1);
@@ -838,15 +1115,14 @@ function arrivalModelOf(
         return absoluteLeft(target, byId) - PORT_STUB - k * ENTRY_SLOT_PITCH;
       }
       const base = gap.targetZone.left - ENTRY_SLOT_PITCH / 2;
-      const avoid = faninColumnsByGap.get(gap.index) ?? [];
-      let taken = 0;
-      for (let i = 0; i < ARRIVAL_SCAN_LIMIT; i += 1) {
-        const x = base - i * ENTRY_SLOT_PITCH;
-        if (avoid.some((c) => Math.abs(c - x) < COLUMN_PITCH / 2)) continue;
-        if (taken === k) return x;
-        taken += 1;
+      const avoid = pinnedByGap.get(gap.index) ?? [];
+      // Slot k is one pitch left of slot k-1, each walked clear of the pinned
+      // columns, so the slots stay ordered and none braids a pinned line.
+      let x = columnClearOfPinned(base, -1, avoid);
+      for (let i = 0; i < k; i += 1) {
+        x = columnClearOfPinned(x - ENTRY_SLOT_PITCH, -1, avoid);
       }
-      return base - k * ENTRY_SLOT_PITCH;
+      return x;
     },
   };
 }
@@ -880,20 +1156,23 @@ function clampToZone(x: number, gap: GapRecord | undefined): number {
   return clamp(x, gap.columnZone.left, gap.columnZone.right);
 }
 
-// assignEntryColumns: give every gutter-occupying edge (a backward item rail) a
-// per-target staggered column x, merged as { entryX } onto its data and
-// consumed by chamferStepPath. Columns of one target are
-// ordered by resolved input-port index so the entering runs form a monotonic
-// fan that does not self-cross inside the band: the topmost port takes the
-// leftmost column and the bottom port the rightmost. The columns themselves come
-// from the shared arrival model above -- left of the gap's target zone with a
-// gap record, one stub before the port without one, so a single-entry node in an
-// un-widened fixture is unchanged.
+// assignEntryColumns: give every arriving edge -- a forward step's late drop, a
+// backward item rail, a fan-in member -- a per-target staggered column x, merged
+// as { entryX } onto its data and consumed by chamferStepPath. One slot per
+// entering PORT ROW, shared by every edge on that row, so two flows into adjacent
+// rows of one card turn down two columns one ENTRY_SLOT_PITCH apart instead of
+// running a row pitch apart across the gap. Rows of one target are ordered by
+// port row so the entering runs form a monotonic fan that does not self-cross:
+// the topmost row takes the leftmost column and the bottom row the rightmost,
+// and arrivalSlots keeps the cards of one layer off each other's columns. The
+// columns themselves come from the shared arrival model above -- left of the
+// gap's target zone with a gap record, one stub before the port without one, so
+// a single-entry node in an un-widened fixture is unchanged.
 //
-// Pure and deterministic: the column of an edge depends only on its target and
-// port rank, never on edge order. Leaves every non-gutter edge untouched by
-// reference. What it needs from the passes before it is the ROUTING_PASSES
-// entry in layout.ts.
+// Pure and deterministic: the column of an edge depends only on its target, its
+// port row and the layer's other arrivals, never on edge order. Leaves every
+// non-arriving edge untouched by reference. What it needs from the passes before
+// it is the ROUTING_PASSES entry in layout.ts.
 export function assignEntryColumns(
   nodes: ReadonlyArray<RFAnyNode>,
   edges: ReadonlyArray<Edge>,
@@ -901,47 +1180,18 @@ export function assignEntryColumns(
 ): Edge[] {
   const byId = nodeIndexOf(nodes);
   const arrivals = arrivalModelOf(nodes, edges, byId, ctx);
+  const slots = arrivalSlots(nodes, edges, byId);
+  const { layerByNodeId } = buildLayerModel(nodes);
 
-  // Bucket gutter edges by target, remembering each one's original index so the
-  // emitted array can be rebuilt in place.
-  type Slot = {
-    index: number;
-    edge: Edge;
-    portIndex: number;
-    item: string | undefined;
-  };
-  const byTarget = new Map<string, Slot[]>();
-  edges.forEach((edge, index) => {
-    const source = byId.get(edge.source);
-    const target = byId.get(edge.target);
-    if (source === undefined || target === undefined) return;
-    if (!occupiesGutterColumn(edge, source, target, byId)) return;
-    const item = edgeItem(edge);
-    const list = byTarget.get(edge.target) ?? [];
-    list.push({ index, edge, portIndex: inputPortIndex(target, item), item });
-    byTarget.set(edge.target, list);
-  });
-
-  // Assign one column per gutter edge. Sort each target's edges by port index
-  // (ports with a known index first, ascending), then item id, then edge id, so
-  // the mapping from port order to column x is deterministic. rank 0 (topmost
-  // port) takes the leftmost column; rank k-1 sits at the pre-gutter default.
   const entryXByIndex = new Map<number, number>();
-  for (const [targetId, list] of byTarget) {
-    const target = byId.get(targetId)!;
-    const k = list.length;
-    const sorted = [...list].sort((a, b) => {
-      const ai = a.portIndex < 0 ? Infinity : a.portIndex;
-      const bi = b.portIndex < 0 ? Infinity : b.portIndex;
-      if (ai !== bi) return ai - bi;
-      if (a.item !== b.item) return (a.item ?? "") < (b.item ?? "") ? -1 : 1;
-      return a.edge.id < b.edge.id ? -1 : 1;
-    });
-    sorted.forEach((slot, rank) => {
-      const fromRight = k - 1 - rank; // topmost port -> largest offset (leftmost)
-      entryXByIndex.set(slot.index, arrivals.columnOf(target, fromRight));
-    });
-  }
+  edges.forEach((edge, index) => {
+    const row = arrivalRowOf(edge, byId, layerByNodeId);
+    if (row === undefined) return;
+    const slot = slots.get(row.key);
+    const target = byId.get(edge.target);
+    if (slot === undefined || target === undefined) return;
+    entryXByIndex.set(index, arrivals.columnOf(target, slot));
+  });
 
   if (entryXByIndex.size === 0) return edges.map((e) => e);
   return edges.map((edge, index) => {
@@ -980,11 +1230,33 @@ export function assignEntryColumns(
 // is the widest gutter among next-column nodes whose vertical extent overlaps
 // the band's own y-span -- a y-aware check, not just x, so a wide gutter on a
 // node in a distant row does not needlessly squeeze the corridor.
+//
+// Reserve clamp (against the gap records the pre-pass produced): the band's gap
+// is the one right of its source layer, and that gap's COLUMN ZONE is the room
+// reserved for columns -- the source chip reserve stands left of it and the
+// target chip reserve right of it. So the corridor is intersected with the zone:
+// a column left of it would shorten the first leg below the chip box that leg
+// owes, and one right of it would do the same to the last leg. The margins above
+// still apply where they bite harder. Without gap records (a hand-built fixture,
+// or a caller re-running the passes on its own) the margins alone stand.
+//
+// Pitch floor: the fan does not own its corridor. Every column the passes above
+// pinned in the same gap -- a trunk's junction column whatever the member's edge
+// type, the same column pinned on a far member, a target's entry columns -- cuts
+// its keep-out band out of the corridor, and the members fan across what is
+// left, at ENTRY_SLOT_PITCH or wider between any two of them. The reserve pays
+// for that (gapRequirements charges the column zone one floor per bend column),
+// so the even fan usually clears the floor on its own; where it does not, the
+// members stand at the floor itself, centred in the free width. Only when even
+// that does not fit does the fan squeeze below the floor -- still better than
+// dropping the stagger.
 export function assignBendColumns(
   nodes: ReadonlyArray<RFAnyNode>,
   edges: ReadonlyArray<Edge>,
+  ctx?: RoutingCtx,
 ): Edge[] {
   const byId = nodeIndexOf(nodes);
+  const sourceGaps = sourceGapsOf(nodes, ctx);
 
   const leftMargin = ENTRY_GUTTER_MIN; // keeps columns off the source port stubs
 
@@ -1021,12 +1293,16 @@ export function assignBendColumns(
     yHi: number;
   };
   const groups = new Map<number, Cand[]>();
-  // Shared fan-out columns already claimed inside a band, keyed the same way.
-  // The stagger cannot re-place these edges, but it must not fan another
-  // edge's vertical onto one of them either: a staggered column half a stub
-  // from a trunk column braids it, and the trunk column carries every member's
-  // stroke. The band's left margin below starts past them.
-  const pinnedColumnsByBand = new Map<number, number[]>();
+  // The gap right of each band's source layer, the one its columns stand in.
+  // Every member of a band leaves the same layer, so one record per band.
+  const gapByBand = new Map<number, GapRecord>();
+  // Columns already claimed in a band, keyed the same way, with the gap-keyed
+  // view below as the general answer. The stagger cannot re-place these, but it
+  // must not fan another edge's vertical onto one of them either: a staggered
+  // column half a stub from a trunk column braids it, and the trunk column
+  // carries every member's stroke.
+  const pinnedColumnsByBand = new Map<number, PinnedColumn[]>();
+  const pinnedByGap = pinnedColumnsByGap(nodes, edges);
   for (const edge of edges) {
     if (edge.type !== "item") continue; // only forward item edges get staggered
     if (edgeItem(edge) === undefined) continue;
@@ -1036,7 +1312,7 @@ export function assignBendColumns(
       if (source !== undefined) {
         const band = Math.round(absoluteLeft(source, byId));
         const list = pinnedColumnsByBand.get(band) ?? [];
-        list.push(pinnedData.bendX);
+        list.push({ x: pinnedData.bendX, trunk: true });
         pinnedColumnsByBand.set(band, list);
       }
     }
@@ -1066,6 +1342,8 @@ export function assignBendColumns(
     const list = groups.get(band) ?? [];
     list.push({ id: edge.id, sourceRight, targetLeft, yLo, yHi });
     groups.set(band, list);
+    const gap = sourceGaps.get(edge.source);
+    if (gap !== undefined) gapByBand.set(band, gap);
   }
 
   // Fan each band's members across its shared corridor. groupLeft is the band's
@@ -1098,29 +1376,51 @@ export function assignBendColumns(
       if (g.bottom + CHAMFER < bandLo || g.top - CHAMFER > bandHi) continue;
       if (g.gutter > rightMargin) rightMargin = g.gutter;
     }
-    // Start the fan past any shared fan-out column claimed in this band, by the
-    // same keep-out a junction column claims against its siblings (one stub, so
-    // columns closer than that read as one line). Falls back to the plain
-    // margin when clearing the claim would leave no corridor at all -- a
-    // squeezed fan is still better than none.
-    const pinned = pinnedColumnsByBand.get(band) ?? [];
-    const claimedLeft = Math.max(
-      leftMargin,
-      ...pinned.map((x) => x + PORT_STUB - groupLeft),
+    // The corridor in absolute x: the two margins above, each tightened to the
+    // band gap's column zone where there is a record for it (the reserve clamp).
+    const zone = gapByBand.get(band)?.columnZone;
+    const marginLeft = Math.max(
+      groupLeft + leftMargin,
+      zone?.left ?? -Infinity,
     );
-    const bandLeftMargin =
-      groupRight - groupLeft - claimedLeft - rightMargin > 0
-        ? claimedLeft
-        : leftMargin;
-    const usable = groupRight - groupLeft - bandLeftMargin - rightMargin;
-    if (usable <= 0) continue; // corridor too tight; keep the default midpoints
+    const corridorRight = Math.min(
+      groupRight - rightMargin,
+      zone?.right ?? Infinity,
+    );
+    const corridorLeft = marginLeft;
+    if (corridorRight - corridorLeft <= 0) continue; // too tight; keep midpoints
+    // Cut every pinned column's keep-out band out of the corridor. A trunk
+    // column claims a whole port stub (columns closer than that read as one
+    // line, and it carries every member's stroke); anything else claims the
+    // floor. Falls back to the bare corridor when the claims leave nothing at
+    // all -- a squeezed fan is still better than none.
+    const pinned = [
+      ...(pinnedColumnsByBand.get(band) ?? []),
+      ...(gapByBand.has(band)
+        ? (pinnedByGap.get(gapByBand.get(band)!.index) ?? [])
+        : []),
+    ];
+    const corridor = { lo: corridorLeft, hi: corridorRight };
+    const cut = freeSpans(corridor, pinned);
+    const free = cut.length === 0 ? [corridor] : cut;
+    const total = free.reduce((sum, span) => sum + (span.hi - span.lo), 0);
     const sorted = [...list].sort((a, b) =>
       a.id < b.id ? -1 : a.id > b.id ? 1 : 0,
     );
-    const pitch = usable / (sorted.length + 1);
+    // Even fan first (the same symmetric end gaps the plain corridor fan left);
+    // where that pitch is under the floor, the floor itself, centred in the free
+    // width; where even that does not fit, the even fan stands and squeezes.
+    const evenPitch = total / (sorted.length + 1);
+    const atFloor =
+      evenPitch < ENTRY_SLOT_PITCH &&
+      (sorted.length - 1) * ENTRY_SLOT_PITCH <= total;
+    const pitch = atFloor ? ENTRY_SLOT_PITCH : evenPitch;
+    const first = atFloor
+      ? (total - (sorted.length - 1) * ENTRY_SLOT_PITCH) / 2
+      : evenPitch;
     const budget = pitch / 2;
     sorted.forEach((c, i) => {
-      bendById.set(c.id, groupLeft + bandLeftMargin + pitch * (i + 1));
+      bendById.set(c.id, spanColumnAt(free, first + i * pitch));
       budgetById.set(c.id, budget);
     });
   }
@@ -1756,11 +2056,13 @@ export function clampBackwardRails(
   });
 }
 
-// jogForwardLegs: bend a forward item edge's final approach leg around any
-// intervening card it would otherwise cross. A forward normal step runs its last
-// horizontal leg at the target-port y from the bend column to the target; on a
-// layer-skipping edge that leg can slice straight through a node card sitting at
-// the same row one layer over. When the padded obstacle provider reports the leg
+// jogForwardLegs: bend a forward item edge's long horizontal around any
+// intervening card it would otherwise cross. Since the late drop that run is the
+// SOURCE one: a forward step holds the source-port y from the port out to the
+// target's entry column, and on a layer-skipping edge that run can slice straight
+// through a node card sitting at the same row one layer over (the run at the
+// target row is only the approach band in front of the target and stays in the
+// gap). When the padded obstacle provider reports a run
 // blocked, stamp a { legY }: the drawer then bends the run down / up to that
 // clear y, carries the long horizontal there, and only descends into the target
 // in its own entry gutter. The bend column already sits in a node-free corridor
@@ -1814,7 +2116,9 @@ export function jogForwardLegs(
   // starts one pitch further left, and each additional jog into the same
   // target takes the next slot leftward. This is the gutter-occupant
   // registration for jogs: no two jogs into one target, and no jog vs rail /
-  // rise pair, ever draw coincident verticals at the default column.
+  // rise pair, ever draw coincident verticals at the default column. The late
+  // drops need no count of their own: the arrival model walks every candidate
+  // clear of the entry columns assignEntryColumns already pinned.
   const gutterCounts = gutterColumnCounts(edges, byId);
   const jogsByTarget = new Map<string, number>();
 
@@ -1829,6 +2133,7 @@ export function jogForwardLegs(
   // caller re-running the passes on its own) the pre-zone rule stands: one
   // stub plus a chamfer out of the source port.
   const sourceGaps = sourceGapsOf(nodes, ctx);
+  const pinnedByGap = pinnedColumnsByGap(nodes, edges);
   const trunkByEdgeId = classifyTrunks(nodes, edges).trunkByEdgeId;
   const srcSlotsByTrunk = new Map<string, number>();
   const trunkKeyOf = (edge: Edge): string | undefined => {
@@ -1862,20 +2167,25 @@ export function jogForwardLegs(
     // still stamped with nothing and still drawn straight.
     // forwardStepGeometry is the drawer's own bend-column derivation, so the
     // leg's start x matches the drawn path by construction.
-    const bendHint = (edge.data as ItemEdgeData | undefined)?.bendX;
-    const { bx } = forwardStepGeometry(sx, tx, bendHint);
+    const hints = routingHintsFromData(edge.data);
+    const geom = forwardStepGeometry(sx, tx, hints.bendX);
+    const bx = geom.bx;
+    // Where the straight step turns down: the target's entry column since the
+    // late drop, so the long horizontal at sy runs out to HERE and the run at the
+    // target row is only the approach band.
+    const dropX = forwardDropX(geom, hints);
     // The jog runs the long horizontal from its entry column to the descent
     // column, then descends into the target port. The descent's desired column
     // is the target's next free entry slot (see occupancy above).
     const occupied =
       (gutterCounts.get(edge.target) ?? 0) +
       (jogsByTarget.get(edge.target) ?? 0);
-    const descentX0 = arrivals.columnOf(target, occupied);
     // The gap the descent stands in, when there is a record for it: every
     // candidate column below is confined to its column zone, so a descent
     // pushed clear of a card cannot end up inside the chip reserve in front of
     // the target.
     const descentGap = arrivals.zoneOf(target);
+    const descentX0 = arrivals.columnOf(target, occupied);
     const inDescentZone = (x: number): boolean =>
       descentGap === undefined ||
       (x >= descentGap.columnZone.left && x <= descentGap.columnZone.right);
@@ -1889,12 +2199,19 @@ export function jogForwardLegs(
     const inSourceZone = (x: number): boolean =>
       sourceGap === undefined ||
       (x >= sourceGap.columnZone.left && x <= sourceGap.columnZone.right);
+    // Walked rightward clear of the columns already pinned in that gap (the
+    // bend columns the fan placed included), so a jogged source column does not
+    // braid one of them; without a record there is no gap to walk inside.
     const desiredSrcColX =
       sourceGap === undefined
         ? sx + PORT_STUB + CHAMFER
-        : sourceGap.columnZone.left +
-          ENTRY_SLOT_PITCH / 2 +
-          srcSlot * ENTRY_SLOT_PITCH;
+        : columnClearOfPinned(
+            sourceGap.columnZone.left +
+              ENTRY_SLOT_PITCH / 2 +
+              srcSlot * ENTRY_SLOT_PITCH,
+            1,
+            pinnedByGap.get(sourceGap.index) ?? [],
+          );
 
     // Exempt from the obstacle scan: both endpoints' own cards / gutters (the leg
     // leaves the source and ends inside the target) and each endpoint's own
@@ -1926,16 +2243,15 @@ export function jogForwardLegs(
           o.bottom > Math.min(y0, y1),
       );
 
-    // Nothing to jog unless the straight step is dirty: the final leg at ty or
-    // the SOURCE horizontal at sy out to the bend column crosses a foreign
-    // card. (A blocked bend VERTICAL with both legs clean is not a jog.) The
-    // final leg is measured out to the PORT, not to descentX0: without a jog
-    // there is no descent column, so the straight step draws that leg all the
-    // way from the bend to tx, and stopping the test at descentX0 misses every
-    // card standing between the two -- which is exactly where a card of the
-    // layer in front of the target sits.
-    const tgtBlocked = legBlockedIn(foreignCards, ty, bx, tx);
-    const srcBlocked = legBlockedIn(foreignCards, sy, sx, bx);
+    // Nothing to jog unless the straight step is dirty: the long SOURCE
+    // horizontal at sy out to the drop column, or the approach at ty from there
+    // into the port, crosses a foreign card. (A blocked drop VERTICAL with both
+    // legs clean is not a jog.) Since the late drop the long run is the source
+    // one, and the run at ty is the approach band -- which lies in the gap in
+    // front of the target and so is dirty only in a degenerate placement, where
+    // the drop collapses back onto the bend column.
+    const tgtBlocked = legBlockedIn(foreignCards, ty, dropX, tx);
+    const srcBlocked = legBlockedIn(foreignCards, sy, sx, dropX);
     if (!tgtBlocked && !srcBlocked) return;
 
     // Try one obstacle tier: find (entry column C, rail level R, descent D)
@@ -2054,18 +2370,56 @@ export function jogForwardLegs(
     // card it escaped.
     const zoned = confined !== null;
 
+    // The stamped column: the search's answer pulled into its zone, and then
+    // walked off any column the pull put it on. clearColumnX hands the desired
+    // column back when no candidate qualifies, so the zone clamp can land a
+    // column on the zone's own edge, where an arrival column of the same gap may
+    // already stand -- two lines eight units apart read as one. A walk that would
+    // put the column through a card, or back out of the zone, is dropped for the
+    // clamped value: that is the degrade this pass has always taken.
+    const settle = (
+      x: number,
+      gap: GapRecord | undefined,
+      clear: (candidate: number) => boolean,
+    ): number => {
+      if (!zoned) return x; // a relaxed column is out of the zone on purpose
+      const pulled = clampToZone(x, gap);
+      const blockers =
+        gap === undefined ? [] : (pinnedByGap.get(gap.index) ?? []);
+      const walked = columnClearOfPinned(pulled, -1, blockers);
+      if (walked === pulled) return pulled;
+      return clear(walked) && clampToZone(walked, gap) === walked
+        ? walked
+        : pulled;
+    };
+
     if (jog.R !== ty) {
       legYByIndex.set(index, jog.R);
-      if (jog.D !== tx - PORT_STUB) {
-        descentXByIndex.set(
-          index,
-          zoned ? clampToZone(jog.D, descentGap) : jog.D,
-        );
-      }
+      const descentX = settle(
+        jog.D,
+        descentGap,
+        (x) =>
+          x <= tx - CHAMFER &&
+          !vRunBlockedIn(foreignAll, x, jog.R, ty) &&
+          !legBlockedIn(foreignCards, ty, x, tx) &&
+          !legBlockedIn(foreignCards, jog.R, jog.C, x),
+      );
+      if (descentX !== tx - PORT_STUB) descentXByIndex.set(index, descentX);
       jogsByTarget.set(edge.target, (jogsByTarget.get(edge.target) ?? 0) + 1);
     }
     if (srcBlocked) {
-      srcColXByIndex.set(index, zoned ? clampToZone(jog.C, sourceGap) : jog.C);
+      srcColXByIndex.set(
+        index,
+        settle(
+          jog.C,
+          sourceGap,
+          (x) =>
+            x > sx &&
+            x < tx &&
+            !vRunBlockedIn(foreignAll, x, sy, jog.R) &&
+            !legBlockedIn(foreignCards, sy, sx, x),
+        ),
+      );
       if (trunkKey !== undefined) srcSlotsByTrunk.set(trunkKey, srcSlot + 1);
     }
   });
