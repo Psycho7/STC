@@ -1009,6 +1009,81 @@ describe("solveLp - extraction recipes", () => {
   });
 });
 
+// Among cost-tied solutions the solve prefers the one that pulls less from the
+// boundary, before the id-rank tie-break gets a say. Both producers here cost
+// one execution and the raw item is free, so cost alone cannot separate them
+// and the id order deliberately favours the greedy one.
+describe("solveLp - boundary-consumption tie-break", () => {
+  const leanPack = makePack(
+    [
+      { id: "a_plain", time: 1, in: { R: 2 }, out: { X: 1 } },
+      { id: "b_lean", time: 1, in: { R: 1 }, out: { X: 1 } },
+    ],
+    [{ id: "R", raw: true }, { id: "X" }],
+  );
+  const targets: ItemTarget[] = [
+    { itemId: "X", ratePerSec: { num: "1", denom: "1" } },
+  ];
+
+  it("prefers the leaner consumer of an uncapped raw item", () => {
+    const result = solveLp({ targets, pack: leanPack });
+    expect(result.rates.get("b_lean")!.equals(1)).toBe(true);
+    expect(result.rates.has("a_plain")).toBe(false);
+  });
+
+  it("prefers the leaner consumer under a large finite cap", () => {
+    const overrides: ItemOverride[] = [
+      { itemId: "R", ratePerSec: { num: "1000", denom: "1" } },
+    ];
+    const result = solveLp({
+      targets,
+      pack: leanPack,
+      itemOverrides: overrides,
+    });
+    expect(result.rates.get("b_lean")!.equals(1)).toBe(true);
+    expect(result.rates.has("a_plain")).toBe(false);
+    expectExactlyBalanced(result, leanPack, targets, overrides);
+  });
+
+  it("falls through to the id-rank winner on equal consumption", () => {
+    const evenPack = makePack(
+      [
+        { id: "a_plain", time: 1, in: { R: 1 }, out: { X: 1 } },
+        { id: "b_lean", time: 1, in: { R: 1 }, out: { X: 1 } },
+      ],
+      [{ id: "R", raw: true }, { id: "X" }],
+    );
+    const result = solveLp({ targets, pack: evenPack });
+    expect(result.rates.get("a_plain")!.equals(1)).toBe(true);
+    expect(result.rates.has("b_lean")).toBe(false);
+  });
+
+  // Real-pack witness: with copper_nugget and filter_core marked as free
+  // boundary items, the plain gas enrichment variants cost the same as the
+  // inert-fed ones but burn two filter cores per cycle instead of one. Free
+  // supply makes that invisible to cost, so only the boundary pass separates
+  // them.
+  it("picks the inert gas enrichment variants on the real pack", () => {
+    const result = solveLp({
+      targets: [
+        { itemId: "copper_enr2_cmpt", ratePerSec: { num: "1", denom: "5" } },
+        { itemId: "xiranite_enr_powder", ratePerSec: { num: "2", denom: "5" } },
+      ],
+      pack,
+      itemOverrides: [{ itemId: "copper_nugget" }, { itemId: "filter_core" }],
+    });
+    expect(result.status).toBe("feasible");
+    expect(
+      result.rates.get("gas_copper_enr-gas_inert")!.compare(0),
+    ).toBeGreaterThan(0);
+    expect(
+      result.rates.get("gas_xiranite_enr-gas_inert")!.compare(0),
+    ).toBeGreaterThan(0);
+    expect(result.rates.has("gas_copper_enr")).toBe(false);
+    expect(result.rates.has("gas_xiranite_enr")).toBe(false);
+  });
+});
+
 // The draw snap saturates against the cap MINUS the catalyst use. No live plan
 // separates that window from the plain cap (plainSnap happens to recover the
 // same rational in every one of them), so it is pinned directly here: the
