@@ -43,6 +43,19 @@ function mkCondensation(sccs: Scc[]): Condensation {
 
 const EMPTY_LOGICAL: LogicalGraph = { nodes: [], edges: [] };
 
+// A box needs a cycle among the survivors in the solved graph, so the
+// structural cases that expect one hand the policy the two arcs.
+function cycleLogical(a: ReplicaId, b: ReplicaId): LogicalGraph {
+  const arc = (source: string, target: string) => ({
+    id: `${source}->${target}:x`,
+    source,
+    target,
+    sourcePort: "out:x",
+    targetPort: "in:x",
+  });
+  return { nodes: [], edges: [arc(a, b), arc(b, a)] };
+}
+
 describe("PillarsOnly: one non-trivial SCC", () => {
   it("emits a loop-box for the SCC; non-SCC replicas remain top-level", () => {
     const target = "target:r:end";
@@ -71,7 +84,7 @@ describe("PillarsOnly: one non-trivial SCC", () => {
       { id: "s1", recipeIds: ["r:x", "r:y"] },
     ]);
     const out = PillarsOnly({
-      logical: EMPTY_LOGICAL,
+      logical: cycleLogical("rep:loop-x", "rep:loop-y"),
       replicas,
       condensation,
     });
@@ -153,10 +166,11 @@ describe("PillarsOnly: regression guard against rejected fold layers", () => {
       { id: "s1", recipeIds: ["r:x", "r:y"] },
     ]);
     const out = PillarsOnly({
-      logical: EMPTY_LOGICAL,
+      logical: cycleLogical("rep:lx", "rep:ly"),
       replicas,
       condensation,
     });
+    expect(out.containers).toHaveLength(1);
     for (const c of out.containers) {
       expect(c.kind).toBe("loop-box");
     }
