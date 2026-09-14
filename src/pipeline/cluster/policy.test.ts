@@ -8,9 +8,21 @@ import { pack } from "../../data/load";
 import { solveForRender } from "../solveForRender";
 import type { ItemTarget } from "../../data/targets";
 
-// PillarsOnly ignores the logical graph entirely; an empty one keeps the
-// synthetic cases honest about what the policy actually reads.
-const emptyLogical = { nodes: [], edges: [] } as unknown as LogicalGraph;
+// The policy reads only the edges, so the node list stays empty.
+function logicalOf(edges: [string, string][]): LogicalGraph {
+  return {
+    nodes: [],
+    edges: edges.map(([source, target]) => ({
+      id: `${source}->${target}:x`,
+      source,
+      target,
+      sourcePort: "out:x",
+      targetPort: "in:x",
+    })),
+  } as unknown as LogicalGraph;
+}
+
+const emptyLogical = logicalOf([]);
 
 function replica(id: string, recipeId: string): Replica {
   return {
@@ -52,9 +64,23 @@ describe("PillarsOnly surviving-member filter", () => {
     expect(containerByMember.size).toBe(0);
   });
 
-  test("keeps the loop box when two distinct recipes survive", () => {
+  test("emits no loop box when two survivors share no solved edge", () => {
     const input: ClusteringPolicyInput = {
       logical: emptyLogical,
+      replicas: [replica("r:a:0", "a"), replica("r:b:0", "b")],
+      condensation,
+    };
+    const { containers, containerByMember } = PillarsOnly(input);
+    expect(containers).toEqual([]);
+    expect(containerByMember.size).toBe(0);
+  });
+
+  test("keeps the loop box when two survivors are joined by a solved cycle", () => {
+    const input: ClusteringPolicyInput = {
+      logical: logicalOf([
+        ["r:a:0", "r:b:0"],
+        ["r:b:0", "r:a:0"],
+      ]),
       replicas: [
         replica("r:a:0", "a"),
         replica("r:b:0", "b"),
@@ -111,6 +137,25 @@ describe("loop boxes against the shipped pack", () => {
   test("iron_powder target draws no box around the single surviving SCC member", () => {
     const boxes = loopBoxes("iron_powder");
     expect(boxes).toEqual([]);
+  });
+
+  // The reported three-target plan: the static SCC around `copper_powder`
+  // survives with two recipes, but the recipes that closed the cycle solve to
+  // rate 0 and the two survivors share no edge. No box, and no per-container
+  // boundary tap minted beside the loose gas_xiranite one.
+  test("the copper_powder plan boxes nothing and mints no loop tap", () => {
+    const targets: ItemTarget[] = [
+      { itemId: "copper_powder", ratePerSec: { num: "1", denom: "2" } },
+      { itemId: "equip_script_4_3", ratePerSec: { num: "2", denom: "1" } },
+      { itemId: "iron_powder", ratePerSec: { num: "1", denom: "4" } },
+    ];
+    const { plan } = solveForRender({ targets, pack });
+    expect(plan.containers).toEqual([]);
+    expect(
+      plan.units
+        .map((u) => u.id)
+        .filter((id) => id.startsWith("u:in:gas_xiranite:loop:")),
+    ).toEqual([]);
   });
 
   test("xiranite_poly target keeps multi-survivor boxes and sheds single-survivor ones", () => {
