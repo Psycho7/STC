@@ -9,7 +9,7 @@ function inputNode(
   id: string,
   itemId: string,
   num: string,
-  flags?: { isFanout?: true },
+  flags?: { isFanout?: true; role?: "catalyst" },
 ): Node {
   return {
     id,
@@ -20,6 +20,7 @@ function inputNode(
       itemId,
       rate: { num, denom: "1" },
       ...(flags?.isFanout ? { isFanout: true } : {}),
+      ...(flags?.role ? { role: flags.role } : {}),
     },
   } as Node;
 }
@@ -34,13 +35,41 @@ test("aggregate total wins over fanout slices for the same item", () => {
     inputNode("slice-b", "liquid_water", "3", { isFanout: true }),
   ];
   const map = buildRealizedRateByItem(nodes);
-  expect(map.get("liquid_water")).toEqual({ num: "4", denom: "1" });
+  expect(map.get("liquid_water")?.ordinary).toEqual({ num: "4", denom: "1" });
 });
 
 test("a single-bucket input (no flags) reports its own rate", () => {
   const nodes: Node[] = [inputNode("solo", "plant_moss_seed", "2")];
   const map = buildRealizedRateByItem(nodes);
-  expect(map.get("plant_moss_seed")).toEqual({ num: "2", denom: "1" });
+  expect(map.get("plant_moss_seed")?.ordinary).toEqual({
+    num: "2",
+    denom: "1",
+  });
+});
+
+test("an ordinary node and a catalyst node for one item are both kept", () => {
+  // gas_xiranite-shaped case: 1/2 per second consumed as a reagent on the
+  // ordinary card and 1/10 per second cycled on the catalyst card. Keying by
+  // item alone would let whichever came last erase the other.
+  const nodes: Node[] = [
+    inputNode("ord", "gas_xiranite", "1"),
+    inputNode("cat", "gas_xiranite", "3", { role: "catalyst" }),
+  ];
+  const map = buildRealizedRateByItem(nodes);
+  expect(map.get("gas_xiranite")).toEqual({
+    ordinary: { num: "1", denom: "1" },
+    catalyst: { num: "3", denom: "1" },
+  });
+});
+
+test("a catalyst-only item reports a catalyst entry and no ordinary one", () => {
+  const nodes: Node[] = [
+    inputNode("cat", "liquid_xiranite", "1", { role: "catalyst" }),
+  ];
+  const map = buildRealizedRateByItem(nodes);
+  expect(map.get("liquid_xiranite")).toEqual({
+    catalyst: { num: "1", denom: "1" },
+  });
 });
 
 test("two different items keep independent entries", () => {
@@ -50,8 +79,11 @@ test("two different items keep independent entries", () => {
     inputNode("b", "plant_moss_seed", "2"),
   ];
   const map = buildRealizedRateByItem(nodes);
-  expect(map.get("liquid_water")).toEqual({ num: "4", denom: "1" });
-  expect(map.get("plant_moss_seed")).toEqual({ num: "2", denom: "1" });
+  expect(map.get("liquid_water")?.ordinary).toEqual({ num: "4", denom: "1" });
+  expect(map.get("plant_moss_seed")?.ordinary).toEqual({
+    num: "2",
+    denom: "1",
+  });
 });
 
 test("non-input nodes are ignored", () => {
@@ -70,5 +102,5 @@ test("non-input nodes are ignored", () => {
     inputNode("in", "liquid_water", "4"),
   ];
   const map = buildRealizedRateByItem(nodes);
-  expect(map.get("liquid_water")).toEqual({ num: "4", denom: "1" });
+  expect(map.get("liquid_water")?.ordinary).toEqual({ num: "4", denom: "1" });
 });

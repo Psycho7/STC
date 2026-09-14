@@ -169,6 +169,7 @@ describe("solver-cli smoke", () => {
       "noOrphanUnits",
       "unitOutflowVsProduction",
       "productUnitRates",
+      "catalystNodesMatchAccount",
     ]);
   });
 });

@@ -25,6 +25,9 @@ export type ProductNodeData =
       itemId: string;
       rate: RationalString;
       rateCap?: RationalString;
+      // Set on the nodes of the item's catalyst pool, whose rate is the cycled
+      // per-machine charge rather than ordinary consumption.
+      role?: "catalyst";
       // Per-container fanout slices have an inbound edge from the item's
       // aggregate node, so they render an extra left target handle to receive
       // it.

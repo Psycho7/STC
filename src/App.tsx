@@ -14,6 +14,7 @@ import {
   type Node,
   type Edge,
 } from "@xyflow/react";
+import Fraction from "fraction.js";
 import Canvas, { type CanvasStatus } from "./canvas/Canvas";
 import { TargetsPanel } from "./components/TargetsPanel";
 import { InputsPanel } from "./components/InputsPanel";
@@ -531,18 +532,27 @@ function AppInner() {
   // pass, read off the input ProductNode data the layout layer wrote.
   //
   // A catalyst is external supply the same way a raw draw is. With
-  // CATALYST_SUPPLY_EDGES on the render pipeline already counts the cycled
-  // draw into the input product node's rate, so adding the solve's own
-  // catalyst need here would double-bill it. With the flag off no node carries
-  // the draw at all, and the panel is the only place it can surface, so the
-  // two ADD: a raw item can have a balanced product node and a catalyst draw
-  // at once, and showing only one of them would understate what the plan
-  // imports. InputsPanel mirrors this so the side row shows the same number as
-  // the canvas.
+  // CATALYST_SUPPLY_EDGES on the render pipeline draws the cycled charge from
+  // a catalyst node of its own, so the item's two nodes are summed here: the
+  // panel still shows one fused row per item, and a catalyst-only item such as
+  // liquid_xiranite keeps the row it earns from the charge alone. With the
+  // flag off no node carries the charge at all, and the solve's account is the
+  // only place it can come from. Splitting the row per pool is the panel's own
+  // job and lands with the C row.
   const supplyRateByItem = useMemo<
     ReadonlyMap<string, import("./pipeline/types").RationalString>
   >(() => {
-    const map = new Map(buildRealizedRateByItem(nodes));
+    const map = new Map<string, import("./pipeline/types").RationalString>();
+    for (const [itemId, rates] of buildRealizedRateByItem(nodes)) {
+      const parts = [rates.ordinary, rates.catalyst].filter(
+        (r) => r !== undefined,
+      );
+      const total = parts.reduce(
+        (acc, r) => acc.add(rationalFromString(r)),
+        new Fraction(0),
+      );
+      map.set(itemId, rationalToString(total));
+    }
     if (CATALYST_SUPPLY_EDGES) return map;
     for (const [itemId, entry] of catalystAccount) {
       const balanced = map.get(itemId);

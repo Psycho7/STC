@@ -281,6 +281,9 @@ export type RFProductNode = RFNode<
     // tells them apart by `kind`.
     rate: RenderUnitOutputProduct["rate"];
     rateCap?: RenderUnitInputProduct["rateCap"];
+    // Marks the nodes of an item's catalyst pool; absent on every other
+    // product node, so it is spread in conditionally like the fanout fields.
+    role?: RenderUnitInputProduct["role"];
     flavor?: RenderUnitOutputProduct["flavor"];
     // Per-container fanout slices of an aggregate input card. `isFanout` draws
     // the tap chrome and the extra left handle the aggregate's edge arrives on;
@@ -900,6 +903,7 @@ function unitToRFNode(
         rate: unit.rate,
         portTransportKinds,
         ...(unit.rateCap !== undefined ? { rateCap: unit.rateCap } : {}),
+        ...(unit.role !== undefined ? { role: unit.role } : {}),
         ...(unit.isFanout ? { isFanout: true } : {}),
         ...(unit.parentRate !== undefined
           ? { parentRate: unit.parentRate }
