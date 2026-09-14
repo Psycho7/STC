@@ -74,6 +74,34 @@ export function forwardStepGeometry(
   return { stub, chamfer, lo, hi, bx };
 }
 
+// THE LATE DROP: the column a forward step's vertical really stands on, given
+// the geometry above and the edge's hints. A plain step keeps the SOURCE row
+// across the whole gap and drops to the target row at the target's entry column
+// (entryX, one slot per entering port row), so two edges into adjacent rows of
+// one card share only the approach band right of that column -- the port stub
+// plus the chip reserve the gap was widened for -- instead of running one row
+// pitch apart the whole way. A jog-cleared source column wins over it:
+// jogForwardLegs proved that shape clear of a card and entryX did not. Absent
+// both, the staggered bend column stands and the drawn shape is what it was.
+//
+// An entry column outside the corridor is DECLINED rather than clamped onto its
+// margin: the margin is one x for every edge that reaches it, so clamping puts
+// two drops that the allocation spaced a slot apart back on one line, while the
+// bend column is staggered clear of every pinned column already.
+//
+// jogForwardLegs has to predict this column -- the long horizontal it tests for
+// cards runs from the source port to it -- so, like forwardStepGeometry, the
+// drawer and the pass share the one derivation.
+export function forwardDropX(
+  geom: { lo: number; hi: number; bx: number },
+  hints: RoutingHints,
+): number {
+  if (hints.srcColX !== undefined) return hints.srcColX;
+  if (hints.entryX === undefined) return geom.bx;
+  const inside = hints.entryX > geom.lo && hints.entryX < geom.hi;
+  return inside ? hints.entryX : geom.bx;
+}
+
 // Default column and rail geometry of a BACKWARD detour (the target sits at or
 // left of the source, so the edge routes right out of the source, along a rail,
 // then back into the target's Left port). chamferStepPath draws from these
@@ -120,7 +148,8 @@ export type ObstacleRect = {
 // contract: a new hint added here and in routingHintsFromData threads to the
 // render components and the reconstruction pass at once, instead of silently
 // reaching one but not the other.
-//   bendX:  bend-column x for a forward step (assignBendColumns). Absent ->
+//   bendX:  bend-column x for a forward step (assignBendColumns), the column it
+//           drops at when the target staked out no entry column for it. Absent ->
 //           the corridor midpoint.
 //   legY:   clear horizontal y for a blocked forward final leg (jogForwardLegs).
 //           Present -> the normal forward step bends to this y, runs the long
@@ -139,9 +168,12 @@ export type ObstacleRect = {
 //           of bendX -- and is used unclamped (the routing pass proved it
 //           clear; the drawer's [lo, hi] clamp could push it back into the
 //           blocked band). Absent -> the clamped bendX / midpoint default.
-//   entryX: entry-gutter column x (assignEntryColumns), the vertical run into
-//           the target's Left port for backward rails. Absent ->
-//           one stub before the port.
+//   entryX: entry column x (assignEntryColumns), the vertical run into the
+//           target's Left port: one slot per entering port row, shared by every
+//           edge that arrives on that row. A FORWARD step drops to the target
+//           row here (the late drop) instead of at its bend column, and a
+//           backward rail ends its left column here. Absent -> the bend column
+//           for a forward step, one stub before the port for a rail.
 //   railY:  backward-detour rail y (clampBackwardRails) clearing spanned cards.
 //           Absent -> midway between the endpoints.
 //   railXRight/railXLeft: obstacle-cleared backward-rail verticals
@@ -658,7 +690,9 @@ function onHorizontalRun(
 //     flags): its LAST horizontal run -- its own leg into the target -- seated
 //     one port stub back from the target port, the same seat a retyped fan-out
 //     member takes on the same leg. Everything left of it is the column its
-//     siblings share, where every member's chip would stack.
+//     siblings share, where every member's chip would stack. A far member takes
+//     no entry column (it keeps its trunk's shared line), so the late drop never
+//     moves this run.
 //   far fan-in member (faninColumn alone): its FIRST horizontal run -- its own
 //     source stub -- seated one port stub out of the source port. The stub
 //     stands in the gap's source chip reserve, which was widened for exactly
@@ -702,7 +736,9 @@ export function itemAnchor(
 }
 
 // chamferStepPath: forward step, small-dy diagonal, narrow-gap degradation, and
-// backward S/C detour, all sharing the same chamfer convention. Returns the SVG
+// backward S/C detour, all sharing the same chamfer convention. A forward step
+// runs its long horizontal at the SOURCE row and drops to the target row at the
+// target's entry column (see LATE DROP below). Returns the SVG
 // path plus the chip anchor longestRunAnchor puts on it -- the centre of the
 // polyline's longest horizontal run, one rule for every branch below, read off
 // the path this call just built. The final segment is always a rightward
@@ -781,8 +817,10 @@ export function chamferStepPath(
   // (jogForwardLegs, blocked source leg) replaces the column outright and is
   // used unclamped: the routing pass proved it clear, and the clamp could push
   // it back into the blocked band.
-  const { chamfer, bx: stepBx } = forwardStepGeometry(sx, tx, bendX);
+  const geom = forwardStepGeometry(sx, tx, bendX);
+  const { chamfer, bx: stepBx } = geom;
   const bx = args.srcColX ?? stepBx;
+  const dropX = forwardDropX(geom, args);
 
   // The jog: when a leg at the target y would cross an intervening card,
   // jogForwardLegs stamps a clear legY: bend to it, run the long horizontal
@@ -816,38 +854,39 @@ export function chamferStepPath(
   if (collapsesToDiagonal(ty - sy, chamfer)) {
     const d =
       `M ${r(sx)},${r(sy)}` +
-      ` L ${r(bx - chamfer)},${r(sy)}` +
-      ` L ${r(bx + chamfer)},${r(ty)}` +
+      ` L ${r(dropX - chamfer)},${r(sy)}` +
+      ` L ${r(dropX + chamfer)},${r(ty)}` +
       ` L ${r(tx)},${r(ty)}`;
     return anchored(d);
   }
 
-  // Normal forward step: H run, chamfer, V run, chamfer, H run into target.
+  // Normal forward step: H run at the source row, chamfer, V run at the drop
+  // column, chamfer, H run into target.
   // Enlarge the two corner bevels toward MAX_CHAMFER when the bend carries a
   // corridor budget (P6 PCB-style long chamfers). Cap by half the shorter
-  // adjacent leg -- the source-side horizontal (bx - sx), the target-side
-  // horizontal (tx - bx), and the vertical run (|ty - sy|) -- so a bevel never
-  // overruns its own legs, and by the stamped budget so it never reaches a
-  // sibling column's vertical. Absent the budget the base chamfer stands and the
-  // path is byte-identical. The half-leg cap already shrinks in a narrow
-  // corridor, so it composes with the narrow-gap scaling above.
-  // The budget's sibling-envelope invariant was proven for the stagger column at
+  // adjacent leg -- the source-side horizontal, the target-side horizontal, and
+  // the vertical run (|ty - sy|) -- so a bevel never overruns its own legs, and
+  // by the stamped budget so it never reaches a sibling column's vertical.
+  // Absent the budget the base chamfer stands and the path is byte-identical.
+  // The half-leg cap already shrinks in a narrow corridor, so it composes with
+  // the narrow-gap scaling above.
+  // The budget's sibling-envelope invariant was proven for the STAGGER column at
   // bendX (half the stagger pitch keeps a fattened bevel off the neighbour's
-  // vertical). A srcColX hint replaces the column outright with a jog-cleared
-  // one carrying only a CHAMFER of margin, where that invariant does not hold --
-  // so a jogged source column keeps the base chamfer regardless of any stamped
-  // budget.
+  // vertical). It holds for neither of the two columns that replace it: a
+  // jog-cleared source column carries only a CHAMFER of margin, and an entry
+  // column stands one slot pitch from the next row's -- so any drop column other
+  // than the staggered one keeps the base chamfer whatever the stamped budget.
   const stepChamfer =
-    args.chamferBudget === undefined || args.srcColX !== undefined
+    args.chamferBudget === undefined || dropX !== stepBx
       ? chamfer
       : Math.min(
           MAX_CHAMFER,
-          Math.min(bx - sx, tx - bx, Math.abs(ty - sy)) / 2,
+          Math.min(dropX - sx, tx - dropX, Math.abs(ty - sy)) / 2,
           args.chamferBudget,
         );
   return anchored(
     `M ${r(sx)},${r(sy)}` +
-      chamferColumn(bx, sy, ty, stepChamfer) +
+      chamferColumn(dropX, sy, ty, stepChamfer) +
       ` L ${r(tx)},${r(ty)}`,
   );
 }

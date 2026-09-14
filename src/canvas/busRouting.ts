@@ -28,6 +28,7 @@ import {
   clamp,
   clearRailY,
   fanJunctionX,
+  forwardDropX,
   forwardStepGeometry,
   routingHintsFromData,
   type ObstacleRect,
@@ -713,14 +714,175 @@ function occupiesGutterColumn(
   return false;
 }
 
-// Resolved input-port index of an edge at its target, or -1 when unknown. Only
-// recipe/loop nodes carry the ELK-resolved `inputOrder`; product targets have a
-// single port. Used to order a target's staggered entry columns top to bottom.
-function inputPortIndex(target: RFAnyNode, item: string | undefined): number {
-  if (item === undefined) return -1;
-  if (target.type !== "recipe" && target.type !== "loop") return -1;
-  const order = target.data.inputOrder;
-  return order ? order.indexOf(item) : -1;
+// Does an edge take one of its target's ARRIVAL columns -- the vertical run that
+// drops to the port row in front of the card? A backward rail does (its left rail
+// column) and so does a fan-in member (the trunk's shared merge column), as they
+// always have. Since the LATE DROP a forward step does too, for the shapes listed
+// below: it holds its source row across the gap and turns down at the entry
+// column, so two flows into adjacent rows of one card share only the approach
+// band instead of running a row pitch apart the whole way.
+//
+// Wider than occupiesGutterColumn, which answers the narrower question of which
+// columns stand inside the target's gutter BAND and so set its width: an entry
+// column stands left of the gap's target chip reserve, outside the band.
+function takesArrivalColumn(
+  edge: Edge,
+  source: RFAnyNode,
+  target: RFAnyNode,
+  byId: ReadonlyMap<string, RFAnyNode>,
+  layerByNodeId: ReadonlyMap<string, number>,
+): boolean {
+  if (edge.type !== "item") {
+    return occupiesGutterColumn(edge, source, target, byId);
+  }
+  if (nodeGap(source, target, byId) <= 0) return true; // backward rail
+  const from = layerByNodeId.get(edge.source);
+  const to = layerByNodeId.get(edge.target);
+  if (from === undefined || to === undefined) return false;
+  // A forward step drops late only where the drop buys something and costs
+  // nothing else. Three shapes are left out:
+  //   layer-SKIPPING  -- its drop column would span every row between the two
+  //     layers, so it braids the drops of the cards in between, and holding the
+  //     source row that far puts the run through the cards standing on it (the
+  //     jog pass would then bend it back into the old shape anyway);
+  //   trunk member    -- a far member is pinned to its trunk's shared line
+  //     (fanoutColumn / faninColumn), which is the formation the trunk exists to
+  //     draw, and its own leg carries its chip;
+  //   ports on ONE row -- drawn as a straight line, port to port; there is no
+  //     vertical to move.
+  if (to - from !== 1) return false;
+  const data = edge.data as ItemEdgeData | undefined;
+  if (data?.fanoutColumn === true || data?.faninColumn === true) return false;
+  const ports = edgePortsModel(edge, byId);
+  return ports !== null && ports.sy !== ports.ty;
+}
+
+// One ARRIVAL ROW: a target port row every edge that arrives on it drops into,
+// and the vertical extent those drops span (each edge turns down from its own
+// source row, so the row's column reaches from the highest source row to the
+// port). Rows are keyed by the drawn port y rather than by port index, so a
+// catalyst row and an input row carrying the SAME item stay two rows.
+type ArrivalRow = {
+  key: string;
+  targetId: string;
+  y: number;
+  yLo: number;
+  yHi: number;
+};
+
+const arrivalRowKey = (targetId: string, y: number): string =>
+  `${targetId}@row${Math.round(y * 100)}`;
+
+// The arrival row of one edge, or undefined when it takes no arrival column or
+// its ports cannot be resolved.
+function arrivalRowOf(
+  edge: Edge,
+  byId: ReadonlyMap<string, RFAnyNode>,
+  layerByNodeId: ReadonlyMap<string, number>,
+): ArrivalRow | undefined {
+  const source = byId.get(edge.source);
+  const target = byId.get(edge.target);
+  if (source === undefined || target === undefined) return undefined;
+  if (!takesArrivalColumn(edge, source, target, byId, layerByNodeId)) {
+    return undefined;
+  }
+  const ports = edgePortsModel(edge, byId);
+  if (ports === null) return undefined;
+  const { sy, ty } = ports;
+  // A forward step's drop runs from its source row to the port row. A BACKWARD
+  // rail's column runs from its detour rail, whose level clampBackwardRails only
+  // settles two passes later and may push clear across the graph, so its extent
+  // is unknown here and taken as unbounded: the row then shares a slot with
+  // nothing and no rail braids a drop.
+  const backward = nodeGap(source, target, byId) <= 0;
+  return {
+    key: arrivalRowKey(edge.target, ty),
+    targetId: edge.target,
+    y: ty,
+    yLo: backward ? -Infinity : Math.min(sy, ty),
+    yHi: backward ? Infinity : Math.max(sy, ty),
+  };
+}
+
+// The arrival SLOT of every row: which of its gap's arrival columns the row's
+// drops stand on, counting 0 at the rightmost.
+//
+// Two rules, and they fight: inside one card the fan must be monotonic (the
+// topmost row takes the leftmost column) so the entering runs do not cross each
+// other in front of the card, while ACROSS the cards of one layer a slot index
+// means one absolute x -- the columns are measured off the gap, not off the card
+// -- so two cards using index 0 draw their drops on one line wherever their
+// verticals share rows. So each card keeps its rows in port order and the card
+// as a whole is pushed to the first base offset at which none of its rows meets
+// an already-placed row of another card on the same slot: an interval colouring,
+// with the cards taken top to bottom and rows whose verticals miss each other in
+// y free to share a slot. The column zone is charged one pitch per forward edge
+// (gapRequirements), which is the worst case this can ask for.
+function arrivalSlots(
+  nodes: ReadonlyArray<RFAnyNode>,
+  edges: ReadonlyArray<Edge>,
+  byId: ReadonlyMap<string, RFAnyNode>,
+): Map<string, number> {
+  const { layerByNodeId } = buildLayerModel(nodes);
+  const rows = new Map<string, ArrivalRow>();
+  for (const edge of edges) {
+    const row = arrivalRowOf(edge, byId, layerByNodeId);
+    if (row === undefined) continue;
+    const seen = rows.get(row.key);
+    if (seen === undefined) {
+      rows.set(row.key, row);
+      continue;
+    }
+    seen.yLo = Math.min(seen.yLo, row.yLo);
+    seen.yHi = Math.max(seen.yHi, row.yHi);
+  }
+
+  // Rows of one card, cards of one layer: the two nesting levels the colouring
+  // walks.
+  const byLayer = new Map<number, Map<string, ArrivalRow[]>>();
+  for (const row of rows.values()) {
+    const layer = layerByNodeId.get(row.targetId);
+    if (layer === undefined) continue;
+    const cards = byLayer.get(layer) ?? new Map<string, ArrivalRow[]>();
+    const list = cards.get(row.targetId) ?? [];
+    list.push(row);
+    cards.set(row.targetId, list);
+    byLayer.set(layer, cards);
+  }
+
+  const slots = new Map<string, number>();
+  for (const cards of byLayer.values()) {
+    const placed: Array<{ slot: number; yLo: number; yHi: number }> = [];
+    const ordered = [...cards.entries()]
+      .map(([targetId, list]) => ({
+        targetId,
+        rows: [...list].sort((a, b) => a.y - b.y),
+      }))
+      .sort((a, b) => a.rows[0]!.y - b.rows[0]!.y);
+    for (const card of ordered) {
+      const slotAt = (base: number, rank: number): number =>
+        base + (card.rows.length - 1 - rank); // topmost row -> leftmost column
+      let base = 0;
+      while (
+        card.rows.some((row, rank) =>
+          placed.some(
+            (other) =>
+              other.slot === slotAt(base, rank) &&
+              other.yLo < row.yHi &&
+              row.yLo < other.yHi,
+          ),
+        )
+      ) {
+        base += 1;
+      }
+      card.rows.forEach((row, rank) => {
+        const slot = slotAt(base, rank);
+        slots.set(row.key, slot);
+        placed.push({ slot, yLo: row.yLo, yHi: row.yHi });
+      });
+    }
+  }
+  return slots;
 }
 
 // Count of gutter columns each target node hosts, keyed by node id. Both passes
@@ -994,20 +1156,23 @@ function clampToZone(x: number, gap: GapRecord | undefined): number {
   return clamp(x, gap.columnZone.left, gap.columnZone.right);
 }
 
-// assignEntryColumns: give every gutter-occupying edge (a backward item rail) a
-// per-target staggered column x, merged as { entryX } onto its data and
-// consumed by chamferStepPath. Columns of one target are
-// ordered by resolved input-port index so the entering runs form a monotonic
-// fan that does not self-cross inside the band: the topmost port takes the
-// leftmost column and the bottom port the rightmost. The columns themselves come
-// from the shared arrival model above -- left of the gap's target zone with a
-// gap record, one stub before the port without one, so a single-entry node in an
-// un-widened fixture is unchanged.
+// assignEntryColumns: give every arriving edge -- a forward step's late drop, a
+// backward item rail, a fan-in member -- a per-target staggered column x, merged
+// as { entryX } onto its data and consumed by chamferStepPath. One slot per
+// entering PORT ROW, shared by every edge on that row, so two flows into adjacent
+// rows of one card turn down two columns one ENTRY_SLOT_PITCH apart instead of
+// running a row pitch apart across the gap. Rows of one target are ordered by
+// port row so the entering runs form a monotonic fan that does not self-cross:
+// the topmost row takes the leftmost column and the bottom row the rightmost,
+// and arrivalSlots keeps the cards of one layer off each other's columns. The
+// columns themselves come from the shared arrival model above -- left of the
+// gap's target zone with a gap record, one stub before the port without one, so
+// a single-entry node in an un-widened fixture is unchanged.
 //
-// Pure and deterministic: the column of an edge depends only on its target and
-// port rank, never on edge order. Leaves every non-gutter edge untouched by
-// reference. What it needs from the passes before it is the ROUTING_PASSES
-// entry in layout.ts.
+// Pure and deterministic: the column of an edge depends only on its target, its
+// port row and the layer's other arrivals, never on edge order. Leaves every
+// non-arriving edge untouched by reference. What it needs from the passes before
+// it is the ROUTING_PASSES entry in layout.ts.
 export function assignEntryColumns(
   nodes: ReadonlyArray<RFAnyNode>,
   edges: ReadonlyArray<Edge>,
@@ -1015,47 +1180,18 @@ export function assignEntryColumns(
 ): Edge[] {
   const byId = nodeIndexOf(nodes);
   const arrivals = arrivalModelOf(nodes, edges, byId, ctx);
+  const slots = arrivalSlots(nodes, edges, byId);
+  const { layerByNodeId } = buildLayerModel(nodes);
 
-  // Bucket gutter edges by target, remembering each one's original index so the
-  // emitted array can be rebuilt in place.
-  type Slot = {
-    index: number;
-    edge: Edge;
-    portIndex: number;
-    item: string | undefined;
-  };
-  const byTarget = new Map<string, Slot[]>();
-  edges.forEach((edge, index) => {
-    const source = byId.get(edge.source);
-    const target = byId.get(edge.target);
-    if (source === undefined || target === undefined) return;
-    if (!occupiesGutterColumn(edge, source, target, byId)) return;
-    const item = edgeItem(edge);
-    const list = byTarget.get(edge.target) ?? [];
-    list.push({ index, edge, portIndex: inputPortIndex(target, item), item });
-    byTarget.set(edge.target, list);
-  });
-
-  // Assign one column per gutter edge. Sort each target's edges by port index
-  // (ports with a known index first, ascending), then item id, then edge id, so
-  // the mapping from port order to column x is deterministic. rank 0 (topmost
-  // port) takes the leftmost column; rank k-1 sits at the pre-gutter default.
   const entryXByIndex = new Map<number, number>();
-  for (const [targetId, list] of byTarget) {
-    const target = byId.get(targetId)!;
-    const k = list.length;
-    const sorted = [...list].sort((a, b) => {
-      const ai = a.portIndex < 0 ? Infinity : a.portIndex;
-      const bi = b.portIndex < 0 ? Infinity : b.portIndex;
-      if (ai !== bi) return ai - bi;
-      if (a.item !== b.item) return (a.item ?? "") < (b.item ?? "") ? -1 : 1;
-      return a.edge.id < b.edge.id ? -1 : 1;
-    });
-    sorted.forEach((slot, rank) => {
-      const fromRight = k - 1 - rank; // topmost port -> largest offset (leftmost)
-      entryXByIndex.set(slot.index, arrivals.columnOf(target, fromRight));
-    });
-  }
+  edges.forEach((edge, index) => {
+    const row = arrivalRowOf(edge, byId, layerByNodeId);
+    if (row === undefined) return;
+    const slot = slots.get(row.key);
+    const target = byId.get(edge.target);
+    if (slot === undefined || target === undefined) return;
+    entryXByIndex.set(index, arrivals.columnOf(target, slot));
+  });
 
   if (entryXByIndex.size === 0) return edges.map((e) => e);
   return edges.map((edge, index) => {
@@ -1920,11 +2056,13 @@ export function clampBackwardRails(
   });
 }
 
-// jogForwardLegs: bend a forward item edge's final approach leg around any
-// intervening card it would otherwise cross. A forward normal step runs its last
-// horizontal leg at the target-port y from the bend column to the target; on a
-// layer-skipping edge that leg can slice straight through a node card sitting at
-// the same row one layer over. When the padded obstacle provider reports the leg
+// jogForwardLegs: bend a forward item edge's long horizontal around any
+// intervening card it would otherwise cross. Since the late drop that run is the
+// SOURCE one: a forward step holds the source-port y from the port out to the
+// target's entry column, and on a layer-skipping edge that run can slice straight
+// through a node card sitting at the same row one layer over (the run at the
+// target row is only the approach band in front of the target and stays in the
+// gap). When the padded obstacle provider reports a run
 // blocked, stamp a { legY }: the drawer then bends the run down / up to that
 // clear y, carries the long horizontal there, and only descends into the target
 // in its own entry gutter. The bend column already sits in a node-free corridor
@@ -1978,7 +2116,9 @@ export function jogForwardLegs(
   // starts one pitch further left, and each additional jog into the same
   // target takes the next slot leftward. This is the gutter-occupant
   // registration for jogs: no two jogs into one target, and no jog vs rail /
-  // rise pair, ever draw coincident verticals at the default column.
+  // rise pair, ever draw coincident verticals at the default column. The late
+  // drops need no count of their own: the arrival model walks every candidate
+  // clear of the entry columns assignEntryColumns already pinned.
   const gutterCounts = gutterColumnCounts(edges, byId);
   const jogsByTarget = new Map<string, number>();
 
@@ -2027,20 +2167,25 @@ export function jogForwardLegs(
     // still stamped with nothing and still drawn straight.
     // forwardStepGeometry is the drawer's own bend-column derivation, so the
     // leg's start x matches the drawn path by construction.
-    const bendHint = (edge.data as ItemEdgeData | undefined)?.bendX;
-    const { bx } = forwardStepGeometry(sx, tx, bendHint);
+    const hints = routingHintsFromData(edge.data);
+    const geom = forwardStepGeometry(sx, tx, hints.bendX);
+    const bx = geom.bx;
+    // Where the straight step turns down: the target's entry column since the
+    // late drop, so the long horizontal at sy runs out to HERE and the run at the
+    // target row is only the approach band.
+    const dropX = forwardDropX(geom, hints);
     // The jog runs the long horizontal from its entry column to the descent
     // column, then descends into the target port. The descent's desired column
     // is the target's next free entry slot (see occupancy above).
     const occupied =
       (gutterCounts.get(edge.target) ?? 0) +
       (jogsByTarget.get(edge.target) ?? 0);
-    const descentX0 = arrivals.columnOf(target, occupied);
     // The gap the descent stands in, when there is a record for it: every
     // candidate column below is confined to its column zone, so a descent
     // pushed clear of a card cannot end up inside the chip reserve in front of
     // the target.
     const descentGap = arrivals.zoneOf(target);
+    const descentX0 = arrivals.columnOf(target, occupied);
     const inDescentZone = (x: number): boolean =>
       descentGap === undefined ||
       (x >= descentGap.columnZone.left && x <= descentGap.columnZone.right);
@@ -2098,16 +2243,15 @@ export function jogForwardLegs(
           o.bottom > Math.min(y0, y1),
       );
 
-    // Nothing to jog unless the straight step is dirty: the final leg at ty or
-    // the SOURCE horizontal at sy out to the bend column crosses a foreign
-    // card. (A blocked bend VERTICAL with both legs clean is not a jog.) The
-    // final leg is measured out to the PORT, not to descentX0: without a jog
-    // there is no descent column, so the straight step draws that leg all the
-    // way from the bend to tx, and stopping the test at descentX0 misses every
-    // card standing between the two -- which is exactly where a card of the
-    // layer in front of the target sits.
-    const tgtBlocked = legBlockedIn(foreignCards, ty, bx, tx);
-    const srcBlocked = legBlockedIn(foreignCards, sy, sx, bx);
+    // Nothing to jog unless the straight step is dirty: the long SOURCE
+    // horizontal at sy out to the drop column, or the approach at ty from there
+    // into the port, crosses a foreign card. (A blocked drop VERTICAL with both
+    // legs clean is not a jog.) Since the late drop the long run is the source
+    // one, and the run at ty is the approach band -- which lies in the gap in
+    // front of the target and so is dirty only in a degenerate placement, where
+    // the drop collapses back onto the bend column.
+    const tgtBlocked = legBlockedIn(foreignCards, ty, dropX, tx);
+    const srcBlocked = legBlockedIn(foreignCards, sy, sx, dropX);
     if (!tgtBlocked && !srcBlocked) return;
 
     // Try one obstacle tier: find (entry column C, rail level R, descent D)
@@ -2226,18 +2370,56 @@ export function jogForwardLegs(
     // card it escaped.
     const zoned = confined !== null;
 
+    // The stamped column: the search's answer pulled into its zone, and then
+    // walked off any column the pull put it on. clearColumnX hands the desired
+    // column back when no candidate qualifies, so the zone clamp can land a
+    // column on the zone's own edge, where an arrival column of the same gap may
+    // already stand -- two lines eight units apart read as one. A walk that would
+    // put the column through a card, or back out of the zone, is dropped for the
+    // clamped value: that is the degrade this pass has always taken.
+    const settle = (
+      x: number,
+      gap: GapRecord | undefined,
+      clear: (candidate: number) => boolean,
+    ): number => {
+      if (!zoned) return x; // a relaxed column is out of the zone on purpose
+      const pulled = clampToZone(x, gap);
+      const blockers =
+        gap === undefined ? [] : (pinnedByGap.get(gap.index) ?? []);
+      const walked = columnClearOfPinned(pulled, -1, blockers);
+      if (walked === pulled) return pulled;
+      return clear(walked) && clampToZone(walked, gap) === walked
+        ? walked
+        : pulled;
+    };
+
     if (jog.R !== ty) {
       legYByIndex.set(index, jog.R);
-      if (jog.D !== tx - PORT_STUB) {
-        descentXByIndex.set(
-          index,
-          zoned ? clampToZone(jog.D, descentGap) : jog.D,
-        );
-      }
+      const descentX = settle(
+        jog.D,
+        descentGap,
+        (x) =>
+          x <= tx - CHAMFER &&
+          !vRunBlockedIn(foreignAll, x, jog.R, ty) &&
+          !legBlockedIn(foreignCards, ty, x, tx) &&
+          !legBlockedIn(foreignCards, jog.R, jog.C, x),
+      );
+      if (descentX !== tx - PORT_STUB) descentXByIndex.set(index, descentX);
       jogsByTarget.set(edge.target, (jogsByTarget.get(edge.target) ?? 0) + 1);
     }
     if (srcBlocked) {
-      srcColXByIndex.set(index, zoned ? clampToZone(jog.C, sourceGap) : jog.C);
+      srcColXByIndex.set(
+        index,
+        settle(
+          jog.C,
+          sourceGap,
+          (x) =>
+            x > sx &&
+            x < tx &&
+            !vRunBlockedIn(foreignAll, x, sy, jog.R) &&
+            !legBlockedIn(foreignCards, sy, sx, x),
+        ),
+      );
       if (trunkKey !== undefined) srcSlotsByTrunk.set(trunkKey, srcSlot + 1);
     }
   });
