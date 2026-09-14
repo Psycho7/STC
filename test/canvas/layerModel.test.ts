@@ -12,6 +12,7 @@ import Fraction from "fraction.js";
 import type { Edge } from "@xyflow/react";
 
 import {
+  COLUMN_MIN_PITCH,
   COLUMN_PITCH,
   RESERVE_CARD_PAD,
   RESERVE_COLUMN_PAD,
@@ -283,7 +284,11 @@ describe("gap widening with containers", () => {
     ];
     const edges = [mkEdge("e:0", "l", "r", "s")];
     const required = gapRequirements(nodes, edges)[0]!.required;
-    expect(required).toBe(OWN_CHIP + FORWARD_STEP_BUDGET + OWN_CHIP);
+    // One 1-to-1 edge: two own-rate reserves, and the column zone charged one
+    // pitch floor for the bend column the edge takes there.
+    expect(required).toBe(
+      OWN_CHIP + FORWARD_STEP_BUDGET + COLUMN_MIN_PITCH + OWN_CHIP,
+    );
     const delta = required - ELK_GAP;
 
     const widened = widenLayerGaps(nodes, edges);

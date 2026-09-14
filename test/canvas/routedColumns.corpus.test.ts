@@ -18,7 +18,14 @@
 // with the endpoint it stands in front of -- and such a column takes no room
 // this rule is about, since every reserve it guards lives in a gap.
 //
-// The second property is the same reserve seen from the CHIP's side: a 1-to-1
+// The second property is the pitch FLOOR between the column families that share
+// one gap: a trunk column, an arrival column, a jogged leg's two columns and the
+// staggered 1-to-1 bend columns are placed by different passes, and two of them
+// a few units apart read as one thick line. Members of one trunk are exempt --
+// they share a column on purpose, which is the whole point of a trunk. Verticals
+// whose y-spans do not overlap may share an x: they draw on different rows.
+//
+// The third property is the same reserve seen from the CHIP's side: a 1-to-1
 // edge draws its own rate chip on one of its horizontal runs, and the gap was
 // widened so the runs beside its two ports can hold that box. So each of those
 // two runs must measure at least the port stub the chip seats past plus the
@@ -36,6 +43,7 @@ import {
   routingHintsFromData,
 } from "../../src/canvas/edgePath";
 import { chipNaturalWidth, rateChipText } from "../../src/canvas/chipMetrics";
+import { ENTRY_SLOT_PITCH } from "../../src/canvas/busRouting";
 import {
   buildLayerModel,
   classifyTrunks,
@@ -126,6 +134,112 @@ describe("routed columns stay inside their gap's column zone", () => {
     // empty list below is a verdict rather than an empty scan.
     expect(checked).toBeGreaterThan(0);
     expect(outside).toEqual([]);
+  }, 600_000);
+});
+
+// One drawn vertical segment of one edge: the column it stands on and the rows
+// it spans. Read off the DRAWN polyline rather than the stamps, so the rule
+// judges the lines the user sees -- a chamfered column's bevels are excluded and
+// a one-row diagonal contributes no vertical at all.
+type Vertical = { edge: string; x: number; top: number; bottom: number };
+
+function verticalsOf(
+  edge: Edge,
+  byId: ReturnType<typeof nodeIndexOf>,
+): Vertical[] {
+  const ends = drawnPortsOf(edge, byId);
+  if (ends === null) return [];
+  const { pts } = drawnEdge(ends, edge.type, edge.data);
+  const out: Vertical[] = [];
+  for (let i = 1; i < pts.length; i += 1) {
+    const [x0, y0] = pts[i - 1]!;
+    const [x1, y1] = pts[i]!;
+    if (x0 !== x1 || y0 === y1) continue;
+    out.push({
+      edge: edge.id,
+      x: x0,
+      top: Math.min(y0, y1),
+      bottom: Math.max(y0, y1),
+    });
+  }
+  return out;
+}
+
+describe("two verticals in one gap keep the column pitch floor", () => {
+  it("holds on every corpus plan", async () => {
+    const tight: Array<{
+      plan: string;
+      gap: number;
+      a: string;
+      b: string;
+      dx: number;
+    }> = [];
+    let checked = 0;
+
+    for (const scenario of SCENARIOS) {
+      const targets: ItemTarget[] = scenario.targets.map((t) => ({
+        itemId: t.itemId,
+        ratePerSec: t.ratePerSec,
+      }));
+      const { nodes, edges, gaps } = await layoutSolved(
+        solveForRender({ targets, pack }),
+      );
+      const byId = nodeIndexOf(nodes);
+      const { trunkByEdgeId } = classifyTrunks(nodes, edges);
+      // Two members of one trunk draw on the trunk's shared column by design.
+      const sharesTrunk = (a: string, b: string): boolean => {
+        const keysOf = (id: string): string[] => {
+          const sides = trunkByEdgeId.get(id);
+          return [sides?.fanOut?.key, sides?.fanIn?.key].filter(
+            (key): key is string => key !== undefined,
+          );
+        };
+        const keys = keysOf(b);
+        return keysOf(a).some((key) => keys.includes(key));
+      };
+
+      // Bucket by gap: the floor is a rule about the columns of ONE gap, and a
+      // vertical standing in no gap (a jog's last-resort column inside a layer's
+      // own band) is not this rule's business, exactly as above.
+      const byGap = new Map<number, Vertical[]>();
+      for (const edge of edges) {
+        for (const vertical of verticalsOf(edge, byId)) {
+          const gap = gapAt(gaps, vertical.x);
+          if (gap === undefined) continue;
+          const list = byGap.get(gap.index) ?? [];
+          list.push(vertical);
+          byGap.set(gap.index, list);
+        }
+      }
+
+      for (const [index, list] of byGap) {
+        for (let i = 0; i < list.length; i += 1) {
+          for (let j = i + 1; j < list.length; j += 1) {
+            const a = list[i]!;
+            const b = list[j]!;
+            if (a.edge === b.edge) continue;
+            if (sharesTrunk(a.edge, b.edge)) continue;
+            // Disjoint rows: the two columns never draw beside each other.
+            if (a.bottom <= b.top || b.bottom <= a.top) continue;
+            checked += 1;
+            const dx = Math.abs(a.x - b.x);
+            if (dx >= ENTRY_SLOT_PITCH - EPS) continue;
+            tight.push({
+              plan: scenario.id,
+              gap: index,
+              a: `${a.edge}@${a.x}`,
+              b: `${b.edge}@${b.x}`,
+              dx,
+            });
+          }
+        }
+      }
+    }
+
+    // Premise: the corpus really does put verticals of different edges beside
+    // each other in one gap, so the empty list is a verdict.
+    expect(checked).toBeGreaterThan(0);
+    expect(tight).toEqual([]);
   }, 600_000);
 });
 
