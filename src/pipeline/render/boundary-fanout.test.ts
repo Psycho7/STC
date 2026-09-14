@@ -15,6 +15,7 @@ import { isInputProductUnit } from "../types";
 import type { RenderPlan, RenderUnitInputProduct } from "../types";
 import type { Target } from "../../data/targets";
 import type { RecipePack } from "@aef/schema";
+import type { CatalystAccount } from "../../solver/catalyst";
 import { checkProductUnitRates } from "./invariants";
 import { rationalFromString } from "./rational";
 import { MULTI_TARGET_PLANS } from "./corpus-plans";
@@ -31,6 +32,7 @@ type SolvedPlan = {
   pack: RecipePack;
   targets: ReadonlyArray<Target>;
   itemOverrides: ReadonlyArray<never>;
+  catalystAccount: CatalystAccount;
 };
 
 // Solve the first output item of each named recipe at 1/sec and render it.
@@ -49,6 +51,7 @@ function renderPlanFor(
     pack: packArg,
     targets,
     itemOverrides: [],
+    catalystAccount: full.catalystAccount,
   };
 }
 
@@ -73,16 +76,19 @@ describe("boundary inputs: loose consumers share one card", () => {
   it("emits a single plain input card feeding every loose consumer", () => {
     const { plan } = renderPlanFor([LOOSE_ONLY_RECIPE]);
     const inputs = inputsForItem(plan, LOOSE_ONLY_ITEM);
-    expect(inputs.map((u) => u.id)).toEqual([`u:in:${LOOSE_ONLY_ITEM}`]);
+    // Two pools, one bucket each: the ordinary reagent draw and the cycled
+    // catalyst charge, neither of them an aggregate.
+    expect(inputs.map((u) => u.id).sort()).toEqual([
+      `u:cat:${LOOSE_ONLY_ITEM}`,
+      `u:in:${LOOSE_ONLY_ITEM}`,
+    ]);
 
-    const node = inputs[0]!;
+    const node = inputs.find((u) => u.id === `u:in:${LOOSE_ONLY_ITEM}`)!;
     expect(node.isAggregate).toBeUndefined();
     expect(node.isFanout).toBeUndefined();
     expect(node.parentRate).toBeUndefined();
 
-    // One direct edge per consumer PORT, and no edge lands on another input
-    // card. A transmuter that both consumes and cycles the item takes two
-    // edges, one per port kind, so the uniqueness is on (consumer, port kind).
+    // One direct edge per consumer, and no edge lands on another input card.
     const outEdges = edgesFrom(plan, node.id, LOOSE_ONLY_ITEM);
     expect(outEdges.length).toBeGreaterThanOrEqual(3);
     const inputIds = new Set(
@@ -192,6 +198,7 @@ describe("boundary inputs: corpus sweep", () => {
         pack,
         targets,
         itemOverrides: [],
+        catalystAccount: full.catalystAccount,
       });
       for (const v of violations) {
         failures.push(`${name}: ${v}`);

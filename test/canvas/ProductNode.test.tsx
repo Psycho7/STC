@@ -6,6 +6,7 @@ import ProductNode from "../../src/canvas/ProductNode";
 import { LocaleProvider } from "../../src/data/i18n-context";
 import { ItemPackProvider } from "../../src/canvas/itemPackContext";
 import { cssBlock } from "../../src/canvas/cssContract.testkit";
+import { PRODUCT_HEIGHT } from "../../src/canvas/dimensions";
 import {
   makeItem,
   makePackValue,
@@ -15,9 +16,13 @@ import {
 
 afterEach(() => cleanup());
 
-function renderProduct(data: ProductNodeData, items: Item[] = []) {
+function renderProduct(
+  data: ProductNodeData,
+  items: Item[] = [],
+  locale: "en" | "zh" = "en",
+) {
   return render(
-    <LocaleProvider locale="en">
+    <LocaleProvider locale={locale}>
       <ItemPackProvider value={makePackValue({ items })}>
         <ReactFlowProvider>
           <ProductNode {...makeProductNodeProps(data)} />
@@ -274,6 +279,188 @@ describe("ProductNode", () => {
     expect(rate?.textContent).toBe("120/min");
     const node = container.querySelector("[data-testid='product-node']");
     expect(node?.getAttribute("data-flavor")).toBe("outputProduct");
+  });
+
+  // The catalyst pool has boundary cards of its own (u:cat:*). They use the
+  // same card as an ordinary input: one word in the caption changes, the card
+  // carries a role marker for selectors, and the item-level split of the
+  // charge rides the name tooltip rather than a fourth line of chrome.
+  describe("catalyst nodes", () => {
+    const catalystData = (
+      extra: Partial<ProductNodeData> = {},
+    ): ProductNodeData =>
+      ({
+        kind: "inputProduct",
+        itemId: "gas_xiranite",
+        rate: { num: "1", denom: "10" },
+        role: "catalyst",
+        ...extra,
+      }) as ProductNodeData;
+
+    it("replaces the raw/import word with the catalyst word in en and zh", () => {
+      const en = renderProduct(catalystData(), [
+        makeItem("gas_xiranite", true),
+      ]);
+      expect(en.container.querySelector(".pn-kind")?.textContent).toBe(
+        "In · catalyst",
+      );
+      cleanup();
+      const zh = renderProduct(
+        catalystData(),
+        [makeItem("gas_xiranite", true)],
+        "zh",
+      );
+      const kind = zh.container.querySelector(".pn-kind")?.textContent ?? "";
+      expect(kind).toContain("催化");
+      expect(kind).not.toMatch(/raw|import|catalyst/);
+    });
+
+    it("keeps the catalyst word on a fanout slice of the pool in en and zh", () => {
+      // A per-container slice of a catalyst card is still catalyst supply, so
+      // the tap word joins the catalyst word instead of replacing it.
+      const slice = catalystData({ isFanout: true });
+      const en = renderProduct(slice, [makeItem("gas_xiranite", true)]);
+      expect(en.container.querySelector(".pn-kind")?.textContent).toBe(
+        "In · catalyst · tap",
+      );
+      cleanup();
+      const zh = renderProduct(slice, [makeItem("gas_xiranite", true)], "zh");
+      expect(zh.container.querySelector(".pn-kind")?.textContent).toBe(
+        "输入 · 催化 · 分接",
+      );
+    });
+
+    it("marks the card with data-role=catalyst and leaves an ordinary card unmarked", () => {
+      const { container } = renderProduct(catalystData(), [
+        makeItem("gas_xiranite", true),
+      ]);
+      expect(
+        container
+          .querySelector("[data-testid='product-node']")
+          ?.getAttribute("data-role"),
+      ).toBe("catalyst");
+      cleanup();
+      const plain = renderProduct(
+        {
+          kind: "inputProduct",
+          itemId: "gas_xiranite",
+          rate: { num: "1", denom: "10" },
+        },
+        [makeItem("gas_xiranite", true)],
+      );
+      expect(
+        plain.container
+          .querySelector("[data-testid='product-node']")
+          ?.hasAttribute("data-role"),
+      ).toBe(false);
+    });
+
+    it("keeps the cap chip in the slot an ordinary capped card uses", () => {
+      const { container } = renderProduct(
+        catalystData({ rateCap: { num: "1", denom: "2" } }),
+        [makeItem("gas_xiranite", true)],
+      );
+      const rate = container.querySelector(".pn-rate");
+      const cap = rate?.querySelector(".pn-rate__cap");
+      expect(cap?.textContent).toContain("30");
+      // Same seat as an ordinary card: last child of .pn-rate, straight after
+      // the primary rate's unit span.
+      expect(rate?.lastElementChild).toBe(cap);
+      expect(cap?.previousElementSibling?.className).toBe("unit");
+    });
+
+    it("appends the pool breakdown to the name tooltip of an aggregate or single card", () => {
+      const { container } = renderProduct(
+        catalystData({
+          catalystBreakdown: {
+            fromCatalyst: { num: "1", denom: "20" },
+            fromGeneral: { num: "1", denom: "30" },
+            unmet: { num: "1", denom: "60" },
+          },
+        }),
+        [makeItem("gas_xiranite", true)],
+      );
+      const title =
+        container.querySelector(".pn-name")?.getAttribute("title") ?? "";
+      // 1/20 per sec = 3/min, 1/30 = 2/min, 1/60 = 1/min.
+      expect(title).toContain("from catalyst supply 3/min");
+      expect(title).toContain("from general supply 2/min");
+      expect(title).toContain("catalyst short by 1/min");
+      // The name still leads the tooltip.
+      expect(title.startsWith("Xiragen")).toBe(true);
+    });
+
+    it("drops the shortage line from the tooltip when nothing is unmet", () => {
+      const { container } = renderProduct(
+        catalystData({
+          catalystBreakdown: {
+            fromCatalyst: { num: "1", denom: "10" },
+            fromGeneral: { num: "0", denom: "1" },
+            unmet: { num: "0", denom: "1" },
+          },
+        }),
+        [makeItem("gas_xiranite", true)],
+      );
+      const title =
+        container.querySelector(".pn-name")?.getAttribute("title") ?? "";
+      expect(title).toContain("from catalyst supply 6/min");
+      expect(title).not.toContain("short");
+    });
+
+    it("leaves a fanout slice's name tooltip plain", () => {
+      // The split is item-level accounting; a per-container slice has no share
+      // of it, so its tooltip is the bare display name.
+      const { container } = renderProduct(
+        catalystData({
+          isFanout: true,
+          parentRate: { num: "1", denom: "5" },
+          catalystBreakdown: {
+            fromCatalyst: { num: "1", denom: "20" },
+            fromGeneral: { num: "0", denom: "1" },
+            unmet: { num: "0", denom: "1" },
+          },
+        }),
+        [makeItem("gas_xiranite", true)],
+      );
+      expect(container.querySelector(".pn-name")?.getAttribute("title")).toBe(
+        "Xiragen",
+      );
+    });
+
+    it("draws the same box as an ordinary card: one element skeleton, one height constant", () => {
+      // Height is the layout constant PRODUCT_HEIGHT, which has no role arm,
+      // so the only way a catalyst card could grow is by adding chrome. Pin
+      // the rendered element skeleton against the ordinary capped card: same
+      // elements, same classes, same order.
+      const skeleton = (root: Element): string[] =>
+        Array.from(root.querySelectorAll("*")).map(
+          (el) => `${el.tagName}.${el.className}`,
+        );
+      const plain = renderProduct(
+        {
+          kind: "inputProduct",
+          itemId: "gas_xiranite",
+          rate: { num: "1", denom: "10" },
+          rateCap: { num: "1", denom: "2" },
+        },
+        [makeItem("gas_xiranite", true)],
+      );
+      const ordinary = skeleton(plain.container);
+      cleanup();
+      const { container } = renderProduct(
+        catalystData({
+          rateCap: { num: "1", denom: "2" },
+          catalystBreakdown: {
+            fromCatalyst: { num: "1", denom: "20" },
+            fromGeneral: { num: "1", denom: "20" },
+            unmet: { num: "0", denom: "1" },
+          },
+        }),
+        [makeItem("gas_xiranite", true)],
+      );
+      expect(skeleton(container)).toEqual(ordinary);
+      expect(PRODUCT_HEIGHT).toBe(78);
+    });
   });
 
   it("falls back to the raw id when i18n has no translation for the item", () => {

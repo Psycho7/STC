@@ -5,10 +5,9 @@
 // the raw flag would never give it, and a raw catalyst item's row shows the
 // cycled draw ADDED to its balanced demand, not in place of it.
 //
-// With CATALYST_SUPPLY_EDGES on, both numbers come off the input product node
-// the render pipeline sized -- the panel adds nothing. The OFF twin of this
-// file (App.catalystOff.test.tsx) pins the same two numbers arriving the other
-// way, from the panel-side addition.
+// Both numbers come off the input product nodes the render pipeline sized: the
+// cycled charge has a catalyst node of its own, and an item drawn both ways has
+// two nodes whose rates the fused panel row adds.
 //
 // layoutRenderPlan is mocked so the product nodes the fold reads are fixed by
 // the test rather than by the layout pass, which keeps the assertion on the
@@ -73,17 +72,18 @@ afterEach(() => {
 });
 
 test("a non-raw catalyst item gets a supply row carrying its 6 per minute draw", async () => {
-  // The pipeline draws the cycled charge from a boundary card of its own, so
-  // the row's 1/10 per second arrives as an ordinary input product node.
+  // The pipeline draws the cycled charge from a catalyst card of its own, and
+  // that is the item's only card, so the row's 1/10 per second comes from it.
   vi.mocked(layoutRenderPlan).mockResolvedValue({
     nodes: [
       {
-        id: "in:liquid_xiranite",
+        id: "cat:liquid_xiranite",
         type: "product",
         position: { x: 0, y: 0 },
         data: {
           kind: "inputProduct",
           itemId: "liquid_xiranite",
+          role: "catalyst",
           rate: { num: "1", denom: "10" },
         },
       },
@@ -114,11 +114,11 @@ test("a non-raw catalyst item gets a supply row carrying its 6 per minute draw",
   );
 });
 
-test("a raw catalyst item's row reads the node rate that already carries the draw", async () => {
-  // 1/2 per second of balanced gas_xiranite demand plus 1/10 per second of
-  // cycled charge, summed by the render pipeline onto the one input product
-  // node: the row must read (1/2 + 1/10) * 60 = 36 per minute. A panel-side
-  // addition on top of that node would read 42.
+test("a raw catalyst item's row sums its ordinary node and its catalyst node", async () => {
+  // 1/2 per second of balanced gas_xiranite demand on the ordinary card plus
+  // 1/10 per second of cycled charge on the catalyst card: the fused row must
+  // read (1/2 + 1/10) * 60 = 36 per minute, the same total the single card
+  // carried before the split. Reading one card alone would read 30 or 6.
   vi.mocked(layoutRenderPlan).mockResolvedValue({
     nodes: [
       {
@@ -128,7 +128,18 @@ test("a raw catalyst item's row reads the node rate that already carries the dra
         data: {
           kind: "inputProduct",
           itemId: "gas_xiranite",
-          rate: { num: "3", denom: "5" },
+          rate: { num: "1", denom: "2" },
+        },
+      },
+      {
+        id: "cat:gas_xiranite",
+        type: "product",
+        position: { x: 0, y: 0 },
+        data: {
+          kind: "inputProduct",
+          itemId: "gas_xiranite",
+          role: "catalyst",
+          rate: { num: "1", denom: "10" },
         },
       },
     ],

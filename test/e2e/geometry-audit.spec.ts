@@ -178,7 +178,7 @@ test.describe("DOM geometry audit", () => {
       for (const row of rows) {
         // A catalyst row is an input the machine cycles rather than
         // consumes, and it draws its own edge from the item's boundary
-        // supply node (CATALYST_SUPPLY_EDGES in src/flags.ts, on). So it
+        // supply node. So it
         // carries exactly one handle, on the `cat:` namespace rather than
         // `in:`, seated inside the row like every other port: a row without
         // one leaves that edge no endpoint to land on, and a second handle
@@ -325,34 +325,59 @@ const CROSSING_BASELINE: Record<string, number> = {
   // MERGE 2026-09-13 (placement rule on the develop merge): 12 -> 14. The
   // catalyst supply edge e:23 u:in:liquid_xiranite -> u:class:q:2 runs the
   // width of the graph and crosses two more corridors.
-  battery5: 14,
-  // ROUTING FINDINGS 2026-09-14 (docs/plans/2026-09-14-render-findings.md):
-  // 20 -> 21. The late drop puts the adjacent-layer two-row steps at the target
-  // entry column, so one of them now meets a corridor it used to turn ahead of.
+  //
+  // CATALYST NODE REVIEW 2026-09-14 (PR B, T5b): 14 -> 15. A placed rail's
+  // level now blocks a CHAMFER-tall band instead of the bare line, so a second
+  // rail that used to sit a couple of units under the first (drawn as one
+  // thick stroke) steps clear of it and crosses one more corridor on the way.
+  // Measured: with that band back at zero height the count is 14 again, every
+  // other cell in this file unchanged. UP move, listed for ruling.
+  battery5: 15,
+  // CATALYST NODE 2026-09-14 (PR B): 21 -> 26. Both xiranite pools took their
+  // own boundary card, and their supply runs cross the chain. Measured 25 with
+  // the rail deconfliction switched off, so four of the five added crossings
+  // are the topology and one is a rail stepping off a column it used to share.
   // UP move, listed for ruling.
-  "battery5-xiranite": 21,
+  "battery5-xiranite": 26,
   crystal: 1,
-  equip4: 1,
+  // CATALYST NODE 2026-09-14 (PR B): 1 -> 2. The plan's one catalyst charge
+  // moved to its own card, one layer further from its consumer. UP move,
+  // listed for ruling.
+  equip4: 2,
   // ROUTING FINDINGS 2026-09-14: 90 -> 88, re-measured on this branch.
   multi6: 88,
   tundra: 0,
-  // MERGE 2026-09-13 (placement rule on the develop merge): 23 -> 27, the
-  // three gas_xiranite catalyst supply edges crossing the chain.
-  script43: 27,
-  "coupon-web": 1,
-  "gas-web": 13,
+  // CATALYST NODE 2026-09-14 (PR B of the catalyst supply pools plan): every
+  // catalyst charge now leaves the item's own u:cat:* boundary card instead of
+  // its ordinary u:in:* one: the three gas_xiranite runs leave the new card and
+  // cross more of the chain they feed. UP move, listed for ruling.
+  script43: 31,
+  // CATALYST NODE 2026-09-14 (PR B of the catalyst supply pools plan): every
+  // catalyst charge now leaves the item's own u:cat:* boundary card instead of
+  // its ordinary u:in:* one, so each transmuter plan gained a card and a set of
+  // supply runs that cross the chain they feed. Both cells: UP moves, listed
+  // for ruling.
+  "coupon-web": 5,
+  "gas-web": 18,
   "rot-bottled_food_3": 2,
   "rot-bottled_food_4": 3,
-  // ROUTING FINDINGS 2026-09-14: 27 -> 15. The 2026-09-13 cell was a seeded
-  // develop-side pin that was never re-measured on the merged tree; this is the
-  // first measurement of it here.
-  transmuters: 15,
+  // CATALYST NODE 2026-09-14 (PR B of the catalyst supply pools plan): every
+  // catalyst charge now leaves the item's own u:cat:* boundary card instead of
+  // its ordinary u:in:* one, so each transmuter plan gained a card and a set of
+  // supply runs that cross the chain they feed. UP move, listed for ruling.
+  transmuters: 22,
   // ROUTING FINDINGS 2026-09-14 (docs/plans/2026-09-14-render-findings.md): the
   // two reported plans join the corpus. Both route several flows through one
   // corridor (a 14x refinery fan-in on script43-xiranite), so these are first
   // pins at the measured count, not raises.
-  "copper-script43": 14,
-  "script43-xiranite": 27,
+  //
+  // CATALYST NODE 2026-09-14 (PR B of the catalyst supply pools plan): every
+  // catalyst charge now leaves the item's own u:cat:* boundary card instead of
+  // its ordinary u:in:* one, so each transmuter plan gained a card and a set of
+  // supply runs that cross the chain they feed. Both cells: UP moves, listed
+  // for ruling.
+  "copper-script43": 31,
+  "script43-xiranite": 30,
 };
 
 // Padding-graze ratchet (tier 3): segments that clip only a foreign card's
@@ -365,8 +390,10 @@ const PADDED_GRAZE_BASELINE: Record<string, number> = {
   "battery5-xiranite": 0,
   crystal: 0,
   equip4: 0,
-  // ROUTING FINDINGS 2026-09-14: 1 -> 0.
-  multi6: 0,
+  // CATALYST NODE 2026-09-14 (PR B): 0 -> 2. The gas_xiranite catalyst card
+  // sits one column off the chain it feeds, and two of its supply runs clip a
+  // foreign card's padding overhang on the way. UP move, listed for ruling.
+  multi6: 2,
   tundra: 0,
   script43: 0,
   "coupon-web": 0,
@@ -399,9 +426,10 @@ const CHIP_SEGMENT_BASELINE: Record<string, number> = {
   "gas-web": 0,
   "rot-bottled_food_3": 0,
   "rot-bottled_food_4": 0,
-  // ROUTING FINDINGS 2026-09-14: 4 -> 0. The 2026-09-13 cell was a seeded
-  // develop-side pin, never measured here; measured zero now.
-  transmuters: 0,
+  // CATALYST NODE 2026-09-14 (PR B): 0 -> 1. One catalyst supply run from the
+  // new card shares its row with a chip of the flow it feeds. UP move, listed
+  // for ruling.
+  transmuters: 1,
   "copper-script43": 0,
   "script43-xiranite": 0,
 };
@@ -1044,27 +1072,33 @@ const FOREIGN_STROKE_BASELINE: Record<string, number> = {
   // The liquid_xiranite catalyst supply run crosses the chips of the chain it
   // feeds (MERGE 2026-09-13, 1 -> 5).
   battery5: 5,
-  // ROUTING FINDINGS 2026-09-14: 5 -> 4.
-  "battery5-xiranite": 4,
+  // CATALYST NODE 2026-09-14 (PR B): 4 -> 9. The two new xiranite catalyst
+  // cards draw their supply runs across the chips of the chain they feed.
+  // Measured 8 with the rail deconfliction switched off, so four of the five
+  // are the topology and one is a moved rail. UP move, listed for ruling.
+  "battery5-xiranite": 9,
   crystal: 1,
   equip4: 1,
   // The three gas_xiranite catalyst supply runs (MERGE 2026-09-13, 8 -> 10).
   // ROUTING FINDINGS 2026-09-14: 10 -> 7.
   multi6: 7,
   tundra: 0,
-  // ROUTING FINDINGS 2026-09-14: 1 -> 0.
-  script43: 0,
+  // CATALYST NODE 2026-09-14 (PR B): 0 -> 1. One gas_xiranite supply run from
+  // the new card passes under a chip. UP move, listed for ruling.
+  script43: 1,
   "coupon-web": 0,
   // ROUTING FINDINGS 2026-09-14: 3 -> 0. e:14's "Cuprium Ore x 180/min" chip no
   // longer takes e:25's liquid_water tap stroke.
   "gas-web": 0,
   "rot-bottled_food_3": 0,
   "rot-bottled_food_4": 0,
-  // ROUTING FINDINGS 2026-09-14: 3 -> 0. The e:21 / e:23 rise chips and the
-  // e:8-under-e:11 surplus stroke all clear.
-  transmuters: 0,
-  "copper-script43": 0,
-  "script43-xiranite": 0,
+  // CATALYST NODE 2026-09-14 (PR B): transmuters 0 -> 2, copper-script43
+  // 0 -> 2, script43-xiranite 0 -> 2. Same family on all three: the catalyst
+  // card's supply runs cross the chips of the flows they feed. UP moves,
+  // listed for ruling.
+  transmuters: 2,
+  "copper-script43": 2,
+  "script43-xiranite": 2,
 };
 
 // Port cover: chips whose drawn box covers a handle, glyph or row strip of their
@@ -1108,8 +1142,11 @@ const CENSUS_TOTALS: {
 } = {
   cardIntrusion: 0,
   // ROUTING FINDINGS 2026-09-14: 30 -> 18, the sum of FOREIGN_STROKE_BASELINE
-  // after this branch's re-pin.
-  foreignStroke: 18,
+  // after that branch's re-pin.
+  // CATALYST NODE 2026-09-14 (PR B): 18 -> 30, the sum after the catalyst
+  // cards' supply runs joined five scenarios' chip census. Arithmetic on the
+  // table above, not a separate ruling.
+  foreignStroke: 30,
   portCover: 5,
 };
 

@@ -11,6 +11,7 @@ import { layoutSolved } from "../../src/canvas/layoutSolved";
 import { layoutRenderPlan, type RFRecipeNode } from "../../src/canvas/layout";
 import { solveForRender } from "../../src/pipeline/solveForRender";
 import { pack } from "../../src/data/load";
+import { rationalToString } from "../../src/pipeline/render/rational";
 import type { ItemTarget } from "../../src/data/targets";
 
 const CYCLING = "phase_trans_1-liquid_xiranite";
@@ -53,6 +54,41 @@ describe("layoutSolved on a catalyst-cycling recipe", () => {
     expect(incoming.map((e) => e.targetHandle)).not.toContain(
       `in:${SELF_ITEM}`,
     );
+  }, 60000);
+
+  it("stamps the solve's pool breakdown on the catalyst card it belongs to", async () => {
+    // The split of the charge between the two pools is item-level accounting
+    // the render plan does not carry, so layoutSolved hands the layout the
+    // account and the card that owns the item's whole charge picks it up.
+    const solved = solveForRender({ targets });
+    const { nodes } = await layoutSolved(solved);
+
+    const catalystCards = nodes.filter((n) => n.id.startsWith("u:cat:"));
+    expect(catalystCards.length).toBeGreaterThan(0);
+    for (const card of catalystCards) {
+      const data = card.data as {
+        itemId: string;
+        isFanout?: boolean;
+        catalystBreakdown?: { fromCatalyst: unknown };
+      };
+      const entry = solved.full.catalystAccount.get(data.itemId);
+      expect(entry).toBeDefined();
+      if (data.isFanout) {
+        expect(data.catalystBreakdown).toBeUndefined();
+        continue;
+      }
+      expect(data.catalystBreakdown).toEqual({
+        fromCatalyst: rationalToString(entry!.fromCatalyst),
+        fromGeneral: rationalToString(entry!.fromGeneral),
+        unmet: rationalToString(entry!.unmet),
+      });
+    }
+    // No ordinary card takes it, whatever pool fed the item.
+    for (const card of nodes.filter((n) => n.id.startsWith("u:in:"))) {
+      expect(
+        (card.data as { catalystBreakdown?: unknown }).catalystBreakdown,
+      ).toBeUndefined();
+    }
   }, 60000);
 
   it("loses that row when the recipe map comes from the netted solve", async () => {

@@ -157,6 +157,7 @@ export function renderPlanFromSolve(
       pack,
       targets,
       itemOverrides,
+      catalystAccount: full.catalystAccount,
     });
   }
 
