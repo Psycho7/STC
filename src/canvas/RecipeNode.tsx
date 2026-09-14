@@ -7,6 +7,7 @@ import { envBannerLayers } from "./envBanner";
 import { useI18n } from "../data/i18n-context";
 import { PortGlyph } from "./PortGlyph";
 import { formatRationalPerMin } from "../data/rate-format";
+import { catalystChargeOf } from "../solver/catalyst";
 import type { PortTransportKinds } from "./layout";
 import type { ItemId } from "../pipeline/types";
 import { rationalFromString, type RationalString } from "../data/targets";
@@ -168,15 +169,21 @@ const ONE = new Fraction(1);
 // render-pipeline path passes the solved rational multiplicity so rows show
 // the aggregate flow across all machines (matching the edge chips); scale=1
 // yields the per-machine figure. Exact Fraction math keeps non-integer
-// speeds and multiplicities free of float junk; rates here are non-negative,
-// so serializing .n/.d is safe.
+// speeds and multiplicities free of float junk.
 function rowRateText(
   stoich: Stoich,
   recipeTime: number,
   speed: Fraction,
   scale: Fraction,
 ): string {
-  const perSec = new Fraction(stoich.qty).mul(speed).mul(scale).div(recipeTime);
+  return ratePerMinText(
+    new Fraction(stoich.qty).mul(speed).mul(scale).div(recipeTime),
+  );
+}
+
+// A per-second rational rate as the card's per-minute label. Rates here are
+// non-negative, so serializing .n/.d is safe.
+function ratePerMinText(perSec: Fraction): string {
   return formatRationalPerMin({
     num: perSec.n.toString(),
     denom: perSec.d.toString(),
@@ -368,10 +375,13 @@ export default function RecipeNode({
             const handleId = `cat:${p.item}`;
             // The charge is held per MACHINE, not per cycle: a machine at 40%
             // still holds a whole charge, so the card's aggregate counts whole
-            // machines. That is the one row whose scale is the ceiling of the
-            // card's multiplicity rather than the multiplicity itself.
+            // machines. The solver's catalystChargeOf owns that formula, and
+            // the row reads it there so the card, the account and the edge
+            // chip cannot drift apart.
             const perMachine = rowRateText(p, recipe.time, speed, ONE);
-            const aggregate = rowRateText(p, recipe.time, speed, scale.ceil(0));
+            const aggregate = ratePerMinText(
+              catalystChargeOf(scale, p, recipe, machine ?? { speed: 1 }),
+            );
             return (
               // A catalyst row: an input the machine cycles rather than
               // consumes. It is supplied from the item's catalyst boundary card

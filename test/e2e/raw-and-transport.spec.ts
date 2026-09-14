@@ -128,8 +128,9 @@ test.describe("raw-product boundaries and transport-kind styling", () => {
     await expect(copperOreInput).toHaveCount(0);
 
     // The phase-transition route's only gas_xiranite use is the transmuter
-    // catalyst. It is charged against the item cap, and it is still boundary
-    // supply: the catalyst row draws it over an edge from the item's boundary
+    // catalyst. The charge is billed by the catalyst account rather than taken
+    // out of the route's own draw, and it is still boundary supply: the
+    // catalyst row draws it over an edge from the item's own catalyst boundary
     // node, so that node is on the canvas. The same draw surfaces in the
     // inputs panel as an auto supply row on the item.
     const gasXiraniteInput = page.locator(

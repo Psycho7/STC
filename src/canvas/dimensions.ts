@@ -137,6 +137,40 @@ export const ENV_FRAME_EXTENTS = {
   right: 8,
 } as const;
 
+export type FrameExtents = {
+  top: number;
+  bottom: number;
+  left: number;
+  right: number;
+};
+
+// A node that draws no frame: every extent is zero, so a caller adds the
+// extents unconditionally and gets its plain card box back.
+const NO_FRAME: FrameExtents = { top: 0, bottom: 0, left: 0, right: 0 };
+
+// How far a node's drawn frame reaches beyond its card box, per side. Only an
+// environment recipe draws one (ENV_FRAME_EXTENTS above); every other node
+// yields zeros. This is the single owner of that predicate: the ELK box, the
+// router obstacles (padded and raw) and the chip-seating rects all grow by
+// what it returns, so the four models can never disagree about where a plate
+// is.
+//
+// The parameter is structural rather than RFAnyNode (this module is the leaf
+// the node types are built on, not the other way round), so the ELK adapter,
+// which holds only the recipe at the point it sizes the box, can ask the same
+// question. `data` is therefore read through a cast: the union's other arms
+// carry no recipe at all.
+export function frameExtentsOf(node: {
+  type?: string | undefined;
+  data?: unknown;
+}): FrameExtents {
+  if (node.type !== "recipe") return NO_FRAME;
+  const { recipe } = (node.data ?? {}) as {
+    recipe?: { environment?: unknown } | undefined;
+  };
+  return recipe?.environment === undefined ? NO_FRAME : ENV_FRAME_EXTENTS;
+}
+
 // A generous column gap so each ItemEdge label chip (item icon + name + rate)
 // has room to breathe and doesn't overlap the source or target node. The earlier
 // 40px gap left labels jammed against the neighboring nodes and hard to read.

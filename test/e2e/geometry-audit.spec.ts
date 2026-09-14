@@ -325,7 +325,14 @@ const CROSSING_BASELINE: Record<string, number> = {
   // MERGE 2026-09-13 (placement rule on the develop merge): 12 -> 14. The
   // catalyst supply edge e:23 u:in:liquid_xiranite -> u:class:q:2 runs the
   // width of the graph and crosses two more corridors.
-  battery5: 14,
+  //
+  // CATALYST NODE REVIEW 2026-09-14 (PR B, T5b): 14 -> 15. A placed rail's
+  // level now blocks a CHAMFER-tall band instead of the bare line, so a second
+  // rail that used to sit a couple of units under the first (drawn as one
+  // thick stroke) steps clear of it and crosses one more corridor on the way.
+  // Measured: with that band back at zero height the count is 14 again, every
+  // other cell in this file unchanged. UP move, listed for ruling.
+  battery5: 15,
   // CATALYST NODE 2026-09-14 (PR B): 21 -> 26. Both xiranite pools took their
   // own boundary card, and their supply runs cross the chain. Measured 25 with
   // the rail deconfliction switched off, so four of the five added crossings

@@ -315,6 +315,21 @@ describe("ProductNode", () => {
       expect(kind).not.toMatch(/raw|import|catalyst/);
     });
 
+    it("keeps the catalyst word on a fanout slice of the pool in en and zh", () => {
+      // A per-container slice of a catalyst card is still catalyst supply, so
+      // the tap word joins the catalyst word instead of replacing it.
+      const slice = catalystData({ isFanout: true });
+      const en = renderProduct(slice, [makeItem("gas_xiranite", true)]);
+      expect(en.container.querySelector(".pn-kind")?.textContent).toBe(
+        "In · catalyst · tap",
+      );
+      cleanup();
+      const zh = renderProduct(slice, [makeItem("gas_xiranite", true)], "zh");
+      expect(zh.container.querySelector(".pn-kind")?.textContent).toBe(
+        "输入 · 催化 · 分接",
+      );
+    });
+
     it("marks the card with data-role=catalyst and leaves an ordinary card unmarked", () => {
       const { container } = renderProduct(catalystData(), [
         makeItem("gas_xiranite", true),
