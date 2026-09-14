@@ -164,6 +164,49 @@ function primaryObjective(
   return total;
 }
 
+// Boundary-pass objective recomputed from a raw solve's float primals: total
+// boundary-item input drawn by the running recipes. Mirror of primaryObjective,
+// used the same way - to verify a pass against the cap it was solved under
+// rather than trusting the engine's own `result`.
+function boundaryObjective(
+  raw: LpRaw,
+  recipes: Recipe[],
+  boundaryCoefById: Map<RecipeId, number>,
+): number {
+  let total = 0;
+  for (const r of recipes)
+    total += boundaryCoefById.get(r.id)! * (raw[`x_${r.id}`] ?? 0);
+  return total;
+}
+
+// Slack added on top of a frozen tie-break cap row. Relative to the cap so
+// normal plans get a proportional epsilon, floored so a zero or sub-unit cap
+// still admits solver noise, and clamped at the top end: a large recipeCost
+// override (or a huge big-M sum) inflates the cost cap enough that a purely
+// relative slack would let a tie-break pass under-produce an unrelated active
+// recipe. The clamp is the slack a 1e6 big-M cap already produces, clean at
+// unit scale, so an inflated objective cannot loosen the row further; the pass
+// then fails the recomputed-objective check and the solve falls back.
+// Recipe-id rank folded into the boundary objective at a weight far below any
+// real difference in boundary consumption, so it only orders columns the
+// boundary coefficients tie (many of them are 0: a recipe fed entirely from
+// in-plan items). Not cosmetic: javascript-lp-solver picks its phase-1 entering
+// column by a quotient against the objective row, and a boundary objective flat
+// across hundreds of columns sends it into a phase-1 loop it never leaves
+// (real-pack witness: tundra_coupon at 1/s, which solves in ~70ms with the
+// perturbation and does not return without it).
+const BOUNDARY_RANK_EPS = 1e-9;
+
+const CAP_SLACK_REL = 1e-9;
+const CAP_SLACK_MIN = 1e-9;
+const CAP_SLACK_MAX = 1e-3;
+function capSlack(cap: number): number {
+  return Math.min(
+    Math.max(Math.abs(cap) * CAP_SLACK_REL, CAP_SLACK_MIN),
+    CAP_SLACK_MAX,
+  );
+}
+
 /**
  * Catalyst draw per item over a solved rate map: sum of rate * per-cycle
  * catalyst quantity. Rate variables are cycles per second, so the per-cycle
@@ -240,26 +283,59 @@ export function solveLp(input: LpInput): LpResult {
   for (const r of recipes)
     costById.set(r.id, recipeCostWeight(r, input.recipeCosts));
 
-  // Two-pass deterministic solve.
-  //  - "primary": minimize weighted recipe cost + soft surplus/deficit penalty.
-  //  - "lex":     minimize recipe-id rank under a frozen cost cap, so the
-  //               tie-break only reshuffles among cost-optimal solutions.
-  const buildModel = (mode: "primary" | "lex", costCap?: number): LpModel => {
+  // Per-recipe boundary consumption: how much external supply one execution
+  // pulls in, i.e. the summed qty of the inputs whose item is a boundary item
+  // (uncapped free supply, or a finite positive cap). Non-raw uncapped items
+  // (cap 0) are built in-plan, so consuming them is not a boundary pull.
+  // Catalysts are excluded: a catalyst charge is fixed per machine, not a
+  // choice between recipes, and it lives in r.catalyst rather than r.in.
+  const boundaryCoefById = new Map<RecipeId, number>();
+  for (const r of recipes) {
+    let coef = 0;
+    for (const i of r.in) {
+      const supply = supplyTable.supplyOf(i.item);
+      const isBoundary = supply === Infinity || supply.valueOf() > 0;
+      if (isBoundary) coef += i.qty;
+    }
+    boundaryCoefById.set(r.id, coef);
+  }
+  const hasBoundaryConsumption = [...boundaryCoefById.values()].some(
+    (coef) => coef > 0,
+  );
+
+  // Three-pass deterministic solve, each pass frozen under the previous ones'
+  // optima:
+  //  - "primary":  minimize weighted recipe cost + soft surplus/deficit penalty.
+  //  - "boundary": minimize total boundary-item consumption under a frozen cost
+  //                cap, so among cost-optimal solutions the plan pulls the least
+  //                external supply (free boundary draws are invisible to cost).
+  //  - "lex":      minimize recipe-id rank under both caps, breaking whatever
+  //                ties survive.
+  const buildModel = (
+    mode: "primary" | "boundary" | "lex",
+    costCap?: number,
+    boundaryCap?: number,
+  ): LpModel => {
     const variables: LpModelVars = {};
     const constraints: LpModelConstraints = {};
 
     for (const r of recipes) {
-      const cost = costById.get(r.id)!;
-      const rank = lexRank.get(r.id)!;
-      variables[`x_${r.id}`] = { objective: mode === "primary" ? cost : rank };
+      const objective =
+        mode === "primary"
+          ? costById.get(r.id)!
+          : mode === "boundary"
+            ? boundaryCoefById.get(r.id)! +
+              BOUNDARY_RANK_EPS * (lexRank.get(r.id)! + 1)
+            : lexRank.get(r.id)!;
+      variables[`x_${r.id}`] = { objective };
     }
 
     for (const it of items) {
       variables[`surplus_${it.id}`] = {
-        objective: mode === "lex" ? 0 : SURPLUS_WEIGHT,
+        objective: mode === "primary" ? SURPLUS_WEIGHT : 0,
       };
       variables[`deficit_${it.id}`] = {
-        objective: mode === "lex" ? 0 : DEFICIT_WEIGHT,
+        objective: mode === "primary" ? DEFICIT_WEIGHT : 0,
       };
     }
 
@@ -315,21 +391,14 @@ export function solveLp(input: LpInput): LpResult {
       }
     }
 
-    // Pass 2: freeze pass-1 cost as an upper bound (with a relative epsilon) so the
-    // lex objective only reorders cost-optimal solutions.
-    if (mode === "lex" && costCap !== undefined) {
+    // Tie-break passes: freeze pass-1 cost as an upper bound (with a small
+    // epsilon) so neither tie-break objective can do anything but reorder
+    // cost-optimal solutions. A pass that slips past the row anyway is caught
+    // by the recomputed-objective check at the call site, which falls back to
+    // the validated pass-1.
+    if (mode !== "primary" && costCap !== undefined) {
       const capName = "cost_cap";
-      // Relative tie-break slack, clamped at the top end. The relative term
-      // keeps the cap epsilon proportional to the objective for normal plans,
-      // but a large recipeCost override (or a huge big-M sum) inflates costCap
-      // enough that the slack grows large enough to let pass-2 under-produce an
-      // unrelated active recipe. Clamp at 1e-3 - the slack a 1e6 big-M costCap
-      // already produces, clean at unit scale - so an override-inflated
-      // objective cannot loosen the cap further; pass-2 then fails the cap and
-      // the solve falls back to the cost-optimal pass-1 (handled at the call
-      // site, where pass2.feasible === false keeps pass1).
-      const capEps = Math.min(Math.max(Math.abs(costCap) * 1e-9, 1e-9), 1e-3);
-      constraints[capName] = { max: costCap + capEps };
+      constraints[capName] = { max: costCap + capSlack(costCap) };
       for (const r of recipes) {
         const cost = costById.get(r.id)!;
         if (cost !== 0) variables[`x_${r.id}`]![capName] = cost;
@@ -337,6 +406,19 @@ export function solveLp(input: LpInput): LpResult {
       for (const it of items) {
         variables[`surplus_${it.id}`]![capName] = SURPLUS_WEIGHT;
         variables[`deficit_${it.id}`]![capName] = DEFICIT_WEIGHT;
+      }
+    }
+
+    // Pass 3 additionally freezes the boundary pass's consumption, so the lex
+    // rank only reorders solutions that are optimal on both earlier objectives.
+    // The cap is in plan-rate units and can be well below 1, which is why the
+    // slack keeps its absolute floor.
+    if (mode === "lex" && boundaryCap !== undefined) {
+      const capName = "boundary_cap";
+      constraints[capName] = { max: boundaryCap + capSlack(boundaryCap) };
+      for (const r of recipes) {
+        const coef = boundaryCoefById.get(r.id)!;
+        if (coef !== 0) variables[`x_${r.id}`]![capName] = coef;
       }
     }
 
@@ -354,23 +436,64 @@ export function solveLp(input: LpInput): LpResult {
     lpResult = pass1;
   } else {
     const costCap = pass1.result ?? 0;
-    const pass2 = solver.Solve(buildModel("lex", costCap)) as LpRaw;
-    // Enforce the cost cap the engine may not have. The lex pass must only
+    // Enforce the cost cap the engine may not have. A tie-break pass must only
     // reorder cost-optimal solutions, so its true cost must EQUAL pass-1's. But
     // javascript-lp-solver polices the cost_cap and mass-balance rows with an
     // absolute 1e-8 tolerance against coefficients up to 1e9 (deficit) / 1e6
-    // (big-M); on that unscaled spread it can admit a pass-2 that either pays a
+    // (big-M); on that unscaled spread it can admit a pass that either pays a
     // big-M transfer above the cap (cost too HIGH) or leaves an equality row
     // unsatisfied without paying the deficit penalty (cost too LOW) - both drop a
-    // real producer. Recompute pass-2's true primary objective and keep it only
-    // when it matches pass-1's within tolerance; otherwise fall back to the
-    // validated cost-optimal pass-1. Also covers "pass-2 numerically infeasible".
-    const pass2Cost = primaryObjective(pass2, recipes, items, costById);
+    // real producer. Recompute each tie-break pass's true primary objective and
+    // keep it only when it matches pass-1's within tolerance; otherwise fall
+    // back to the last validated pass. Also covers "numerically infeasible".
     const costTol = Math.max(Math.abs(costCap) * COST_REL_TOL, COST_REL_TOL);
-    const pass2Valid =
-      pass2.feasible !== false && Math.abs(pass2Cost - costCap) <= costTol;
-    lpResult = pass2Valid ? pass2 : pass1;
-    // Report pass-1's objective; pass-2's "result" is the lex tie-break.
+    const costValid = (raw: LpRaw): boolean =>
+      raw.feasible !== false &&
+      Math.abs(primaryObjective(raw, recipes, items, costById) - costCap) <=
+        costTol;
+
+    const boundaryTol = (value: number): number =>
+      Math.max(Math.abs(value) * COST_REL_TOL, COST_REL_TOL);
+
+    // A pack whose surviving recipes pull nothing from the boundary has no
+    // boundary pass and no boundary_cap row, so it builds the same lex model it
+    // always did.
+    let boundaryPass: LpRaw | undefined;
+    let boundaryBest: number | undefined;
+    if (hasBoundaryConsumption) {
+      const pass = solver.Solve(buildModel("boundary", costCap)) as LpRaw;
+      if (costValid(pass)) {
+        boundaryPass = pass;
+        boundaryBest = boundaryObjective(pass, recipes, boundaryCoefById);
+      }
+    }
+
+    // The boundary_cap row is added to the lex model only when the boundary
+    // optimum is a MATERIAL saving over pass 1. A row that merely restates what
+    // pass 1 already drew is not free: the cost cap carries a numerical slack a
+    // second row lets the lex objective spend, and the vertex it then lands on
+    // arrives with epsilon-rate chains hanging off it. Whether the row is there
+    // or not, the lex result is still held to the boundary optimum below, so
+    // dropping it never lets a thriftier solution get away.
+    const pass1Boundary = boundaryObjective(pass1, recipes, boundaryCoefById);
+    const boundaryCap =
+      boundaryBest !== undefined &&
+      pass1Boundary - boundaryBest > boundaryTol(pass1Boundary)
+        ? boundaryBest
+        : undefined;
+
+    const lexPass = solver.Solve(
+      buildModel("lex", costCap, boundaryCap),
+    ) as LpRaw;
+    let lexValid = costValid(lexPass);
+    if (lexValid && boundaryBest !== undefined) {
+      const lexBoundary = boundaryObjective(lexPass, recipes, boundaryCoefById);
+      lexValid =
+        Math.abs(lexBoundary - boundaryBest) <= boundaryTol(boundaryBest);
+    }
+
+    lpResult = lexValid ? lexPass : (boundaryPass ?? pass1);
+    // Report pass-1's objective; the later passes' "result" is a tie-break.
     lpResult.result = costCap;
   }
 
