@@ -6,6 +6,13 @@
 // narrows a plan and that no gap ends up narrower than it owes. The width ratio
 // it tables is for the reader -- the reserve pads and the column pitch are tuned
 // against it, so no threshold on it is asserted here.
+//
+// The column zone holds the trunk columns at COLUMN_PITCH and the staggered
+// 1-to-1 bend columns at COLUMN_MIN_PITCH, the floor the routing passes keep
+// between any two columns of one gap. Both pitches ride in the report header, so
+// a row's ratio can be read against what the columns were charged for; the floor
+// cost the corpus between 3% and 13% of plan width when it was introduced
+// (widest: multi6).
 
 import { describe, it, expect } from "vitest";
 import { mkdirSync, writeFileSync } from "node:fs";
@@ -18,6 +25,7 @@ import {
   gapSpansOf,
   gapRequirements,
   sameItemComponentsOf,
+  COLUMN_MIN_PITCH,
   COLUMN_PITCH,
   RESERVE_CARD_PAD,
   RESERVE_COLUMN_PAD,
@@ -140,6 +148,7 @@ describe("layer-gap widening: width census over the exam corpus", () => {
       reserveCardPad: RESERVE_CARD_PAD,
       reserveColumnPad: RESERVE_COLUMN_PAD,
       columnPitch: COLUMN_PITCH,
+      columnMinPitch: COLUMN_MIN_PITCH,
       rows,
     };
     mkdirSync(dirname(OUT), { recursive: true });

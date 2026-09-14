@@ -17,12 +17,14 @@ A recipe card has a header carrying the machine icon, the machine name and the
 machine multiplier (xN), then input rows down its left side and output rows
 down its right, each row ending in a port handle with a small item glyph.
 Output rows read in the recipe's own declared order, so two cards of one recipe
-read alike. At rest a card shows no digits anywhere: no rate column, no
-products line, no footer. Each row's rate appears as an overlay at the row's
-inner end when the pointer is over the card or the card is selected, and it is
-hidden again under the low-zoom band. Cyan product chips are boundary inputs
+read alike. A card carries no rate column, no products line and no footer:
+each row's rate is an overlay at the row's inner end, drawn at rest and
+dropped only under the low-zoom band. Cyan product chips are boundary inputs
 and outputs rather than machines. Group slabs and loop boxes are containers,
-and the cards inside one are its members.
+and the cards inside one are its members. A loop box is drawn only when the
+cards that survived the solve still form a directed cycle in the solved graph:
+a candidate cycle whose bridging recipes solved to zero leaves free cards, not
+a box.
 
 An item imported at the boundary draws one input chip. Consumers outside any
 container draw straight from that chip; a container gets a chip of its own,
@@ -52,10 +54,9 @@ row's centre -- and the row shows the item's transport glyph like a port row
 does. The boundary card's rate counts that draw alongside ordinary consumption,
 so the card and the inputs panel read the same number. One card can carry the
 same item on an input row and a catalyst row; the two take separate handles and
-separate edges. A catalyst row keeps no accent tab, its label is muted a step
-below the supplied rows, and its rate is the draw for one machine with its unit
-spelled out ("6/min") rather than the flow across every machine that the port
-rows above it carry.
+separate edges. A catalyst row keeps no accent tab and its label is muted a step
+below the supplied rows, but its rate reads exactly like an input row's: the
+aggregate draw across every machine, a bare number in the same trailing slot.
 
 The behaviour is behind the `CATALYST_SUPPLY_EDGES` code flag (`src/flags.ts`),
 on by default; with it off a catalyst row carries no handle and no edge, wears a
@@ -97,6 +98,15 @@ share that line: a forward tap's jog descent, dropping into its consumer, may
 share an entry-gutter line with a container border. That column is a tap
 approach, not a return riding the frame.
 
+A forward edge between two adjacent layers drops LATE. It holds its source
+port's row from the port all the way across the gap and turns down only in the
+approach band in front of its target, so two such edges into neighbouring rows
+of one card share that band and nothing else: they no longer run a row pitch
+apart the whole width of the gap. A step spanning one row is drawn as a single
+diagonal rather than a bevel-vertical-bevel. Trunk members and edges that skip a
+layer keep their old shape -- they turn where their structure says, not at the
+entry column.
+
 Where two strokes of DIFFERENT flows properly cross, the stroke passing under
 shows a gap: a short break is cut out of that stroke around the crossing, the
 other stroke runs through it unbroken, and whatever lies beneath the pair (a
@@ -134,12 +144,23 @@ overlap, and the gap they run in is widened before routing to hold them plus
 the chips on either side (see the reserve model under Rate chips). Several
 fan-outs forced into one corridor therefore stand apart rather than braiding.
 
+The spread is a floor, not a preference, and it covers every vertical in a gap,
+whichever pass placed it: a junction column, a target's entry column, a
+staggered 1-to-1 bend and a jogged leg's descent all keep at least one entry
+slot pitch from each other, and a neighbour of a trunk column keeps a whole port
+stub off it because that column carries every member's stroke. Verticals of the
+SAME edge, and the members of one trunk sharing their column on purpose, are
+exempt. Two verticals of different edges a few units apart read as one thick
+line, which is the defect the floor exists to prevent. The gap's column zone is
+charged for the columns it must hold at that spacing, so the room is bought
+before anything is routed.
+
 ## Rate chips
 
 Every rate chip states a rate for the stretch of line it stands on. An item
 edge's chip states that edge's rate; a trunk's aggregate chip states the whole
 port's total, which is the flow the shared stretch under it carries. Totals also
-live on the node cards' rows, which reveal their rates on hover or selection, and
+live on the node cards' rows, which show their rates at rest, and
 a total on a chip and the same total on a card come from one formatter, so they
 should read alike; members rounded independently can still sum a cent off that
 number.
@@ -172,6 +193,14 @@ beside the port it labels, inside its own side's zone, clear of its dot and
 clear of the columns; a trunk chip out among the columns, or lapping the
 neighbouring card, is a defect.
 
+A 1-to-1 edge's chip is paid for by the same reserve, from the other side. Such
+an edge has two horizontal legs, one out of its source port and one into its
+target port, and its bend column stays inside the gap's column zone so neither
+leg is shorter than the chip box it may have to carry: a column parked in the
+source reserve shortens the first leg, one parked in the target reserve shortens
+the last. A chip seat also clears the port furniture -- handles, glyphs, the row
+strip -- not only the card box.
+
 Every chip draws at one fixed size: a 20px-tall box, the same in graph units at
 every zoom, so zooming out shrinks a chip with the plan instead of holding it at
 a reading size. Three zoom bands, the same for every chip family: from zoom 0.5
@@ -191,9 +220,8 @@ matches the live geometry, and comes back as soon as it does.
 
 Do not report these as defects.
 
-- A card at rest shows no row rates: each row's rate is an overlay that appears
-  only while the pointer is over the card or the card is selected, and below
-  the low-zoom band the overlay stays hidden even then.
+- Row rates vanish below the low-zoom band. The overlay is drawn at rest at
+  every other zoom, and hover does nothing to it.
 - Every rate chip is hidden below zoom 0.35, a trunk's aggregate chip included.
   A fit shot of a dense plan therefore shows no chips, and card detail fades at
   low zoom by design.

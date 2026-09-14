@@ -1,4 +1,4 @@
-// Fixture data for the thirteen placement-regression scenarios. Each scenario is a
+// Fixture data for the fifteen placement-regression scenarios. Each scenario is a
 // named set of solver targets the app loads from a share hash. The spec encodes
 // these into v1 hashes at runtime with the app's own encoder, so the fixtures
 // stay regenerable from the target data rather than pinned to copied blobs.
@@ -163,6 +163,33 @@ export const SCENARIOS: Scenario[] = [
     targets: [
       { itemId: "gas_copper_enr2", ratePerSec: { num: "1", denom: "2" } }, // 30/min
       { itemId: "liquid_copper", ratePerSec: { num: "1", denom: "2" } }, // 30/min
+    ],
+    maxDiffPixels: 0,
+  },
+  // The two below are the plans reported in the 2026-09-14 render findings
+  // (docs/plans/2026-09-14-render-findings.md), registered as fixed corpus so
+  // the routing sites they exposed carry baselines: copper-script43 packs a
+  // copper_nugget trunk vertical beside a gas_xiranite vertical in one gap, and
+  // script43-xiranite feeds one refinery from a copper_ore fan-out and a
+  // liquid_water fan-out at x14 multiplicity. Both take the exact-match budget:
+  // each rasterized bit-identically to its golden, solo and in a full-corpus
+  // batch.
+  {
+    id: "copper-script43",
+    title: "copper-script43",
+    targets: [
+      { itemId: "copper_powder", ratePerSec: { num: "1", denom: "2" } }, // 30/min
+      { itemId: "equip_script_4_3", ratePerSec: { num: "2", denom: "1" } }, // 120/min
+      { itemId: "iron_powder", ratePerSec: { num: "1", denom: "4" } }, // 15/min
+    ],
+    maxDiffPixels: 0,
+  },
+  {
+    id: "script43-xiranite",
+    title: "script43-xiranite",
+    targets: [
+      { itemId: "equip_script_4_3", ratePerSec: { num: "1", denom: "5" } }, // 12/min
+      { itemId: "xiranite_enr_powder", ratePerSec: { num: "2", denom: "5" } }, // 24/min
     ],
     maxDiffPixels: 0,
   },
