@@ -67,6 +67,17 @@ export function isSinkRecipe(recipe: Recipe): boolean {
   return recipe.out.length === 0;
 }
 
+// The set of items at least one recipe cycles as a catalyst. Only these items
+// can carry a catalyst-role override: every other item has no catalyst supply
+// pool to address.
+export function catalystItemIds(recipes: readonly Recipe[]): Set<string> {
+  const ids = new Set<string>();
+  for (const r of recipes) {
+    for (const c of r.catalyst ?? []) ids.add(c.item);
+  }
+  return ids;
+}
+
 // The set of items that can be a plan target: any item produced with positive
 // qty in ANY output slot of at least one recipe that is neither `__internal`
 // (synthetic raw source) nor input-supply (`__domain_transfer`). Raw items with

@@ -7,6 +7,7 @@ import type {
 } from "../../canvas/layout";
 import type { Replica } from "../../solver/types";
 import { logicalNodeIdForReplica } from "../../solver/replicate";
+import { catalystChargeOf } from "../../solver/catalyst";
 import type {
   ItemId,
   MachineEdge,
@@ -163,13 +164,39 @@ export function expandMultipliers(input: ExpandMultipliersInput): MachineGraph {
     const replicaId: ReplicaId = replica ? replica.id : n.id;
     const fallbackMult = Math.max(1, n.multiplier | 0);
     const idealOpt = input.idealCount?.get(replicaId);
-    const machineSpeed = (() => {
-      if (!replica) return undefined;
-      const recipe = n.recipe;
-      const machine = input.machineById?.get(recipe.producers[0] ?? "");
-      if (!machine) return undefined;
-      return new Fraction(machine.speed).div(new Fraction(recipe.time));
-    })();
+    const producerMachine = replica
+      ? input.machineById?.get(n.recipe.producers[0] ?? "")
+      : undefined;
+    const machineSpeed = producerMachine
+      ? new Fraction(producerMachine.speed).div(new Fraction(n.recipe.time))
+      : undefined;
+
+    // Per-stamp catalyst draw. The stamp's machine count is executionRate *
+    // time / speed, i.e. executionRate / machineSpeed; catalystChargeOf ceils
+    // it, so a full stamp charges one machine, the partial stamp charges one,
+    // and the aggregate stamp past the cap charges all its full machines.
+    // Zero charges are dropped, so a stamp only carries the field when it
+    // actually draws something.
+    const catalystChargeFor = (
+      executionRate: Fraction,
+    ): ReadonlyArray<{ item: ItemId; rate: Fraction }> | undefined => {
+      const catalyst = n.recipe.catalyst;
+      if (!catalyst || catalyst.length === 0) return undefined;
+      if (!machineSpeed || !producerMachine) return undefined;
+      const machines = executionRate.div(machineSpeed);
+      const charges: { item: ItemId; rate: Fraction }[] = [];
+      for (const stoich of catalyst) {
+        const rate = catalystChargeOf(
+          machines,
+          stoich,
+          n.recipe,
+          producerMachine,
+        );
+        if (rate.compare(0) <= 0) continue;
+        charges.push({ item: stoich.item, rate });
+      }
+      return charges.length > 0 ? charges : undefined;
+    };
 
     const stamps: MachineVertexId[] = [];
     if (idealOpt && machineSpeed) {
@@ -185,6 +212,7 @@ export function expandMultipliers(input: ExpandMultipliersInput): MachineGraph {
       const fullStampCount = nFull > STAMP_CAP ? 1 : nFull;
       const fullStampRate =
         nFull > STAMP_CAP ? nFullFrac.mul(machineSpeed) : machineSpeed;
+      const fullStampCharge = catalystChargeFor(fullStampRate);
       for (let i = 0; i < fullStampCount; i++) {
         const v: MachineRecipeVertex = {
           kind: "machine",
@@ -193,20 +221,24 @@ export function expandMultipliers(input: ExpandMultipliersInput): MachineGraph {
           recipeId: n.recipe.id,
           stampIndex: i,
           executionRate: fullStampRate,
+          ...(fullStampCharge ? { catalystCharge: fullStampCharge } : {}),
         };
         vertices.push(v);
         stamps.push(v.id);
       }
       // Emit 1 partial stamp iff partial > 0.
       if (partial.compare(0) > 0) {
+        const partialRate = partial.mul(machineSpeed);
+        const partialCharge = catalystChargeFor(partialRate);
         const v: MachineRecipeVertex = {
           kind: "machine",
           id: machineVertexId(n.id, fullStampCount),
           replicaId,
           recipeId: n.recipe.id,
           stampIndex: fullStampCount,
-          executionRate: partial.mul(machineSpeed),
+          executionRate: partialRate,
           partial: true,
+          ...(partialCharge ? { catalystCharge: partialCharge } : {}),
         };
         vertices.push(v);
         stamps.push(v.id);

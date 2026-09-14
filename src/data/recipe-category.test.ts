@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 import type { Recipe } from "@aef/schema";
 import { pack } from "./load";
-import { isSinkRecipe, producibleItemIds } from "./recipe-category";
+import {
+  catalystItemIds,
+  isSinkRecipe,
+  producibleItemIds,
+} from "./recipe-category";
 
 // A target rate is undefined for a recipe that produces nothing, so the sink
 // predicate must key on the output list, not the cost sentinel. The shipped
@@ -82,5 +86,30 @@ describe("producibleItemIds", () => {
     for (const id of ["copper_bottle", "copper_powder", "iron_powder"]) {
       expect(ids.has(id), id).toBe(true);
     }
+  });
+});
+
+describe("catalystItemIds", () => {
+  const rec = (
+    id: string,
+    catalyst?: { item: string; qty: number }[],
+  ): Recipe =>
+    ({ id, category: "cat", out: [], in: [], catalyst }) as unknown as Recipe;
+
+  it("collects every catalyst item across the recipes", () => {
+    const ids = catalystItemIds([
+      rec("a", [{ item: "cat_a", qty: 1 }]),
+      rec("b", [
+        { item: "cat_a", qty: 1 },
+        { item: "cat_b", qty: 2 },
+      ]),
+      rec("c"),
+    ]);
+    expect([...ids].sort()).toEqual(["cat_a", "cat_b"]);
+  });
+
+  it("is exactly the two xiranite items on the shipped pack", () => {
+    const ids = catalystItemIds(pack.recipes);
+    expect([...ids].sort()).toEqual(["gas_xiranite", "liquid_xiranite"]);
   });
 });

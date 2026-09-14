@@ -5,7 +5,9 @@ import type { ItemTarget } from "../data/targets";
 import type { ItemOverride } from "../data/plan";
 import { augmentGraphWithLpSupport, buildRecipeGraphMulti } from "./graph";
 import { tarjanScc, condense } from "./scc";
-import { catalystDrawFromRates, solveLp, type LpResult } from "./lp";
+import { solveLp, type LpResult } from "./lp";
+import { buildSupplyTable } from "./effectiveSupply";
+import { buildCatalystAccount, type CatalystAccount } from "./catalyst";
 import { boundaryResidualShare } from "./boundary-share";
 import { articulationPoints } from "./bctree";
 import { pickTearEdges } from "./tear";
@@ -60,8 +62,10 @@ function assertSolvable(
 ): void {
   switch (status) {
     case "infeasible": {
+      // Role-less rows only: a catalyst row is never part of the LP, so it
+      // cannot be what made the solve infeasible.
       const cappedItemIds = (itemOverrides ?? [])
-        .filter((o) => o.ratePerSec !== undefined)
+        .filter((o) => o.role === undefined && o.ratePerSec !== undefined)
         .map((o) => o.itemId);
       const targetItemIds = targets.map((t) => t.itemId);
       throw new LpInfeasibleError(cappedItemIds, targetItemIds);
@@ -148,13 +152,13 @@ export type SolvePlanFull = {
    */
   boundaryShare: Map<ItemId, Fraction>;
   /**
-   * Per item the running recipes cycle as a catalyst: items/sec drawn from the
-   * boundary and returned, never consumed. Keyed by item id, zero draws
-   * omitted. It is external supply like a raw draw, so it shares the item's
-   * supply cap, but it stays out of every mass balance: no producer is
-   * expanded for it and no edge carries it.
+   * Per item the running recipes cycle as a catalyst: what the plan needs and
+   * which supply pool holds it. Keyed by item id, zero-need items omitted.
+   * The charge is per machine, so it is computed here from the machine counts
+   * rather than by the LP, which never sees a catalyst. It stays out of every
+   * mass balance: no producer is expanded for it.
    */
-  catalystDraw: Map<ItemId, Fraction>;
+  catalystAccount: CatalystAccount;
 };
 
 // Shared pipeline behind the public entry point. Runs the full solve (graph
@@ -241,6 +245,14 @@ function runSolvePipeline(
       Number(f.ceil(0).valueOf()),
     ]),
   );
+  const catalystAccount = buildCatalystAccount({
+    replicas,
+    idealCount,
+    recipeById,
+    machineById,
+    supply: buildSupplyTable(pack, itemOverrides ?? []),
+    draws: lpResult.draws,
+  });
 
   const torn: TornEdge[] = [];
   for (const scc of sccs) {
@@ -273,10 +285,7 @@ function runSolvePipeline(
     },
     supplyShares,
     boundaryShare,
-    // The whole pack, where lp.ts sums over its extraction-filtered list. The
-    // sums agree: a filtered recipe never enters the model, so it is never a
-    // key of `rates` and contributes nothing either way.
-    catalystDraw: catalystDrawFromRates(pack.recipes, rates),
+    catalystAccount,
   };
 
   return { full, lpResult, nettedPack: pack };

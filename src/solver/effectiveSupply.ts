@@ -17,7 +17,9 @@ export type Supply = Fraction | typeof Infinity;
  * `Fraction(0)` means no external supply at all.
  *
  * Whether the item is `raw` (per `pack.items`) is part of the contract. Items
- * absent from `pack.items` are treated as non-raw.
+ * absent from `pack.items` are treated as non-raw. Only the role-less override
+ * is read: a catalyst-role row belongs to the catalyst pool, which this entry
+ * point does not answer for (see `SupplyTable.catalystSupplyOf`).
  *
  * Resolution table:
  *   - No override entry, raw item:      `Infinity` (uncapped raw boundary).
@@ -41,7 +43,7 @@ export function effectiveSupply(
 ): Supply {
   return resolveSupply(
     pack.items.find((i) => i.id === itemId)?.raw === true,
-    overrides.find((o) => o.itemId === itemId),
+    overrides.find((o) => o.itemId === itemId && o.role === undefined),
   );
 }
 
@@ -74,7 +76,7 @@ const FRAC_ZERO = new Fraction(0);
  * and the render half can each build their own and still agree. That agreement
  * is a property of this type, not a convention the callers have to keep.
  *
- * Entries exist for `pack.items` plus every overridden item id, the latter
+ * Entries exist for `pack.items` plus every role-less overridden item id, the latter
  * possibly absent from the pack. `supplyOf` for an id outside that set answers
  * `Fraction(0)`, matching the rule's treatment of an unknown item as non-raw
  * with no override. Queries never throw; a malformed `ratePerSec` throws while
@@ -95,6 +97,20 @@ export type SupplyTable = {
   isFree(itemId: ItemId): boolean;
   /** Every entry, pack items first, in pack order then override order. */
   entries(): IterableIterator<readonly [ItemId, Supply]>;
+  /**
+   * Pool C, the catalyst supply: `undefined` when the item carries no catalyst
+   * row, `Infinity` when that row sets no rate, otherwise the rate (zero
+   * included). Nothing else reads a catalyst row, so pool G is unaffected by
+   * one.
+   */
+  catalystSupplyOf(itemId: ItemId): Supply | undefined;
+  /**
+   * True when the item's role-less override carries a `ratePerSec`. The
+   * resolution table folds a typed 0, a `plan: true` raw row and a non-raw
+   * default into the same `Fraction(0)`; a caller that has to tell a
+   * deliberate zero cap from the other two asks here.
+   */
+  hasTypedCap(itemId: ItemId): boolean;
 };
 
 /** Resolves `effectiveSupply` for every item the pack and the overrides name. */
@@ -105,8 +121,11 @@ export function buildSupplyTable(
   // Indexed once: resolving each item through effectiveSupply would rescan
   // pack.items and the override list per entry, which is quadratic on a real
   // pack.
+  // Pool G reads the role-less rows only: a catalyst row addresses pool C and
+  // must not shift the ordinary boundary of the same item.
+  const generalOverrides = overrides.filter((o) => o.role === undefined);
   const overrideByItem = new Map<ItemId, ItemOverride>();
-  for (const ov of overrides) {
+  for (const ov of generalOverrides) {
     if (!overrideByItem.has(ov.itemId)) overrideByItem.set(ov.itemId, ov);
   }
 
@@ -117,15 +136,31 @@ export function buildSupplyTable(
       resolveSupply(it.raw === true, overrideByItem.get(it.id)),
     );
   }
-  for (const ov of overrides) {
+  for (const ov of generalOverrides) {
     if (byItem.has(ov.itemId)) continue;
     // Absent from pack.items, hence not raw.
     byItem.set(ov.itemId, resolveSupply(false, overrideByItem.get(ov.itemId)));
+  }
+
+  // Pool C, first row wins as for pool G. Only ratePerSec caps it; an uncapped
+  // catalyst row is an unlimited pool.
+  const catalystByItem = new Map<ItemId, Supply>();
+  for (const ov of overrides) {
+    if (ov.role !== "catalyst" || catalystByItem.has(ov.itemId)) continue;
+    catalystByItem.set(
+      ov.itemId,
+      ov.ratePerSec !== undefined
+        ? rationalFromString(ov.ratePerSec)
+        : Infinity,
+    );
   }
 
   return {
     supplyOf: (itemId) => byItem.get(itemId) ?? FRAC_ZERO,
     isFree: (itemId) => byItem.get(itemId) === Infinity,
     entries: () => byItem.entries(),
+    catalystSupplyOf: (itemId) => catalystByItem.get(itemId),
+    hasTypedCap: (itemId) =>
+      overrideByItem.get(itemId)?.ratePerSec !== undefined,
   };
 }
