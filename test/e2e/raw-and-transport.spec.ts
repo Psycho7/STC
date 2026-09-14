@@ -130,9 +130,8 @@ test.describe("raw-product boundaries and transport-kind styling", () => {
     // The phase-transition route's only gas_xiranite use is the transmuter
     // catalyst. It is charged against the item cap, and it is still boundary
     // supply: the catalyst row draws it over an edge from the item's boundary
-    // node, so that node is on the canvas (CATALYST_SUPPLY_EDGES in
-    // src/flags.ts). The same draw surfaces in the inputs panel as an auto
-    // supply row on the item.
+    // node, so that node is on the canvas. The same draw surfaces in the
+    // inputs panel as an auto supply row on the item.
     const gasXiraniteInput = page.locator(
       '[data-testid="product-node"][data-flavor="inputProduct"][data-item-id="gas_xiranite"]',
     );

@@ -16,7 +16,6 @@ import { toleranceScaleFloor } from "../../solver/lp";
 import type { ItemTarget } from "../../data/targets";
 import type { ItemOverride } from "../../data/plan";
 import type { Item, Recipe } from "@aef/schema";
-import { CATALYST_SUPPLY_EDGES } from "../../flags";
 import { rationalFromString, rationalToString } from "./rational";
 import { REL_TOL } from "./invariants";
 import {
@@ -426,18 +425,16 @@ export function deriveBoundaryProducts(
       // materialisation path, which has no machine speed) draws nothing. A
       // catalyst on a recipe folded into an SCC vertex is out of scope: an
       // scc-box vertex exposes netIO only, so that charge still draws no edge.
-      if (CATALYST_SUPPLY_EDGES) {
-        for (const charge of v.catalystCharge ?? []) {
-          if (!itemById.has(charge.item)) continue;
-          if (charge.rate.compare(new Fraction(0)) <= 0) continue;
-          boundaryConsumers.push({
-            toUnit,
-            item: charge.item,
-            rate: charge.rate,
-            containerId: v.containerId,
-            catalyst: true,
-          });
-        }
+      for (const charge of v.catalystCharge ?? []) {
+        if (!itemById.has(charge.item)) continue;
+        if (charge.rate.compare(new Fraction(0)) <= 0) continue;
+        boundaryConsumers.push({
+          toUnit,
+          item: charge.item,
+          rate: charge.rate,
+          containerId: v.containerId,
+          catalyst: true,
+        });
       }
     } else if (isMachineSccVertex(v)) {
       // SCC vertices expose boundary I/O via netIO; a boundary item consumed

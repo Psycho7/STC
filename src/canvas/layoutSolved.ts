@@ -30,11 +30,12 @@ export async function layoutSolved(
   edges: Edge[];
   gaps: ReadonlyArray<GapRecord>;
 }> {
-  const { plan, pack } = solved;
+  const { plan, pack, full } = solved;
   return layoutRenderPlan({
     plan,
     recipeById: new Map(pack.recipes.map((r) => [r.id, r])),
     itemById: new Map(pack.items.map((i) => [i.id, i])),
+    catalystAccount: full.catalystAccount,
     ...(options.widenGaps !== undefined
       ? { widenGaps: options.widenGaps }
       : {}),

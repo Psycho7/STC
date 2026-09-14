@@ -40,7 +40,6 @@ import {
 } from "./data/transport-config";
 import type { Target } from "./data/targets";
 import { pack } from "./data/load";
-import { CATALYST_SUPPLY_EDGES } from "./flags";
 import type { LogicalGraph } from "./canvas/layout";
 import { LpInfeasibleError } from "./solver";
 import type { CatalystAccount } from "./solver/catalyst";
@@ -531,13 +530,11 @@ function AppInner() {
   // Boundary supply per input item: the realized demand of the latest render
   // pass, read off the input ProductNode data the layout layer wrote.
   //
-  // A catalyst is external supply the same way a raw draw is. With
-  // CATALYST_SUPPLY_EDGES on the render pipeline draws the cycled charge from
-  // a catalyst node of its own, so the item's two nodes are summed here: the
-  // panel still shows one fused row per item, and a catalyst-only item such as
-  // liquid_xiranite keeps the row it earns from the charge alone. With the
-  // flag off no node carries the charge at all, and the solve's account is the
-  // only place it can come from. Splitting the row per pool is the panel's own
+  // A catalyst is external supply the same way a raw draw is. The render
+  // pipeline draws the cycled charge from a catalyst node of its own, so the
+  // item's two nodes are summed here: the panel still shows one fused row per
+  // item, and a catalyst-only item such as liquid_xiranite keeps the row it
+  // earns from the charge alone. Splitting the row per pool is the panel's own
   // job and lands with the C row.
   const supplyRateByItem = useMemo<
     ReadonlyMap<string, import("./pipeline/types").RationalString>
@@ -553,20 +550,8 @@ function AppInner() {
       );
       map.set(itemId, rationalToString(total));
     }
-    if (CATALYST_SUPPLY_EDGES) return map;
-    for (const [itemId, entry] of catalystAccount) {
-      const balanced = map.get(itemId);
-      map.set(
-        itemId,
-        rationalToString(
-          balanced === undefined
-            ? entry.need
-            : rationalFromString(balanced).add(entry.need),
-        ),
-      );
-    }
     return map;
-  }, [nodes, catalystAccount]);
+  }, [nodes]);
 
   // Items the current plan pulls across the boundary as assumed-infinite
   // supply: raw items with a realized draw, plus every item the plan cycles as

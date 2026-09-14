@@ -410,9 +410,9 @@ describe("RecipeNode", () => {
 
   // A catalyst is an input the machine cycles rather than consumes: it is drawn
   // from the plan boundary and handed back every cycle. The card declares the
-  // draw as an extra input-column row below every port row, and with
-  // CATALYST_SUPPLY_EDGES on that row takes a `cat:` port of its own so the
-  // edge from the boundary card can land on it.
+  // draw as an extra input-column row below every port row, and that row takes
+  // a `cat:` port of its own so the edge from the catalyst boundary card can
+  // land on it.
   describe("catalyst rows", () => {
     // qty 1 over a 10s cycle at speed 1 is the pack's 6/min catalyst draw.
     const catalystRecipe: Recipe = {
@@ -503,6 +503,33 @@ describe("RecipeNode", () => {
       expect(
         container.querySelector(".rn-row.catalyst .rate")?.textContent,
       ).toBe("18");
+    });
+
+    // A transmuter holds its charge per MACHINE: a card running 2.5 machines
+    // holds three machines' worth whether or not the third runs flat out.
+    // The port rows keep the fractional scale; only the catalyst row ceils.
+    it("counts whole machines in the catalyst rate while the port rows stay fractional", () => {
+      const { container } = renderRecipe({
+        recipe: catalystRecipe,
+        kind: "recipe",
+        multiplicity: { num: "5", denom: "2" },
+        portTransportKinds: catalystPortKinds,
+      });
+      const inputRates = Array.from(
+        container.querySelectorAll(".rn-side.in .rn-row.input .rate"),
+      ).map((el) => el.textContent);
+      expect(inputRates).toEqual(["15", "30"]);
+      expect(
+        container.querySelector(".rn-row.catalyst .rate")?.textContent,
+      ).toBe("18");
+    });
+
+    // The aggregate answers "how much does this card hold"; the per-machine
+    // figure the player builds against rides the row's tooltip.
+    it("names the per-machine charge in the catalyst row's tooltip", () => {
+      const { container } = renderCatalyst(3);
+      const row = container.querySelector(".rn-row.catalyst");
+      expect(row?.getAttribute("title")).toBe("每台 6/分");
     });
 
     it("sizes the card for the catalyst row", () => {

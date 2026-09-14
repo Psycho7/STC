@@ -5,11 +5,9 @@
 // the raw flag would never give it, and a raw catalyst item's row shows the
 // cycled draw ADDED to its balanced demand, not in place of it.
 //
-// With CATALYST_SUPPLY_EDGES on, both numbers come off the input product nodes
-// the render pipeline sized: the cycled charge has a catalyst node of its own,
-// and an item drawn both ways has two nodes whose rates the fused panel row
-// adds. The OFF twin of this file (App.catalystOff.test.tsx) pins the same two
-// numbers arriving the other way, from the panel-side addition.
+// Both numbers come off the input product nodes the render pipeline sized: the
+// cycled charge has a catalyst node of its own, and an item drawn both ways has
+// two nodes whose rates the fused panel row adds.
 //
 // layoutRenderPlan is mocked so the product nodes the fold reads are fixed by
 // the test rather than by the layout pass, which keeps the assertion on the

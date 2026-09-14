@@ -18,6 +18,7 @@ import Fraction from "fraction.js";
 import {
   BETWEEN_LAYERS_SPACING,
   ENTRY_GUTTER_OVERHANG,
+  ENV_FRAME_EXTENTS,
   RECIPE_WIDTH,
 } from "./dimensions";
 import {
@@ -27,6 +28,7 @@ import {
   backwardRailDefaults,
   clamp,
   clearRailY,
+  drawnEdge,
   fanJunctionX,
   forwardDropX,
   forwardStepGeometry,
@@ -36,6 +38,7 @@ import {
 import {
   absoluteLeft,
   absoluteTop,
+  drawnPortsOf,
   edgeItem,
   edgeTargetSide,
   nodeHeight,
@@ -994,6 +997,14 @@ function pinnedColumnsByGap(
       );
     }
     add(targetGap, data?.entryX, false);
+    // A backward member of a trunk carries its rail on the trunk's junction
+    // column, pre-stamped by routeTrunkEdges and kept as given by
+    // clampBackwardRails. It is therefore fixed while this runs, and it is a
+    // trunk column like any other: an arrival slot or a jog descent staked a
+    // few units off it reads as one thick line, and the rail cannot yield.
+    const rail = routingHintsFromData(edge.data);
+    add(sourceGap, rail.railXRight, true);
+    add(targetGap, rail.railXLeft, true);
   }
   return out;
 }
@@ -1154,6 +1165,16 @@ function sourceGapsOf(
 function clampToZone(x: number, gap: GapRecord | undefined): number {
   if (gap === undefined) return x;
   return clamp(x, gap.columnZone.left, gap.columnZone.right);
+}
+
+// The same zone as a column-search predicate. A column resolver has to know the
+// zone up front: clamping its answer afterwards would drag a column that moved
+// to dodge something right back onto it.
+function zoneAccept(gap: GapRecord | undefined): (x: number) => boolean {
+  if (gap === undefined) return () => true;
+  return (x: number): boolean =>
+    x >= gap.columnZone.left - COLUMN_EPS &&
+    x <= gap.columnZone.right + COLUMN_EPS;
 }
 
 // assignEntryColumns: give every arriving edge -- a forward step's late drop, a
@@ -1498,6 +1519,10 @@ export type PaddedObstacle = ObstacleRect & {
 // Each pass therefore rebuilds the field instead of sharing one hoisted to a
 // stage boundary. Hoisting would give the same rects today and go silently
 // wrong the day a pass that retypes an edge is added after it.
+// The frame a node that draws none contributes: every growth term is zero, so
+// the obstacle is the plain padded card box it has always been.
+const NO_FRAME = { top: 0, bottom: 0, left: 0, right: 0 } as const;
+
 export function paddedObstacles(
   nodes: ReadonlyArray<RFAnyNode>,
   edges: ReadonlyArray<Edge>,
@@ -1507,11 +1532,20 @@ export function paddedObstacles(
   for (const node of nodes) {
     const left = absoluteLeft(node, byId);
     const top = absoluteTop(node, byId);
+    // An environment recipe draws plates and haze ENV_FRAME_EXTENTS beyond its
+    // card box, and that frame is as solid to a routed stroke as the card is.
+    // cardRectsFor grows the DRAWN rect the same way; without this the router
+    // reads a band the plate occupies as clear air and threads a rail through
+    // the frame.
+    const frame =
+      node.type === "recipe" && node.data.recipe.environment !== undefined
+        ? ENV_FRAME_EXTENTS
+        : NO_FRAME;
     out.push({
-      left: left - OBSTACLE_PAD_LEFT,
-      right: left + nodeWidth(node) + OBSTACLE_PAD_RIGHT,
-      top: top - OBSTACLE_PAD_Y,
-      bottom: top + nodeHeight(node) + OBSTACLE_PAD_Y,
+      left: left - frame.left - OBSTACLE_PAD_LEFT,
+      right: left + nodeWidth(node) + frame.right + OBSTACLE_PAD_RIGHT,
+      top: top - frame.top - OBSTACLE_PAD_Y,
+      bottom: top + nodeHeight(node) + frame.bottom + OBSTACLE_PAD_Y,
       kind: "card",
       nodeId: node.id,
       container: node.type === "group" || node.type === "loop",
@@ -1724,6 +1758,13 @@ function clearColumnKeepingLeg(args: {
   //     removal of the clamp.
   ownLegRect?: PaddedObstacle | undefined;
   sideClamp?: ((x: number) => boolean) | undefined;
+  // Gate on the COLUMN itself, ANDed into both tiers' acceptance. The rail
+  // callers pass their gap's column zone: without it a resolved column is
+  // clamped back into the zone AFTER the search, which silently undoes the
+  // move the search just made and lands the column back on whatever it was
+  // dodging. Unlike sideClamp it opens no pierce-rescue tier, so a caller that
+  // omits it resolves exactly as before.
+  columnAccept?: ((x: number) => boolean) | undefined;
 }): number {
   const {
     desired,
@@ -1738,6 +1779,7 @@ function clearColumnKeepingLeg(args: {
     containerGap,
     ownLegRect,
     sideClamp,
+    columnAccept,
   } = args;
   const bands = containerBands ?? [];
   const paddedCards = foreignPadded.filter((o) => o.kind === "card");
@@ -1745,6 +1787,7 @@ function clearColumnKeepingLeg(args: {
   const paddedLegCards = [...paddedCards, ...legExtra];
   const rawLegCards = [...foreignRawCards, ...legExtra];
   const onSide = sideClamp ?? (() => true);
+  const inZone = columnAccept ?? (() => true);
   const ymin = Math.min(yLo, yHi);
   const ymax = Math.max(yLo, yHi);
   // Does a vertical run at x, spanning [ymin, ymax], stay out of every rect in
@@ -1791,7 +1834,9 @@ function clearColumnKeepingLeg(args: {
   // the container gap widens every container obstacle's blocked interval.
   const tier1Set = [...foreignPadded, ...bands];
   const paddedAccept = (x: number): boolean =>
-    onSide(x) && !connectingLegBlocked(portX, portY, x, paddedLegCards);
+    onSide(x) &&
+    inZone(x) &&
+    !connectingLegBlocked(portX, portY, x, paddedLegCards);
   const padded = resolve(tier1Set, CHAMFER, CLEAR_COLUMN_RADIUS, paddedAccept);
   if (padded !== null) return padded;
 
@@ -1801,7 +1846,9 @@ function clearColumnKeepingLeg(args: {
   // doubled radius lets a fully packed near corridor escape to the next gap.
   const tier2Set = [...foreignRawCards, ...bands];
   const rawAccept = (x: number): boolean =>
-    onSide(x) && !connectingLegBlocked(portX, portY, x, rawLegCards);
+    onSide(x) &&
+    inZone(x) &&
+    !connectingLegBlocked(portX, portY, x, rawLegCards);
   const raw = resolve(tier2Set, RAW_GAP, 2 * CLEAR_COLUMN_RADIUS, rawAccept);
   if (raw !== null) return raw;
 
@@ -1864,6 +1911,58 @@ function clearColumnKeepingLeg(args: {
   return desired;
 }
 
+// Every vertical run one edge's DRAWN polyline puts on the canvas, as
+// zero-width BORDER BANDS (see clearColumnX). A rail column resolved onto one
+// of these lines, or a few units off it, reads as a single thick stroke rather
+// than two lines; feeding them to the rail's own column search keeps the
+// column pitch floor between families that no single pass owns (a trunk
+// junction, an entry slot, a bend column, a jog descent, and another rail's
+// column are placed by four different passes). They are BANDS, not cards, so
+// they gate the column only and never the connecting legs -- a leg crossing
+// another edge's vertical is a plain crossing, which the crossing-cue pass
+// already draws.
+//
+// `container: true` puts them on the wider containerGap arm, which the rail
+// callers already set to CONTAINER_COLUMN_GAP -- the same 16 units as the
+// column pitch floor (ENTRY_SLOT_PITCH), so one gap value serves both.
+function drawnColumnBands(
+  edge: Edge,
+  byId: ReadonlyMap<string, RFAnyNode>,
+): PaddedObstacle[] {
+  const ends = drawnPortsOf(edge, byId);
+  if (ends === null) return [];
+  const { pts } = drawnEdge(ends, edge.type, edge.data);
+  const out: PaddedObstacle[] = [];
+  for (let i = 1; i < pts.length; i += 1) {
+    const [x0, y0] = pts[i - 1]!;
+    const [x1, y1] = pts[i]!;
+    if (x0 !== x1 || y0 === y1) continue;
+    out.push({
+      left: x0,
+      right: x0,
+      top: Math.min(y0, y1),
+      bottom: Math.max(y0, y1),
+      kind: "card",
+      nodeId: `column:${edge.id}`,
+      container: true,
+    });
+  }
+  return out;
+}
+
+// A rail's own horizontal run, as a zero-height obstacle for the NEXT rail's
+// clearRailY. Two rails that share an x-corridor and land on one y are drawn
+// one on top of the other for the whole overlap, so each placed rail blocks
+// its own level for the rails resolved after it.
+function railLevelBand(xl: number, xr: number, railY: number): ObstacleRect {
+  return {
+    left: Math.min(xl, xr),
+    right: Math.max(xl, xr),
+    top: railY,
+    bottom: railY,
+  };
+}
+
 // clampBackwardRails: give each backward item edge's detour rail a y that clears
 // the cards it horizontally spans, so a recycle rail no longer slices through
 // its own source / target cards or the columns between them. Mirrors the bus
@@ -1874,6 +1973,14 @@ function clearColumnKeepingLeg(args: {
 // overhang, not just the raw card. Threads { railY } onto the affected edges;
 // every other edge passes through by reference. What it needs from the passes
 // before it is the ROUTING_PASSES entry in layout.ts.
+//
+// It is also the last column pass, so it carries the column DECONFLICTION the
+// families cannot do for themselves: a rail column keeps the pitch floor off
+// every vertical the earlier passes drew and off every rail resolved before it
+// (drawnColumnBands), and a rail level keeps clear of every rail level already
+// placed in its corridor (railLevelBand). The rail is the family that yields,
+// because it is the only one resolved here: an entry slot, a bend column and a
+// jog descent are settled by the time this runs.
 export function clampBackwardRails(
   nodes: ReadonlyArray<RFAnyNode>,
   edges: ReadonlyArray<Edge>,
@@ -1889,6 +1996,25 @@ export function clampBackwardRails(
   // bands at its RAW edges (the frame the reader sees), not its padded band.
   const rawById = new Map<string, PaddedObstacle>();
   for (const o of rawCards) rawById.set(o.nodeId, o);
+
+  // Is this edge a backward rail, the one family this pass resolves? Every
+  // other edge's verticals are final by now and become bands below.
+  const isRail = (edge: Edge): boolean => {
+    if (edge.type !== "item") return false;
+    const source = byId.get(edge.source);
+    const target = byId.get(edge.target);
+    if (source === undefined || target === undefined) return false;
+    return nodeGap(source, target, byId) <= 0;
+  };
+  // The columns already on the canvas, keyed by the edge that drew them so a
+  // rail never bands itself. Rails add their own as they resolve, in index
+  // order, so the result is deterministic and every pair separates once.
+  const bandsByEdgeId = new Map<string, PaddedObstacle[]>();
+  for (const edge of edges) {
+    if (isRail(edge)) continue;
+    bandsByEdgeId.set(edge.id, drawnColumnBands(edge, byId));
+  }
+  const railLevels: ObstacleRect[] = [];
 
   const railYByIndex = new Map<number, number>();
   const railXRightByIndex = new Map<number, number>();
@@ -1929,7 +2055,7 @@ export function clampBackwardRails(
       preferredY,
       xlDesired,
       xrDesired,
-      obstacles,
+      [...obstacles, ...railLevels],
       CHAMFER,
       CONTAINER_RAIL_GAP,
     );
@@ -1974,6 +2100,11 @@ export function clampBackwardRails(
         { ...slab, left: slab.right, container: true },
       ];
     };
+    const foreignColumnBands: PaddedObstacle[] = [];
+    for (const [edgeId, bands] of bandsByEdgeId) {
+      if (edgeId === edge.id) continue;
+      foreignColumnBands.push(...bands);
+    }
     const xrExempt = ownExempt([source]);
     const xr =
       pinnedRight ??
@@ -1991,8 +2122,9 @@ export function clampBackwardRails(
           foreignRawCards: rawCards.filter(
             (o) => !xrExempt.has(o.nodeId) && o.nodeId !== sharedContainerId,
           ),
-          containerBands: bandsOf(source),
+          containerBands: [...bandsOf(source), ...foreignColumnBands],
           containerGap: CONTAINER_COLUMN_GAP,
+          columnAccept: zoneAccept(sourceGap),
         }),
         sourceGap,
       );
@@ -2018,12 +2150,26 @@ export function clampBackwardRails(
           foreignRawCards: rawCards.filter(
             (o) => !xlExempt.has(o.nodeId) && o.nodeId !== sharedContainerId,
           ),
-          containerBands: bandsOf(target),
+          containerBands: [...bandsOf(target), ...foreignColumnBands],
           containerGap: CONTAINER_COLUMN_GAP,
+          columnAccept: zoneAccept(targetGap),
         }),
         targetGap,
       );
     if (xl !== defaults.xl) railXLeftByIndex.set(index, xl);
+
+    // Record what this rail now occupies, so the rails after it separate from
+    // it the same way it separated from the earlier families.
+    bandsByEdgeId.set(edge.id, [
+      ...drawnColumnBands(
+        {
+          ...edge,
+          data: { ...edge.data, railY, railXRight: xr, railXLeft: xl },
+        },
+        byId,
+      ),
+    ]);
+    railLevels.push(railLevelBand(xl, xr, railY));
   });
 
   if (
