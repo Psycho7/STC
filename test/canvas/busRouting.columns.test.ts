@@ -242,6 +242,33 @@ describe("assignBendColumns", () => {
     // No whole-band dropout, and all three bends are distinct.
     expect(new Set(bends).size).toBe(3);
   });
+
+  it("fans inside the column zone of the gap right of its source layer", () => {
+    // With gap records the corridor is the gap's column zone, so no bend stands
+    // in the source chip reserve (where the first leg's chip draws) or in the
+    // target reserve (where the last leg's does). Every fixture above runs
+    // without a ctx and pins the margin-only corridor unchanged.
+    const r = mkRecipe("r", ["a"], ["b"]);
+    const nodes: RFAnyNode[] = [
+      recipeNode("s", 0, 0, r),
+      recipeNode("t1", 500, 0, r),
+      recipeNode("t2", 500, 200, r),
+    ];
+    const edges = [mkEdge("e0", "s", "t1", "b"), mkEdge("e1", "s", "t2", "b")];
+    const widened = widenLayerGaps(nodes, edges);
+    const out = assignBendColumns(widened.nodes, edges, {
+      gaps: widened.gaps,
+    });
+    const gap = widened.gaps[0]!;
+    // Premise: the gap really does reserve room on both sides of its columns.
+    expect(gap.sourceZone.right).toBeGreaterThan(gap.left);
+    expect(gap.targetZone.left).toBeLessThan(gap.right);
+    for (const id of ["e0", "e1"]) {
+      const bend = bendOf(out, id)!;
+      expect(bend).toBeGreaterThanOrEqual(gap.columnZone.left);
+      expect(bend).toBeLessThanOrEqual(gap.columnZone.right);
+    }
+  });
 });
 
 function entryOf(edges: Edge[], id: string): number | undefined {

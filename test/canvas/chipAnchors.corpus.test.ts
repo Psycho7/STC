@@ -29,10 +29,15 @@ import {
   horizontalRuns,
   type DrawnEdge,
 } from "../../src/canvas/edgePath";
-import { cardRectsFor } from "../../src/canvas/chipSeating";
+import {
+  cardRectsFor,
+  portKeepOutRect,
+  type CardRect,
+} from "../../src/canvas/chipSeating";
 import { drawnPortsOf, nodeIndexOf } from "../../src/canvas/nodeGeometry";
 import {
   RESERVE_COLUMN_PAD,
+  buildLayerModel,
   type GapRecord,
 } from "../../src/canvas/layerModel";
 import {
@@ -246,19 +251,34 @@ describe("every trunk chip's box stands in its gap's chip reserve", () => {
 
 // The rects a chip box must not stand on: the RAW drawn card boxes, container
 // slabs excluded (a slab is a tint behind a whole group, not a label surface).
-function cardRectsOf(nodes: ReadonlyArray<RFAnyNode>): ReadonlyArray<{
-  id: string;
-  left: number;
-  right: number;
-  top: number;
-  bottom: number;
-}> {
+function cardRectsOf(nodes: ReadonlyArray<RFAnyNode>): ReadonlyArray<CardRect> {
   const byId = nodeIndexOf(nodes);
   return cardRectsFor(
     nodes.filter((node) => node.type !== "group"),
     byId,
   );
 }
+
+// Each card's PORT FURNITURE: the keep-out band straddling its port edge, which
+// the PortGlyph hangs into from inside the card. A chip box seated flush against
+// a card edge does not stand on the card, but it does stand on the glyph of
+// every port on that edge, which reads exactly like the card's own label -- so
+// the furniture is part of the surface a chip must clear.
+function portFurnitureOf(
+  nodes: ReadonlyArray<RFAnyNode>,
+): ReadonlyArray<{ id: string } & PortZoneRect> {
+  return cardRectsOf(nodes).flatMap((card) => [
+    { id: `${card.id} out-port`, ...portKeepOutRect(card, "source") },
+    { id: `${card.id} in-port`, ...portKeepOutRect(card, "target") },
+  ]);
+}
+
+type PortZoneRect = {
+  left: number;
+  right: number;
+  top: number;
+  bottom: number;
+};
 
 describe("no two chips of one trunk overlap", () => {
   it("holds on every corpus plan", async () => {
@@ -318,11 +338,12 @@ describe("a far trunk member's chip stands on the run the rule names", () => {
     // member its leg into the target (the last run). Everything else is the
     // trunk's shared stroke.
     //
-    // The named seat holds while its BOX clears every card. Where it does not --
-    // a jogged member's leg can start just past the card it dodged and be too
-    // short to carry the box a port stub back from the port -- the member falls
-    // back to the same card-clear slide a 1-to-1 chip takes, over its own runs:
-    // the chip then stands wherever on its OWN polyline the box is clear.
+    // The named seat holds while its BOX clears every card and its port
+    // furniture. Where it does not -- a jogged member's leg can start just past
+    // the card it dodged and be too short to carry the box a port stub back from
+    // the port -- the member falls back to the same card-clear slide a 1-to-1
+    // chip takes, over its own runs: the chip then stands wherever on its OWN
+    // polyline the box clears the cards.
     const wrong: Array<Chip & { run: string }> = [];
     let checked = 0;
 
@@ -330,6 +351,7 @@ describe("a far trunk member's chip stands on the run the rule names", () => {
       const { nodes, edges } = await layOut(scenario.id);
       const byId = nodeIndexOf(nodes);
       const cards = cardRectsOf(nodes);
+      const withFurniture = [...cards, ...portFurnitureOf(nodes)];
       for (const edge of edges) {
         if (edge.type !== "item") continue;
         const data = edge.data as
@@ -365,7 +387,7 @@ describe("a far trunk member's chip stands on the run the rule names", () => {
         // The named seat as the rule resolves it: the port-stub seat clamped
         // onto the named run.
         const namedX = Math.min(Math.max(seat, run.lo), run.hi);
-        if (chipBoxClearsCards(namedX, run.y, chip.halfW, cards)) {
+        if (chipBoxClearsCards(namedX, run.y, chip.halfW, withFurniture)) {
           if (!onRun || !seated) {
             wrong.push({ ...chip, run: `[${run.lo}, ${run.hi}] @ ${run.y}` });
           }
@@ -396,6 +418,12 @@ describe("no 1-to-1 chip box stands over a card", () => {
     // run when none clears), so this list is empty; the residue below is the
     // chip families that rule does not cover -- trunk chips, which are
     // reserve-placed beside a port and may not leave their reserve.
+    //
+    // The cards carry their PORT FURNITURE for every edge that crosses a layer
+    // boundary: those corridors are the ones the reserve model widened, so a
+    // flush seat burying a port glyph is a failure there. Two cards of ONE layer
+    // can stand a corridor narrower than one chip box apart and no gap was ever
+    // charged for the pair, so there the cards alone stand.
     const overCard: Array<Chip & { card: string }> = [];
     const residue: Array<{ plan: string; edge: string; kind: string }> = [];
     let checked = 0;
@@ -404,15 +432,20 @@ describe("no 1-to-1 chip box stands over a card", () => {
       const { nodes, edges } = await layOut(scenario.id);
       const byId = nodeIndexOf(nodes);
       const cards = cardRectsOf(nodes);
+      const furniture = portFurnitureOf(nodes);
+      const { layerByNodeId } = buildLayerModel(nodes);
       for (const edge of edges) {
         if (edge.type !== "item" && edge.type !== "bus") continue;
         const ends = drawnPortsOf(edge, byId);
         if (ends === null) continue;
         const drawn = drawnEdge(ends, edge.type, edge.data);
+        const crossesLayer =
+          layerByNodeId.get(edge.source) !== layerByNodeId.get(edge.target);
+        const obstacles = crossesLayer ? [...cards, ...furniture] : cards;
         for (const chip of chipsOf(scenario.id, edge, drawn)) {
           checked += 1;
           const box = chipBoxAt(chip.x, chip.y, chip.halfW);
-          const hit = cards.find(
+          const hit = obstacles.find(
             (card) =>
               box.right > card.left + EPS &&
               box.left < card.right - EPS &&
