@@ -485,17 +485,16 @@ describe("RecipeNode", () => {
       expect(container.querySelectorAll("[data-handleid]")).toHaveLength(4);
     });
 
-    it("spells the per-machine draw out with the locale rate unit", () => {
+    it("draws the catalyst rate as a bare number, no locale rate unit", () => {
       const { container } = renderCatalyst();
       expect(
         container.querySelector(".rn-row.catalyst .rate")?.textContent,
-      ).toBe("6/分");
+      ).toBe("6");
     });
 
-    // The port rows carry the AGGREGATE flow across every machine; a catalyst
-    // is charged per machine, so its row stays on the one-machine figure and
-    // says so by carrying the unit the port rows leave to the header.
-    it("keeps the catalyst rate per machine while the port rows scale", () => {
+    // Every row on the card carries the AGGREGATE flow across every machine,
+    // catalyst included, so the figures on one card are all on one scale.
+    it("scales the catalyst rate with the port rows", () => {
       const { container } = renderCatalyst(3);
       const inputRates = Array.from(
         container.querySelectorAll(".rn-side.in .rn-row.input .rate"),
@@ -503,7 +502,7 @@ describe("RecipeNode", () => {
       expect(inputRates).toEqual(["18", "36"]);
       expect(
         container.querySelector(".rn-row.catalyst .rate")?.textContent,
-      ).toBe("6/分");
+      ).toBe("18");
     });
 
     it("sizes the card for the catalyst row", () => {

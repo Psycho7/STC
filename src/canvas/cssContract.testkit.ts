@@ -49,6 +49,13 @@ export function cssBlock(selector: string): string {
   return hits[0]!.text;
 }
 
+// Every selector-list entry in the stylesheet matching `pattern`, so a suite can
+// pin the absence of a whole family of selectors (no rate rule may key on
+// :hover) rather than one spelling of it.
+export function cssSelectorsMatching(pattern: RegExp): string[] {
+  return RULES.flatMap((r) => r.selectors).filter((s) => pattern.test(s));
+}
+
 // The declared value of one property inside `selector`'s rule. The leading
 // brace-or-semicolon boundary keeps a request for "border" off "border-left".
 export function cssValue(selector: string, property: string): string {

@@ -242,6 +242,92 @@ describe("assignBendColumns", () => {
     // No whole-band dropout, and all three bends are distinct.
     expect(new Set(bends).size).toBe(3);
   });
+
+  it("fans inside the column zone of the gap right of its source layer", () => {
+    // With gap records the corridor is the gap's column zone, so no bend stands
+    // in the source chip reserve (where the first leg's chip draws) or in the
+    // target reserve (where the last leg's does). Every fixture above runs
+    // without a ctx and pins the margin-only corridor unchanged.
+    const r = mkRecipe("r", ["a"], ["b"]);
+    const nodes: RFAnyNode[] = [
+      recipeNode("s", 0, 0, r),
+      recipeNode("t1", 500, 0, r),
+      recipeNode("t2", 500, 200, r),
+    ];
+    const edges = [mkEdge("e0", "s", "t1", "b"), mkEdge("e1", "s", "t2", "b")];
+    const widened = widenLayerGaps(nodes, edges);
+    const out = assignBendColumns(widened.nodes, edges, {
+      gaps: widened.gaps,
+    });
+    const gap = widened.gaps[0]!;
+    // Premise: the gap really does reserve room on both sides of its columns.
+    expect(gap.sourceZone.right).toBeGreaterThan(gap.left);
+    expect(gap.targetZone.left).toBeLessThan(gap.right);
+    for (const id of ["e0", "e1"]) {
+      const bend = bendOf(out, id)!;
+      expect(bend).toBeGreaterThanOrEqual(gap.columnZone.left);
+      expect(bend).toBeLessThanOrEqual(gap.columnZone.right);
+    }
+  });
+
+  it("keeps the floor off a trunk column whatever the member's edge type", () => {
+    // A bus-typed member's junction column stands in the same gap as the band's
+    // own bends. The stagger skips the member itself, but it may not fan a
+    // vertical onto its column either: a trunk column carries every member's
+    // stroke, so the keep-out is a whole port stub.
+    const r = mkRecipe("r", ["a"], ["b"]);
+    const nodes: RFAnyNode[] = [
+      recipeNode("s", 0, 0, r),
+      recipeNode("sb", 0, 400, r),
+      recipeNode("t1", 500, 0, r),
+      recipeNode("t2", 500, 200, r),
+      recipeNode("tb", 500, 400, r),
+    ];
+    const items = [mkEdge("e0", "s", "t1", "b"), mkEdge("e1", "s", "t2", "b")];
+    const widened = widenLayerGaps(nodes, [
+      ...items,
+      mkEdge("bus0", "sb", "tb", "b"),
+    ]);
+    const gap = widened.gaps[0]!;
+    const junctionX = (gap.columnZone.left + gap.columnZone.right) / 2;
+    const trunkMember: Edge = {
+      ...mkEdge("bus0", "sb", "tb", "b"),
+      type: "bus",
+      data: { item: "b", fanout: true, trunkKey: "k", junctionX },
+    };
+    const out = assignBendColumns(widened.nodes, [...items, trunkMember], {
+      gaps: widened.gaps,
+    });
+    for (const id of ["e0", "e1"]) {
+      expect(Math.abs(bendOf(out, id)! - junctionX)).toBeGreaterThanOrEqual(
+        PORT_STUB,
+      );
+    }
+  });
+
+  it("falls back to the floor itself when the even pitch is under it", () => {
+    // Twelve members in the margin-only corridor [240, 500]: usable 196, so the
+    // even pitch would be 196 / 13 = 15.08, under the floor. The fan then stands
+    // at exactly the floor, centred in the corridor, so no two verticals braid.
+    const r = mkRecipe("r", ["a"], ["b"]);
+    const count = 12;
+    const nodes: RFAnyNode[] = [recipeNode("s", 0, 0, r)];
+    const edges: Edge[] = [];
+    for (let i = 0; i < count; i += 1) {
+      nodes.push(recipeNode(`t${i}`, 500, i * 200, r));
+      edges.push(mkEdge(`e${i}`, "s", `t${i}`, "b"));
+    }
+    const out = assignBendColumns(nodes, edges);
+    const bends = edges.map((e) => bendOf(out, e.id)!).sort((a, b) => a - b);
+    const margin = PORT_STUB + CHAMFER;
+    const usable = 500 - RECIPE_WIDTH - 2 * margin;
+    for (let i = 1; i < bends.length; i += 1) {
+      expect(bends[i]! - bends[i - 1]!).toBeCloseTo(ENTRY_SLOT_PITCH, 6);
+    }
+    // Centred: the slack the floor leaves is split between the two end gaps.
+    const slack = (usable - (count - 1) * ENTRY_SLOT_PITCH) / 2;
+    expect(bends[0]!).toBeCloseTo(RECIPE_WIDTH + margin + slack, 6);
+  });
 });
 
 function entryOf(edges: Edge[], id: string): number | undefined {

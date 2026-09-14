@@ -436,18 +436,15 @@ describe("arrival columns stay left of the target zone", () => {
     const entryX = num(entries, "e:3", "entryX");
     const faninX = num(routed.edges, "e:1", "junctionX");
     // The arrival columns start half a slot pitch left of the target zone and
-    // step left by a pitch; this one takes the first slot that also stands
-    // clear of the trunk's own column, so the rail never braids the line the
-    // merge draws on.
+    // step left by a pitch; a slot inside the floor of a column already pinned
+    // in the gap is walked left until it clears it by exactly the floor, so the
+    // rail never braids the line the merge draws on.
     const base = gap.targetZone.left - ENTRY_SLOT_PITCH / 2;
-    const firstClear = [0, 1, 2, 3, 4]
-      .map((i) => base - i * ENTRY_SLOT_PITCH)
-      .find((x) => Math.abs(x - faninX) >= COLUMN_PITCH / 2);
-    expect(entryX).toBe(firstClear);
+    expect(entryX).toBe(faninX - ENTRY_SLOT_PITCH);
     expect(entryX).toBeLessThan(gap.targetZone.left);
-    // Premise: the plain first slot really was contested, so the skip above is
+    // Premise: the plain first slot really was contested, so the walk above is
     // exercised rather than vacuous.
-    expect(Math.abs(base - faninX)).toBeLessThan(COLUMN_PITCH / 2);
+    expect(Math.abs(base - faninX)).toBeLessThan(ENTRY_SLOT_PITCH);
 
     // The fan-in members count toward the card's arrival band: three arrivals
     // (two members plus the rail), so the gutter is three slots wide.
