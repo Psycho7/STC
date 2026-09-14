@@ -17,13 +17,31 @@
 // layer's own band ON PURPOSE -- the only way past a card that shares a layer
 // with the endpoint it stands in front of -- and such a column takes no room
 // this rule is about, since every reserve it guards lives in a gap.
+//
+// The second property is the same reserve seen from the CHIP's side: a 1-to-1
+// edge draws its own rate chip on one of its horizontal runs, and the gap was
+// widened so the runs beside its two ports can hold that box. So each of those
+// two runs must measure at least the port stub the chip seats past plus the
+// chip's own natural width -- which is what a bend column standing right of the
+// source reserve and left of the target reserve buys.
 
 import { describe, it, expect } from "vitest";
 import type { Edge } from "@xyflow/react";
 
 import { layoutSolved } from "../../src/canvas/layoutSolved";
-import { routingHintsFromData } from "../../src/canvas/edgePath";
-import type { GapRecord } from "../../src/canvas/layerModel";
+import {
+  PORT_STUB,
+  drawnEdge,
+  horizontalRuns,
+  routingHintsFromData,
+} from "../../src/canvas/edgePath";
+import { chipNaturalWidth, rateChipText } from "../../src/canvas/chipMetrics";
+import {
+  buildLayerModel,
+  classifyTrunks,
+  type GapRecord,
+} from "../../src/canvas/layerModel";
+import { drawnPortsOf, nodeIndexOf } from "../../src/canvas/nodeGeometry";
 import { pack } from "../../src/data/load";
 import { solveForRender } from "../../src/pipeline/solveForRender";
 import type { ItemTarget } from "../../src/data/targets";
@@ -36,8 +54,9 @@ const EPS = 1e-6;
 type Column = { edge: string; kind: string; x: number };
 
 // The columns one edge's stamps put in the gaps: the trunk column a bus member
-// shares, the arrival columns of a rail and a jogged descent, the SOURCE-side
-// column of a jog, and a backward rail's two verticals.
+// shares, the staggered bend column of a forward item edge, the arrival columns
+// of a rail and a jogged descent, the SOURCE-side column of a jog, and a
+// backward rail's two verticals.
 function columnsOf(edge: Edge): Column[] {
   const data = edge.data as Record<string, unknown> | undefined;
   const hints = routingHintsFromData(data);
@@ -51,6 +70,7 @@ function columnsOf(edge: Edge): Column[] {
       hints.junctionX,
     );
   }
+  if (edge.type === "item") push("bendX", hints.bendX);
   push("entryX", hints.entryX);
   push("jogDescentX", hints.jogDescentX);
   push("srcColX", hints.srcColX);
@@ -106,5 +126,73 @@ describe("routed columns stay inside their gap's column zone", () => {
     // empty list below is a verdict rather than an empty scan.
     expect(checked).toBeGreaterThan(0);
     expect(outside).toEqual([]);
+  }, 600_000);
+});
+
+// The room one 1-to-1 chip needs on the run it seats against: the port stub it
+// steps past plus the box it draws at its natural width. Both ends of the edge
+// owe it, which is exactly the reserve gapRequirements charged there.
+const chipRoom = (edge: Edge): number =>
+  PORT_STUB + chipNaturalWidth(rateChipText(edge));
+
+describe("a 1-to-1 edge keeps chip room on its first and last run", () => {
+  it("holds on every corpus plan", async () => {
+    const short: Array<{
+      plan: string;
+      edge: string;
+      end: "first" | "last";
+      length: number;
+      needs: number;
+    }> = [];
+    let checked = 0;
+
+    for (const scenario of SCENARIOS) {
+      const targets: ItemTarget[] = scenario.targets.map((t) => ({
+        itemId: t.itemId,
+        ratePerSec: t.ratePerSec,
+      }));
+      const { nodes, edges } = await layoutSolved(
+        solveForRender({ targets, pack }),
+      );
+      const byId = nodeIndexOf(nodes);
+      const { trunkByEdgeId } = classifyTrunks(nodes, edges);
+      const { layerByNodeId } = buildLayerModel(nodes);
+
+      for (const edge of edges) {
+        // 1-to-1 means TOPOLOGICALLY 1-to-1: a trunk member's ends carry the
+        // trunk's aggregate chip under the reserve model, not this box.
+        if (edge.type !== "item") continue;
+        if (trunkByEdgeId.has(edge.id)) continue;
+        // Both endpoints in ONE layer: a layer is a maximal run of overlapping
+        // x-intervals, so two cards of one layer can stand a few dozen units
+        // apart and no gap was ever charged for the pair. The reserve model
+        // does not reach that corridor and neither does any column pass, so the
+        // rule is about the edges that cross a layer boundary.
+        const sourceLayer = layerByNodeId.get(edge.source);
+        const targetLayer = layerByNodeId.get(edge.target);
+        if (sourceLayer === undefined || targetLayer === undefined) continue;
+        if (sourceLayer === targetLayer) continue;
+        const ends = drawnPortsOf(edge, byId);
+        if (ends === null) continue;
+        if (ends.targetX <= ends.sourceX) continue; // backward detour
+        const drawn = drawnEdge(ends, edge.type, edge.data);
+        const runs = horizontalRuns(drawn.pts);
+        if (runs.length === 0) continue;
+        const needs = chipRoom(edge);
+        const ownRuns: Array<["first" | "last", number]> = [
+          ["first", runs[0]!.hi - runs[0]!.lo],
+          ["last", runs[runs.length - 1]!.hi - runs[runs.length - 1]!.lo],
+        ];
+        for (const [end, length] of ownRuns) {
+          checked += 1;
+          if (length >= needs - EPS) continue;
+          short.push({ plan: scenario.id, edge: edge.id, end, length, needs });
+        }
+      }
+    }
+
+    // Premise: the corpus really does draw 1-to-1 edges.
+    expect(checked).toBeGreaterThan(0);
+    expect(short).toEqual([]);
   }, 600_000);
 });

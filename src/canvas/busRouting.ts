@@ -980,11 +980,22 @@ export function assignEntryColumns(
 // is the widest gutter among next-column nodes whose vertical extent overlaps
 // the band's own y-span -- a y-aware check, not just x, so a wide gutter on a
 // node in a distant row does not needlessly squeeze the corridor.
+//
+// Reserve clamp (against the gap records the pre-pass produced): the band's gap
+// is the one right of its source layer, and that gap's COLUMN ZONE is the room
+// reserved for columns -- the source chip reserve stands left of it and the
+// target chip reserve right of it. So the corridor is intersected with the zone:
+// a column left of it would shorten the first leg below the chip box that leg
+// owes, and one right of it would do the same to the last leg. The margins above
+// still apply where they bite harder. Without gap records (a hand-built fixture,
+// or a caller re-running the passes on its own) the margins alone stand.
 export function assignBendColumns(
   nodes: ReadonlyArray<RFAnyNode>,
   edges: ReadonlyArray<Edge>,
+  ctx?: RoutingCtx,
 ): Edge[] {
   const byId = nodeIndexOf(nodes);
+  const sourceGaps = sourceGapsOf(nodes, ctx);
 
   const leftMargin = ENTRY_GUTTER_MIN; // keeps columns off the source port stubs
 
@@ -1021,6 +1032,9 @@ export function assignBendColumns(
     yHi: number;
   };
   const groups = new Map<number, Cand[]>();
+  // The gap right of each band's source layer, the one its columns stand in.
+  // Every member of a band leaves the same layer, so one record per band.
+  const gapByBand = new Map<number, GapRecord>();
   // Shared fan-out columns already claimed inside a band, keyed the same way.
   // The stagger cannot re-place these edges, but it must not fan another
   // edge's vertical onto one of them either: a staggered column half a stub
@@ -1066,6 +1080,8 @@ export function assignBendColumns(
     const list = groups.get(band) ?? [];
     list.push({ id: edge.id, sourceRight, targetLeft, yLo, yHi });
     groups.set(band, list);
+    const gap = sourceGaps.get(edge.source);
+    if (gap !== undefined) gapByBand.set(band, gap);
   }
 
   // Fan each band's members across its shared corridor. groupLeft is the band's
@@ -1098,6 +1114,17 @@ export function assignBendColumns(
       if (g.bottom + CHAMFER < bandLo || g.top - CHAMFER > bandHi) continue;
       if (g.gutter > rightMargin) rightMargin = g.gutter;
     }
+    // The corridor in absolute x: the two margins above, each tightened to the
+    // band gap's column zone where there is a record for it (the reserve clamp).
+    const zone = gapByBand.get(band)?.columnZone;
+    const marginLeft = Math.max(
+      groupLeft + leftMargin,
+      zone?.left ?? -Infinity,
+    );
+    const corridorRight = Math.min(
+      groupRight - rightMargin,
+      zone?.right ?? Infinity,
+    );
     // Start the fan past any shared fan-out column claimed in this band, by the
     // same keep-out a junction column claims against its siblings (one stub, so
     // columns closer than that read as one line). Falls back to the plain
@@ -1105,14 +1132,12 @@ export function assignBendColumns(
     // squeezed fan is still better than none.
     const pinned = pinnedColumnsByBand.get(band) ?? [];
     const claimedLeft = Math.max(
-      leftMargin,
-      ...pinned.map((x) => x + PORT_STUB - groupLeft),
+      marginLeft,
+      ...pinned.map((x) => x + PORT_STUB),
     );
-    const bandLeftMargin =
-      groupRight - groupLeft - claimedLeft - rightMargin > 0
-        ? claimedLeft
-        : leftMargin;
-    const usable = groupRight - groupLeft - bandLeftMargin - rightMargin;
+    const corridorLeft =
+      corridorRight - claimedLeft > 0 ? claimedLeft : marginLeft;
+    const usable = corridorRight - corridorLeft;
     if (usable <= 0) continue; // corridor too tight; keep the default midpoints
     const sorted = [...list].sort((a, b) =>
       a.id < b.id ? -1 : a.id > b.id ? 1 : 0,
@@ -1120,7 +1145,7 @@ export function assignBendColumns(
     const pitch = usable / (sorted.length + 1);
     const budget = pitch / 2;
     sorted.forEach((c, i) => {
-      bendById.set(c.id, groupLeft + bandLeftMargin + pitch * (i + 1));
+      bendById.set(c.id, corridorLeft + pitch * (i + 1));
       budgetById.set(c.id, budget);
     });
   }
