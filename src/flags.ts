@@ -6,6 +6,6 @@
 // (`u:in:<item>` -> the card's `cat:<item>` port), and that node's rate counts
 // the cycled draw alongside ordinary consumption.
 // OFF: catalyst rows carry no port and no edge, the boundary node's rate
-// excludes the draw, and the inputs panel adds the solver's catalystDraw onto
+// excludes the draw, and the inputs panel adds the solve's catalyst need onto
 // the supply row itself.
 export const CATALYST_SUPPLY_EDGES = true;

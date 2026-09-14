@@ -282,6 +282,16 @@ export function validatePlan(
         return { kind: "unknown-item-override", itemId: ov.itemId };
       }
       if (ov.role !== undefined) {
+        // The value is checked, not just its presence: a wire carrying an
+        // unknown role would otherwise load clean and then fall through both
+        // pools, since neither reads a role it does not recognise.
+        if (ov.role !== "catalyst") {
+          return {
+            kind: "invalid-item-override-role",
+            itemId: ov.itemId,
+            reason: `unknown role ${JSON.stringify(ov.role)}`,
+          };
+        }
         if (!catalystIds.has(ov.itemId)) {
           return {
             kind: "invalid-item-override-role",

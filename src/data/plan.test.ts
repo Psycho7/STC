@@ -6,6 +6,7 @@ import {
   validatePlan,
   loadPlan,
   encodePlan,
+  type ItemOverride,
   type Plan,
 } from "./plan";
 import { gzipBytes } from "./encoding/gzip";
@@ -333,6 +334,19 @@ describe("validatePlan - item override roles", () => {
     const error = validatePlan(plan, pack);
     expect(error?.kind).toBe("invalid-item-override-role");
     expect(error && describePlanLoadError(error)).toContain("copper_powder");
+  });
+
+  // "catalyst" is the only role there is. An unrecognised one addresses
+  // nothing: pool G skips the row because it carries a role and pool C skips
+  // it because the role is not the one it answers for.
+  it("rejects a role value other than catalyst", () => {
+    const plan = basePlan();
+    plan.itemOverrides = [
+      { itemId: "gas_xiranite", role: "bogus" } as unknown as ItemOverride,
+    ];
+    const error = validatePlan(plan, pack);
+    expect(error?.kind).toBe("invalid-item-override-role");
+    expect(error && describePlanLoadError(error)).toContain("gas_xiranite");
   });
 
   it("rejects a catalyst role combined with plan: true", () => {

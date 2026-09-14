@@ -2,7 +2,7 @@
 //
 // The CATALYST_SUPPLY_EDGES=false half of the supply-row contract. With the
 // flag off no product node carries the cycled draw, so the panel is the only
-// place it can surface and App adds the solve's catalystDraw onto the row.
+// place it can surface and App adds the solve's catalyst need onto the row.
 // Both numbers match the ON twin in App.catalyst.test.tsx; only where they
 // come from differs.
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
