@@ -353,15 +353,24 @@ function clearRailYBand(
   }
 }
 
+// Does a column of height dy with these bevels draw as one diagonal instead of
+// bevel, vertical, bevel? It does when the straight run left between the two
+// bevels would come out shorter than one CHAMFER: at the 22-unit row pitch the
+// full shape is bevel 8, vertical 6, bevel 8, which reads as a zigzag rather
+// than a step. One rule for every column the module emits.
+function collapsesToDiagonal(dy: number, chamfer: number): boolean {
+  return Math.abs(dy) - 2 * chamfer < CHAMFER;
+}
+
 // One chamfered vertical column, entered at y0 and exited at y1: horizontal into
 // the column, chamfer, vertical run, chamfer out. entryDir/exitDir pick which
 // side each horizontal leg leaves on (-1 = left, +1 = right): the entry point is
 // (x + entryDir*chamfer, y0) and the exit point (x + exitDir*chamfer, y1). The
 // defaults (-1, +1) enter from the left and exit to the right, matching the
 // forward step. The backward detour columns pass
-// (-1, -1) and (+1, +1) so both legs stay on one side. When the vertical run is
-// too short to fit two chamfers (|y1 - y0| <= 2*chamfer) the column collapses to
-// a two-point diagonal (a flat horizontal when y0 === y1), skipping the run.
+// (-1, -1) and (+1, +1) so both legs stay on one side. When collapsesToDiagonal
+// holds the column becomes a two-point diagonal (a flat horizontal when
+// y0 === y1), skipping the run.
 function chamferColumn(
   x: number,
   y0: number,
@@ -370,7 +379,7 @@ function chamferColumn(
   entryDir = -1,
   exitDir = 1,
 ): string {
-  if (Math.abs(y1 - y0) <= 2 * chamfer) {
+  if (collapsesToDiagonal(y1 - y0, chamfer)) {
     return (
       ` L ${r(x + entryDir * chamfer)},${r(y0)}` +
       ` L ${r(x + exitDir * chamfer)},${r(y1)}`
@@ -800,9 +809,11 @@ export function chamferStepPath(
     return anchored(`M ${r(sx)},${r(sy)} L ${r(tx)},${r(ty)}`);
   }
 
-  // Small dy: a vertical run plus two chamfers will not fit between the rails, so
-  // join the two horizontal runs with a single diagonal (no vertical segment).
-  if (Math.abs(ty - sy) <= 2 * chamfer) {
+  // Small dy: the straight run left between the two chamfers would be shorter
+  // than a CHAMFER, so join the two horizontal runs with a single diagonal (no
+  // vertical segment). The enlarged-bevel arm below runs the same rule on
+  // stepChamfer inside chamferColumn.
+  if (collapsesToDiagonal(ty - sy, chamfer)) {
     const d =
       `M ${r(sx)},${r(sy)}` +
       ` L ${r(bx - chamfer)},${r(sy)}` +
@@ -990,9 +1001,10 @@ export function chamferFanoutPath(
     return { path: d, junction, trunkAnchor, branchAnchor };
   }
 
-  // Small dy: a vertical run plus two chamfers will not fit, so join the two
-  // horizontals with a single diagonal at the junction column.
-  if (Math.abs(ty - sy) <= 2 * CHAMFER) {
+  // Small dy: the run left between the two chamfers would be shorter than a
+  // CHAMFER, so join the two horizontals with a single diagonal at the junction
+  // column.
+  if (collapsesToDiagonal(ty - sy, CHAMFER)) {
     const d =
       `M ${r(sx)},${r(sy)}` +
       ` L ${r(jx - CHAMFER)},${r(sy)}` +
@@ -1082,7 +1094,7 @@ export function chamferFaninPath(
     return { path: d, junction, trunkAnchor, branchAnchor };
   }
 
-  if (Math.abs(ty - sy) <= 2 * CHAMFER) {
+  if (collapsesToDiagonal(ty - sy, CHAMFER)) {
     const d =
       `M ${r(sx)},${r(sy)}` +
       ` L ${r(jx - CHAMFER)},${r(sy)}` +
