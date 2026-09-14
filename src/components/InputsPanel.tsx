@@ -1,12 +1,21 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import Fraction from "fraction.js";
 import type { RecipePack } from "@aef/schema";
-import type { ItemOverride } from "../data/plan";
+import {
+  decodeItemOverrideKey,
+  encodeItemOverrideKey,
+  type ItemOverride,
+  type ItemOverrideKey,
+} from "../data/plan";
 import { catalystItemIds } from "../data/recipe-category";
 import { useI18n } from "../data/i18n-context";
 import type { CatalystAccount } from "../solver/catalyst";
 import { rationalFromString, type RationalString } from "../data/targets";
-import { formatRatePerMin, ratePerSecToPerMin } from "../data/rate-format";
+import {
+  formatRatePerMin,
+  formatRationalPerMin,
+  ratePerSecToPerMin,
+} from "../data/rate-format";
 import { iconPosition } from "../canvas/iconSprite";
 import { Sprite } from "../canvas/RecipeNode";
 import { computeItemDepths } from "../data/recipe-depth";
@@ -15,30 +24,13 @@ import { useRateEdit } from "./useRateEdit";
 
 // An item has two boundary supply pools - the general one and, when some
 // recipe cycles it, the catalyst one - and a row addresses exactly one of
-// them. Everything the panel keys per row keys on this pair, not on the item.
-export type RowKey = { itemId: string; role?: "catalyst" | undefined };
+// them. Everything the panel keys per row keys on this pair, not on the item;
+// the string form (React keys, map keys, focus tokens) is the data layer's.
+type RowKey = ItemOverrideKey;
 
-// Map and React-key form. "#" cannot occur in a pack item id, so the two
-// namespaces can never collide.
-const CATALYST_KEY_SUFFIX = "#cat";
-// DOM-id form. "#" would break every selector that reads these ids, so the
-// document uses its own suffix.
+// DOM-id form. The codec's "#" would break every selector that reads these
+// ids, so the document uses its own suffix.
 const CATALYST_ID_SUFFIX = "-cat";
-
-export function rowKeyString(key: RowKey): string {
-  return key.role === "catalyst"
-    ? `${key.itemId}${CATALYST_KEY_SUFFIX}`
-    : key.itemId;
-}
-
-function rowKeyFromString(text: string): RowKey {
-  return text.endsWith(CATALYST_KEY_SUFFIX)
-    ? {
-        itemId: text.slice(0, -CATALYST_KEY_SUFFIX.length),
-        role: "catalyst",
-      }
-    : { itemId: text };
-}
 
 function rowIdSuffix(key: RowKey): string {
   return key.role === "catalyst" ? CATALYST_ID_SUFFIX : "";
@@ -50,10 +42,14 @@ function isRow(override: ItemOverride, key: RowKey): boolean {
 
 const RATE_ZERO = new Fraction(0);
 
-// formatRatePerMin renders a zero rate as the empty string so a chip can drop
-// its label; a row readout is a definite number and says "0".
+// Row readouts are definite numbers, so they take the rational formatter's
+// zero rule ("0") rather than the chip formatter's empty string. Rates here
+// are non-negative, so serializing .n/.d is safe.
 function perMinText(itemsPerSec: Fraction): string {
-  return itemsPerSec.valueOf() === 0 ? "0" : formatRatePerMin(itemsPerSec);
+  return formatRationalPerMin({
+    num: itemsPerSec.n.toString(),
+    denom: itemsPerSec.d.toString(),
+  });
 }
 
 type Props = {
@@ -66,7 +62,7 @@ type Props = {
   onChange: (update: (current: ItemOverride[]) => ItemOverride[]) => void;
   pack: RecipePack;
   targetItemIds?: ReadonlySet<string>;
-  // Boundary supply per ROW KEY (rowKeyString): the realized demand of the
+  // Boundary supply per ROW KEY (encodeItemOverrideKey): the realized demand of the
   // latest render pass, read off the boundary nodes, with the ordinary node
   // under the item id and the catalyst node under the item's catalyst key.
   // When present, a general row shows the same number as the matching canvas
@@ -213,7 +209,7 @@ export function InputsPanel({
     emptyMeans: "uncap",
     keepTextAfterCommit: true,
     commit: (rowKey, parsed) => {
-      const key = rowKeyFromString(rowKey);
+      const key = decodeItemOverrideKey(rowKey);
       onChange((current) => {
         const idx = current.findIndex((o) => isRow(o, key));
         // Row removed since the edit: no-op (same reference).
@@ -255,7 +251,7 @@ export function InputsPanel({
   // vanish when the list changes under the panel, and a surviving seeded text
   // would resurface if the row returns.
   const overrideKeys = useMemo(
-    () => new Set(itemOverrides.map((o) => rowKeyString(o))),
+    () => new Set(itemOverrides.map((o) => encodeItemOverrideKey(o))),
     [itemOverrides],
   );
   useEffect(() => {
@@ -290,7 +286,7 @@ export function InputsPanel({
   });
 
   function hasRow(key: RowKey): boolean {
-    return itemOverrides.some((o) => isRow(o, key));
+    return overrideKeys.has(encodeItemOverrideKey(key));
   }
   // The general side counts as listed when an auto-row is showing it: that row
   // is where a cap for the item is typed, so the picker sends the user there.
@@ -308,11 +304,17 @@ export function InputsPanel({
   function handleItemChange(key: RowKey, newItemId: string) {
     const target: RowKey = { itemId: newItemId, role: key.role };
     if (hasRow(target)) {
-      setDuplicateError({ rowKey: rowKeyString(key), itemId: newItemId });
+      setDuplicateError({
+        rowKey: encodeItemOverrideKey(key),
+        itemId: newItemId,
+      });
       return;
     }
     setDuplicateError(null);
-    rowEdit.carryPendingEdit(rowKeyString(key), rowKeyString(target));
+    rowEdit.carryPendingEdit(
+      encodeItemOverrideKey(key),
+      encodeItemOverrideKey(target),
+    );
     onChange((current) => {
       const idx = current.findIndex((o) => isRow(o, key));
       if (idx < 0) return current;
@@ -336,7 +338,10 @@ export function InputsPanel({
       role: toCatalyst ? "catalyst" : undefined,
     };
     if (hasRow(target)) {
-      setDuplicateError({ rowKey: rowKeyString(key), itemId: key.itemId });
+      setDuplicateError({
+        rowKey: encodeItemOverrideKey(key),
+        itemId: key.itemId,
+      });
       return;
     }
     setDuplicateError(null);
@@ -352,7 +357,7 @@ export function InputsPanel({
       );
       return;
     }
-    rowEdit.clearPendingEdit(rowKeyString(key));
+    rowEdit.clearPendingEdit(encodeItemOverrideKey(key));
     onChange((current) => {
       const idx = current.findIndex((o) => isRow(o, key));
       if (idx < 0) return current;
@@ -371,7 +376,7 @@ export function InputsPanel({
 
   function handleRemove(key: RowKey) {
     setDuplicateError(null);
-    rowEdit.clearPendingEdit(rowKeyString(key));
+    rowEdit.clearPendingEdit(encodeItemOverrideKey(key));
     onChange((current) => {
       const next = current.filter((o) => !isRow(o, key));
       return next.length === current.length ? current : next;
@@ -382,7 +387,7 @@ export function InputsPanel({
   // cycled charge the general pool was billed for. Undefined means there is
   // nothing to show yet (no solve, or an item this plan does not import).
   function generalRateText(itemId: string): string | undefined {
-    const ordinary = supplyRateByItem?.get(rowKeyString({ itemId }));
+    const ordinary = supplyRateByItem?.get(encodeItemOverrideKey({ itemId }));
     const fromGeneral = catalystAccount?.get(itemId)?.fromGeneral;
     const part = fromGeneral ?? RATE_ZERO;
     if (ordinary === undefined && part.valueOf() === 0) return undefined;
@@ -572,7 +577,7 @@ export function InputsPanel({
       })}
       {itemOverrides.map((row) => {
         const key: RowKey = { itemId: row.itemId, role: row.role };
-        const rowKey = rowKeyString(key);
+        const rowKey = encodeItemOverrideKey(key);
         const domId = `${row.itemId}${rowIdSuffix(key)}`;
         const item = itemById.get(row.itemId);
         const isRaw = item?.raw === true;
@@ -823,7 +828,7 @@ export function InputsPanel({
             // The row mounts on a later commit, so hand its rate input the
             // focus: it is the only edit that makes the new row do anything.
             pendingFocus.current = {
-              rowKey: rowKeyString(added),
+              rowKey: encodeItemOverrideKey(added),
               kind: "rate",
             };
             onChange((current) =>
@@ -839,7 +844,7 @@ export function InputsPanel({
             // closePicker's refocus lands on a button the next commit
             // removes. Hand focus to the swapped row's trigger instead.
             pendingFocus.current = {
-              rowKey: rowKeyString({ itemId: newId, role: row.role }),
+              rowKey: encodeItemOverrideKey({ itemId: newId, role: row.role }),
               kind: "trigger",
             };
             handleItemChange({ itemId: row.itemId, role: row.role }, newId);

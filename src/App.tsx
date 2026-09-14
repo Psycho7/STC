@@ -24,6 +24,7 @@ import { reseatChips } from "./canvas/chipSeating";
 import { buildRealizedRateByItem } from "./canvas/realizedRateByItem";
 import {
   describePlanLoadError,
+  encodeItemOverrideKey,
   encodePlan,
   loadPlan,
   validatePlan,
@@ -43,7 +44,7 @@ import { LocaleProvider, useI18n } from "./data/i18n-context";
 import { LocaleSwitcher } from "./components/LocaleSwitcher";
 import { ItemPackProvider } from "./canvas/itemPackContext";
 import StatsStrip from "./canvas/StatsStrip";
-import { displayedInputCount, rowKeyString } from "./components/InputsPanel";
+import { displayedInputCount } from "./components/InputsPanel";
 import { iconSheetUrl } from "./canvas/iconSprite";
 
 // Distinct recipes in the plan. logical.nodes mixes kind:"group" containers
@@ -538,10 +539,13 @@ function AppInner() {
     const map = new Map<string, import("./pipeline/types").RationalString>();
     for (const [itemId, rates] of buildRealizedRateByItem(nodes)) {
       if (rates.ordinary !== undefined) {
-        map.set(rowKeyString({ itemId }), rates.ordinary);
+        map.set(encodeItemOverrideKey({ itemId }), rates.ordinary);
       }
       if (rates.catalyst !== undefined) {
-        map.set(rowKeyString({ itemId, role: "catalyst" }), rates.catalyst);
+        map.set(
+          encodeItemOverrideKey({ itemId, role: "catalyst" }),
+          rates.catalyst,
+        );
       }
     }
     return map;
@@ -562,7 +566,7 @@ function AppInner() {
       const account = catalystAccount.get(item.id);
       if (account === undefined && !item.raw) continue;
       const hasOrdinary = supplyRateByItem.has(
-        rowKeyString({ itemId: item.id }),
+        encodeItemOverrideKey({ itemId: item.id }),
       );
       const holdsCharge =
         account !== undefined && account.fromGeneral.valueOf() !== 0;
