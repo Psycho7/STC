@@ -21,7 +21,10 @@ read alike. A card carries no rate column, no products line and no footer:
 each row's rate is an overlay at the row's inner end, drawn at rest and
 dropped only under the low-zoom band. Cyan product chips are boundary inputs
 and outputs rather than machines. Group slabs and loop boxes are containers,
-and the cards inside one are its members.
+and the cards inside one are its members. A loop box is drawn only when the
+cards that survived the solve still form a directed cycle in the solved graph:
+a candidate cycle whose bridging recipes solved to zero leaves free cards, not
+a box.
 
 An item imported at the boundary draws one input chip. Consumers outside any
 container draw straight from that chip; a container gets a chip of its own,
