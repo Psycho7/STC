@@ -14,7 +14,6 @@ import {
   type Node,
   type Edge,
 } from "@xyflow/react";
-import Fraction from "fraction.js";
 import Canvas, { type CanvasStatus } from "./canvas/Canvas";
 import { TargetsPanel } from "./components/TargetsPanel";
 import { InputsPanel } from "./components/InputsPanel";
@@ -23,10 +22,6 @@ import { layoutSolved } from "./canvas/layoutSolved";
 import type { GapRecord } from "./canvas/layerModel";
 import { reseatChips } from "./canvas/chipSeating";
 import { buildRealizedRateByItem } from "./canvas/realizedRateByItem";
-import {
-  rationalFromString,
-  rationalToString,
-} from "./pipeline/render/rational";
 import {
   describePlanLoadError,
   encodePlan,
@@ -48,7 +43,7 @@ import { LocaleProvider, useI18n } from "./data/i18n-context";
 import { LocaleSwitcher } from "./components/LocaleSwitcher";
 import { ItemPackProvider } from "./canvas/itemPackContext";
 import StatsStrip from "./canvas/StatsStrip";
-import { displayedInputCount } from "./components/InputsPanel";
+import { displayedInputCount, rowKeyString } from "./components/InputsPanel";
 import { iconSheetUrl } from "./canvas/iconSprite";
 
 // Distinct recipes in the plan. logical.nodes mixes kind:"group" containers
@@ -527,45 +522,51 @@ function AppInner() {
     return new Set(plan.targets.map((t) => t.itemId));
   }, [plan]);
 
-  // Boundary supply per input item: the realized demand of the latest render
+  // Boundary supply per ROW KEY: the realized demand of the latest render
   // pass, read off the input ProductNode data the layout layer wrote.
   //
-  // A catalyst is external supply the same way a raw draw is. The render
-  // pipeline draws the cycled charge from a catalyst node of its own, so the
-  // item's two nodes are summed here: the panel still shows one fused row per
-  // item, and a catalyst-only item such as liquid_xiranite keeps the row it
-  // earns from the charge alone. Splitting the row per pool is the panel's own
-  // job and lands with the C row.
+  // A catalyst is external supply the same way a raw draw is, and the render
+  // pipeline draws the cycled charge from a catalyst node of its own. The two
+  // nodes go in under different row keys rather than being summed: the panel
+  // shows one row per pool, and the general row's number is its ordinary draw
+  // alone. What the general pool was billed of the charge comes from
+  // catalystAccount, not from the catalyst node, so adding the node's rate
+  // here would count that share twice.
   const supplyRateByItem = useMemo<
     ReadonlyMap<string, import("./pipeline/types").RationalString>
   >(() => {
     const map = new Map<string, import("./pipeline/types").RationalString>();
     for (const [itemId, rates] of buildRealizedRateByItem(nodes)) {
-      const parts = [rates.ordinary, rates.catalyst].filter(
-        (r) => r !== undefined,
-      );
-      const total = parts.reduce(
-        (acc, r) => acc.add(rationalFromString(r)),
-        new Fraction(0),
-      );
-      map.set(itemId, rationalToString(total));
+      if (rates.ordinary !== undefined) {
+        map.set(rowKeyString({ itemId }), rates.ordinary);
+      }
+      if (rates.catalyst !== undefined) {
+        map.set(rowKeyString({ itemId, role: "catalyst" }), rates.catalyst);
+      }
     }
     return map;
   }, [nodes]);
 
   // Items the current plan pulls across the boundary as assumed-infinite
-  // supply: raw items with a realized draw, plus every item the plan cycles as
-  // a catalyst. A catalyst item earns its row from the draw, not from the raw
-  // flag, so the non-raw liquid_xiranite gets one too. InputsPanel surfaces
-  // these as auto-rows when the user has declared no explicit overrides, so
-  // the "unlimited by default" assumption is visible. Sorted by id for stable
-  // row order across re-renders.
+  // supply: raw items with a realized draw, plus every item whose cycled
+  // charge the general pool is holding. A catalyst item earns its row from the
+  // draw, not from the raw flag, so the non-raw liquid_xiranite gets one too,
+  // and it keeps it when the charge is its only general number. InputsPanel
+  // surfaces these as auto-rows when the user has declared no explicit general
+  // override, so the "unlimited by default" assumption is visible. General
+  // side only, item ids: the catalyst pool has no auto-row. Sorted by id for
+  // stable row order across re-renders.
   const assumedRawItemIds = useMemo<ReadonlyArray<string>>(() => {
     const ids: string[] = [];
     for (const item of pack.items) {
-      const isCatalyst = catalystAccount.has(item.id);
-      if (!isCatalyst && !item.raw) continue;
-      if (!supplyRateByItem.has(item.id)) continue;
+      const account = catalystAccount.get(item.id);
+      if (account === undefined && !item.raw) continue;
+      const hasOrdinary = supplyRateByItem.has(
+        rowKeyString({ itemId: item.id }),
+      );
+      const holdsCharge =
+        account !== undefined && account.fromGeneral.valueOf() !== 0;
+      if (!hasOrdinary && !holdsCharge) continue;
       ids.push(item.id);
     }
     ids.sort();
@@ -800,6 +801,7 @@ function AppInner() {
                   pack={pack}
                   targetItemIds={targetItemIds}
                   supplyRateByItem={supplyRateByItem}
+                  catalystAccount={catalystAccount}
                   assumedRawItemIds={assumedRawItemIds}
                 />
               </div>
