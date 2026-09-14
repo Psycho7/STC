@@ -279,6 +279,15 @@ export type RFContainerNode = RFNode<
   },
   "group"
 >;
+// Which pool covered an item's catalyst charge, for the card's name tooltip.
+// Item-level accounting, so a card carries it only when it is the aggregate or
+// single-bucket catalyst card of its item, never on a per-container slice.
+export type CatalystBreakdown = {
+  fromCatalyst: RationalString;
+  fromGeneral: RationalString;
+  unmet: RationalString;
+};
+
 export type RFProductNode = RFNode<
   {
     kind: "inputProduct" | "outputProduct";
@@ -291,14 +300,8 @@ export type RFProductNode = RFNode<
     // Marks the nodes of an item's catalyst pool; absent on every other
     // product node, so it is spread in conditionally like the fanout fields.
     role?: RenderUnitInputProduct["role"];
-    // Which pool covered the item's catalyst charge, for the card's name
-    // tooltip. Stamped from the solve's account on the aggregate or
-    // single-bucket catalyst card only.
-    catalystBreakdown?: {
-      fromCatalyst: RationalString;
-      fromGeneral: RationalString;
-      unmet: RationalString;
-    };
+    // Stamped from the solve's account; see CatalystBreakdown.
+    catalystBreakdown?: CatalystBreakdown;
     flavor?: RenderUnitOutputProduct["flavor"];
     // Per-container fanout slices of an aggregate input card. `isFanout` draws
     // the tap chrome and the extra left handle the aggregate's edge arrives on;

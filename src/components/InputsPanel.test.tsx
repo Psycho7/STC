@@ -1,9 +1,11 @@
 // @vitest-environment jsdom
 import { afterEach, expect, test, vi } from "vitest";
 import { useState } from "react";
+import Fraction from "fraction.js";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { InputsPanel, displayedInputCount } from "./InputsPanel";
 import { makePack } from "../solver/closed-form-fixtures";
+import type { CatalystAccount } from "../solver/catalyst";
 import { LocaleProvider } from "../data/i18n-context";
 import type { ItemOverride } from "../data/plan";
 import { controlledOwner, rateInputs } from "./panel.testkit";
@@ -20,11 +22,76 @@ const PACK3 = makePack(
 
 // The two transmuter catalysts: liquid_xiranite is not a raw item and only
 // ever reaches the panel through the catalyst draw, gas_xiranite is raw and
-// can carry a balanced draw as well.
+// can carry a balanced draw as well. widget is in the pack but no recipe
+// cycles it, so it is outside the catalyst set.
 const CATALYST_PACK = makePack(
-  [],
-  [{ id: "liquid_xiranite" }, { id: "gas_xiranite", raw: true }],
+  [
+    {
+      id: "transmute",
+      time: 1,
+      in: {},
+      out: { widget: 1 },
+      catalyst: [
+        { item: "gas_xiranite", qty: 1 },
+        { item: "liquid_xiranite", qty: 1 },
+      ],
+    },
+  ],
+  [
+    { id: "liquid_xiranite" },
+    { id: "gas_xiranite", raw: true },
+    { id: "widget" },
+  ],
 );
+
+// One account entry, in items per SECOND like the solver's: 1/10 per second is
+// the 6 per minute one machine cycles.
+function account(
+  itemId: string,
+  parts: {
+    need: string;
+    fromCatalyst?: string;
+    fromGeneral?: string;
+    unmet?: string;
+  },
+): CatalystAccount {
+  return new Map([
+    [
+      itemId,
+      {
+        need: new Fraction(parts.need),
+        fromCatalyst: new Fraction(parts.fromCatalyst ?? 0),
+        fromGeneral: new Fraction(parts.fromGeneral ?? 0),
+        unmet: new Fraction(parts.unmet ?? 0),
+      },
+    ],
+  ]);
+}
+
+// Rows carry the item on data-item-id and the pool on data-role, so a split
+// item's two rows are told apart by role, never by DOM order.
+function rowFor(itemId: string, role?: "catalyst"): HTMLElement {
+  const found = screen
+    .getAllByTestId("input-row")
+    .find(
+      (r) =>
+        r.getAttribute("data-item-id") === itemId &&
+        (r.getAttribute("data-role") ?? undefined) === role,
+    );
+  if (found === undefined) throw new Error(`no ${role ?? "general"} row`);
+  return found;
+}
+
+function toggleIn(row: HTMLElement): HTMLInputElement | null {
+  return row.querySelector('[data-testid="input-catalyst-toggle"]');
+}
+
+function rateText(row: HTMLElement): string | undefined {
+  return (
+    row.querySelector('[data-testid="input-realized-rate"]')?.textContent ??
+    undefined
+  );
+}
 // The supply counters must count the rows the panel actually renders: with no
 // overrides, the assumed-raw auto-rows are on screen, so a count of 0 lies.
 test("supply head count includes assumed-raw auto rows, not just overrides", () => {
@@ -365,11 +432,16 @@ test("realized demand on a capped override row renders as the shared decimal", (
   expect(readout.textContent).not.toMatch(/\d\.\d{3,}/);
 });
 
-// A catalyst draw folds into the item's ordinary supply row, so the panel must
-// take the auto-row set as given instead of re-deriving it from item.raw: the
-// non-raw liquid_xiranite only ever reaches the panel through a catalyst draw.
-// The row is an ordinary auto-row; only data-is-raw follows the item.
+// A catalyst charge billed to the general pool is shown on the item's G row,
+// added to whatever ordinary draw that row already carries. The panel takes
+// the auto-row set as given instead of re-deriving it from item.raw: the
+// non-raw liquid_xiranite only ever reaches the panel through a catalyst
+// charge. The row is an ordinary auto-row; only data-is-raw follows the item.
 test("a non-raw catalyst item renders as a plain auto-row with its draw", () => {
+  const accounts: CatalystAccount = new Map([
+    ...account("gas_xiranite", { need: "1/10", fromGeneral: "1/10" }),
+    ...account("liquid_xiranite", { need: "1/10", fromGeneral: "1/10" }),
+  ]);
   render(
     <LocaleProvider locale="en">
       <InputsPanel
@@ -377,12 +449,8 @@ test("a non-raw catalyst item renders as a plain auto-row with its draw", () => 
         onChange={() => {}}
         pack={CATALYST_PACK}
         assumedRawItemIds={["gas_xiranite", "liquid_xiranite"]}
-        supplyRateByItem={
-          new Map([
-            ["liquid_xiranite", { num: "1", denom: "10" }],
-            ["gas_xiranite", { num: "3", denom: "5" }],
-          ])
-        }
+        catalystAccount={accounts}
+        supplyRateByItem={new Map([["gas_xiranite", { num: "1", denom: "2" }]])}
       />
     </LocaleProvider>,
   );
@@ -416,7 +484,10 @@ test("typing a cap on a non-raw catalyst auto-row promotes it to an override", (
       />
     </LocaleProvider>,
   );
-  const input = screen.getByTestId("input-auto-row").querySelector("input")!;
+  // The row leads with the pool checkbox, so take the rate field by type.
+  const input = screen
+    .getByTestId("input-auto-row")
+    .querySelector('input[type="text"]')! as HTMLInputElement;
   fireEvent.change(input, { target: { value: "30" } });
   fireEvent.blur(input);
   expect(updaters.length).toBe(1);
@@ -507,4 +578,407 @@ test("clearing the cap on a non-raw row outside the auto-row set keeps the overr
   fireEvent.change(input, { target: { value: "" } });
   fireEvent.blur(input);
   expect(latest).toEqual([{ itemId: "liquid_xiranite" }]);
+});
+
+// ---------------------------------------------------------------------------
+// Catalyst (C) rows: a second pool per item, keyed (itemId, role).
+// ---------------------------------------------------------------------------
+
+// The checkbox is the only way to move a row between the two pools, so it
+// appears exactly on the rows that can hold a catalyst charge.
+test("the catalyst checkbox shows on catalyst-capable rows only", () => {
+  render(
+    <LocaleProvider locale="en">
+      <InputsPanel
+        itemOverrides={[
+          { itemId: "gas_xiranite" },
+          { itemId: "gas_xiranite", role: "catalyst" },
+          { itemId: "widget" },
+        ]}
+        onChange={() => {}}
+        pack={CATALYST_PACK}
+      />
+    </LocaleProvider>,
+  );
+  expect(toggleIn(rowFor("gas_xiranite"))?.checked).toBe(false);
+  expect(toggleIn(rowFor("gas_xiranite", "catalyst"))?.checked).toBe(true);
+  expect(toggleIn(rowFor("widget"))).toBeNull();
+});
+
+// Checking the box moves the row to pool C: the cap follows it, and the
+// wire-only plan flag does not (a C row can never carry one).
+test("checking the box converts a G row, carrying the cap and dropping plan", () => {
+  const owner = controlledOwner<ItemOverride[]>([
+    {
+      itemId: "gas_xiranite",
+      ratePerSec: { num: "1", denom: "2" },
+      plan: true,
+    },
+  ]);
+  render(
+    owner.element((overrides, onChange) => (
+      <LocaleProvider locale="en">
+        <InputsPanel
+          itemOverrides={overrides}
+          onChange={onChange}
+          pack={CATALYST_PACK}
+        />
+      </LocaleProvider>
+    )),
+  );
+  fireEvent.click(toggleIn(rowFor("gas_xiranite"))!);
+  expect(owner.latest).toEqual([
+    {
+      itemId: "gas_xiranite",
+      ratePerSec: { num: "1", denom: "2" },
+      role: "catalyst",
+    },
+  ]);
+});
+
+test("unchecking the box converts a C row back and keeps the cap", () => {
+  const owner = controlledOwner<ItemOverride[]>([
+    {
+      itemId: "gas_xiranite",
+      ratePerSec: { num: "1", denom: "2" },
+      role: "catalyst",
+    },
+  ]);
+  render(
+    owner.element((overrides, onChange) => (
+      <LocaleProvider locale="en">
+        <InputsPanel
+          itemOverrides={overrides}
+          onChange={onChange}
+          pack={CATALYST_PACK}
+        />
+      </LocaleProvider>
+    )),
+  );
+  fireEvent.click(toggleIn(rowFor("gas_xiranite", "catalyst"))!);
+  expect(owner.latest).toEqual([
+    { itemId: "gas_xiranite", ratePerSec: { num: "1", denom: "2" } },
+  ]);
+});
+
+// A conversion is an identity change, like an item swap: an uncommitted edit
+// on the row is dropped rather than applied to the row that replaces it.
+test("a conversion discards a pending uncommitted rate edit", () => {
+  const owner = controlledOwner<ItemOverride[]>([
+    { itemId: "gas_xiranite", ratePerSec: { num: "1", denom: "1" } },
+  ]);
+  render(
+    owner.element((overrides, onChange) => (
+      <LocaleProvider locale="en">
+        <InputsPanel
+          itemOverrides={overrides}
+          onChange={onChange}
+          pack={CATALYST_PACK}
+        />
+      </LocaleProvider>
+    )),
+  );
+  fireEvent.change(rateInputs()[0]!, { target: { value: "999" } });
+  fireEvent.click(toggleIn(rowFor("gas_xiranite"))!);
+  // Only the conversion committed, and the C row shows the carried cap.
+  expect(owner.emissions.length).toBe(1);
+  expect(owner.latest).toEqual([
+    {
+      itemId: "gas_xiranite",
+      ratePerSec: { num: "1", denom: "1" },
+      role: "catalyst",
+    },
+  ]);
+  expect(rateInputs()[0]!.value).toBe("60");
+});
+
+test("a conversion is refused when the other role already exists", () => {
+  const owner = controlledOwner<ItemOverride[]>([
+    { itemId: "gas_xiranite" },
+    { itemId: "gas_xiranite", role: "catalyst" },
+  ]);
+  render(
+    owner.element((overrides, onChange) => (
+      <LocaleProvider locale="en">
+        <InputsPanel
+          itemOverrides={overrides}
+          onChange={onChange}
+          pack={CATALYST_PACK}
+        />
+      </LocaleProvider>
+    )),
+  );
+  fireEvent.click(toggleIn(rowFor("gas_xiranite"))!);
+  expect(owner.emissions.length).toBe(0);
+  expect(screen.getByRole("alert").textContent).toBe("Item already declared");
+  // And the same refusal from the C side.
+  fireEvent.click(toggleIn(rowFor("gas_xiranite", "catalyst"))!);
+  expect(owner.emissions.length).toBe(0);
+});
+
+// The two rows show two different quantities: C holds what the catalyst pool
+// is asked for (need less whatever the general pool covered), G holds its own
+// ordinary draw plus the part of the charge billed to it.
+test("the C row shows need less fromGeneral, the G row its draw plus fromGeneral", () => {
+  render(
+    <LocaleProvider locale="en">
+      <InputsPanel
+        itemOverrides={[
+          { itemId: "gas_xiranite" },
+          { itemId: "gas_xiranite", role: "catalyst" },
+        ]}
+        onChange={() => {}}
+        pack={CATALYST_PACK}
+        catalystAccount={account("gas_xiranite", {
+          need: "1/10",
+          fromCatalyst: "1/20",
+          fromGeneral: "1/20",
+        })}
+        supplyRateByItem={new Map([["gas_xiranite", { num: "1", denom: "2" }]])}
+      />
+    </LocaleProvider>,
+  );
+  // need 6/min less the 3/min the general pool covered.
+  expect(rateText(rowFor("gas_xiranite", "catalyst"))).toBe("needed 3/min");
+  // 30/min of ordinary draw plus that same 3/min.
+  expect(rateText(rowFor("gas_xiranite"))).toBe("needed 33/min");
+  expect(
+    rowFor("gas_xiranite").querySelector('[data-testid="input-catalyst-part"]')
+      ?.textContent,
+  ).toBe("3/min catalyst");
+  // The C row is not double-counting the general share as its own.
+  expect(
+    rowFor("gas_xiranite", "catalyst").querySelector(
+      '[data-testid="input-catalyst-part"]',
+    ),
+  ).toBeNull();
+});
+
+test("a C row whose item the plan cycles none of reads zero need", () => {
+  render(
+    <LocaleProvider locale="en">
+      <InputsPanel
+        itemOverrides={[{ itemId: "gas_xiranite", role: "catalyst" }]}
+        onChange={() => {}}
+        pack={CATALYST_PACK}
+        catalystAccount={new Map()}
+        supplyRateByItem={new Map()}
+      />
+    </LocaleProvider>,
+  );
+  expect(rateText(rowFor("gas_xiranite", "catalyst"))).toBe("needed 0/min");
+});
+
+test("no catalyst tag on a G row whose charge is billed elsewhere", () => {
+  render(
+    <LocaleProvider locale="en">
+      <InputsPanel
+        itemOverrides={[
+          { itemId: "gas_xiranite" },
+          { itemId: "gas_xiranite", role: "catalyst" },
+        ]}
+        onChange={() => {}}
+        pack={CATALYST_PACK}
+        catalystAccount={account("gas_xiranite", {
+          need: "1/10",
+          fromCatalyst: "1/10",
+        })}
+        supplyRateByItem={new Map([["gas_xiranite", { num: "1", denom: "2" }]])}
+      />
+    </LocaleProvider>,
+  );
+  expect(rateText(rowFor("gas_xiranite"))).toBe("needed 30/min");
+  expect(screen.queryByTestId("input-catalyst-part")).toBeNull();
+});
+
+// The shortage is a report on the row that was asked to hold the charge.
+test("an unmet charge is reported on the C row when there is one", () => {
+  render(
+    <LocaleProvider locale="en">
+      <InputsPanel
+        itemOverrides={[
+          { itemId: "gas_xiranite" },
+          { itemId: "gas_xiranite", role: "catalyst" },
+        ]}
+        onChange={() => {}}
+        pack={CATALYST_PACK}
+        catalystAccount={account("gas_xiranite", {
+          need: "1/10",
+          fromCatalyst: "1/20",
+          unmet: "1/20",
+        })}
+        supplyRateByItem={new Map()}
+      />
+    </LocaleProvider>,
+  );
+  const shortage = rowFor("gas_xiranite", "catalyst").querySelector(
+    ".b-rate-err",
+  );
+  expect(shortage?.textContent).toBe("catalyst short by 3/min");
+  expect(rowFor("gas_xiranite").querySelector(".b-rate-err")).toBeNull();
+});
+
+test("an unmet charge falls to the G row when the item has no C row", () => {
+  render(
+    <LocaleProvider locale="en">
+      <InputsPanel
+        itemOverrides={[]}
+        onChange={() => {}}
+        pack={CATALYST_PACK}
+        assumedRawItemIds={["gas_xiranite"]}
+        catalystAccount={account("gas_xiranite", {
+          need: "1/10",
+          unmet: "1/10",
+        })}
+        supplyRateByItem={new Map()}
+      />
+    </LocaleProvider>,
+  );
+  expect(
+    screen.getByTestId("input-auto-row").querySelector(".b-rate-err")
+      ?.textContent,
+  ).toBe("catalyst short by 6/min");
+});
+
+// One .b-rate-err slot, two claimants: while the field is unparseable the user
+// needs the parse error, not the accounting report.
+test("the invalid-rate message takes precedence over the shortage", () => {
+  render(
+    <LocaleProvider locale="en">
+      <InputsPanel
+        itemOverrides={[{ itemId: "gas_xiranite", role: "catalyst" }]}
+        onChange={() => {}}
+        pack={CATALYST_PACK}
+        catalystAccount={account("gas_xiranite", {
+          need: "1/10",
+          unmet: "1/10",
+        })}
+        supplyRateByItem={new Map()}
+      />
+    </LocaleProvider>,
+  );
+  const input = rateInputs()[0]!;
+  fireEvent.change(input, { target: { value: "1/" } });
+  fireEvent.keyDown(input, { key: "Enter" });
+  const slots = rowFor("gas_xiranite", "catalyst").querySelectorAll(
+    ".b-rate-err",
+  );
+  expect(slots.length).toBe(1);
+  expect(slots[0]!.getAttribute("data-testid")).toBe("rate-invalid");
+});
+
+// Auto-rows are per side: the C override does not retire the item's G
+// auto-row, and there is no C auto-row to go with it.
+test("a G auto-row coexists with a C override on the same item", () => {
+  render(
+    <LocaleProvider locale="en">
+      <InputsPanel
+        itemOverrides={[{ itemId: "gas_xiranite", role: "catalyst" }]}
+        onChange={() => {}}
+        pack={CATALYST_PACK}
+        assumedRawItemIds={["gas_xiranite"]}
+        catalystAccount={account("gas_xiranite", {
+          need: "1/10",
+          fromCatalyst: "1/10",
+        })}
+        supplyRateByItem={new Map([["gas_xiranite", { num: "1", denom: "2" }]])}
+      />
+    </LocaleProvider>,
+  );
+  const autos = screen.getAllByTestId("input-auto-row");
+  expect(autos.length).toBe(1);
+  expect(autos[0]!.getAttribute("data-role")).toBeNull();
+  expect(screen.getAllByTestId("input-row").length).toBe(1);
+  expect(rowFor("gas_xiranite", "catalyst")).toBeDefined();
+});
+
+test("converting an auto-row adds the C override and leaves the G auto-row", () => {
+  const owner = controlledOwner<ItemOverride[]>([]);
+  render(
+    owner.element((overrides, onChange) => (
+      <LocaleProvider locale="en">
+        <InputsPanel
+          itemOverrides={overrides}
+          onChange={onChange}
+          pack={CATALYST_PACK}
+          assumedRawItemIds={["gas_xiranite"]}
+          supplyRateByItem={
+            new Map([["gas_xiranite", { num: "1", denom: "2" }]])
+          }
+        />
+      </LocaleProvider>
+    )),
+  );
+  const auto = screen.getByTestId("input-auto-row");
+  fireEvent.click(toggleIn(auto)!);
+  expect(owner.latest).toEqual([{ itemId: "gas_xiranite", role: "catalyst" }]);
+  // The G side still has its ordinary draw, so it auto-rows itself again.
+  expect(screen.getAllByTestId("input-auto-row").length).toBe(1);
+  expect(rowFor("gas_xiranite", "catalyst")).toBeDefined();
+});
+
+// The two rows of a split item must not collide in the DOM: aria-describedby
+// and every id query would otherwise resolve to whichever row rendered first.
+test("a split item's rows carry distinct DOM ids and a role attribute", () => {
+  // React logs an error when two siblings share a key, so a row key that was
+  // still the bare item id would fail here rather than silently reuse state.
+  const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+  const { container } = render(
+    <LocaleProvider locale="en">
+      <InputsPanel
+        itemOverrides={[
+          { itemId: "gas_xiranite" },
+          { itemId: "gas_xiranite", role: "catalyst" },
+        ]}
+        onChange={() => {}}
+        pack={CATALYST_PACK}
+      />
+    </LocaleProvider>,
+  );
+  expect(consoleError).not.toHaveBeenCalled();
+  consoleError.mockRestore();
+  expect(container.querySelectorAll("#i-name-gas_xiranite").length).toBe(1);
+  expect(container.querySelectorAll("#i-name-gas_xiranite-cat").length).toBe(1);
+  expect(rowFor("gas_xiranite").getAttribute("data-role")).toBeNull();
+  expect(rowFor("gas_xiranite", "catalyst").getAttribute("data-role")).toBe(
+    "catalyst",
+  );
+  // Each row's rate input points at its own name.
+  expect(
+    rowFor("gas_xiranite", "catalyst")
+      .querySelector("input[type=text]")
+      ?.getAttribute("aria-describedby"),
+  ).toBe("i-name-gas_xiranite-cat");
+});
+
+// The counters denominate against pack.items.length, so a split item has to
+// count as the one item it is.
+test("counters count a split item once", () => {
+  expect(
+    displayedInputCount(
+      [
+        { itemId: "gas_xiranite" },
+        { itemId: "gas_xiranite", role: "catalyst" },
+      ],
+      ["gas_xiranite"],
+    ),
+  ).toBe(1);
+  const { container } = render(
+    <LocaleProvider locale="en">
+      <InputsPanel
+        itemOverrides={[
+          { itemId: "gas_xiranite", role: "catalyst" },
+          { itemId: "widget" },
+        ]}
+        onChange={() => {}}
+        pack={CATALYST_PACK}
+        assumedRawItemIds={["gas_xiranite"]}
+        supplyRateByItem={new Map([["gas_xiranite", { num: "1", denom: "2" }]])}
+      />
+    </LocaleProvider>,
+  );
+  // gas_xiranite (C row + G auto-row) plus widget: two items, three rows.
+  expect(
+    container.querySelector(".side-section-head .count .v")?.textContent,
+  ).toBe("2");
 });

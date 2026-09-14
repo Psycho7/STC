@@ -715,6 +715,37 @@
   border-color: var(--ak-divider);
   font-style: normal;
 }
+/* The catalyst badge on a catalyst-pool row and the "N/min catalyst" share on
+   a general row. Both name the same pool, so they share the muted violet the
+   card's catalyst rows use, and both sit as chips beside DUAL. */
+.ak-app-shell [data-testid="side-panel"] .b-row .b-tags .catalyst {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 6px;
+  border: 1px solid var(--ak-divider);
+  letter-spacing: 0.2em;
+  color: var(--ak-text-secondary);
+  font-style: normal;
+}
+
+/* The pool checkbox. Only rows for an item some recipe cycles have one, and it
+   sits under the tags so the row still reads name-first. */
+.ak-app-shell [data-testid="side-panel"] .b-row .b-role {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: var(--ak-text-decoration);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.ak-app-shell [data-testid="side-panel"] .b-row .b-role input {
+  margin: 0;
+  accent-color: var(--ak-accent-cyan-soft);
+}
+
 .ak-app-shell [data-testid="side-panel"] .b-row .b-tags .realized {
   display: inline-flex;
   align-items: center;

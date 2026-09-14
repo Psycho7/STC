@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { pack } from "./load";
 import {
+  decodeItemOverrideKey,
   defaultPlan,
   describePlanLoadError,
+  encodeItemOverrideKey,
   validatePlan,
   loadPlan,
   encodePlan,
@@ -367,5 +369,42 @@ describe("validatePlan - item override roles", () => {
     if (outcome.kind === "error") {
       expect(outcome.error.kind).toBe("invalid-item-override-role");
     }
+  });
+});
+
+// The string form of an override's identity, shared by the loader's duplicate
+// check, the inputs panel's row keys and App's supply map.
+describe("item override key codec", () => {
+  it.each([
+    { name: "a role-less key", key: { itemId: "gas_xiranite" } },
+    {
+      name: "an explicitly undefined role",
+      key: { itemId: "gas_xiranite", role: undefined },
+    },
+    {
+      name: "a catalyst key",
+      key: { itemId: "gas_xiranite", role: "catalyst" as const },
+    },
+  ])("round-trips $name", ({ key }) => {
+    const decoded = decodeItemOverrideKey(encodeItemOverrideKey(key));
+    expect(decoded.itemId).toBe(key.itemId);
+    expect(decoded.role).toBe(key.role);
+  });
+
+  it("separates the two pools of one item", () => {
+    expect(encodeItemOverrideKey({ itemId: "gas_xiranite" })).not.toBe(
+      encodeItemOverrideKey({ itemId: "gas_xiranite", role: "catalyst" }),
+    );
+  });
+
+  // Every pack item id is free of the suffix character, which is what makes
+  // the two namespaces disjoint.
+  it("keys every pack item apart from every catalyst key", () => {
+    const keys = new Set<string>();
+    for (const item of pack.items) {
+      keys.add(encodeItemOverrideKey({ itemId: item.id }));
+      keys.add(encodeItemOverrideKey({ itemId: item.id, role: "catalyst" }));
+    }
+    expect(keys.size).toBe(pack.items.length * 2);
   });
 });

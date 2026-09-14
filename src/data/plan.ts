@@ -26,6 +26,31 @@ export type ItemOverride = {
   ratePerSec?: RationalString;
 };
 
+// The identity of an override: which item, and which of its two supply pools.
+// Carried apart from ItemOverride because the UI addresses a pool that has no
+// override yet (an auto-row, a picked item), and because a Set or a Map keys on
+// the string form below.
+export type ItemOverrideKey = {
+  itemId: string;
+  role?: "catalyst" | undefined;
+};
+
+// No pack item id contains "#" (the loader rejects an unknown item before it
+// ever builds a key), so the general and catalyst namespaces cannot collide.
+const CATALYST_KEY_SUFFIX = "#cat";
+
+export function encodeItemOverrideKey(key: ItemOverrideKey): string {
+  return key.role === "catalyst"
+    ? `${key.itemId}${CATALYST_KEY_SUFFIX}`
+    : key.itemId;
+}
+
+export function decodeItemOverrideKey(text: string): ItemOverrideKey {
+  return text.endsWith(CATALYST_KEY_SUFFIX)
+    ? { itemId: text.slice(0, -CATALYST_KEY_SUFFIX.length), role: "catalyst" }
+    : { itemId: text };
+}
+
 export type Plan = {
   version: 1;
   pack: { id: string; schemaVersion: string; submoduleSha: string };
@@ -307,7 +332,7 @@ export function validatePlan(
           };
         }
       }
-      const key = `${ov.itemId}\0${ov.role ?? ""}`;
+      const key = encodeItemOverrideKey(ov);
       if (seenOverrides.has(key)) {
         return { kind: "duplicate-item-override", itemId: ov.itemId };
       }

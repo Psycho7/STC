@@ -49,6 +49,9 @@ export type UiKey =
   | "inputs.unlimited"
   | "inputs.needed"
   | "inputs.empty"
+  | "inputs.catalyst.role"
+  | "inputs.catalyst.badge"
+  | "inputs.catalyst.part"
   | "env.stable"
   | "env.acidic"
   | "product.dir.in"
@@ -132,6 +135,9 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "inputs.unlimited": "无限",
     "inputs.needed": "需求 {rate}/分",
     "inputs.empty": "未配置任何输入 — 全部按 raw 自动求解",
+    "inputs.catalyst.role": "催化",
+    "inputs.catalyst.badge": "催化",
+    "inputs.catalyst.part": "其中催化 {rate}/分",
     "env.stable": "稳定环境",
     "env.acidic": "酸性环境",
     "product.dir.in": "输入",
@@ -211,6 +217,9 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "inputs.unlimited": "Unlimited",
     "inputs.needed": "needed {rate}/min",
     "inputs.empty": "No declared inputs — defaults to raw-source feed",
+    "inputs.catalyst.role": "catalyst",
+    "inputs.catalyst.badge": "CATALYST",
+    "inputs.catalyst.part": "{rate}/min catalyst",
     "env.stable": "Stable environment",
     "env.acidic": "Acidic environment",
     "product.dir.in": "In",
