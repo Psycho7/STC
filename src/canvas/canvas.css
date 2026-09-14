@@ -1450,9 +1450,9 @@
 .ak-canvas-theme.zoom-low .react-flow {
   background-image: none;
 }
-/* The rate overlay stays hidden at low zoom; without the extra .recipe-node
-   class this compound would only tie the later reveal rules' specificity
-   and lose on file order. */
+/* The rate overlay drops out at low zoom; the extra .recipe-node class keeps
+   this compound ahead of the later per-side seat rules, which would otherwise
+   tie on specificity and win on file order. */
 .ak-canvas-theme.zoom-low .recipe-node .rn-row .rate {
   display: none;
 }
@@ -2028,15 +2028,13 @@
 /* A catalyst row: an input the machine cycles rather than consumes. It takes
    the input rows' left padding so the column reads as one stack, but not their
    accent tab (.rn-row.input::before). The muted label is what sets it apart
-   from the supplied rows above it; the rate is muted only to land on the same
-   colour the input rows' rates already use, since a catalyst row carries no
-   `input` class to inherit it from. */
+   from the supplied rows above it. Its rate is seated and coloured with the
+   input rows' further down, since no `input` class inherits either here. */
 .rn-row.catalyst {
   padding-left: 8px;
 }
 
-.rn-row.catalyst .lbl,
-.rn-row.catalyst .rate {
+.rn-row.catalyst .lbl {
   color: var(--ak-text-secondary);
 }
 
@@ -2061,9 +2059,9 @@
 }
 
 /* The row rate is an overlay over the label tail, out of flow so the label
-   budget never pays for it, hidden at rest and revealed by pointer hover or
-   card selection (rules below). The backdrop is the card body gradient's end
-   colour, which the rows sit on, so the digits read legibly over the tail. */
+   budget never pays for it, and drawn at rest on every row: the numbers are
+   the point of the card. The backdrop is the card body gradient's end colour,
+   which the rows sit on, so the digits read legibly over the tail. */
 .rn-row .rate {
   font-family: var(--font-num);
   font-size: 12px;
@@ -2072,15 +2070,17 @@
   position: absolute;
   top: 50%;
   transform: translateY(-50%);
-  display: none;
+  display: block;
   background: #1f2125;
   padding: 0 2px;
 }
 
-/* The overlay seats at the row's inner end (right for inputs, left for
-   outputs), inset by the row's own horizontal padding on that side; the row
-   is position:relative already. */
-.rn-row.input .rate {
+/* The overlay seats at the row's inner end (right for inputs and catalysts,
+   left for outputs), inset by the row's own horizontal padding on that side;
+   the row is position:relative already. The catalyst row needs its own seat
+   because it carries no .input class (that class paints the accent tab). */
+.rn-row.input .rate,
+.rn-row.catalyst .rate {
   color: var(--ak-text-secondary);
   right: 6px;
 }
@@ -2088,12 +2088,6 @@
 .rn-row.output .rate {
   color: var(--ak-accent-cyan-soft);
   left: 6px;
-}
-
-/* Pointer-only hover plus selection; no intent delay, no focus-set involvement. */
-.recipe-node:hover .rn-row .rate,
-.recipe-node.selected .rn-row .rate {
-  display: block;
 }
 
 .rn-row.input::before,

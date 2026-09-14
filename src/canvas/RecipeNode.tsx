@@ -216,12 +216,11 @@ export default function RecipeNode({
   // rational `multiplicity`; the older boot path an integer `multiplier`; a
   // node with neither runs a single machine. Rows multiply by this so the
   // node's numbers match its incident edge chips.
-  const perMachine = new Fraction(1);
   const scale: Fraction = multiplicity
     ? rationalFromString(multiplicity)
     : typeof multiplier === "number"
       ? new Fraction(multiplier)
-      : perMachine;
+      : new Fraction(1);
 
   // The machine shown is producers[0]. Multiple producers are not handled yet.
   const producerId = recipe.producers[0];
@@ -263,10 +262,6 @@ export default function RecipeNode({
     widthFnFor(TITLE_FONT),
     "title-17",
   );
-  // The "/min" suffix the catalyst rows carry, the same locale string the
-  // product cards and rate chips use.
-  const rateUnit = i18n.t("canvas.rate.unit");
-
   // Environment requirement: the data attribute marks the requirement and the
   // hover title names the environment. An absent field means no requirement,
   // so neither attribute is written.
@@ -402,13 +397,12 @@ export default function RecipeNode({
                 <span className="lbl" title={label}>
                   {label}
                 </span>
-                {/* Per MACHINE, not the aggregate the port rows show, and the
-                    only row that spells its unit out -- the suffix is what
-                    marks the figure as reading on a different scale from the
-                    numbers directly above it. */}
+                {/* The same slot, scale and bare-number form as an input row:
+                    the aggregate draw across every machine. canvas.css seats
+                    it from the .catalyst class, since the row carries no
+                    .input class. */}
                 <span className="rate">
-                  {rowRateText(p, recipe.time, speed, perMachine)}
-                  {rateUnit}
+                  {rowRateText(p, recipe.time, speed, scale)}
                 </span>
               </div>
             );

@@ -278,9 +278,9 @@ test("handle and port glyph render inside their recipe row", () => {
 
 // A catalyst is supplied from the plan boundary, so its row carries a target
 // Handle in the `cat:` namespace and no transport glyph unless the port map
-// names a kind. The row declares the draw, in full units, at the per-machine
-// figure.
-test("a catalyst renders a cat: port row carrying the per-machine draw", () => {
+// names a kind. The row declares the draw the way an input row does: the
+// aggregate across every machine, as a bare number.
+test("a catalyst renders a cat: port row carrying the aggregate draw", () => {
   // qty 1 over a 10s cycle at speed 1 is the pack's 6/min catalyst draw.
   const recipe: Recipe = {
     ...RECIPE,
@@ -299,9 +299,8 @@ test("a catalyst renders a cat: port row carrying the per-machine draw", () => {
   const handles = row!.querySelectorAll<HTMLElement>("[data-handleid]");
   expect(handles.length).toBe(1);
   expect(handles[0]!.getAttribute("data-handleid")).toBe("cat:gas_xiranite");
-  // Per machine even at multiplicity 3, and carrying the unit the aggregate
-  // port rows leave to the header.
-  expect(row!.querySelector(".rate")?.textContent).toBe("6/min");
+  // 6/min per machine at multiplicity 3, bare like the port rows.
+  expect(row!.querySelector(".rate")?.textContent).toBe("18");
   // The port rows are untouched: the row adds one target handle on the left
   // and nothing on the right.
   expect(container.querySelectorAll('[data-handlepos="left"]').length).toBe(2);
