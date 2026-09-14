@@ -37,6 +37,7 @@ import { mkRecipe, productNode, recipeNode } from "./busRouting.testkit";
 import {
   cssBlock,
   cssPx,
+  cssSelectorsMatching,
   cssValue,
 } from "../../src/canvas/cssContract.testkit";
 
@@ -220,27 +221,25 @@ describe("the recipe card's box is declared the same in TS and in CSS", () => {
   });
 });
 
-describe("the row rate is an overlay hidden at rest and revealed per card", () => {
+describe("the row rate is an overlay drawn at rest on every row", () => {
   it("takes the rate out of the row flow", () => {
     expect(cssValue(".rn-row .rate", "position")).toBe("absolute");
   });
 
-  it("hides the rate at rest", () => {
-    expect(cssValue(".rn-row .rate", "display")).toBe("none");
+  it("shows the rate at rest", () => {
+    expect(cssValue(".rn-row .rate", "display")).toBe("block");
   });
 
-  it("reveals the rate on card hover and on selection", () => {
-    // One shared rule carries both selector-list entries, so each selector
-    // resolves to the same block; both spellings must declare the reveal.
-    expect(cssBlock(".recipe-node:hover .rn-row .rate")).toMatch(
-      /display:\s*block/,
-    );
-    expect(cssBlock(".recipe-node.selected .rn-row .rate")).toMatch(
-      /display:\s*block/,
-    );
+  it("makes no rate rule depend on hover or selection", () => {
+    const selectors = cssSelectorsMatching(/\.rn-row.*\.rate/);
+    expect(selectors.length).toBeGreaterThan(0);
+    for (const selector of selectors) {
+      expect(selector).not.toMatch(/:hover/);
+      expect(selector).not.toMatch(/\.selected/);
+    }
   });
 
-  it("keeps the reveal suppressed under zoom-low", () => {
+  it("keeps the overlay suppressed under zoom-low", () => {
     expect(
       cssValue(
         ".ak-canvas-theme.zoom-low .recipe-node .rn-row .rate",
@@ -252,6 +251,9 @@ describe("the row rate is an overlay hidden at rest and revealed per card", () =
   it("seats the overlay at the row's inner-end padding", () => {
     expect(cssValue(".rn-row.input .rate", "right")).toBe("6px");
     expect(cssValue(".rn-row.output .rate", "left")).toBe("6px");
+    // The catalyst row carries no .input class, so it needs its own seat or
+    // the overlay falls to the flex content start and covers the sprite.
+    expect(cssValue(".rn-row.catalyst .rate", "right")).toBe("6px");
   });
 });
 

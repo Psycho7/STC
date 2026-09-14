@@ -17,10 +17,9 @@ A recipe card has a header carrying the machine icon, the machine name and the
 machine multiplier (xN), then input rows down its left side and output rows
 down its right, each row ending in a port handle with a small item glyph.
 Output rows read in the recipe's own declared order, so two cards of one recipe
-read alike. At rest a card shows no digits anywhere: no rate column, no
-products line, no footer. Each row's rate appears as an overlay at the row's
-inner end when the pointer is over the card or the card is selected, and it is
-hidden again under the low-zoom band. Cyan product chips are boundary inputs
+read alike. A card carries no rate column, no products line and no footer:
+each row's rate is an overlay at the row's inner end, drawn at rest and
+dropped only under the low-zoom band. Cyan product chips are boundary inputs
 and outputs rather than machines. Group slabs and loop boxes are containers,
 and the cards inside one are its members.
 
@@ -52,10 +51,9 @@ row's centre -- and the row shows the item's transport glyph like a port row
 does. The boundary card's rate counts that draw alongside ordinary consumption,
 so the card and the inputs panel read the same number. One card can carry the
 same item on an input row and a catalyst row; the two take separate handles and
-separate edges. A catalyst row keeps no accent tab, its label is muted a step
-below the supplied rows, and its rate is the draw for one machine with its unit
-spelled out ("6/min") rather than the flow across every machine that the port
-rows above it carry.
+separate edges. A catalyst row keeps no accent tab and its label is muted a step
+below the supplied rows, but its rate reads exactly like an input row's: the
+aggregate draw across every machine, a bare number in the same trailing slot.
 
 The behaviour is behind the `CATALYST_SUPPLY_EDGES` code flag (`src/flags.ts`),
 on by default; with it off a catalyst row carries no handle and no edge, wears a
@@ -139,7 +137,7 @@ fan-outs forced into one corridor therefore stand apart rather than braiding.
 Every rate chip states a rate for the stretch of line it stands on. An item
 edge's chip states that edge's rate; a trunk's aggregate chip states the whole
 port's total, which is the flow the shared stretch under it carries. Totals also
-live on the node cards' rows, which reveal their rates on hover or selection, and
+live on the node cards' rows, which show their rates at rest, and
 a total on a chip and the same total on a card come from one formatter, so they
 should read alike; members rounded independently can still sum a cent off that
 number.
@@ -191,9 +189,8 @@ matches the live geometry, and comes back as soon as it does.
 
 Do not report these as defects.
 
-- A card at rest shows no row rates: each row's rate is an overlay that appears
-  only while the pointer is over the card or the card is selected, and below
-  the low-zoom band the overlay stays hidden even then.
+- Row rates vanish below the low-zoom band. The overlay is drawn at rest at
+  every other zoom, and hover does nothing to it.
 - Every rate chip is hidden below zoom 0.35, a trunk's aggregate chip included.
   A fit shot of a dense plan therefore shows no chips, and card detail fades at
   low zoom by design.
