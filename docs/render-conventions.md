@@ -77,6 +77,9 @@ own border keeps its neutral colour; selection keeps its lime border while
 the plates keep the environment colour. Hovering the card names the
 environment. The frame is a build requirement rather than a detail figure, so
 it draws at every zoom and never collapses with the low-zoom simplifications.
+It is card body to the router too: every obstacle a lane, rail or bend column
+routes around is the frame's outer rectangle, not the inner card box, so a
+routed run clears the plates as it clears the card itself.
 
 ## Edges
 
