@@ -309,21 +309,17 @@ describe("validatePlan - unavailable producers", () => {
   it("returns producer-unavailable naming the event cohort when every producer is switched off", () => {
     // activity_xiranite_lung's only producer is the v1.5 event recipe of the
     // same id.
-    expect(validatePlan(targeting("activity_xiranite_lung"), pack, v15)).toEqual(
-      {
-        kind: "producer-unavailable",
-        itemId: "activity_xiranite_lung",
-        cause: { kind: "event", cohort: "v1.5" },
-      },
-    );
+    expect(
+      validatePlan(targeting("activity_xiranite_lung"), pack, v15),
+    ).toEqual({
+      kind: "producer-unavailable",
+      itemId: "activity_xiranite_lung",
+      cause: { kind: "event", cohort: "v1.5" },
+    });
   });
 
   it("describes the error naming the item and the cohort", () => {
-    const error = validatePlan(
-      targeting("activity_xiranite_lung"),
-      pack,
-      v15,
-    )!;
+    const error = validatePlan(targeting("activity_xiranite_lung"), pack, v15)!;
     expect(error.kind).toBe("producer-unavailable");
     const message = describePlanLoadError(error);
     expect(message).toContain("activity_xiranite_lung");

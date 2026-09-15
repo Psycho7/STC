@@ -70,9 +70,12 @@ describe("buildRecipeGraphMulti - unavailable recipe ids", () => {
     const targets: ItemTarget[] = [
       { itemId: "X", ratePerSec: { num: "1", denom: "1" } },
     ];
-    const off = buildRecipeGraphMulti(targets, seamPack, undefined, new Set([
-      "evt",
-    ]));
+    const off = buildRecipeGraphMulti(
+      targets,
+      seamPack,
+      undefined,
+      new Set(["evt"]),
+    );
     expect(off.nodes.has("evt")).toBe(false);
     expect(off.nodes.size).toBe(0);
 
@@ -93,9 +96,12 @@ describe("buildRecipeGraphMulti - unavailable recipe ids", () => {
     const on = buildRecipeGraphMulti(targets, seamPack);
     expect(mSources(on)).toEqual(["aa_evt", "bb_plain", "cc_plain"]);
 
-    const off = buildRecipeGraphMulti(targets, seamPack, undefined, new Set([
-      "aa_evt",
-    ]));
+    const off = buildRecipeGraphMulti(
+      targets,
+      seamPack,
+      undefined,
+      new Set(["aa_evt"]),
+    );
     expect(off.nodes.has("aa_evt")).toBe(false);
     // The survivors keep their relative (depth, id) order: the filter runs
     // after the set-independent sort and must not reorder what it keeps.
@@ -112,9 +118,7 @@ describe("buildRecipeGraphMulti - unavailable recipe ids", () => {
     const off = new Set<RecipeId>(["aa_evt"]);
     const g = buildRecipeGraphMulti(targets, seamPack, undefined, off);
     expect(g.nodes.has("aa_evt")).toBe(false);
-    const rates = new Map<RecipeId, Fraction>([
-      ["aa_evt", new Fraction(1)],
-    ]);
+    const rates = new Map<RecipeId, Fraction>([["aa_evt", new Fraction(1)]]);
     const added = augmentGraphWithLpSupport(g, rates, seamPack, undefined, off);
     expect(added.size).toBe(0);
     expect(g.nodes.has("aa_evt")).toBe(false);
