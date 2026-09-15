@@ -29,6 +29,7 @@ export type UiKey =
   | "app.error.solver"
   | "app.error.infeasible"
   | "app.error.infeasible.generic"
+  | "app.error.producer-unavailable.event"
   | "app.error.dismiss"
   | "app.error.busy"
   | "app.error.crash"
@@ -107,6 +108,8 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "app.error.infeasible":
       "无可行方案，涉及：{items}。请提高供给上限或降低目标产量。",
     "app.error.infeasible.generic": "当前目标与供给上限下无可行方案。",
+    "app.error.producer-unavailable.event":
+      "物品 {itemId} 仅由 {cohort} 活动配方生产，该活动当前未开启。",
     "app.error.dismiss": "关闭",
     "app.error.busy": "方案正在加载，请等加载完成后再修改。",
     "app.error.crash": "规划器遇到意外错误，无法绘制当前方案。",
@@ -178,6 +181,8 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
       "No feasible plan involving: {items}. Raise the supply caps or lower the targets.",
     "app.error.infeasible.generic":
       "No feasible plan for the current targets and supply caps.",
+    "app.error.producer-unavailable.event":
+      "Item {itemId} cannot be a target right now: every recipe producing it is unavailable (the {cohort} event is switched off).",
     "app.error.dismiss": "Dismiss",
     "app.error.busy":
       "A plan is still loading. Try that change again once it lands.",

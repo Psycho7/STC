@@ -3,6 +3,7 @@ import Fraction from "fraction.js";
 import { buildRecipeGraphMulti, augmentGraphWithLpSupport } from "./graph";
 import { pack } from "../data/load";
 import { isExcludedProducer } from "../data/recipe-category";
+import { makePack } from "./closed-form-fixtures";
 import type { ItemTarget } from "../data/targets";
 import type { RecipeId } from "./types";
 
@@ -39,6 +40,84 @@ describe("buildRecipeGraphMulti", () => {
     expect(g.nodes.has("transfer_tundra_iron_nugget")).toBe(false);
     // The seeded sibling's input cone is walked too.
     expect(g.nodes.has("iron_powder")).toBe(true);
+  });
+});
+
+// The availability seam (#144): a set of unavailable recipe ids the walk skips
+// exactly where it skips excluded producers. Depth ranking stays computed over
+// the full pack and the (depth, id) candidate sort stays set-independent; the
+// filter only removes survivors, never reorders them.
+describe("buildRecipeGraphMulti - unavailable recipe ids", () => {
+  // X's only producer is evt. M's candidates, in (depth, id) order, are
+  // aa_evt, bb_plain, cc_plain (all depth 1 over raw R); cons consumes M.
+  const seamPack = makePack(
+    [
+      { id: "aa_evt", time: 1, in: { R: 1 }, out: { M: 1 } },
+      { id: "bb_plain", time: 1, in: { R: 1 }, out: { M: 1 } },
+      { id: "cc_plain", time: 1, in: { R: 2 }, out: { M: 1 } },
+      { id: "cons", time: 1, in: { M: 1 }, out: { F: 1 } },
+      { id: "evt", time: 1, in: { R: 1 }, out: { X: 1 } },
+    ],
+    [
+      { id: "F", stack: 1 },
+      { id: "M", stack: 1 },
+      { id: "X", stack: 1 },
+      { id: "R", raw: true, stack: 1 },
+    ],
+  );
+
+  it("produces no node for a target reachable only through an unavailable recipe", () => {
+    const targets: ItemTarget[] = [
+      { itemId: "X", ratePerSec: { num: "1", denom: "1" } },
+    ];
+    const off = buildRecipeGraphMulti(targets, seamPack, undefined, new Set([
+      "evt",
+    ]));
+    expect(off.nodes.has("evt")).toBe(false);
+    expect(off.nodes.size).toBe(0);
+
+    // Control: without the set the sole producer seeds the walk.
+    const on = buildRecipeGraphMulti(targets, seamPack);
+    expect(on.nodes.has("evt")).toBe(true);
+  });
+
+  it("skips unavailable candidates at attachment and keeps the survivors' order", () => {
+    const targets: ItemTarget[] = [
+      { itemId: "F", ratePerSec: { num: "1", denom: "1" } },
+    ];
+    const mSources = (g: ReturnType<typeof buildRecipeGraphMulti>) =>
+      (g.incoming.get("cons") ?? [])
+        .filter((e) => e.item === "M")
+        .map((e) => e.source);
+
+    const on = buildRecipeGraphMulti(targets, seamPack);
+    expect(mSources(on)).toEqual(["aa_evt", "bb_plain", "cc_plain"]);
+
+    const off = buildRecipeGraphMulti(targets, seamPack, undefined, new Set([
+      "aa_evt",
+    ]));
+    expect(off.nodes.has("aa_evt")).toBe(false);
+    // The survivors keep their relative (depth, id) order: the filter runs
+    // after the set-independent sort and must not reorder what it keeps.
+    expect(mSources(off)).toEqual(["bb_plain", "cc_plain"]);
+  });
+
+  it("augmentGraphWithLpSupport skips an unavailable recipe even at positive rate", () => {
+    // Moot today - an unavailable recipe has no LP variable, so no positive
+    // rate - but the augmentation mirrors the walk's skip so the two can never
+    // disagree about membership.
+    const targets: ItemTarget[] = [
+      { itemId: "F", ratePerSec: { num: "1", denom: "1" } },
+    ];
+    const off = new Set<RecipeId>(["aa_evt"]);
+    const g = buildRecipeGraphMulti(targets, seamPack, undefined, off);
+    expect(g.nodes.has("aa_evt")).toBe(false);
+    const rates = new Map<RecipeId, Fraction>([
+      ["aa_evt", new Fraction(1)],
+    ]);
+    const added = augmentGraphWithLpSupport(g, rates, seamPack, undefined, off);
+    expect(added.size).toBe(0);
+    expect(g.nodes.has("aa_evt")).toBe(false);
   });
 });
 

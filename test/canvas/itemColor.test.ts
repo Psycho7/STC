@@ -208,8 +208,11 @@ describe("canvas/itemColor", () => {
     // priors, 10 unchanged); ff166069 was the pre-widening
     // placement. b577d038 is 0d710d7f plus the completed repair pass: 18
     // offender entries re-placed on the finer grid, 10 of them with a hue
-    // nudge, until every pair cleared its tier floor.
-    expect(placementFingerprint()).toBe("0cf3bd51");
+    // nudge, until every pair cleared its tier floor. 0cf3bd51 is b577d038
+    // on the pre-v1.5-event pack (113 items); e6cf6fb9 is the 124-item pack
+    // after the extractor kept the 11 v1.5 event items (T2) - the placement
+    // pass re-ran over the larger set with zero pairs below floor.
+    expect(placementFingerprint()).toBe("e6cf6fb9");
   });
 
   it("keeps every pair of pack item colors perceptually distinct", () => {
@@ -296,12 +299,16 @@ describe("canvas/itemColor", () => {
         "copper_enr +5",
         "copper_enr2_cmpt +4",
         "copper_powder -13",
-        "crystal_enr +1",
+        "crystal_enr +3",
         "gas_copper -14",
         "liquid_copper_enr +13",
         "originium_ore +2",
         "originium_powder +1",
         "plant_moss_powder_1 -11",
+        // v1.5 pack growth (T2): the 11 event items squeezed the placement,
+        // re-nudging crystal_enr (+1 -> +3) and forcing plant_moss_seed_2
+        // off its icon hue for the first time.
+        "plant_moss_seed_2 +4",
       ].join(", "),
     );
   });

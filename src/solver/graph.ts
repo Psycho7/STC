@@ -53,12 +53,15 @@ function rankProducers(
 
 // Walk the target items' input cone, attaching every non-excluded producer of
 // each consumed item so the LP can choose among them. Excluded recipes never
-// enter the graph (plan validation rejects excluded-producer targets upstream).
+// enter the graph (plan validation rejects excluded-producer targets upstream),
+// and neither do unavailable ones (#144): the seam mirrors the extraction ban,
+// keeping the solver's graph and its LP model free of the same recipes.
 // Dedup keeps one edge per (producer, item, consumer).
 export function buildRecipeGraphMulti(
   targets: ReadonlyArray<ItemTarget>,
   pack: RecipePack,
   itemOverrides?: ItemOverride[],
+  unavailableRecipeIds?: ReadonlySet<RecipeId>,
 ): RecipeGraph {
   const { recipeById, overrides, producersByItem } = rankProducers(
     pack,
@@ -100,6 +103,9 @@ export function buildRecipeGraphMulti(
     for (const cid of producersByItem.get(t.itemId) ?? []) {
       const r = recipeById.get(cid);
       if (!r || isExcludedProducer(r)) continue;
+      // Same skip for unavailable recipes: an unavailable producer of a
+      // target item seeds nothing, exactly like an excluded one.
+      if (unavailableRecipeIds?.has(cid)) continue;
       if (nodes.has(cid)) continue;
       ensureNode(cid);
       stack.push(cid);
@@ -115,12 +121,15 @@ export function buildRecipeGraphMulti(
       // and any deficit can be accounted for.
       if (supply.isFree(inp.item)) continue;
       // producersByItem is pre-sorted by (depth, id); every viable candidate
-      // is attached so the LP picks the producer.
+      // is attached so the LP picks the producer. Unavailable recipes are
+      // filtered AFTER that set-independent sort, so the survivors keep their
+      // relative order whatever the set contains.
       const candidates = producersByItem.get(inp.item) ?? [];
       for (const cid of candidates) {
         const r = recipeById.get(cid);
         if (!r) continue;
         if (isExcludedProducer(r)) continue;
+        if (unavailableRecipeIds?.has(cid)) continue;
         const wasNew = !nodes.has(cid);
         ensureNode(cid);
         const already = (outgoing.get(cid) ?? []).some(
@@ -152,6 +161,7 @@ export function augmentGraphWithLpSupport(
   rates: Map<RecipeId, Fraction>,
   pack: RecipePack,
   itemOverrides?: ItemOverride[],
+  unavailableRecipeIds?: ReadonlySet<RecipeId>,
 ): Set<RecipeId> {
   const overrides = itemOverrides ?? [];
   const supply = buildSupplyTable(pack, overrides);
@@ -162,8 +172,12 @@ export function augmentGraphWithLpSupport(
     if (!rate || rate.compare(0) <= 0) continue;
     if (g.nodes.has(r.id)) continue;
     // Excluded producers are sanctioned-absent by checkRepresentable; keep the
-    // augmentation aligned with that contract.
+    // augmentation aligned with that contract. Unavailable recipes are moot
+    // here today - they have no LP variable, so no positive rate - but the
+    // walk's skip stays mirrored so the augmentation and the walk can never
+    // disagree about membership.
     if (isExcludedProducer(r)) continue;
+    if (unavailableRecipeIds?.has(r.id)) continue;
     g.nodes.set(r.id, r);
     g.outgoing.set(r.id, []);
     g.incoming.set(r.id, []);
@@ -184,6 +198,7 @@ export function augmentGraphWithLpSupport(
         // Same exclusion rule as the walk's edge attachment. An augmented node
         // is non-excluded by construction, so chains stay wireable.
         if (isExcludedProducer(producer)) continue;
+        if (unavailableRecipeIds?.has(pid)) continue;
         const already = (g.outgoing.get(pid) ?? []).some(
           (e) => e.target === id && e.item === inp.item,
         );

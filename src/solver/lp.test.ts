@@ -1009,6 +1009,88 @@ describe("solveLp - extraction recipes", () => {
   });
 });
 
+// The availability seam (#144) is mechanically the extraction ban: a recipe in
+// the unavailable set gets NO LP variable, so no solution can run one at any
+// rate - not even at big-M cost when it is the only way to meet demand, in
+// which case the shortfall must surface as a deficit, exactly like a banned
+// miner above.
+describe("solveLp - unavailable recipes", () => {
+  // evt is X's only producer. With evt switched off, nothing can make X.
+  const seamPack = makePack(
+    [{ id: "evt", time: 1, in: { R: 1 }, out: { X: 1 } }],
+    [
+      { id: "X", stack: 1 },
+      { id: "R", raw: true, stack: 1 },
+    ],
+  );
+  const seamTargets: ItemTarget[] = [
+    { itemId: "X", ratePerSec: { num: "1", denom: "1" } },
+  ];
+
+  it("gives an unavailable recipe no variable and reports the demand as deficit", () => {
+    const result = solveLp({
+      targets: seamTargets,
+      pack: seamPack,
+      unavailableRecipeIds: new Set(["evt"]),
+    });
+    expect(result.rates.has("evt")).toBe(false);
+    expect(result.deficit.get("X")?.equals(1)).toBe(true);
+    expect(result.softFeasible).toBe(false);
+    expectExactlyBalanced(result, seamPack, seamTargets);
+
+    // Control: without the set the sole producer runs at demand rate.
+    const control = solveLp({ targets: seamTargets, pack: seamPack });
+    expect(control.rates.get("evt")?.equals(1)).toBe(true);
+    expect(control.softFeasible).toBe(true);
+  });
+
+  // THE RANK TRAP. Recipes sort a_anchor < b_maker < c_event < d_bulk, so
+  // full-list ranks are a=0, b=1, c=2, d=3. b_maker (2 R -> 2 X, cost 2) and
+  // d_bulk (5 R -> 5 X, cost 5) are cost-equal AND boundary-equal per unit of X
+  // (1 cost and 1 raw per X either way), so the whole mix segment between them
+  // survives passes 1 and 2, and ONLY the pass-3 lex rank decides the corner:
+  //   full ranks:      b = rank 1 per 2 X = 0.5/X  vs  d = rank 3 per 5 X = 0.6/X
+  //   -> all b_maker (x_b = 5 for the 10/s demand).
+  // If disabling c_event COMPACTED the ranks over the surviving list, d_bulk
+  // would renumber 3 -> 2 and its per-X lex weight would drop to 0.4 < 0.5,
+  // flipping the winner to d_bulk (x_d = 2). Asserting b_maker wins under the
+  // set pins that lexRank stays computed over the FULL sorted list, gaps for
+  // the unavailable recipes included - toggling a cohort must never reshuffle
+  // which cost-equal solution any other plan lands on.
+  it("keeps full-list lex ranks with an unavailable recipe in the middle", () => {
+    const rankPack = makePack(
+      [
+        { id: "a_anchor", time: 1, in: { R: 1 }, out: { OTHER: 1 } },
+        { id: "b_maker", time: 1, in: { R: 2 }, out: { X: 2 } },
+        { id: "c_event", time: 1, in: { R: 1 }, out: { EVT: 1 } },
+        { id: "d_bulk", time: 1, in: { R: 5 }, out: { X: 5 } },
+      ],
+      [
+        { id: "X", stack: 1 },
+        { id: "OTHER", stack: 1 },
+        { id: "EVT", stack: 1 },
+        { id: "R", raw: true, stack: 1 },
+      ],
+    );
+    const targets: ItemTarget[] = [
+      { itemId: "X", ratePerSec: { num: "10", denom: "1" } },
+    ];
+    const result = solveLp({
+      targets,
+      pack: rankPack,
+      recipeCosts: new Map([
+        ["b_maker", 2],
+        ["d_bulk", 5],
+      ]),
+      unavailableRecipeIds: new Set(["c_event"]),
+    });
+    expect(result.rates.get("b_maker")?.equals(5)).toBe(true);
+    expect(result.rates.has("d_bulk")).toBe(false);
+    expect(result.softFeasible).toBe(true);
+    expect(result.deficit.size).toBe(0);
+  });
+});
+
 // Among cost-tied solutions the solve prefers the one that pulls less from the
 // boundary, before the id-rank tie-break gets a say. Both producers here cost
 // one execution and the raw item is free, so cost alone cannot separate them

@@ -627,6 +627,52 @@ describe("free-boundary target items through render", () => {
   });
 });
 
+// The event-cohort availability seam (#144): with the set empty (a fresh
+// browser) the v1.5 recipes solve like any other; with the cohort's ids in the
+// set, the same target solves soft-unfulfilled and no v1.5 recipe may run.
+describe("event-cohort availability on the shipped pack", () => {
+  const lungTargets: ItemTarget[] = [
+    { itemId: "activity_xiranite_lung", ratePerSec: { num: "1", denom: "1" } },
+  ];
+  const v15 = new Set(
+    pack.recipes.filter((r) => r.event === "v1.5").map((r) => r.id),
+  );
+
+  it("solves the lung target through activity_xiranite_box and activity_copper_xiranite_tool", () => {
+    const full = solvePlanWithIntermediates(lungTargets, pack);
+    expect(full.feasibility.softFeasible).toBe(true);
+    const lung = full.rates.get("activity_xiranite_lung");
+    expect(lung).toBeDefined();
+    expect(lung!.compare(0)).toBeGreaterThan(0);
+    // The lung recipe consumes exactly 5 box + 5 copper tool per lung, and
+    // each supplier is the sole producer of its item, so both run at exactly
+    // five times the lung rate.
+    const box = full.rates.get("activity_xiranite_box");
+    const tool = full.rates.get("activity_copper_xiranite_tool");
+    expect(box).toBeDefined();
+    expect(tool).toBeDefined();
+    expect(box!.compare(0)).toBeGreaterThan(0);
+    expect(tool!.compare(0)).toBeGreaterThan(0);
+    expect(box!.equals(lung!.mul(5))).toBe(true);
+    expect(tool!.equals(lung!.mul(5))).toBe(true);
+  });
+
+  it("runs no v1.5 recipe with the cohort unavailable, and the demand goes to deficit", () => {
+    const full = solvePlanWithIntermediates(
+      lungTargets,
+      pack,
+      [],
+      undefined,
+      v15,
+    );
+    expect([...full.rates.keys()].filter((id) => v15.has(id))).toEqual([]);
+    expect(full.feasibility.softFeasible).toBe(false);
+    expect(
+      full.feasibility.deficits.get("activity_xiranite_lung")?.equals(1),
+    ).toBe(true);
+  });
+});
+
 // SolvePlanFull.catalystDraw is the only place the assembled plan reports what
 // the running recipes cycle. Pinned on the live pack so a deleted assignment
 // fails here rather than passing on a recomputed value.
