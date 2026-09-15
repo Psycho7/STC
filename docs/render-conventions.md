@@ -17,9 +17,12 @@ A recipe card has a header carrying the machine icon, the machine name and the
 machine multiplier (xN), then input rows down its left side and output rows
 down its right, each row ending in a port handle with a small item glyph.
 Output rows read in the recipe's own declared order, so two cards of one recipe
-read alike. A card carries no rate column, no products line and no footer:
-each row's rate is an overlay at the row's inner end, drawn at rest and
-dropped only under the low-zoom band. Cyan product chips are boundary inputs
+read alike. A card carries no products line and no footer. A row is a
+three-column grid -- item sprite, name, rate -- and the output side mirrors it,
+so every rate stands at its row's inner end. The rate holds a column of its
+own: it is always drawn whole, never clipped and never wrapped, and the name is
+what gives way, eliding to whatever width is left. Row rates are drawn at rest
+and drop only under the low-zoom band. Cyan product chips are boundary inputs
 and outputs rather than machines. Group slabs and loop boxes are containers,
 and the cards inside one are its members. A loop box is drawn only when the
 cards that survived the solve still form a directed cycle in the solved graph:
@@ -32,66 +35,71 @@ marked as a tap and fed by the item's chip, because an edge entering a
 container has to enter it once. So several tap chips of one item mean several
 containers, not several consumers.
 
-A name too long for its row or its title elides
-tail-first: a distinguishing trailing bracket group or word is kept whole with
-the ellipsis in front of it. When the whole tail cannot fit beside a readable
-head, a partial tail is preserved instead -- a window into the tail over the
-same minimum readable length, opening from the tail's stem for a bare word
-whose whole base survives beside the ellipsis, and otherwise from the tail's
-distinguishing end (leading for Latin and CJK tails, trailing for Cyrillic,
-where the species word comes last) -- and only a name with no such tail, or no
-window that clears the minimum, falls back to plain tail ellipsis. Chinese
-tier prefixes (a leading 优质/精选-style
-affix) are the one naming shape a tail rule cannot protect; those names are
-short enough not to clip at card width.
+A name too long for its row or its title loses its tail: the longest head that
+fits is drawn, followed by an ellipsis. One rule, every surface, every locale --
+nothing at the end of a name is rescued, and no bracket group or trailing word
+is treated as more distinguishing than the head. Two items whose names run
+together up to the cut therefore paint the same string, which is the price of
+the rule and not a defect; the full name is on the hover title of the row or the
+card.
 
-Below the input rows a card may carry catalyst rows: inputs the machine cycles
-rather than consumes, drawn from the plan boundary and handed straight back
-every cycle. No producer is ever built for a catalyst, so the charge arrives
-over an edge of its own, landing on a `cat:<item>` handle at the row's left --
-the same x as the input handles, at the row's centre -- and the row shows the
-item's transport glyph like a port row does. One card can carry the same item on
-an input row and a catalyst row; the two take separate handles and separate
-edges. A catalyst row keeps no accent tab and its label is muted a step below
-the supplied rows, but its rate reads like an input row's: a bare number in the
-same trailing slot. The number is whole machines' worth of charge --
-`ceil(machines)` times the per-machine charge, because a machine cycles its
-whole charge whether or not its last cycle is a full one -- so a card running
-2.5 machines reads three machines of catalyst beside port rows sized for 2.5.
-Naming the row states the per-machine figure ("6/min per machine").
+Below the input rows a card may carry catalyst rows: the charge consumed to
+activate the machine, which the plan draws from its boundary because no producer
+is ever built for a catalyst. The charge arrives over an edge of its own,
+landing on a `cat:<item>` handle at the row's left -- the same x as the input
+handles, at the row's centre -- and the row shows the item's transport glyph like
+a port row does. One card can carry the same item on an input row and a catalyst
+row; the two take separate handles and separate edges.
+
+The catalyst rows are a block of their own, set off from the inputs above them by
+a hairline with half a row of air around it. They read at full ink, as important
+as the supplied rows, and each carries a TICKED accent tab in the item's hue
+where an input row carries a solid bar: the ladder, not a colour, is what says
+catalyst on this canvas. No word names the block. The rate reads like an input
+row's -- a bare number in the same trailing slot -- and states whole machines'
+worth of charge, `ceil(machines)` times the per-machine figure, since a machine
+takes its whole charge to start whether or not its last run is a full one. A card
+running 2.5 machines therefore reads three machines of catalyst beside port rows
+sized for 2.5. Naming the row states the per-machine figure ("6/min per
+machine").
+
+A boundary card draws the item's name and its amount. Nothing else: no word on
+it names the card's direction, its provenance or its class. What kind of card it
+is reads off the drawing instead -- direction off the side the accent tab sits on
+and the column the card stands in, a tap off its dashed tab and the `of N/min`
+share under its figure, catalyst supply off a TICKED tab in the boundary cyan.
+The words are not lost, they ride the card's aria-label, so a screen reader still
+hears the direction and the class. Any of them drawn on the card is a defect.
 
 Catalyst supply leaves the boundary on cards of its own, the `u:cat:<item>`
 family, never on the item's ordinary supply card: an item feeding both an input
 row somewhere and a catalyst row elsewhere draws two boundary cards, and each
 card's rate counts only its own side. The catalyst family follows the ordinary
-one's shape -- a single card when one bucket cycles the item, otherwise an
-aggregate card plus a tap slice per container -- and its caption reads
-"catalyst" in place of the raw or import word. A cap typed on the catalyst
+one's shape -- a single card when one bucket takes the item, otherwise an
+aggregate card plus a tap slice per container. A cap typed on the catalyst
 supply draws its chip in the ordinary cap slot.
 
-The plan's catalyst need is held by two pools: the dedicated catalyst supply and
+Two pools answer the plan's catalyst need: the dedicated catalyst supply and
 whatever headroom the ordinary supply has left after its own consumers. So an
 item's catalyst account reads as the need, how much of it came from catalyst
-supply, how much from general supply, and how much neither pool could hold.
+supply, how much from general supply, and how much neither pool could cover.
 Naming an aggregate or single catalyst card states that breakdown under the item
 name, with the unmet line drawn only when there is a shortage; the inputs panel
 states the same account across the item's two rows, and flags the shortage there
 as well.
 
 Some recipes only run inside a gas environment, which the player builds a
-disperser for. Such a card states its requirement as a frame around the card
-rather than as a mark inside it: a plate of chevrons above the card, a
-single-row plate below it, and a faint tint of the environment's colour with
-a soft glow behind the card. The upper plate is two rows tall, blue for a
-stable environment and yellow for an acidic one, and carries a dark glyph at
-its centre that names the environment: two peaks for a stable one, four
-teardrops for an acidic one. The lower plate is one row of the same chevrons,
-so every triangle is the same size on both plates, and it carries no glyph.
-The space between the plates at the card's sides stays open, and the card's
-own border keeps its neutral colour; selection keeps its lime border while
-the plates keep the environment colour. Hovering the card names the
-environment. The frame is a build requirement rather than a detail figure, so
-it draws at every zoom and never collapses with the low-zoom simplifications.
+disperser for. Such a card states its requirement in a plate of chevrons that is
+the card's own first row, above the header and inside the card's box, exactly as
+wide as the card: one row tall, blue for a stable environment and yellow for an
+acidic one, with a dark glyph at its centre naming the environment -- two peaks
+for a stable one, four teardrops for an acidic one. The plate is the only one;
+nothing is drawn under the card and nothing reaches past its sides. Behind the
+card a faint tint of the environment's colour and a soft glow stay. The card's
+own border keeps its neutral colour, and selection keeps its lime border while
+the plate keeps the environment colour. Hovering the card names the environment.
+The requirement is a build constraint rather than a detail figure, so the plate
+draws at every zoom and never collapses with the low-zoom simplifications.
 
 ## Edges
 
@@ -102,6 +110,12 @@ one rate chip (the item icon and a rate per minute), and that chip belongs on it
 own line. The colour keeps the item's icon hue except where a family would
 otherwise read as one colour: such an item may sit up to 15 degrees off its icon
 hue, and near-gray families keep a saturation ceiling of 34.
+
+An edge out of the catalyst boundary pool draws crossbar ticks along its stroke,
+a ladder riding the transport dash it already carries, in the item's own colour.
+It is the same ladder the catalyst rows and the catalyst boundary card wear, and
+it exists so that an item supplied both ways cannot draw its charge line and its
+ordinary supply line as the same mark. No new colour is spent on it.
 
 A container's frame is kept clear of strokes. A loop's return edge runs in the
 corridor, never along the box border: its two verticals hold a fixed gap off
@@ -121,6 +135,15 @@ apart the whole width of the gap. A step spanning one row is drawn as a single
 diagonal rather than a bevel-vertical-bevel. Trunk members and edges that skip a
 layer keep their old shape -- they turn where their structure says, not at the
 entry column.
+
+Forward horizontals keep a floor off each other, the horizontal sibling of the
+column floor under Fan-out and fan-in. Where two such runs of DIFFERENT edges
+share more than a port stub of x, they stay at least a chip box apart in y, and
+the one routed later jogs to the nearest clear level to buy it. Runs of the same
+edge, and the members of one trunk on their shared column, are exempt. The defect
+it exists to prevent is the same one: two lines a couple of units apart read as
+one thick stroke, and the two rate chips centred on them smear into one figure
+that names neither.
 
 Where two strokes of DIFFERENT flows properly cross, the stroke passing under
 shows a gap: a short break is cut out of that stroke around the crossing, the
@@ -180,9 +203,13 @@ a total on a chip and the same total on a card come from one formatter, so they
 should read alike; members rounded independently can still sum a cent off that
 number.
 
-Chips, machine cards, boundary cards, product-chip captions and the totals lines
-all draw from one formatter, so a plan shows one rate unit throughout. A mix
-inside a single plan, `/min` beside `/MIN`, is a defect and not a style.
+Chips, machine cards, boundary cards and the totals lines all draw from one
+formatter, so a plan shows one rate unit throughout. A mix inside a single plan,
+`/min` beside `/MIN`, is a defect and not a style. That formatter also fixes how
+precise a figure gets: at or above 0.1/min a rate carries at most one fractional
+digit, with trailing zeros dropped, so no surface on the canvas prints two
+decimals. Below 0.1/min it takes as many digits as it needs to avoid printing a
+real rate as `0`.
 
 Where a chip stands is a rule on the drawn line, not a search for free space,
 and the rule is one per chip kind:
@@ -235,8 +262,8 @@ matches the live geometry, and comes back as soon as it does.
 
 Do not report these as defects.
 
-- Row rates vanish below the low-zoom band. The overlay is drawn at rest at
-  every other zoom, and hover does nothing to it.
+- Row rates vanish below the low-zoom band. At every other zoom the rate column
+  is drawn at rest, and hover does nothing to it.
 - Every rate chip is hidden below zoom 0.35, a trunk's aggregate chip included.
   A fit shot of a dense plan therefore shows no chips, and card detail fades at
   low zoom by design.

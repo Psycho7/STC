@@ -323,6 +323,21 @@ test.describe("DOM geometry audit", () => {
 // at their measured counts as first pins. One cell moved UP and carries its own
 // ruling note below (CROSSING_BASELINE battery5-xiranite); every other cell
 // held or fell.
+//
+// CATALYST EXAM FIXES 2026-09-15, docs/plans/2026-09-15-catalyst-exam-fixes.md
+// (T9): nine cells moved UP on the integrated campaign branch, seven crossing
+// counts and two padding grazes, each noted at its cell below. They are one
+// family. T6 gives forward horizontal runs of different edges a y floor of a
+// chip box (I2), so a run that used to hide inside a neighbour's stroke now
+// steps off it and crosses whatever that neighbour's corridor holds; T7 layers
+// each container interior in its own scope, which moves the cards a step apart
+// on the plans that have containers; and T2 / T3 change what a card is tall,
+// which moves every row a stroke lands on. A separation the reader can see,
+// bought with crossings the cue mask already marks. Nothing else in either
+// table moved, and no counter in the 0.6 census or the reading-zoom census
+// moved at all. Both directions are harvested in one run (every ratchet here is
+// a soft expect), but only an exceeded pin prints its measurement, so a cell
+// that FELL is invisible to this harvest and keeps its old pin.
 
 // Crossing census: pairwise proper crossings between segments of different
 // edges, at fit zoom. An upper bound that ratchets down, not a target -- a plan
@@ -345,26 +360,44 @@ const CROSSING_BASELINE: Record<string, number> = {
   // the rail deconfliction switched off, so four of the five added crossings
   // are the topology and one is a rail stepping off a column it used to share.
   // UP move, listed for ruling.
-  "battery5-xiranite": 26,
+  //
+  // CATALYST EXAM FIXES 2026-09-15 (T6): 26 -> 27. One forward horizontal takes
+  // the new chip-box floor off the run it shared and crosses one more corridor
+  // on its way down. UP move, listed for ruling.
+  "battery5-xiranite": 27,
   crystal: 1,
   // CATALYST NODE 2026-09-14 (PR B): 1 -> 2. The plan's one catalyst charge
   // moved to its own card, one layer further from its consumer. UP move,
   // listed for ruling.
   equip4: 2,
   // ROUTING FINDINGS 2026-09-14: 90 -> 88, re-measured on this branch.
-  multi6: 88,
+  //
+  // CATALYST EXAM FIXES 2026-09-15 (T7 with T6): 88 -> 90. The plan's loop
+  // containers are laid out in their own scopes now, which spreads the cards
+  // the supply runs cross, and the forward floor lifts two of those runs off
+  // their neighbours. UP move, listed for ruling.
+  multi6: 90,
   tundra: 0,
   // CATALYST NODE 2026-09-14 (PR B of the catalyst supply pools plan): every
   // catalyst charge now leaves the item's own u:cat:* boundary card instead of
   // its ordinary u:in:* one: the three gas_xiranite runs leave the new card and
   // cross more of the chain they feed. UP move, listed for ruling.
-  script43: 31,
+  //
+  // CATALYST EXAM FIXES 2026-09-15 (T6): 31 -> 32. The gas_xiranite charge run
+  // e:0 is the loser of the new forward floor against the raw supply run it used
+  // to shadow, and crosses one more corridor at its new level. UP move, listed
+  // for ruling.
+  script43: 32,
   // CATALYST NODE 2026-09-14 (PR B of the catalyst supply pools plan): every
   // catalyst charge now leaves the item's own u:cat:* boundary card instead of
   // its ordinary u:in:* one, so each transmuter plan gained a card and a set of
   // supply runs that cross the chain they feed. Both cells: UP moves, listed
   // for ruling.
-  "coupon-web": 5,
+  // CATALYST EXAM FIXES 2026-09-15 (T6 with T2 / T3): 5 -> 7. A small plan, so
+  // every stroke that steps clear of another crosses the few corridors there
+  // are; the taller cards move the rows those runs land on as well. UP move,
+  // listed for ruling.
+  "coupon-web": 7,
   "gas-web": 18,
   "rot-bottled_food_3": 2,
   "rot-bottled_food_4": 3,
@@ -372,7 +405,11 @@ const CROSSING_BASELINE: Record<string, number> = {
   // catalyst charge now leaves the item's own u:cat:* boundary card instead of
   // its ordinary u:in:* one, so each transmuter plan gained a card and a set of
   // supply runs that cross the chain they feed. UP move, listed for ruling.
-  transmuters: 22,
+  //
+  // CATALYST EXAM FIXES 2026-09-15 (T6 with T2 / T3): 22 -> 24. Two of those
+  // supply runs take the forward floor off the lines they shadowed, at rows the
+  // taller cards moved. UP move, listed for ruling.
+  transmuters: 24,
   // ROUTING FINDINGS 2026-09-14 (docs/plans/2026-09-14-render-findings.md): the
   // two reported plans join the corpus. Both route several flows through one
   // corridor (a 14x refinery fan-in on script43-xiranite), so these are first
@@ -383,8 +420,15 @@ const CROSSING_BASELINE: Record<string, number> = {
   // its ordinary u:in:* one, so each transmuter plan gained a card and a set of
   // supply runs that cross the chain they feed. Both cells: UP moves, listed
   // for ruling.
-  "copper-script43": 31,
-  "script43-xiranite": 30,
+  //
+  // CATALYST EXAM FIXES 2026-09-15 (T6, T7): copper-script43 31 -> 38,
+  // script43-xiranite 30 -> 31. The largest move in this table is
+  // copper-script43, whose two long supply corridors ran several flows within a
+  // couple of units of each other: the floor lifts them apart, and each run it
+  // moves crosses the chain at its new level. Seven is the largest move in this
+  // table. Both cells: UP moves, listed for ruling.
+  "copper-script43": 38,
+  "script43-xiranite": 31,
 };
 
 // Padding-graze ratchet (tier 3): segments that clip only a foreign card's
@@ -402,7 +446,13 @@ const PADDED_GRAZE_BASELINE: Record<string, number> = {
   // foreign card's padding overhang on the way. UP move, listed for ruling.
   multi6: 2,
   tundra: 0,
-  script43: 0,
+  // CATALYST EXAM FIXES 2026-09-15 (T6): script43 0 -> 1, script43-xiranite
+  // 0 -> 1. One graze, the same on both plans: the charge run
+  // e:0 u:cat:gas_xiranite -> u:class:q:20, jogged off the raw supply run it
+  // used to shadow by the forward floor, clips u:class:q:23's padding overhang
+  // at the level it lands on. The padding, not the box -- tier 1 stays at zero.
+  // Both cells: UP moves, listed for ruling.
+  script43: 1,
   "coupon-web": 0,
   "gas-web": 0,
   "rot-bottled_food_3": 0,
@@ -411,7 +461,7 @@ const PADDED_GRAZE_BASELINE: Record<string, number> = {
   // longer clips u:class:q:13's padding.
   transmuters: 0,
   "copper-script43": 0,
-  "script43-xiranite": 0,
+  "script43-xiranite": 1,
 };
 
 // Chip-segment ratchet: (segment, chip) pairs where a foreign flow's line passes
