@@ -163,13 +163,24 @@ export async function bootExamPage(
   }
 }
 
-// The camera every seating census reads at; re-measure the tables if it moves.
+// The camera the chip seating census reads at; re-measure its tables if it
+// moves.
 export const CENSUS_ZOOM = 0.6;
 
-// Load a scenario and park the camera at CENSUS_ZOOM about the pane centre.
+// The camera the reading-zoom census reads at: what a reader sits at when they
+// read a plan's digits, above every chip LOD gate. The exam capture CLI shoots
+// its tiles at this same zoom (tools/exam/capture.ts imports this constant), so
+// a finding an image shows and a census cell describe one picture. Re-measure
+// the reading-zoom tables, and expect the exam images to change, if it moves.
+export const READING_ZOOM = 0.75;
+
+// Load a scenario and park the camera at `zoom` about the pane centre. The zoom
+// is the caller's: the two censuses read the same collectors at different
+// cameras, and which one a reading was taken at is never implicit.
 export async function loadCensusScenario(
   page: Page,
   hash: string,
+  zoom: number,
   seed: { locale?: BootLocale | undefined } = {},
 ): Promise<void> {
   await bootExamPage(page, {
@@ -181,7 +192,7 @@ export async function loadCensusScenario(
   await page.waitForFunction(() => window.__stcExam !== undefined, undefined, {
     timeout: 10_000,
   });
-  await page.evaluate((zoom) => {
+  await page.evaluate((commanded) => {
     const hook = window.__stcExam!;
     const pane = document
       .querySelector<HTMLElement>(".react-flow")!
@@ -191,10 +202,10 @@ export async function loadCensusScenario(
     const worldCx = (pane.width / 2 - m.e) / m.a;
     const worldCy = (pane.height / 2 - m.f) / m.a;
     hook.setViewport({
-      x: pane.width / 2 - worldCx * zoom,
-      y: pane.height / 2 - worldCy * zoom,
-      zoom,
+      x: pane.width / 2 - worldCx * commanded,
+      y: pane.height / 2 - worldCy * commanded,
+      zoom: commanded,
     });
-  }, CENSUS_ZOOM);
+  }, zoom);
   await waitForStableViewport(page);
 }

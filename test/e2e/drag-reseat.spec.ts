@@ -83,7 +83,7 @@ const DRAGS = [
 for (const drag of DRAGS) {
   test(`chips re-seat after a ${drag.name} node drag`, async ({ page }) => {
     const scenario = SCENARIOS.find((s) => s.id === "default")!;
-    await loadCensusScenario(page, await scenarioHash(scenario), {
+    await loadCensusScenario(page, await scenarioHash(scenario), CENSUS_ZOOM, {
       locale: "en",
     });
 

@@ -1698,3 +1698,51 @@ export function auditChipPortCover(
   }
   return out;
 }
+
+// One pair of chip boxes standing on each other, in world units.
+export type ChipOverlapPair = {
+  aId: string;
+  aLabel: string;
+  bId: string;
+  bLabel: string;
+  // How deep the two interpenetrate on each axis.
+  dx: number;
+  dy: number;
+};
+
+// Every pair of chip boxes that interpenetrate by more than `eps` on BOTH axes.
+// PAIRS, not chips: a collision is a relation between two seats and the report
+// has to name both, and the node-side pin this mirrors
+// (test/canvas/chipOverlap.corpus.test.ts) counts the same way.
+//
+// Two chips overlapping do not read as two labels -- the reader gets one smeared
+// figure and cannot tell which line either figure belongs to -- so the target is
+// zero on every plan. Every chip kind counts: the reader does not know which of
+// two boxes is a trunk aggregate and which an item rate.
+//
+// Abutment is not overlap: the trunk chip pitch equals the chip box height, so
+// two chips one above the other legitimately share a boundary.
+export function auditChipBoxOverlaps(
+  chips: ReadonlyArray<ChipRect>,
+  eps = 0.5,
+): ChipOverlapPair[] {
+  const out: ChipOverlapPair[] = [];
+  for (let i = 0; i < chips.length; i++) {
+    for (let j = i + 1; j < chips.length; j++) {
+      const a = chips[i]!;
+      const b = chips[j]!;
+      const dx = Math.min(a.right, b.right) - Math.max(a.left, b.left);
+      const dy = Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top);
+      if (dx <= eps || dy <= eps) continue;
+      out.push({
+        aId: a.testId,
+        aLabel: a.label,
+        bId: b.testId,
+        bLabel: b.label,
+        dx,
+        dy,
+      });
+    }
+  }
+  return out;
+}

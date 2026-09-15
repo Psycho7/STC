@@ -51,7 +51,7 @@ import {
   type SceneCollection,
   type SceneElement,
 } from "../../test/e2e/collect";
-import { bootExamPage } from "../../test/e2e/viewport";
+import { READING_ZOOM, bootExamPage } from "../../test/e2e/viewport";
 import {
   LABEL_MIN_ZOOM,
   CHIP_ICON_ONLY_MAX_ZOOM,
@@ -158,7 +158,13 @@ function parseArgs(argv: string[]): Options | string {
   let hash: string | undefined;
   let planId: string | undefined;
   let out: string | undefined;
-  let targetZoom = 0.75;
+  // The default target zoom IS the reading-zoom census camera
+  // (test/e2e/geometry-audit.spec.ts reads its tables at READING_ZOOM), so a
+  // finding an image shows and a census cell describe one picture: the chip LOD
+  // gates make which chips are mounted and which are collapsed zoom-specific,
+  // and two cameras would leave the two unable to confirm or refute each other.
+  // Passing --target-zoom breaks that join for the capture that passes it.
+  let targetZoom = READING_ZOOM;
   let locale = "en";
   let maxTiles = 64;
   let seamMargin = 64;
