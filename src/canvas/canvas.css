@@ -2114,13 +2114,19 @@
   opacity: 0.5;
 }
 
+/* Every cell names its row as well as its column. The output side mirrors by
+   column while the DOM order stays sprite, name, rate, so its rate asks for
+   column 1 after auto-placement has already passed it -- without the row pin
+   the grid opens a second implicit row and the rate lands under its name. */
 .rn-row .ico {
+  grid-row: 1;
   grid-column: 1;
   width: 20px;
   height: 20px;
 }
 
 .rn-row .lbl {
+  grid-row: 1;
   grid-column: 2;
   min-width: 0;
   white-space: nowrap;
@@ -2137,6 +2143,7 @@
    painting over it again. Nothing wraps or ellipsizes here: the whole figure
    is drawn or the card is wrong. */
 .rn-row .rate {
+  grid-row: 1;
   grid-column: 3;
   font-family: var(--font-num);
   font-size: 12px;

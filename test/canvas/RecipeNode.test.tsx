@@ -9,7 +9,7 @@ import { itemColor } from "../../src/canvas/itemColor";
 import { iconPosition } from "../../src/canvas/iconSprite";
 import { pack } from "../../src/data/load";
 import { measureRecipe } from "../../src/canvas/recipeGeometry";
-import { cssBlock } from "../../src/canvas/cssContract.testkit";
+import { cssBlock, cssValue } from "../../src/canvas/cssContract.testkit";
 import {
   ItemPackProvider,
   type ItemPackContextValue,
@@ -730,6 +730,29 @@ describe("RecipeNode", () => {
           .map((el) => el.className)
           .filter((c) => typeof c === "string" && c !== "");
         expect(classes).toEqual(["ico ico-20", "lbl", "rate"]);
+      }
+    });
+
+    // The mirror is column placement over a DOM order that runs 1, 2, 3, so the
+    // output rate asks for column 1 after the cursor has passed it. Without an
+    // explicit row every cell must carry, auto-placement opens a second
+    // implicit row and drops the rate under its own name.
+    it("pins every row cell to grid row 1 in canvas.css", () => {
+      for (const selector of [
+        ".rn-row .ico",
+        ".rn-row .lbl",
+        ".rn-row .rate",
+      ]) {
+        expect(cssValue(selector, "grid-row"), selector).toBe("1");
+      }
+      // The output rules move the column only; a grid-row there would shadow
+      // the pin above.
+      for (const selector of [
+        ".rn-row.output .ico",
+        ".rn-row.output .lbl",
+        ".rn-row.output .rate",
+      ]) {
+        expect(cssBlock(selector), selector).not.toContain("grid-row");
       }
     });
 
