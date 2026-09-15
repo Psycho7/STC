@@ -31,7 +31,7 @@ import {
   RECIPE_WIDTH,
 } from "../../src/canvas/dimensions";
 import { CANVAS_BG_HEX } from "../../src/canvas/itemColor";
-import { nodeHeight } from "../../src/canvas/nodeGeometry";
+import { nodeHeight, portOffsetY } from "../../src/canvas/nodeGeometry";
 import type { RFAnyNode } from "../../src/canvas/layout";
 import { mkRecipe, productNode, recipeNode } from "./busRouting.testkit";
 import {
@@ -125,7 +125,7 @@ describe("cardRectsFor grows the model box into the drawn frame", () => {
     // Absolute, like the recipe case above: the model box IS the drawn box for
     // a product, so a growth applied here would show up as a moved edge.
     expect(cardRectsFor(nodes, byId)).toEqual([
-      { id: "p", left: 200, top: 60, right: 348, bottom: 138, border: 0 },
+      { id: "p", left: 200, top: 60, right: 348, bottom: 60 + 71, border: 0 },
     ]);
   });
 });
@@ -147,7 +147,7 @@ describe("portKeepOutRect covers the drawn port furniture", () => {
     left: 200,
     top: 60,
     right: 348,
-    bottom: 138,
+    bottom: 60 + PRODUCT_HEIGHT,
     border: 0,
   };
 
@@ -271,6 +271,36 @@ describe("the product card's drawn width is what the layout assigns", () => {
 
     expect(cssBlock(".product-node")).not.toMatch(/box-sizing:/);
     expect(content + 2 * padX + border + accent).toBe(PRODUCT_WIDTH);
+  });
+
+  it("sums the drawn chrome to PRODUCT_HEIGHT", () => {
+    // The card is a column of two rows. Every term is declared in canvas.css --
+    // the line boxes in pixels rather than as ratios -- so the sum is the
+    // browser's drawn height and not an estimate of it. The head is the taller
+    // of the item sprite and the name's line.
+    const border = cssPx(".product-node", "border");
+    const padTop = cssPx(".product-node", "padding");
+    const padBottom = cssPx(".product-node", "padding", 2);
+    const gap = cssPx(".product-node", "gap");
+    const head = Math.max(
+      cssPx(".ico-28", "height"),
+      cssPx(".pn-name", "line-height"),
+    );
+    const rate =
+      cssPx(".pn-rate", "margin-top") + cssPx(".pn-rate", "line-height");
+
+    expect(2 * border + padTop + padBottom + head + gap + rate).toBe(
+      PRODUCT_HEIGHT,
+    );
+  });
+
+  it("puts React Flow's top:50% handle on the port y the model assigns", () => {
+    // A product resolves no row, so portOffsetY falls back to the node's
+    // vertical centre; the drawn handle sits at 50% of the same drawn box only
+    // while PRODUCT_HEIGHT is that box's height.
+    const node = productNode("p", 200, 60, PRODUCT_WIDTH, PRODUCT_HEIGHT);
+
+    expect(portOffsetY(node, "ore", "in")).toBe(PRODUCT_HEIGHT / 2);
   });
 
   it("gives every direction modifier the same accent width", () => {

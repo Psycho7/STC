@@ -5,7 +5,11 @@ import type { Item } from "@aef/schema";
 import ProductNode from "../../src/canvas/ProductNode";
 import { LocaleProvider } from "../../src/data/i18n-context";
 import { ItemPackProvider } from "../../src/canvas/itemPackContext";
-import { cssBlock } from "../../src/canvas/cssContract.testkit";
+import {
+  cssBlock,
+  cssPx,
+  cssValue,
+} from "../../src/canvas/cssContract.testkit";
 import { PRODUCT_HEIGHT } from "../../src/canvas/dimensions";
 import {
   makeItem,
@@ -102,83 +106,118 @@ describe("ProductNode", () => {
     expect(node?.className).toContain("surplus");
   });
 
-  it("renders the pn-kind caption for an uncapped raw input via buildPnKind (no rate slot)", () => {
+  // The card draws no caption words any more (ruling I5/I10): what is left is
+  // the name row and the figure row. This helper is the gate -- card text minus
+  // those two strings has to come out empty, whatever chrome is added later.
+  const leftoverText = (container: HTMLElement): string => {
+    const card = container.querySelector(".product-node");
+    if (card === null) throw new Error("no product card rendered");
+    const name = card.querySelector(".pn-name")?.textContent ?? "";
+    const figure = card.querySelector(".pn-rate")?.textContent ?? "";
+    return (card.textContent ?? "").replace(name, "").replace(figure, "");
+  };
+
+  it("draws nothing but the name and the figure on an input card", () => {
     const { container } = renderProduct(
       {
         kind: "inputProduct",
         itemId: "copper_ore",
         rate: { num: "2", denom: "1" },
+        rateCap: { num: "4", denom: "1" },
       },
       [makeItem("copper_ore", true)],
     );
-    const kind = container.querySelector(".pn-kind");
-    expect(kind?.textContent).toBe("In ·\u00A0raw");
+    expect(container.querySelector(".pn-kind")).toBeNull();
+    expect(leftoverText(container)).toBe("");
   });
 
-  it("renders the pn-kind caption for a target output via buildPnKind", () => {
-    const { container } = renderProduct(
-      {
-        kind: "outputProduct",
-        itemId: "copper_nugget",
-        rate: { num: "2", denom: "1" },
-        flavor: "target",
-      },
-      [makeItem("copper_nugget", false)],
-    );
-    const kind = container.querySelector(".pn-kind");
-    expect(kind?.textContent).toBe("Out ·\u00A0target ·\u00A0120/min");
-  });
-
-  it("glues the interpunct to the following token in the composed caption", () => {
-    // A wrapped meta line must never strand the middle dot at line end
-    // (exam Z4a): the NBSP after the dot moves the break to before it. The
-    // glue between the caption words and the rate segment is composed here in
-    // the component, so the composed caption is what carries the assertion.
-    const { container } = renderProduct(
-      {
-        kind: "outputProduct",
-        itemId: "copper_nugget",
-        rate: { num: "2", denom: "1" },
-        flavor: "target",
-      },
-      [makeItem("copper_nugget", false)],
-    );
-    const caption = container.querySelector(".pn-kind")?.textContent ?? "";
-    expect(caption).toContain(" ·\u00A0");
-    expect(caption).not.toContain("· ");
-  });
-
-  it("keeps the caption's rate segment out of the uppercase run", () => {
-    // The caption's label words run uppercase; the rate segment's localized
-    // unit must not ride the transform (unit-casing-mix family). Inject the
-    // real .pn-kind rules from canvas.css into jsdom and read the computed
-    // cascade, mirroring the zoom-low probe in src/canvas/RecipeNode.test.tsx.
-    const kindRule = cssBlock(".pn-kind");
-    const rateRule = cssBlock(".pn-kind__rate");
-    document.head.insertAdjacentHTML(
-      "beforeend",
-      `<style id="pn-kind-casing-probe">${kindRule}${rateRule}</style>`,
-    );
-    try {
+  it("draws nothing but the name and the figure on target and surplus cards", () => {
+    for (const flavor of ["target", "surplus"] as const) {
       const { container } = renderProduct(
         {
           kind: "outputProduct",
           itemId: "copper_nugget",
           rate: { num: "2", denom: "1" },
-          flavor: "target",
+          flavor,
         },
         [makeItem("copper_nugget", false)],
       );
-      const caption = container.querySelector<HTMLElement>(".pn-kind");
-      expect(caption).not.toBeNull();
-      const rateSpan = caption!.querySelector<HTMLElement>(".pn-kind__rate");
-      expect(rateSpan).not.toBeNull();
-      expect(rateSpan!.textContent).toContain("120/min");
-      expect(getComputedStyle(caption!).textTransform).toBe("uppercase");
-      expect(getComputedStyle(rateSpan!).textTransform).toBe("none");
-    } finally {
-      document.getElementById("pn-kind-casing-probe")?.remove();
+      expect(container.querySelector(".pn-kind")).toBeNull();
+      expect(leftoverText(container)).toBe("");
+      cleanup();
     }
+  });
+
+  it("draws nothing but the name and the figure on a tap card", () => {
+    const { container } = renderProduct(
+      {
+        kind: "inputProduct",
+        itemId: "copper_ore",
+        rate: { num: "1", denom: "2" },
+        isFanout: true,
+        parentRate: { num: "9", denom: "2" },
+      },
+      [makeItem("copper_ore", true)],
+    );
+    expect(container.querySelector(".pn-kind")).toBeNull();
+    expect(leftoverText(container)).toBe("");
+  });
+
+  it("speaks the direction and class of an input card in en and zh", () => {
+    const label = (locale: "en" | "zh"): string => {
+      const { container } = renderProduct(
+        {
+          kind: "inputProduct",
+          itemId: "copper_ore",
+          rate: { num: "2", denom: "1" },
+        },
+        [makeItem("copper_ore", true)],
+        locale,
+      );
+      const text =
+        container
+          .querySelector("[data-testid='product-node']")
+          ?.getAttribute("aria-label") ?? "";
+      cleanup();
+      return text;
+    };
+    expect(label("en")).toBe("In, raw");
+    const zh = label("zh");
+    expect(zh).toBe("输入, 原料");
+    expect(zh).not.toMatch(/In|raw/);
+  });
+
+  it("speaks the direction and class of a target output in en and zh", () => {
+    const en = renderProduct(
+      {
+        kind: "outputProduct",
+        itemId: "copper_nugget",
+        rate: { num: "2", denom: "1" },
+        flavor: "target",
+      },
+      [makeItem("copper_nugget", false)],
+    );
+    expect(
+      en.container
+        .querySelector("[data-testid='product-node']")
+        ?.getAttribute("aria-label"),
+    ).toBe("Out, target");
+    cleanup();
+    const zh = renderProduct(
+      {
+        kind: "outputProduct",
+        itemId: "copper_nugget",
+        rate: { num: "2", denom: "1" },
+        flavor: "surplus",
+      },
+      [makeItem("copper_nugget", false)],
+      "zh",
+    );
+    expect(
+      zh.container
+        .querySelector("[data-testid='product-node']")
+        ?.getAttribute("aria-label"),
+    ).toBe("输出, 过剩");
   });
 
   it("renders the realized rate primary row (no uncapped literal, no cap chip) when rateCap is absent", () => {
@@ -237,9 +276,7 @@ describe("ProductNode", () => {
     );
     const node = container.querySelector(".product-node");
     expect(node?.classList.contains("tap")).toBe(true);
-    expect(container.querySelector(".pn-kind")?.textContent).toBe(
-      "In ·\u00A0tap",
-    );
+    expect(node?.getAttribute("aria-label")).toBe("In, tap");
     expect(container.querySelector(".pn-rate__of")?.textContent).toBe(
       "of 270/min",
     );
@@ -257,9 +294,6 @@ describe("ProductNode", () => {
     expect(
       container.querySelector(".product-node")?.classList.contains("tap"),
     ).toBe(false);
-    expect(container.querySelector(".pn-kind")?.textContent).toBe(
-      "In ·\u00A0raw",
-    );
     expect(container.querySelector(".pn-rate__of")).toBeNull();
   });
 
@@ -281,10 +315,11 @@ describe("ProductNode", () => {
     expect(node?.getAttribute("data-flavor")).toBe("outputProduct");
   });
 
-  // The catalyst pool has boundary cards of its own (u:cat:*). They use the
-  // same card as an ordinary input: one word in the caption changes, the card
-  // carries a role marker for selectors, and the item-level split of the
-  // charge rides the name tooltip rather than a fourth line of chrome.
+  // The catalyst pool has boundary cards of its own (u:cat:*). They draw the
+  // same box as an ordinary input: the pool shows in the ticked left tab and in
+  // the spoken label, the card carries a role marker for selectors, and the
+  // item-level split of the charge rides the name tooltip rather than another
+  // line of chrome.
   describe("catalyst nodes", () => {
     const catalystData = (
       extra: Partial<ProductNodeData> = {},
@@ -297,22 +332,24 @@ describe("ProductNode", () => {
         ...extra,
       }) as ProductNodeData;
 
-    it("replaces the raw/import word with the catalyst word in en and zh", () => {
-      const en = renderProduct(catalystData(), [
-        makeItem("gas_xiranite", true),
-      ]);
-      expect(en.container.querySelector(".pn-kind")?.textContent).toBe(
-        "In · catalyst",
-      );
-      cleanup();
-      const zh = renderProduct(
-        catalystData(),
-        [makeItem("gas_xiranite", true)],
-        "zh",
-      );
-      const kind = zh.container.querySelector(".pn-kind")?.textContent ?? "";
-      expect(kind).toContain("催化");
-      expect(kind).not.toMatch(/raw|import|catalyst/);
+    it("speaks the catalyst word in place of raw/import in en and zh", () => {
+      const label = (locale: "en" | "zh"): string => {
+        const { container } = renderProduct(
+          catalystData(),
+          [makeItem("gas_xiranite", true)],
+          locale,
+        );
+        const text =
+          container
+            .querySelector("[data-testid='product-node']")
+            ?.getAttribute("aria-label") ?? "";
+        cleanup();
+        return text;
+      };
+      expect(label("en")).toBe("In, catalyst");
+      const zh = label("zh");
+      expect(zh).toContain("催化");
+      expect(zh).not.toMatch(/raw|import|catalyst/);
     });
 
     it("keeps the catalyst word on a fanout slice of the pool in en and zh", () => {
@@ -320,14 +357,18 @@ describe("ProductNode", () => {
       // the tap word joins the catalyst word instead of replacing it.
       const slice = catalystData({ isFanout: true });
       const en = renderProduct(slice, [makeItem("gas_xiranite", true)]);
-      expect(en.container.querySelector(".pn-kind")?.textContent).toBe(
-        "In · catalyst · tap",
-      );
+      expect(
+        en.container
+          .querySelector("[data-testid='product-node']")
+          ?.getAttribute("aria-label"),
+      ).toBe("In, catalyst, tap");
       cleanup();
       const zh = renderProduct(slice, [makeItem("gas_xiranite", true)], "zh");
-      expect(zh.container.querySelector(".pn-kind")?.textContent).toBe(
-        "输入 · 催化 · 分接",
-      );
+      expect(
+        zh.container
+          .querySelector("[data-testid='product-node']")
+          ?.getAttribute("aria-label"),
+      ).toBe("输入, 催化, 分接");
     });
 
     it("marks the card with data-role=catalyst and leaves an ordinary card unmarked", () => {
@@ -459,7 +500,40 @@ describe("ProductNode", () => {
         [makeItem("gas_xiranite", true)],
       );
       expect(skeleton(container)).toEqual(ordinary);
-      expect(PRODUCT_HEIGHT).toBe(78);
+      expect(PRODUCT_HEIGHT).toBe(71);
+    });
+
+    it("wears a ticked left tab of the plain input's width", () => {
+      // The catalyst mark is a pattern, not a colour: the tab is the input
+      // accent's width, painted as a repeating stripe of the same boundary
+      // cyan. Both halves are read out of canvas.css, so a rule renamed or
+      // dropped in the stylesheet fails here.
+      const plain = cssBlock(".product-node.input");
+      const catalyst = cssBlock('.product-node.input[data-role="catalyst"]');
+      expect(catalyst).not.toBe(plain);
+      expect(catalyst).toMatch(/repeating-linear-gradient/);
+      expect(
+        cssValue(
+          '.product-node.input[data-role="catalyst"]',
+          "background-image",
+        ),
+      ).toContain("--ak-accent-cyan");
+      // Width parity with the solid tab, and the 4px tick pitch.
+      expect(
+        cssPx('.product-node.input[data-role="catalyst"]', "background-size"),
+      ).toBe(cssPx(".product-node.input", "border-left"));
+      const ticks = cssValue(
+        '.product-node.input[data-role="catalyst"]',
+        "background-image",
+      );
+      expect(ticks).toContain("0 2px");
+      expect(ticks).toContain("2px 4px");
+    });
+
+    it("keeps the pool's name at full ink even on a tap slice", () => {
+      expect(
+        cssValue('.product-node.input[data-role="catalyst"] .pn-name', "color"),
+      ).toBe("var(--ak-text-primary)");
     });
   });
 

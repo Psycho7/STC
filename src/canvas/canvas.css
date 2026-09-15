@@ -1791,29 +1791,17 @@
   gap: 8px;
 }
 
+/* The name and rate line boxes are declared in pixels, not as ratios or as the
+   font's own `normal`: PRODUCT_HEIGHT is the model box of every boundary card,
+   and it is summed from these two rows plus the card's padding, border and gap.
+   A line height the font metrics decide would make the drawn card disagree with
+   the model, and the port would leave the card's vertical centre. */
 .pn-name {
   font-size: 12px;
   font-weight: 700;
   letter-spacing: -0.01em;
-  line-height: 1.15;
+  line-height: 16px;
   color: var(--ak-text-primary);
-}
-
-.pn-kind {
-  font-family: var(--ak-font-mono);
-  font-size: 10px;
-  letter-spacing: 0.14em;
-  color: var(--ak-text-secondary);
-  text-transform: uppercase;
-  line-height: 1;
-  margin-top: 2px;
-}
-
-/* The caption's trailing rate segment. .pn-kind uppercases the label words;
-   this span opts the segment out so the localized unit renders "/min" (not
-   "/MIN") like the .pn-rate .unit span one row down (unit-casing-mix). */
-.pn-kind__rate {
-  text-transform: none;
 }
 
 .pn-rate {
@@ -1821,6 +1809,7 @@
   font-size: 14px;
   font-weight: 700;
   letter-spacing: -0.01em;
+  line-height: 18px;
   margin-top: 2px;
 }
 
@@ -1848,6 +1837,7 @@
 .pn-rate__cap {
   display: inline-flex;
   align-items: center;
+  line-height: 1;
   margin-left: 6px;
   padding: 1px 5px;
   border: 1px solid var(--ak-divider);
@@ -1875,6 +1865,7 @@
 .pn-rate__of {
   display: inline-flex;
   align-items: center;
+  line-height: 1;
   margin-left: 6px;
   padding: 1px 5px;
   border: 1px dashed var(--ak-divider);
@@ -1883,6 +1874,32 @@
   font-weight: 500;
   letter-spacing: 0.05em;
   color: var(--ak-text-secondary);
+}
+
+/* Boundary card of an item's catalyst pool. The catalyst mark on this canvas is
+   a ticked ladder, not a colour of its own, so the card keeps the plain input's
+   3px tab in the same boundary cyan and breaks it into ticks at a 4px pitch.
+   The border itself goes transparent and the ticks are painted as a border-box
+   background stripe, since a border edge cannot carry a gradient; the stripe's
+   width is the accent border width, so the drawn card stays PRODUCT_WIDTH.
+   Placed after the tap rules: a tap slice of the pool keeps its dashed border
+   and dimmer ground, and this pair wins the two ties (background-image, name
+   colour), because catalyst supply is not a second-class card (ruling I3). */
+.product-node.input[data-role="catalyst"] {
+  border-left-color: transparent;
+  background-image: repeating-linear-gradient(
+    to bottom,
+    var(--ak-accent-cyan) 0 2px,
+    transparent 2px 4px
+  );
+  background-repeat: no-repeat;
+  background-origin: border-box;
+  background-size: 3px 100%;
+  background-position: left top;
+}
+
+.product-node.input[data-role="catalyst"] .pn-name {
+  color: var(--ak-text-primary);
 }
 
 .canvas-strip {
