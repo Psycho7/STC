@@ -21,6 +21,11 @@
 //   targetZone  the widest chip any edge entering layer k+1 owes beside its
 //               target port, plus its pads
 //
+// Layers, gaps and reserves are all per SCOPE (the root, and each container
+// interior -- see Scope below), and the widening runs bottom-up: a container's
+// interior is arranged first and its box grows by what that cost, then the
+// parent scope sees the grown box as one interval.
+//
 // This is the ONLY place nodes move after ELK, and it is pure: it returns new
 // node objects and never touches the input array or its positions. Every routing
 // pass runs on the widened nodes and keeps its read-only contract.
@@ -71,11 +76,9 @@ export const COLUMN_PITCH = 2 * DOT_KEEPOFF;
 // imports this module, never the other way round.
 export const COLUMN_MIN_PITCH = 2 * CHAMFER;
 
-// One layer of the laid-out graph: a maximal run of leaf nodes whose x-intervals
-// overlap transitively. `left` is the leftmost left edge over the members,
-// `right` the rightmost right edge. Container ("group") nodes are not members --
-// a container spans the layers of its children, so it would only blur the
-// boundaries.
+// One layer of one SCOPE: a maximal run of that scope's direct children whose
+// x-intervals overlap transitively. `left` is the leftmost left edge over the
+// members, `right` the rightmost right edge.
 export type Layer = {
   readonly index: number;
   readonly left: number;
@@ -83,19 +86,48 @@ export type Layer = {
   readonly members: ReadonlyArray<string>;
 };
 
-export type LayerModel = {
+// A SCOPE is one coordinate frame the layering is meaningful in: the root, and
+// the interior of every container. Its members are its DIRECT children -- leaf
+// cards, and a child container as a single interval covering its whole box.
+//
+// Layering globally is wrong once containers exist. A loop container's interior
+// has its own left-to-right order, and a root card standing beside the container
+// can overlap both the container's first interior column and its second, which
+// merges the two into one global layer: the corridor inside the box then reads
+// as no corridor at all, every edge across it as a zero-distance (backward) one,
+// and the reserve model never widens it.
+//
+//   root scope:      [ product ]      [ ---- container ---- ]   [ card ]
+//   container scope:                   [ seed ] gap [ planter ]
+//
+// The two frames overlap in x and are independent: a gap of one is not a gap of
+// the other, which is why every gap record carries the scope it belongs to.
+export type Scope = {
+  readonly id: string;
   readonly layers: ReadonlyArray<Layer>;
+  // The scope's DIRECT children only, each mapped to its layer index here.
   readonly layerByNodeId: ReadonlyMap<string, number>;
+};
+
+// The root scope's id. A container's scope id is the container node's id.
+export const ROOT_SCOPE = "";
+
+export type LayerModel = {
+  // Root first, then every container interior, in node order.
+  readonly scopes: ReadonlyMap<string, Scope>;
+  // Every node (containers included) to the scope it is a direct child of.
+  readonly scopeByNodeId: ReadonlyMap<string, string>;
 };
 
 // A horizontal band in absolute x.
 export type Zone = { readonly left: number; readonly right: number };
 
-// Gap k, between layer k's right edge and layer k+1's left edge, with the three
-// zones laid out inside it: the source zone flush against layer k, the target
-// zone flush against layer k+1, the column zone in between (it absorbs any slack
-// ELK left over the requirement).
+// Gap k of one scope, between layer k's right edge and layer k+1's left edge,
+// with the three zones laid out inside it: the source zone flush against layer
+// k, the target zone flush against layer k+1, the column zone in between (it
+// absorbs any slack ELK left over the requirement).
 export type GapRecord = {
+  readonly scope: string;
   readonly index: number;
   readonly left: number;
   readonly right: number;
@@ -141,8 +173,10 @@ export type TrunkClassification = {
   >;
 };
 
-// What gap k owes, before any node moves. Zone widths, not coordinates.
+// What one scope's gap k owes, before any node moves. Zone widths, not
+// coordinates.
 export type GapRequirement = {
+  readonly scope: string;
   readonly index: number;
   readonly sourceZone: number;
   readonly columnZone: number;
@@ -158,20 +192,43 @@ export type GapRequirement = {
 // inter-layer gap is BETWEEN_LAYERS_SPACING wide, orders of magnitude above this.
 const LAYER_MERGE_TOLERANCE = 0.5;
 
-// Cluster the leaf nodes into layers by OVERLAPPING x-intervals, not by equal
-// left edges: ELK centres a narrow node (a 148-wide product card, a loop box)
-// inside a layer whose width is the widest member, so the members of one layer
-// do not share a left edge at all. A node joins the running cluster when its
-// left edge is at or left of the cluster's right edge, so a layer is a maximal
-// transitively overlapping run and every gap between two layers is non-negative
-// by construction.
-export function buildLayerModel(nodes: ReadonlyArray<RFAnyNode>): LayerModel {
-  const byId = nodeIndexOf(nodes);
-  const intervals = nodes
-    .filter((node) => node.type !== "group")
+// The scope every node is a direct child of: its container, or the root.
+function scopeByNodeIdOf(nodes: ReadonlyArray<RFAnyNode>): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const node of nodes) out.set(node.id, node.parentId ?? ROOT_SCOPE);
+  return out;
+}
+
+// The scope ids that hold members, root first and then the containers in node
+// order, so every walk over the model is deterministic.
+function scopeIdsOf(
+  nodes: ReadonlyArray<RFAnyNode>,
+  scopeByNodeId: ReadonlyMap<string, string>,
+): string[] {
+  const ids = [ROOT_SCOPE];
+  for (const node of nodes) {
+    const scope = scopeByNodeId.get(node.id)!;
+    if (scope !== ROOT_SCOPE && !ids.includes(scope)) ids.push(scope);
+  }
+  return ids;
+}
+
+// Cluster one scope's direct children into layers by OVERLAPPING x-intervals,
+// not by equal left edges: ELK centres a narrow node (a 148-wide product card, a
+// loop box) inside a layer whose width is the widest member, so the members of
+// one layer do not share a left edge at all. A node joins the running cluster
+// when its left edge is at or left of the cluster's right edge, so a layer is a
+// maximal transitively overlapping run and every gap between two layers is
+// non-negative by construction.
+function layersOfScope(
+  members: ReadonlyArray<RFAnyNode>,
+  byId: ReadonlyMap<string, RFAnyNode>,
+  widthOf: (node: RFAnyNode) => number = nodeWidth,
+): Layer[] {
+  const intervals = members
     .map((node) => {
       const left = absoluteLeft(node, byId);
-      return { id: node.id, left, right: left + nodeWidth(node) };
+      return { id: node.id, left, right: left + widthOf(node) };
     })
     .sort((a, b) => a.left - b.left);
 
@@ -193,31 +250,170 @@ export function buildLayerModel(nodes: ReadonlyArray<RFAnyNode>): LayerModel {
     open.members.push(interval.id);
   }
 
-  const layers: Layer[] = clusters.map((cluster, index) => ({
-    index,
-    ...cluster,
-  }));
-
-  const layerByNodeId = new Map<string, number>();
-  for (const layer of layers) {
-    for (const id of layer.members) layerByNodeId.set(id, layer.index);
-  }
-
-  return { layers, layerByNodeId };
+  return clusters.map((cluster, index) => ({ index, ...cluster }));
 }
 
-// The inter-layer gaps of a layer model: gap k spans layer k's right edge to
-// layer k+1's left edge. A model with fewer than two layers has no gaps.
-export function gapSpansOf(
+function scopeOf(id: string, layers: ReadonlyArray<Layer>): Scope {
+  const layerByNodeId = new Map<string, number>();
+  for (const layer of layers) {
+    for (const member of layer.members) layerByNodeId.set(member, layer.index);
+  }
+  return { id, layers, layerByNodeId };
+}
+
+// The layer model of a placement: one scope for the root and one per container
+// interior, each layered in its own frame.
+export function buildLayerModel(nodes: ReadonlyArray<RFAnyNode>): LayerModel {
+  const byId = nodeIndexOf(nodes);
+  const scopeByNodeId = scopeByNodeIdOf(nodes);
+  const scopes = new Map<string, Scope>();
+  for (const id of scopeIdsOf(nodes, scopeByNodeId)) {
+    const members = nodes.filter((node) => scopeByNodeId.get(node.id) === id);
+    scopes.set(id, scopeOf(id, layersOfScope(members, byId)));
+  }
+  return { scopes, scopeByNodeId };
+}
+
+// The scope chain of a node: the scope it sits in, then that scope's own scope,
+// up to the root. A node the model does not know has an empty chain.
+function scopeChainOf(model: LayerModel, id: string): string[] {
+  const chain: string[] = [];
+  let scope = model.scopeByNodeId.get(id);
+  while (scope !== undefined) {
+    chain.push(scope);
+    if (scope === ROOT_SCOPE) break;
+    scope = model.scopeByNodeId.get(scope);
+  }
+  return chain;
+}
+
+// The LOWEST COMMON SCOPE of a set of nodes: the innermost frame all of them are
+// placed in, which is the frame an edge's (or a whole trunk's) layer distance,
+// gaps and columns are all measured in.
+export function commonScopeOfAll(
   model: LayerModel,
-): ReadonlyArray<{ index: number; left: number; right: number }> {
-  const spans: { index: number; left: number; right: number }[] = [];
-  for (let k = 0; k + 1 < model.layers.length; k += 1) {
-    spans.push({
-      index: k,
-      left: model.layers[k]!.right,
-      right: model.layers[k + 1]!.left,
-    });
+  ids: ReadonlyArray<string>,
+): string | undefined {
+  const chains = ids.map((id) => scopeChainOf(model, id));
+  const first = chains[0];
+  if (first === undefined) return undefined;
+  return first.find((scope) => chains.every((chain) => chain.includes(scope)));
+}
+
+export function commonScopeOf(
+  model: LayerModel,
+  a: string,
+  b: string,
+): string | undefined {
+  return commonScopeOfAll(model, [a, b]);
+}
+
+// The layer index of a node's representative inside `scope`: the node itself
+// when it is a direct child, otherwise the ancestor container that is.
+export function layerIndexIn(
+  model: LayerModel,
+  scope: string,
+  id: string,
+): number | undefined {
+  let node: string | undefined = id;
+  while (node !== undefined && model.scopeByNodeId.get(node) !== scope) {
+    node = model.scopeByNodeId.get(node);
+    if (node === ROOT_SCOPE) return undefined;
+  }
+  if (node === undefined) return undefined;
+  return model.scopes.get(scope)?.layerByNodeId.get(node);
+}
+
+// The HOME layer of a node: its own scope and its index there. This is the frame
+// a node's own furniture lives in -- the cards it shares a left edge with, the
+// gap its entering runs cross -- as opposed to the frame of any one edge.
+export function homeLayerOf(
+  model: LayerModel,
+  id: string,
+): { readonly scope: string; readonly index: number } | undefined {
+  const scope = model.scopeByNodeId.get(id);
+  if (scope === undefined) return undefined;
+  const index = layerIndexIn(model, scope, id);
+  return index === undefined ? undefined : { scope, index };
+}
+
+// Where one edge stands in the model: the scope its two endpoints share and the
+// layer indices of their representatives there.
+export type LayerSpan = {
+  readonly scope: string;
+  readonly from: number;
+  readonly to: number;
+};
+
+export function layerSpanOf(
+  model: LayerModel,
+  sourceId: string,
+  targetId: string,
+): LayerSpan | undefined {
+  const scope = commonScopeOf(model, sourceId, targetId);
+  if (scope === undefined) return undefined;
+  const from = layerIndexIn(model, scope, sourceId);
+  const to = layerIndexIn(model, scope, targetId);
+  if (from === undefined || to === undefined) return undefined;
+  return { scope, from, to };
+}
+
+// The key a gap is looked up by: one scope's gap k. A root gap and a container
+// interior gap can cover the same x band, so an index alone would collide.
+export function gapKeyOf(gap: { scope: string; index: number }): string {
+  return `${gap.scope}#${gap.index}`;
+}
+
+// The gap keys one node's DEPARTING (or ARRIVING) runs could stand in, innermost
+// scope first: the gap right of (left of) the node's own layer, then the same
+// question asked of its container in the parent scope, up to the root.
+//
+// A run out of a card nested in a container crosses that container's interior
+// corridor before it reaches any root gap, so the innermost gap that EXISTS is
+// the one it stands in. The walk ends at the scope the edge's two endpoints
+// share, which is the outermost frame the run can be measured in at all.
+export function gapKeysFor(
+  model: LayerModel,
+  nodeId: string,
+  side: "depart" | "arrive",
+): string[] {
+  const keys: string[] = [];
+  let node: string | undefined = nodeId;
+  while (node !== undefined) {
+    const scope = model.scopeByNodeId.get(node);
+    if (scope === undefined) break;
+    const index = model.scopes.get(scope)?.layerByNodeId.get(node);
+    if (index !== undefined) {
+      keys.push(
+        gapKeyOf({ scope, index: side === "depart" ? index : index - 1 }),
+      );
+    }
+    if (scope === ROOT_SCOPE) break;
+    node = scope;
+  }
+  return keys;
+}
+
+export type GapSpan = {
+  readonly scope: string;
+  readonly index: number;
+  readonly left: number;
+  readonly right: number;
+};
+
+// The inter-layer gaps of every scope: gap k spans layer k's right edge to layer
+// k+1's left edge. A scope with fewer than two layers has no gaps.
+export function gapSpansOf(model: LayerModel): ReadonlyArray<GapSpan> {
+  const spans: GapSpan[] = [];
+  for (const scope of model.scopes.values()) {
+    for (let k = 0; k + 1 < scope.layers.length; k += 1) {
+      spans.push({
+        scope: scope.id,
+        index: k,
+        left: scope.layers[k]!.right,
+        right: scope.layers[k + 1]!.left,
+      });
+    }
   }
   return spans;
 }
@@ -446,15 +642,32 @@ function reserveWidth(text: ChipText | undefined): number {
   return RESERVE_CARD_PAD + chipNaturalWidth(text) + RESERVE_COLUMN_PAD;
 }
 
+// The scope a whole TRUNK is measured in: the lowest common scope of its unit
+// and every counterpart. One trunk draws one junction column, so it stands in
+// one scope's gap however its members are nested.
+export function trunkScopeOf(
+  model: LayerModel,
+  trunk: Trunk,
+  edges: ReadonlyMap<string, Edge>,
+): string | undefined {
+  const ids = [trunk.unit];
+  for (const id of trunk.members) {
+    const edge = edges.get(id);
+    if (edge === undefined) continue;
+    ids.push(trunk.kind === "fanOut" ? edge.target : edge.source);
+  }
+  return commonScopeOfAll(model, ids);
+}
+
 // What every gap owes, measured on the layer model as ELK left it.
 //
-// Which gap a reserve falls in: an edge from layer i to layer j owes its source
-// reserve to gap i (the gap right of its source) and its target reserve to gap
-// j-1 (the gap left of its target). That one rule covers a backward edge too --
-// ELK reverses cycles, so j <= i there, and the two reserves simply land on
-// either side of the endpoints instead of inside one gap. A reserve whose gap
-// index falls outside the layer range (the source of the last layer, the target
-// of the first) has no gap to sit in and is dropped.
+// Which gap a reserve falls in: an edge from layer i to layer j OF ITS OWN SCOPE
+// owes its source reserve to gap i (the gap right of its source) and its target
+// reserve to gap j-1 (the gap left of its target). That one rule covers a
+// backward edge too -- ELK reverses cycles, so j <= i there, and the two
+// reserves simply land on either side of the endpoints instead of inside one
+// gap. A reserve whose gap index falls outside the layer range (the source of
+// the last layer, the target of the first) has no gap to sit in and is dropped.
 export function gapRequirements(
   nodes: ReadonlyArray<RFAnyNode>,
   edges: ReadonlyArray<Edge>,
@@ -470,40 +683,58 @@ function requirementsOf(
   const byId = nodeIndexOf(nodes);
   const spans = gapSpansOf(model);
   if (spans.length === 0) return [];
+  const known = new Set(spans.map(gapKeyOf));
 
   const { trunks, trunkByEdgeId } = classifyTrunks(nodes, edges);
-  const sourceZone = new Array<number>(spans.length).fill(0);
-  const targetZone = new Array<number>(spans.length).fill(0);
-  const columns = new Array<number>(spans.length).fill(0);
+  const sourceZone = new Map<string, number>();
+  const targetZone = new Map<string, number>();
+  const columns = new Map<string, number>();
   // Staggered 1-to-1 bend columns, counted apart from the trunk columns: they
   // stand at the floor rather than the whole COLUMN_PITCH a trunk column owes
   // its neighbours.
-  const bendColumns = new Array<number>(spans.length).fill(0);
+  const bendColumns = new Map<string, number>();
 
-  const charge = (zone: number[], index: number, width: number): void => {
-    if (index < 0 || index >= spans.length) return;
-    zone[index] = Math.max(zone[index]!, width);
+  const charge = (
+    zone: Map<string, number>,
+    scope: string,
+    index: number,
+    width: number,
+  ): void => {
+    const key = gapKeyOf({ scope, index });
+    if (!known.has(key)) return;
+    zone.set(key, Math.max(zone.get(key) ?? 0, width));
+  };
+  const count = (
+    zone: Map<string, number>,
+    scope: string,
+    index: number,
+  ): void => {
+    const key = gapKeyOf({ scope, index });
+    if (!known.has(key)) return;
+    zone.set(key, (zone.get(key) ?? 0) + 1);
   };
 
   for (const edge of itemEdgesOf(edges, byId)) {
-    const i = model.layerByNodeId.get(edge.source);
-    const j = model.layerByNodeId.get(edge.target);
-    if (i === undefined || j === undefined) continue;
+    const span = layerSpanOf(model, edge.source, edge.target);
+    if (span === undefined) continue;
+    const { scope, from, to } = span;
     charge(
       sourceZone,
-      i,
+      scope,
+      from,
       reserveWidth(chipTextForSide(edge, "source", trunkByEdgeId)),
     );
     charge(
       targetZone,
-      j - 1,
+      scope,
+      to - 1,
       reserveWidth(chipTextForSide(edge, "target", trunkByEdgeId)),
     );
     // A forward 1-to-1 edge takes its own staggered bend column in the gap right
     // of its source layer. A trunk member takes none: the trunk router puts it
     // on its trunk's shared column, charged below.
-    if (j > i && !trunkByEdgeId.has(edge.id) && i >= 0 && i < spans.length) {
-      bendColumns[i] = bendColumns[i]! + 1;
+    if (to > from && !trunkByEdgeId.has(edge.id)) {
+      count(bendColumns, scope, from);
     }
   }
 
@@ -512,24 +743,25 @@ function requirementsOf(
   // deferred, so routeTrunkEdges gives each member trunk of a web its own
   // column like any other, and the reserve has to match what the routing pass
   // will place. The classification still reports the webs for later.
-  const addColumn = (index: number): void => {
-    if (index < 0 || index >= spans.length) return;
-    columns[index] = columns[index]! + 1;
-  };
+  const edgeById = new Map(edges.map((edge) => [edge.id, edge]));
   for (const trunk of trunks) {
-    const layer = model.layerByNodeId.get(trunk.unit);
+    const scope = trunkScopeOf(model, trunk, edgeById);
+    if (scope === undefined) continue;
+    const layer = layerIndexIn(model, scope, trunk.unit);
     if (layer === undefined) continue;
-    addColumn(trunk.kind === "fanOut" ? layer : layer - 1);
+    count(columns, scope, trunk.kind === "fanOut" ? layer : layer - 1);
   }
 
   return spans.map((span) => {
-    const source = sourceZone[span.index]!;
-    const target = targetZone[span.index]!;
-    const count = columns[span.index]!;
-    const bends = bendColumns[span.index]!;
+    const key = gapKeyOf(span);
+    const source = sourceZone.get(key) ?? 0;
+    const target = targetZone.get(key) ?? 0;
+    const trunkColumns = columns.get(key) ?? 0;
+    const bends = bendColumns.get(key) ?? 0;
     // A gap no edge crosses owes nothing and keeps the width ELK gave it.
-    if (source === 0 && target === 0 && count === 0) {
+    if (source === 0 && target === 0 && trunkColumns === 0) {
       return {
+        scope: span.scope,
         index: span.index,
         sourceZone: 0,
         columnZone: 0,
@@ -543,13 +775,16 @@ function requirementsOf(
     // instead of squeezing them together. A trunk column's own pitch already
     // covers the floor its two neighbours owe it.
     const columnZone =
-      FORWARD_STEP_BUDGET + COLUMN_PITCH * count + COLUMN_MIN_PITCH * bends;
+      FORWARD_STEP_BUDGET +
+      COLUMN_PITCH * trunkColumns +
+      COLUMN_MIN_PITCH * bends;
     return {
+      scope: span.scope,
       index: span.index,
       sourceZone: source,
       columnZone,
       targetZone: target,
-      columns: count,
+      columns: trunkColumns,
       required: source + columnZone + target,
     };
   });
@@ -569,122 +804,161 @@ function cloneNodes(nodes: ReadonlyArray<RFAnyNode>): WorkingNode[] {
   );
 }
 
-// Apply a per-layer right shift to a clone of the nodes. Membership decides, not
-// an x comparison: a leaf node moves by its own layer's shift, so a layer that
-// happens to sit on a fractional x can never be left behind by a boundary test.
-// A container is positioned by its LEFTMOST child's layer -- every child then
-// keeps the parent-relative x it came in with when the whole container moves as
-// a unit -- and a container whose children straddle a widened gap grows by the
-// shift its rightmost child took relative to its leftmost.
+// The narrowest gap a layer whose own content GREW may be left with. A gap of
+// exactly zero would let the clustering merge the two layers on the next pass,
+// which is the very confusion the scoped model exists to prevent; anything above
+// LAYER_MERGE_TOLERANCE keeps them apart.
+const MIN_GROWN_LAYER_GAP = 1;
+
+// The per-layer right shift one scope's gaps owe, accumulated before anything
+// moves: widening gap k shifts every layer from k+1 on, so later gaps are
+// measured against the spans those shifts produce. Since a shift is uniform over
+// a whole layer, no node ever changes layer and one clustering describes both
+// sides of the pass.
 //
-// The walk is recursive, so a container nested inside another container passes
-// its children's shifts up its whole ancestor chain and every ancestor it
-// straddles grows. fromElkRenderLayout emits a single level of nesting today (a
-// container's children are units), so the recursion is what keeps the model
-// correct rather than silently wrong if deeper nesting ever arrives.
-function applyLayerShifts(
-  working: WorkingNode[],
-  layerByNodeId: ReadonlyMap<string, number>,
-  shiftByLayer: ReadonlyArray<number>,
-): void {
-  const childrenByParent = new Map<string, WorkingNode[]>();
-  for (const node of working) {
-    if (node.parentId === undefined) continue;
-    const kids = childrenByParent.get(node.parentId) ?? [];
-    kids.push(node);
-    childrenByParent.set(node.parentId, kids);
-  }
-  const shiftOf = (id: string): number => {
-    const layer = layerByNodeId.get(id);
-    return layer === undefined ? 0 : (shiftByLayer[layer] ?? 0);
-  };
-  const moveBy = (node: WorkingNode, delta: number): void => {
-    if (delta === 0) return;
-    node.position = { x: node.position.x + delta, y: node.position.y };
-  };
-
-  // Arrange one subtree's interior and report the shifts its own box owes: the
-  // move its left edge takes (its parent applies it) and the move its right
-  // edge takes. A leaf owes its layer's shift on both edges; a container owes
-  // its leftmost child's shift on the left and its rightmost content's on the
-  // right, and grows by the difference.
-  const arrange = (node: WorkingNode): { left: number; right: number } => {
-    const kids = childrenByParent.get(node.id);
-    if (kids === undefined) {
-      const shift = shiftOf(node.id);
-      return { left: shift, right: shift };
+// `grownRight[k]` is layer k's right edge AFTER the growth its own containers
+// took from their interiors. The clustering is done on the pre-growth intervals
+// -- that is the arrangement ELK chose -- and the growth is then charged to the
+// gap right of the layer, so a container that swelled past its neighbour's
+// column pushes that column right instead of merging with it.
+function shiftsForScope(
+  layers: ReadonlyArray<Layer>,
+  grownRight: ReadonlyArray<number>,
+  requirements: ReadonlyArray<GapRequirement>,
+): number[] {
+  const shiftByLayer = new Array<number>(layers.length).fill(0);
+  for (let k = 0; k + 1 < layers.length; k += 1) {
+    const required = requirements.find((r) => r.index === k)?.required ?? 0;
+    const grew = grownRight[k]! > layers[k]!.right;
+    const floor = grew ? Math.max(required, MIN_GROWN_LAYER_GAP) : required;
+    const widened =
+      layers[k + 1]!.left +
+      shiftByLayer[k + 1]! -
+      (grownRight[k]! + shiftByLayer[k]!);
+    const delta = Math.max(0, floor - widened);
+    for (let layer = k + 1; layer < shiftByLayer.length; layer += 1) {
+      shiftByLayer[layer] = shiftByLayer[layer]! + delta;
     }
-    const shifts = kids.map(arrange);
-    const base = Math.min(...shifts.map((s) => s.left));
-    kids.forEach((kid, index) => {
-      moveBy(kid, shifts[index]!.left - base);
-    });
-    const growth = Math.max(...shifts.map((s) => s.right)) - base;
-    if (growth > 0) {
-      const width = (node.width ?? 0) + growth;
-      node.width = width;
-      node.style = { ...node.style, width };
-    }
-    return { left: base, right: base + growth };
-  };
-
-  for (const node of working) {
-    if (node.parentId !== undefined) continue; // moves with its container
-    moveBy(node, arrange(node).left);
   }
+  return shiftByLayer;
 }
 
-// Widen every gap that owes more than ELK gave it, left to right, and report
-// where each gap's zones ended up.
+// Widen every gap that owes more than ELK gave it and report where each gap's
+// zones ended up.
 //
-// The deltas are accumulated per layer before anything moves: widening gap k
-// shifts every layer from k+1 on, so later gaps are measured against the spans
-// those shifts produce. Since a shift is uniform over a whole layer, no node ever
-// changes layer and one model built on the ELK placement describes both sides.
+// BOTTOM-UP over the scopes: a container's interior is arranged first, the
+// container's box grows by the growth its interior took (its children keep their
+// parent-relative positions, so they travel with it), and only then does the
+// parent scope cluster its own layers -- against the box the child has already
+// grown to. Working deepest-first is what makes one pass enough: no scope is
+// measured before the intervals it is made of are final.
 export function widenLayerGaps(
   nodes: ReadonlyArray<RFAnyNode>,
   edges: ReadonlyArray<Edge>,
 ): { nodes: RFAnyNode[]; gaps: GapRecord[] } {
-  const model = buildLayerModel(nodes);
-  const requirements = requirementsOf(model, nodes, edges);
-  const spans = gapSpansOf(model);
-  const shiftByLayer = new Array<number>(model.layers.length).fill(0);
-
-  for (const requirement of requirements) {
-    const span = spans[requirement.index]!;
-    const widened =
-      span.right +
-      shiftByLayer[requirement.index + 1]! -
-      (span.left + shiftByLayer[requirement.index]!);
-    const delta = Math.max(0, requirement.required - widened);
-    for (
-      let layer = requirement.index + 1;
-      layer < shiftByLayer.length;
-      layer += 1
-    ) {
-      shiftByLayer[layer] = shiftByLayer[layer]! + delta;
-    }
+  const working = cloneNodes(nodes);
+  const byId = nodeIndexOf(working);
+  const scopeByNodeId = scopeByNodeIdOf(working);
+  const membersByScope = new Map<string, WorkingNode[]>();
+  for (const node of working) {
+    const scope = scopeByNodeId.get(node.id)!;
+    const list = membersByScope.get(scope) ?? [];
+    list.push(node);
+    membersByScope.set(scope, list);
   }
 
-  const working = cloneNodes(nodes);
-  applyLayerShifts(working, model.layerByNodeId, shiftByLayer);
+  // Deepest scope first. A scope's depth is its container's depth plus one.
+  const depthOf = (scope: string): number => {
+    let depth = 0;
+    let at = scope;
+    while (at !== ROOT_SCOPE) {
+      depth += 1;
+      at = scopeByNodeId.get(at) ?? ROOT_SCOPE;
+    }
+    return depth;
+  };
+  const order = scopeIdsOf(working, scopeByNodeId).sort(
+    (a, b) => depthOf(b) - depthOf(a),
+  );
 
-  const gaps: GapRecord[] = requirements.map((requirement) => {
-    const span = spans[requirement.index]!;
-    const left = span.left + shiftByLayer[requirement.index]!;
-    const right = span.right + shiftByLayer[requirement.index + 1]!;
-    const sourceRight = left + requirement.sourceZone;
-    const targetLeft = right - requirement.targetZone;
-    return {
-      index: requirement.index,
-      left,
-      right,
-      sourceZone: { left, right: sourceRight },
-      columnZone: { left: sourceRight, right: targetLeft },
-      targetZone: { left: targetLeft, right },
-      columns: requirement.columns,
+  // How much each container's box has already grown, so its parent scope can
+  // charge that growth to the container's own interval rather than re-measuring
+  // an interior it does not own.
+  const growthById = new Map<string, number>();
+
+  for (const scope of order) {
+    const members = membersByScope.get(scope) ?? [];
+    const grownBy = (node: RFAnyNode): number => growthById.get(node.id) ?? 0;
+    const layers = layersOfScope(
+      members,
+      byId,
+      (node) => nodeWidth(node) - grownBy(node),
+    );
+    const layered = scopeOf(scope, layers);
+    const grownRight = layers.map((layer) =>
+      Math.max(
+        ...layer.members.map((id) => {
+          const node = byId.get(id)!;
+          return absoluteLeft(node, byId) + nodeWidth(node);
+        }),
+      ),
+    );
+    const model: LayerModel = {
+      scopes: new Map([[scope, layered]]),
+      scopeByNodeId,
     };
-  });
+    const shiftByLayer = shiftsForScope(
+      layers,
+      grownRight,
+      requirementsOf(model, working, edges),
+    );
+
+    let growth = 0;
+    for (const member of members) {
+      const layer = layered.layerByNodeId.get(member.id);
+      const shift = layer === undefined ? 0 : (shiftByLayer[layer] ?? 0);
+      if (shift !== 0) {
+        member.position = {
+          x: member.position.x + shift,
+          y: member.position.y,
+        };
+      }
+      growth = Math.max(growth, shift + (growthById.get(member.id) ?? 0));
+    }
+
+    if (scope === ROOT_SCOPE || growth <= 0) continue;
+    const container = byId.get(scope) as WorkingNode | undefined;
+    if (container === undefined) continue;
+    const width = (container.width ?? 0) + growth;
+    container.width = width;
+    container.style = { ...container.style, width };
+    growthById.set(scope, growth);
+  }
+
+  // The records come off the FINAL placement: a within-scope shift is uniform
+  // over a layer and an ancestor's shift translates a whole subtree, so the
+  // clustering below is the one each scope was widened against.
+  const model = buildLayerModel(working);
+  const spans = new Map(
+    gapSpansOf(model).map((span) => [gapKeyOf(span), span]),
+  );
+  const gaps: GapRecord[] = requirementsOf(model, working, edges).map(
+    (requirement) => {
+      const span = spans.get(gapKeyOf(requirement))!;
+      const sourceRight = span.left + requirement.sourceZone;
+      const targetLeft = span.right - requirement.targetZone;
+      return {
+        scope: requirement.scope,
+        index: requirement.index,
+        left: span.left,
+        right: span.right,
+        sourceZone: { left: span.left, right: sourceRight },
+        columnZone: { left: sourceRight, right: targetLeft },
+        targetZone: { left: targetLeft, right: span.right },
+        columns: requirement.columns,
+      };
+    },
+  );
 
   return { nodes: working, gaps };
 }

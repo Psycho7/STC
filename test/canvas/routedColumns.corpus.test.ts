@@ -47,7 +47,10 @@ import { ENTRY_SLOT_PITCH } from "../../src/canvas/busRouting";
 import {
   buildLayerModel,
   classifyTrunks,
+  gapKeyOf,
+  layerSpanOf,
   type GapRecord,
+  type LayerModel,
 } from "../../src/canvas/layerModel";
 import { drawnPortsOf, nodeIndexOf } from "../../src/canvas/nodeGeometry";
 import { pack } from "../../src/data/load";
@@ -87,10 +90,19 @@ function columnsOf(edge: Edge): Column[] {
   return out;
 }
 
+// The gap a column of THIS edge stands in. Scoped: a root gap and a container
+// interior gap can cover one x band, and the edge's own frame is the scope its
+// two endpoints share.
 const gapAt = (
   gaps: ReadonlyArray<GapRecord>,
+  model: LayerModel,
+  edge: Edge,
   x: number,
-): GapRecord | undefined => gaps.find((g) => x > g.left && x < g.right);
+): GapRecord | undefined => {
+  const span = layerSpanOf(model, edge.source, edge.target);
+  if (span === undefined) return undefined;
+  return gaps.find((g) => g.scope === span.scope && x > g.left && x < g.right);
+};
 
 describe("routed columns stay inside their gap's column zone", () => {
   it("holds on every corpus plan", async () => {
@@ -103,13 +115,14 @@ describe("routed columns stay inside their gap's column zone", () => {
         itemId: t.itemId,
         ratePerSec: t.ratePerSec,
       }));
-      const { edges, gaps } = await layoutSolved(
+      const { nodes, edges, gaps } = await layoutSolved(
         solveForRender({ targets, pack }),
       );
+      const model = buildLayerModel(nodes);
 
       for (const edge of edges) {
         for (const column of columnsOf(edge)) {
-          const gap = gapAt(gaps, column.x);
+          const gap = gapAt(gaps, model, edge, column.x);
           // A column outside every gap -- in front of the first layer, behind
           // the last, or inside a layer's own x-band -- is not this rule's
           // business.
@@ -169,7 +182,7 @@ describe("two verticals in one gap keep the column pitch floor", () => {
   it("holds on every corpus plan", async () => {
     const tight: Array<{
       plan: string;
-      gap: number;
+      gap: string;
       a: string;
       b: string;
       dx: number;
@@ -201,14 +214,15 @@ describe("two verticals in one gap keep the column pitch floor", () => {
       // Bucket by gap: the floor is a rule about the columns of ONE gap, and a
       // vertical standing in no gap (a jog's last-resort column inside a layer's
       // own band) is not this rule's business, exactly as above.
-      const byGap = new Map<number, Vertical[]>();
+      const model = buildLayerModel(nodes);
+      const byGap = new Map<string, Vertical[]>();
       for (const edge of edges) {
         for (const vertical of verticalsOf(edge, byId)) {
-          const gap = gapAt(gaps, vertical.x);
+          const gap = gapAt(gaps, model, edge, vertical.x);
           if (gap === undefined) continue;
-          const list = byGap.get(gap.index) ?? [];
+          const list = byGap.get(gapKeyOf(gap)) ?? [];
           list.push(vertical);
-          byGap.set(gap.index, list);
+          byGap.set(gapKeyOf(gap), list);
         }
       }
 
@@ -270,22 +284,22 @@ describe("a 1-to-1 edge keeps chip room on its first and last run", () => {
       );
       const byId = nodeIndexOf(nodes);
       const { trunkByEdgeId } = classifyTrunks(nodes, edges);
-      const { layerByNodeId } = buildLayerModel(nodes);
+      const model = buildLayerModel(nodes);
 
       for (const edge of edges) {
         // 1-to-1 means TOPOLOGICALLY 1-to-1: a trunk member's ends carry the
         // trunk's aggregate chip under the reserve model, not this box.
         if (edge.type !== "item") continue;
         if (trunkByEdgeId.has(edge.id)) continue;
-        // Both endpoints in ONE layer: a layer is a maximal run of overlapping
-        // x-intervals, so two cards of one layer can stand a few dozen units
-        // apart and no gap was ever charged for the pair. The reserve model
-        // does not reach that corridor and neither does any column pass, so the
-        // rule is about the edges that cross a layer boundary.
-        const sourceLayer = layerByNodeId.get(edge.source);
-        const targetLayer = layerByNodeId.get(edge.target);
-        if (sourceLayer === undefined || targetLayer === undefined) continue;
-        if (sourceLayer === targetLayer) continue;
+        // Both endpoints in ONE layer of their shared scope: a layer is a
+        // maximal run of overlapping x-intervals, so two cards of one layer can
+        // stand a few dozen units apart and no gap was ever charged for the
+        // pair. The reserve model does not reach that corridor and neither does
+        // any column pass, so the rule is about the edges that cross a layer
+        // boundary.
+        const span = layerSpanOf(model, edge.source, edge.target);
+        if (span === undefined) continue;
+        if (span.from === span.to) continue;
         const ends = drawnPortsOf(edge, byId);
         if (ends === null) continue;
         if (ends.targetX <= ends.sourceX) continue; // backward detour

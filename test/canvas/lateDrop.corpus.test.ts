@@ -41,7 +41,12 @@ import {
   routingHintsFromData,
 } from "../../src/canvas/edgePath";
 import { RECIPE_ROW_HEIGHT } from "../../src/canvas/dimensions";
-import { buildLayerModel, type GapRecord } from "../../src/canvas/layerModel";
+import {
+  buildLayerModel,
+  gapKeyOf,
+  homeLayerOf,
+  type GapRecord,
+} from "../../src/canvas/layerModel";
 import {
   absoluteLeft,
   drawnPortsOf,
@@ -80,13 +85,17 @@ describe("two flows into one card share only its approach band", () => {
         solveForRender({ targets, pack }),
       );
       const byId = nodeIndexOf(nodes);
-      const { layerByNodeId } = buildLayerModel(nodes);
-      const gapByIndex = new Map(gaps.map((gap) => [gap.index, gap]));
-      // The gap in front of a target is the one left of its layer; that is the
-      // gap whose target reserve the approach band crosses.
+      const model = buildLayerModel(nodes);
+      const gapByKey = new Map(gaps.map((gap) => [gapKeyOf(gap), gap]));
+      // The gap in front of a target is the one left of its HOME layer -- its
+      // index in the scope it is a direct child of -- that being the gap whose
+      // target reserve the approach band crosses.
       const approachOf = (nodeId: string): GapRecord | undefined => {
-        const layer = layerByNodeId.get(nodeId);
-        return layer === undefined ? undefined : gapByIndex.get(layer - 1);
+        const home = homeLayerOf(model, nodeId);
+        if (home === undefined) return undefined;
+        return gapByKey.get(
+          gapKeyOf({ scope: home.scope, index: home.index - 1 }),
+        );
       };
 
       const runsByTarget = new Map<string, Run[]>();

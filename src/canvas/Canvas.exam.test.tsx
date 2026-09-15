@@ -74,6 +74,7 @@ const MOVED_NODES: Node[] = [
 // returns. Values are arbitrary and distinct so a zone swapped for another
 // fails rather than passing by coincidence.
 const GAP = {
+  scope: "",
   index: 0,
   left: 100,
   right: 400,
