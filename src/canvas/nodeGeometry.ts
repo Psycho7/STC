@@ -30,7 +30,9 @@
 //      the same item on an input row and a catalyst row. On a recipe node that
 //      centre fallback is exactly distinguishable from any real row: rows sit
 //      at 73 + 22i and the centre at 34 + 11 * maxRows, which have no common
-//      solution. driftedPortY below depends on that discriminator, so the
+//      solution. A card with catalysts pushes both by the 11px block gap --
+//      its rows land on integers and its centre on a half, so they still
+//      cannot meet. driftedPortY below depends on that discriminator, so the
 //      fallback value must not change and must not be pre-drifted.
 //   5. Total and pure. No throws, no React, no mutation of inputs,
 //      deterministic for a given node map.

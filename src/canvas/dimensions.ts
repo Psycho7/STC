@@ -26,14 +26,29 @@ export const RECIPE_HEAD_ICON_COL = 53;
 export const RECIPE_HEAD_TITLE_COL = RECIPE_WIDTH - RECIPE_HEAD_ICON_COL;
 export const RECIPE_HEAD_BLOCK_PAD_X = 8;
 
+// Half-row of air above the first catalyst row: the catalyst rows form their
+// own block on the card (ruling I3), and the gap plus the hairline divider
+// drawn in it is what separates the block from the supplied rows above. Only a
+// card that carries catalysts spends it. canvas.css repeats the number as the
+// first catalyst row's margin-top; keep them in step.
+export const CATALYST_BLOCK_GAP = RECIPE_ROW_HEIGHT / 2;
+
 // Card height from the two side columns' row counts. The left count is ROWS,
 // not ports: a catalyst row is drawn without a handle and still takes a row's
 // worth of height. The right side has only port rows, so its count is both.
-export function recipeHeight(inRows: number, outPorts: number): number {
+// `hasCatalystBlock` charges the left column the block gap on top of its rows.
+export function recipeHeight(
+  inRows: number,
+  outPorts: number,
+  hasCatalystBlock = false,
+): number {
+  const leftColumn =
+    inRows * RECIPE_ROW_HEIGHT + (hasCatalystBlock ? CATALYST_BLOCK_GAP : 0);
+  const rightColumn = outPorts * RECIPE_ROW_HEIGHT;
   return (
     RECIPE_HEADER_HEIGHT +
     RECIPE_ROWS_TOP_PAD * 2 +
-    Math.max(inRows, outPorts) * RECIPE_ROW_HEIGHT
+    Math.max(leftColumn, rightColumn)
   );
 }
 

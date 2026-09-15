@@ -9,6 +9,7 @@
 
 import { CHAMFER, PORT_STUB } from "../../src/canvas/edgePath";
 import {
+  CATALYST_BLOCK_GAP,
   ENTRY_GUTTER_OVERHANG,
   RECIPE_HEADER_HEIGHT,
   RECIPE_ROW_HEIGHT,
@@ -1270,13 +1271,15 @@ function driftOf(type: string): PortDrift {
 // Node-local y of a recipe row's mid-line, mirroring recipeGeometry's rowHandleY
 // off the shared dimension constants (that helper is module-private). The row
 // index is the item's position in the node's own side, which the collected port
-// lists carry in model order.
-function recipeRowY(rowIndex: number): number {
+// lists carry in model order. A catalyst row also clears the half-row gap that
+// opens the catalyst block, exactly as catHandleYs does.
+function recipeRowY(rowIndex: number, belowBlockGap = false): number {
   return (
     RECIPE_HEADER_HEIGHT +
     RECIPE_ROWS_TOP_PAD +
     rowIndex * RECIPE_ROW_HEIGHT +
-    RECIPE_ROW_HEIGHT / 2
+    RECIPE_ROW_HEIGHT / 2 +
+    (belowBlockGap ? CATALYST_BLOCK_GAP : 0)
   );
 }
 
@@ -1325,7 +1328,9 @@ function rowIndexOf(
   if (inRow < 0) return catRow;
 
   const offBy = (row: number): number =>
-    Math.abs(node.top + recipeRowY(row) + driftDy - drawnY);
+    Math.abs(
+      node.top + recipeRowY(row, row >= node.inPorts.length) + driftDy - drawnY,
+    );
   return offBy(catRow) < offBy(inRow) ? catRow : inRow;
 }
 
@@ -1382,12 +1387,18 @@ export function auditEndpointParity(
         ? recipeHeight(
             node.inPorts.length + node.catalystRows,
             node.outPorts.length,
+            node.catalystRows > 0,
           )
         : node.bottom - node.top;
+      // A target row past the in: rows is a catalyst row, so it sits below the
+      // block gap; a source row indexes the out: column, which has none.
+      const belowBlockGap = end === "target" && rowIndex >= node.inPorts.length;
       // portOffsetY falls back to the card's vertical centre for an unresolved
       // item / node kind, and driftedPortY leaves that fallback undrifted.
       const localY =
-        rowIndex >= 0 ? recipeRowY(rowIndex) + drift.dy : modelHeight / 2;
+        rowIndex >= 0
+          ? recipeRowY(rowIndex, belowBlockGap) + drift.dy
+          : modelHeight / 2;
       const rebuilt: Pt = [
         end === "source"
           ? node.left + modelWidth + drift.sourceDx
@@ -1456,8 +1467,11 @@ export function auditCardFrames(
     if (n.type !== "recipe") continue;
     const seatingWidth = RECIPE_WIDTH + growth;
     const seatingHeight =
-      recipeHeight(n.inPorts.length + n.catalystRows, n.outPorts.length) +
-      growth;
+      recipeHeight(
+        n.inPorts.length + n.catalystRows,
+        n.outPorts.length,
+        n.catalystRows > 0,
+      ) + growth;
     const drawnWidth = n.right - n.left;
     const drawnHeight = n.bottom - n.top;
     if (

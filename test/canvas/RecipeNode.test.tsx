@@ -446,9 +446,10 @@ describe("RecipeNode", () => {
         "rn-row input",
         "rn-row input",
       ]);
-      // Last, and not an input row: the .input class draws the accent tab that
-      // promises an entering edge.
-      expect(rows[2]!.className).toBe("rn-row catalyst");
+      // Last, and not an input row: the .input class draws the SOLID accent
+      // tab; a catalyst row draws the ticked one off its own class. The first
+      // row of the block also opens it (gap + divider).
+      expect(rows[2]!.className).toBe("rn-row catalyst cat-first");
       expect(container.querySelectorAll(".rn-row.catalyst")).toHaveLength(1);
     });
 
@@ -532,18 +533,50 @@ describe("RecipeNode", () => {
       expect(row?.getAttribute("title")).toBe("每台 6/分");
     });
 
-    it("sizes the card for the catalyst row", () => {
+    it("sizes the card for the catalyst row and its block gap", () => {
       const { container } = renderCatalyst();
       const wrapper = container.firstElementChild as HTMLElement;
       expect(wrapper.style.minHeight).toBe(
         `${measureRecipe(catalystRecipe).height}px`,
       );
-      // 2 port rows + 1 catalyst row against 1 output row.
-      expect(measureRecipe(catalystRecipe).height).toBe(134);
+      // 2 port rows + 1 catalyst row against 1 output row, plus the half-row
+      // gap that opens the block.
+      expect(measureRecipe(catalystRecipe).height).toBe(145);
     });
 
     it("styles the catalyst row in canvas.css", () => {
       expect(cssBlock(".rn-row.catalyst")).toContain("padding-left");
+    });
+
+    // I3: the block carries no word for what it is -- the ticked tab, the
+    // divider and the gap are the whole statement -- so the row's text is the
+    // item name and its figure, nothing else.
+    it("renders no word label in the catalyst block", () => {
+      const { container } = renderCatalyst();
+      const row = container.querySelector(".rn-row.catalyst")!;
+      const label = row.querySelector(".lbl")!.textContent ?? "";
+      const rate = row.querySelector(".rate")!.textContent ?? "";
+      expect((row.textContent ?? "").replace(label, "").replace(rate, "")).toBe(
+        "",
+      );
+    });
+
+    // I1: a catalyst row is elided like an input row. The label here is short
+    // enough to survive whole, so the pin is on a long one.
+    it("elides a long catalyst label at its tail", () => {
+      const longCatalyst: Recipe = {
+        ...catalystRecipe,
+        catalyst: [{ item: "copper_bottle-liquid_plant_grass_1", qty: 1 }],
+      } as unknown as Recipe;
+      const { container } = renderRecipe({
+        recipe: longCatalyst,
+        kind: "recipe",
+        multiplier: 1,
+      });
+      const label = container.querySelector(".rn-row.catalyst .lbl")!;
+      const visible = label.textContent ?? "";
+      expect(visible.endsWith("…"), visible).toBe(true);
+      expect(label.getAttribute("title")).not.toBe(visible);
     });
   });
 
@@ -655,6 +688,49 @@ describe("RecipeNode", () => {
       }
       expect(new Set(visible).size).toBe(2);
       expect(new Set(titles).size).toBe(4);
+    });
+
+    // I1: the rate is a grid cell now, so it is always drawn whole and the
+    // label budget pays for its measured width instead of being painted over.
+    it("draws a four-digit rate whole and takes the width out of the label", () => {
+      const wide = (qty: number): Recipe =>
+        ({
+          ...bottleRecipe("copper_bottle", "liquid_plant_grass_1"),
+          time: 1,
+          out: [{ item: "copper_bottle-liquid_plant_grass_1", qty }],
+        }) as unknown as Recipe;
+      // qty 20 over a 1s cycle at speed 1 is 1200/min; qty 1 is 60/min.
+      const labelOf = (qty: number) => {
+        const { container } = renderEn({ recipe: wide(qty), kind: "recipe" });
+        const row = container.querySelector(".rn-side.out .rn-row.output")!;
+        return {
+          rate: row.querySelector(".rate")!.textContent ?? "",
+          visible: row.querySelector(".lbl")!.textContent ?? "",
+        };
+      };
+      const wide1200 = labelOf(20);
+      const narrow60 = labelOf(1);
+      expect(wide1200.rate).toBe("1200");
+      expect(narrow60.rate).toBe("60");
+      expect(wide1200.visible.endsWith("…"), wide1200.visible).toBe(true);
+      // Same name, wider rate: the label gets less room, so it is cut shorter.
+      expect(wide1200.visible.length).toBeLessThan(narrow60.visible.length);
+    });
+
+    // The DOM order is the reading order on the input side and mirrored on the
+    // output side through the grid columns (canvas.css pins those).
+    it("orders every row sprite, name, rate in the DOM", () => {
+      const { container } = renderEn({
+        recipe: bottleRecipe("copper_bottle", "liquid_plant_grass_1"),
+        kind: "recipe",
+      });
+      for (const row of container.querySelectorAll(".rn-row")) {
+        const classes = [...row.children]
+          .filter((el) => !el.hasAttribute("data-handleid"))
+          .map((el) => el.className)
+          .filter((c) => typeof c === "string" && c !== "");
+        expect(classes).toEqual(["ico ico-20", "lbl", "rate"]);
+      }
     });
 
     it("elides a bracket-family row past its bracket mark", () => {

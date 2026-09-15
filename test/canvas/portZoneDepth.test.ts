@@ -19,6 +19,7 @@ import {
   portKeepOutRect,
 } from "../../src/canvas/chipSeating";
 import {
+  CATALYST_BLOCK_GAP,
   CHIP_BOX_HEIGHT,
   CHIP_BOX_WIDTH,
   CONTAINER_CAPTION_BAND,
@@ -221,9 +222,29 @@ describe("the recipe card's box is declared the same in TS and in CSS", () => {
   });
 });
 
-describe("the row rate is an overlay drawn at rest on every row", () => {
-  it("takes the rate out of the row flow", () => {
-    expect(cssValue(".rn-row .rate", "position")).toBe("absolute");
+describe("the row rate is a grid cell drawn at rest on every row", () => {
+  it("keeps the rate in the row flow, with no backdrop to hide a name under", () => {
+    // I1: the rate used to be an absolute overlay with an opaque backdrop, so
+    // it painted over the label tail. It is a column of the row grid now, and
+    // the label budget pays for it instead.
+    expect(cssValue(".rn-row .rate", "position")).toBe("static");
+    expect(cssBlock(".rn-row .rate")).not.toMatch(/background/);
+  });
+
+  it("lays the row out as sprite, name, rate with the name the only flexible column", () => {
+    expect(cssValue(".rn-row", "display")).toBe("grid");
+    expect(cssValue(".rn-row", "grid-template-columns")).toBe(
+      "auto minmax(0, 1fr) auto",
+    );
+    expect(cssValue(".rn-row .ico", "grid-column")).toBe("1");
+    expect(cssValue(".rn-row .lbl", "grid-column")).toBe("2");
+    expect(cssValue(".rn-row .rate", "grid-column")).toBe("3");
+    // The output side mirrors the same three tracks, so its rate sits at the
+    // card's inner end and its sprite on the card edge.
+    expect(cssValue(".rn-row.output .ico", "grid-column")).toBe("3");
+    expect(cssValue(".rn-row.output .rate", "grid-column")).toBe("1");
+    // Digits never wrap or ellipsize: the rate is drawn whole.
+    expect(cssValue(".rn-row .rate", "white-space")).toBe("nowrap");
   });
 
   it("shows the rate at rest", () => {
@@ -248,12 +269,49 @@ describe("the row rate is an overlay drawn at rest on every row", () => {
     ).toBe("none");
   });
 
-  it("seats the overlay at the row's inner-end padding", () => {
-    expect(cssValue(".rn-row.input .rate", "right")).toBe("6px");
-    expect(cssValue(".rn-row.output .rate", "left")).toBe("6px");
-    // The catalyst row carries no .input class, so it needs its own seat or
-    // the overlay falls to the flex content start and covers the sprite.
-    expect(cssValue(".rn-row.catalyst .rate", "right")).toBe("6px");
+  it("keeps each side's rate colour", () => {
+    expect(cssValue(".rn-row.input .rate", "color")).toBe(
+      "var(--ak-text-secondary)",
+    );
+    expect(cssValue(".rn-row.output .rate", "color")).toBe(
+      "var(--ak-accent-cyan-soft)",
+    );
+  });
+});
+
+// I3 / A2: catalyst rows are their own block on the card -- full ink, a ticked
+// accent tab in the item hue, and a hairline divider above the block. The tab
+// is a pattern, not a new colour.
+describe("the catalyst block reads apart from the input rows", () => {
+  it("gives the catalyst tab the input tab's box", () => {
+    for (const property of ["top", "transform", "width", "height", "left"]) {
+      expect(cssValue(".rn-row.catalyst::before", property)).toBe(
+        cssValue(".rn-row.input::before", property),
+      );
+    }
+  });
+
+  it("ticks the catalyst tab where the input tab is a solid bar", () => {
+    const catalyst = cssValue(".rn-row.catalyst::before", "background");
+    expect(catalyst).toContain("repeating-linear-gradient");
+    expect(catalyst).toContain("--row-accent");
+    expect(catalyst).not.toBe(cssValue(".rn-row.input::before", "background"));
+  });
+
+  it("draws the block divider in the body divider's colour", () => {
+    expect(cssValue(".rn-row.catalyst.cat-first::after", "background")).toBe(
+      cssValue(".rn-body::before", "background"),
+    );
+  });
+
+  it("opens the block with a half-row gap", () => {
+    expect(cssPx(".rn-row.catalyst.cat-first", "margin-top")).toBe(
+      CATALYST_BLOCK_GAP,
+    );
+  });
+
+  it("leaves the catalyst label at full ink", () => {
+    expect(cssSelectorsMatching(/^\.rn-row\.catalyst \.lbl$/)).toEqual([]);
   });
 });
 

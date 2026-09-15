@@ -2034,10 +2034,16 @@
   border-right: 0;
 }
 
-/* The label is the only flexible item against a hard 240px card, so row chrome
-   is kept to the minimum that still clears the 5px accent tab. */
+/* Three columns against a hard 240px card: the item sprite, the name, and the
+   rate. The name is the only flexible one, so it is what gives way when the
+   digits grow -- the rate is never clipped and never paints over the name
+   (ruling I1). RecipeNode elides the name against this same arithmetic (see
+   its row-budget comment), so the two gaps and the sprite column are shared
+   numbers. The port glyph and the React Flow handle are absolutely positioned
+   and take no column. */
 .rn-row {
-  display: flex;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
   gap: 5px;
   height: 22px;
@@ -2051,36 +2057,56 @@
   padding-left: 8px;
 }
 
+/* The output side reads mirrored -- rate, name, sprite -- off the same three
+   tracks, so its sprite stays on the card edge beside its port. */
 .rn-row.output {
   padding-right: 8px;
-  flex-direction: row-reverse;
+}
+
+.rn-row.output .ico {
+  grid-column: 3;
+}
+
+.rn-row.output .lbl {
+  grid-column: 2;
+  text-align: right;
 }
 
 /* A catalyst row: an input the machine cycles rather than consumes. It takes
-   the input rows' left padding so the column reads as one stack, but not their
-   accent tab (.rn-row.input::before). The muted label is what sets it apart
-   from the supplied rows above it. Its rate is seated and coloured with the
-   input rows' further down, since no `input` class inherits either here. */
+   the input rows' left padding so the column reads as one stack, and its own
+   TICKED accent tab (.rn-row.catalyst::before) in place of the input rows'
+   solid bar. The rows read at full ink: they are as important as the supplied
+   ones (ruling I3). Its rate is coloured with the input rows' further down. */
 .rn-row.catalyst {
   padding-left: 8px;
 }
 
-.rn-row.catalyst .lbl {
-  color: var(--ak-text-secondary);
+/* The first row of the catalyst block opens it: a half-row of air
+   (CATALYST_BLOCK_GAP in dimensions.ts, which recipeHeight charges the card)
+   with the body divider's hairline drawn across the middle of it. */
+.rn-row.catalyst.cat-first {
+  margin-top: 11px;
 }
 
-.rn-row.output .lbl {
-  text-align: right;
+.rn-row.catalyst.cat-first::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: -6px;
+  height: 1px;
+  background: var(--ak-divider);
+  opacity: 0.5;
 }
 
 .rn-row .ico {
-  flex-shrink: 0;
+  grid-column: 1;
   width: 20px;
   height: 20px;
 }
 
 .rn-row .lbl {
-  flex: 1;
+  grid-column: 2;
   min-width: 0;
   white-space: nowrap;
   overflow: hidden;
@@ -2089,39 +2115,68 @@
   font-size: 12px;
 }
 
-/* The row rate is an overlay over the label tail, out of flow so the label
-   budget never pays for it, and drawn at rest on every row: the numbers are
-   the point of the card. The backdrop is the card body gradient's end colour,
-   which the rows sit on, so the digits read legibly over the tail. */
+/* The rate is a column of the row, in flow and drawn at rest on every row: the
+   numbers are the point of the card. `position: static` is declared rather
+   than left to the default because it is the contract the TS-side label budget
+   rests on -- an absolute rate would stop costing the name anything and start
+   painting over it again. Nothing wraps or ellipsizes here: the whole figure
+   is drawn or the card is wrong. */
 .rn-row .rate {
+  grid-column: 3;
   font-family: var(--font-num);
   font-size: 12px;
   font-weight: 700;
   letter-spacing: -0.01em;
-  position: absolute;
-  top: 50%;
-  transform: translateY(-50%);
+  position: static;
   display: block;
-  background: #1f2125;
-  padding: 0 2px;
+  white-space: nowrap;
 }
 
-/* The overlay seats at the row's inner end (right for inputs and catalysts,
-   left for outputs), inset by the row's own horizontal padding on that side;
-   the row is position:relative already. The catalyst row needs its own seat
-   because it carries no .input class (that class paints the accent tab). */
+/* The catalyst row needs its own colour rule because it carries no .input
+   class (that class paints the solid accent tab). */
 .rn-row.input .rate,
 .rn-row.catalyst .rate {
   color: var(--ak-text-secondary);
-  right: 6px;
 }
 
 .rn-row.output .rate {
+  grid-column: 1;
   color: var(--ak-accent-cyan-soft);
-  left: 6px;
 }
 
-.rn-row.input::before,
+/* --row-accent (set inline by RecipeNode from itemColor) tints the accent tab
+   to the row's item so the row pairs by hue with its edge and port glyph; the
+   fixed defaults keep older render paths that omit it unchanged. The three
+   tabs share one box, spelled out per rule so each selector has exactly one
+   rule for the CSS-contract suites to read. */
+.rn-row.input::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 5px;
+  height: 14px;
+  left: -1px;
+  background: var(--row-accent, var(--ak-text-secondary));
+}
+
+/* Same box, ticked instead of solid: the catalyst motif across the canvas is a
+   ladder pattern in the item's own hue, not a colour of its own (A2). */
+.rn-row.catalyst::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 5px;
+  height: 14px;
+  left: -1px;
+  background: repeating-linear-gradient(
+    to bottom,
+    var(--row-accent, var(--ak-text-secondary)) 0 2px,
+    transparent 2px 4px
+  );
+}
+
 .rn-row.output::after {
   content: "";
   position: absolute;
@@ -2129,17 +2184,6 @@
   transform: translateY(-50%);
   width: 5px;
   height: 14px;
-}
-
-/* --row-accent (set inline by RecipeNode from itemColor) tints the accent tab
-   to the row's item so the row pairs by hue with its edge and port glyph; the
-   fixed defaults keep older render paths that omit it unchanged. */
-.rn-row.input::before {
-  left: -1px;
-  background: var(--row-accent, var(--ak-text-secondary));
-}
-
-.rn-row.output::after {
   right: -1px;
   background: var(--row-accent, var(--ak-accent-cyan));
   box-shadow: 0 0 8px rgba(35, 213, 252, 0.5);

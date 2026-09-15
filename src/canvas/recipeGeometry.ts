@@ -1,5 +1,6 @@
 import type { Recipe } from "@aef/schema";
 import {
+  CATALYST_BLOCK_GAP,
   RECIPE_HEADER_HEIGHT,
   RECIPE_ROW_HEIGHT,
   RECIPE_ROWS_TOP_PAD,
@@ -23,8 +24,9 @@ import {
 //
 // Catalyst rows share the left column with the input rows but keep their own
 // array. They are appended at the BOTTOM of that column, so their row indices
-// continue where the input rows stop (row inCount + i) and every input port's
-// y is the same as it would be on the same recipe without a catalyst. A card
+// continue where the input rows stop (row inCount + i, offset by the block gap
+// the card opens above them) and every input port's y is the same as it would
+// be on the same recipe without a catalyst. A card
 // can carry one item on an input row AND a catalyst row, so a lookup by item
 // alone is ambiguous: callers pick the array, never search both.
 export type RecipeGeometry = {
@@ -51,13 +53,17 @@ export function measureRecipe(recipe: Recipe): RecipeGeometry {
   const inCount = recipe.in.length;
   const outCount = recipe.out.length;
   const catalystCount = recipe.catalyst?.length ?? 0;
+  const hasCatalystBlock = catalystCount > 0;
   const geometry: RecipeGeometry = {
     width: RECIPE_WIDTH,
-    height: recipeHeight(inCount + catalystCount, outCount),
+    height: recipeHeight(inCount + catalystCount, outCount, hasCatalystBlock),
     inHandleYs: Array.from({ length: inCount }, (_, i) => rowHandleY(i)),
     outHandleYs: Array.from({ length: outCount }, (_, i) => rowHandleY(i)),
-    catHandleYs: Array.from({ length: catalystCount }, (_, i) =>
-      rowHandleY(inCount + i),
+    // The block gap sits above the first catalyst row, so every catalyst row
+    // is pushed down by it while the input rows above keep their y.
+    catHandleYs: Array.from(
+      { length: catalystCount },
+      (_, i) => rowHandleY(inCount + i) + CATALYST_BLOCK_GAP,
     ),
   };
   geometryByRecipe.set(recipe, geometry);

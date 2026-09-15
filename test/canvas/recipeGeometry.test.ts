@@ -4,6 +4,7 @@ import { measureRecipe } from "../../src/canvas/recipeGeometry";
 import { portOffsetY } from "../../src/canvas/nodeGeometry";
 import type { RFAnyNode } from "../../src/canvas/layout";
 import {
+  CATALYST_BLOCK_GAP,
   RECIPE_HEADER_HEIGHT,
   RECIPE_ROWS_TOP_PAD,
   RECIPE_ROW_HEIGHT,
@@ -111,19 +112,24 @@ describe("measureRecipe", () => {
   // A catalyst row sits at the bottom of the input column and carries its own
   // handle, so it gets its own array: inHandleYs stays on recipe.in alone and
   // catHandleYs continues the same row sequence.
-  it("counts catalyst rows in the height and keeps them out of inHandleYs", () => {
+  it("counts catalyst rows and their block gap in the height, keeping them out of inHandleYs", () => {
     const g = measureRecipe(fakeRecipe(2, 1, 1));
-    expect(g.height).toBe(recipeHeight(3, 1));
+    expect(g.height).toBe(recipeHeight(3, 1, true));
     expect(g.inHandleYs).toHaveLength(2);
     expect(g.outHandleYs).toHaveLength(1);
-    // 56 header + 12 side pads + 3 * 22 rows.
-    expect(g.height).toBe(134);
+    // 56 header + 12 side pads + 3 * 22 rows + the 11px block gap.
+    expect(g.height).toBe(145);
+    // The gap is charged only when the card carries a catalyst block.
+    expect(recipeHeight(3, 1)).toBe(134);
   });
 
-  it("puts catHandleYs on the rows after the input rows", () => {
+  it("puts catHandleYs on the rows after the input rows, below the block gap", () => {
     const g = measureRecipe(fakeRecipe(2, 1, 2));
-    expect(g.catHandleYs).toEqual([rowMid(2), rowMid(3)]);
-    expect(g.catHandleYs).toEqual([117, 139]);
+    expect(g.catHandleYs).toEqual([
+      rowMid(2) + CATALYST_BLOCK_GAP,
+      rowMid(3) + CATALYST_BLOCK_GAP,
+    ]);
+    expect(g.catHandleYs).toEqual([128, 150]);
     expect(measureRecipe(fakeRecipe(2, 1)).catHandleYs).toEqual([]);
   });
 
@@ -151,9 +157,9 @@ describe("measureRecipe", () => {
       portOffsetY(fakeNode(plain), "o0", "out"),
     );
     // A catalyst item is on no input row: asked for side "in" it resolves to
-    // the centre fallback, which on a 3-row card is 67 and can never collide
-    // with a row mid-line.
-    expect(portOffsetY(fakeNode(withCatalyst), "c0", "in")).toBe(67);
+    // the centre fallback, which on a 3-row card carrying a catalyst block is
+    // 72.5 and can never collide with a row mid-line.
+    expect(portOffsetY(fakeNode(withCatalyst), "c0", "in")).toBe(72.5);
   });
 
   // Side "cat" is what a catalyst edge's target end resolves with: the row is
@@ -166,7 +172,7 @@ describe("measureRecipe", () => {
       geom.catHandleYs[0],
     );
     // An input item is on no catalyst row: centre fallback.
-    expect(portOffsetY(fakeNode(withCatalyst), "i0", "cat")).toBe(67);
+    expect(portOffsetY(fakeNode(withCatalyst), "i0", "cat")).toBe(72.5);
   });
 
   it("keeps the two sides apart when one item is both an input and a catalyst", () => {
