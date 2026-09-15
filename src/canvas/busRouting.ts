@@ -19,7 +19,6 @@ import {
   BETWEEN_LAYERS_SPACING,
   ENTRY_GUTTER_OVERHANG,
   RECIPE_WIDTH,
-  frameExtentsOf,
 } from "./dimensions";
 import {
   CHAMFER,
@@ -1528,16 +1527,11 @@ export function paddedObstacles(
   for (const node of nodes) {
     const left = absoluteLeft(node, byId);
     const top = absoluteTop(node, byId);
-    // An environment recipe's plate frame is as solid to a routed stroke as
-    // the card is. cardRectsFor grows the DRAWN rect the same way; without
-    // this the router reads a band the plate occupies as clear air and threads
-    // a rail through the frame.
-    const frame = frameExtentsOf(node);
     out.push({
-      left: left - frame.left - OBSTACLE_PAD_LEFT,
-      right: left + nodeWidth(node) + frame.right + OBSTACLE_PAD_RIGHT,
-      top: top - frame.top - OBSTACLE_PAD_Y,
-      bottom: top + nodeHeight(node) + frame.bottom + OBSTACLE_PAD_Y,
+      left: left - OBSTACLE_PAD_LEFT,
+      right: left + nodeWidth(node) + OBSTACLE_PAD_RIGHT,
+      top: top - OBSTACLE_PAD_Y,
+      bottom: top + nodeHeight(node) + OBSTACLE_PAD_Y,
       kind: "card",
       nodeId: node.id,
       container: node.type === "group" || node.type === "loop",
@@ -1646,8 +1640,8 @@ export function clearColumnX(
 // column exists: a run that at least threads the raw gaps never slices a card
 // the user sees, even where sibling paddings overlap and the padded model calls
 // the whole corridor blocked.
-// Exported for the column suite, which observes the frame growth directly; a
-// routed edge only shows the column that won.
+// Exported for the column suite, which observes these rects directly; a routed
+// edge only shows the column that won.
 export function rawCardRects(
   nodes: ReadonlyArray<RFAnyNode>,
 ): PaddedObstacle[] {
@@ -1655,15 +1649,11 @@ export function rawCardRects(
   return nodes.map((node) => {
     const left = absoluteLeft(node, byId);
     const top = absoluteTop(node, byId);
-    // The frame is part of the drawn card here too: the raw-fallback tiers
-    // resolve against these rects, so a frame they left out would be a band
-    // the fallback seats a column inside.
-    const frame = frameExtentsOf(node);
     return {
-      left: left - frame.left,
-      right: left + nodeWidth(node) + frame.right,
-      top: top - frame.top,
-      bottom: top + nodeHeight(node) + frame.bottom,
+      left,
+      right: left + nodeWidth(node),
+      top,
+      bottom: top + nodeHeight(node),
       kind: "card" as const,
       nodeId: node.id,
       // Same container tag paddedObstacles stamps: the raw-fallback tiers read

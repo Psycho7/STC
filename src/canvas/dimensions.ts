@@ -3,6 +3,11 @@
 // rendering both read these constants directly so they stay locked together,
 // with no CSS-in-JS or build step in between.
 
+// The environment plate's height. It is one banner row, so the number lives
+// with the banner geometry it is measured from; the card height below spends
+// it because the plate is a row of the card.
+import { ENV_ROW_HEIGHT } from "./envBanner";
+
 // Recipe-node geometry. .recipe-node is 240px wide. These constants are the
 // contract the rendered DOM is pinned to, not approximations of an auto-sized
 // layout: .rn-head carries an explicit height:56px (box-sizing:border-box),
@@ -26,14 +31,34 @@ export const RECIPE_HEAD_ICON_COL = 53;
 export const RECIPE_HEAD_TITLE_COL = RECIPE_WIDTH - RECIPE_HEAD_ICON_COL;
 export const RECIPE_HEAD_BLOCK_PAD_X = 8;
 
+// Half-row of air above the first catalyst row: the catalyst rows form their
+// own block on the card (ruling I3), and the gap plus the hairline divider
+// drawn in it is what separates the block from the supplied rows above. Only a
+// card that carries catalysts spends it. canvas.css repeats the number as the
+// first catalyst row's margin-top; keep them in step.
+export const CATALYST_BLOCK_GAP = RECIPE_ROW_HEIGHT / 2;
+
 // Card height from the two side columns' row counts. The left count is ROWS,
 // not ports: a catalyst row is drawn without a handle and still takes a row's
 // worth of height. The right side has only port rows, so its count is both.
-export function recipeHeight(inRows: number, outPorts: number): number {
+// `hasCatalystBlock` charges the left column the block gap on top of its rows,
+// and `hasEnvironmentPlate` charges the whole card the environment plate: it is
+// the card's first row, drawn above the header (ruling I9), so it grows the box
+// and pushes every row below it down by ENV_ROW_HEIGHT.
+export function recipeHeight(
+  inRows: number,
+  outPorts: number,
+  hasCatalystBlock = false,
+  hasEnvironmentPlate = false,
+): number {
+  const leftColumn =
+    inRows * RECIPE_ROW_HEIGHT + (hasCatalystBlock ? CATALYST_BLOCK_GAP : 0);
+  const rightColumn = outPorts * RECIPE_ROW_HEIGHT;
   return (
+    (hasEnvironmentPlate ? ENV_ROW_HEIGHT : 0) +
     RECIPE_HEADER_HEIGHT +
     RECIPE_ROWS_TOP_PAD * 2 +
-    Math.max(inRows, outPorts) * RECIPE_ROW_HEIGHT
+    Math.max(leftColumn, rightColumn)
   );
 }
 
@@ -113,63 +138,6 @@ export const DOT_KEEPOFF = 16;
 export const ENTRY_GUTTER_OVERHANG = 34;
 
 export const NODE_NODE_SPACING = 30;
-
-// How far an environment recipe card's FRAME reaches beyond its card box, per
-// side: the banner plates and haze RecipeNode draws on .rn-env (inset
-// -36px -8px -22px). The card box itself never grows -- measureRecipe and the
-// DOM stay card-sized -- but two things have to reserve the frame rectangle:
-// the ELK adapter hands ELK the grown box (so the default nodeNode spacing
-// keeps neighbours off the plates) and maps positions back to the frame's
-// inner rectangle, and the chip-seating obstacles grow by the same extents so
-// no chip seats on a plate. Both read this one constant.
-//
-//   +--------------------------+   ^
-//   | 36 (top plate + glyph)   |   |
-//   |   +------------------+   |   | frame
-//   | 8 |    card box      | 8 |   |
-//   |   +------------------+   |   |
-//   | 22 (bottom plate)        |   v
-//   +--------------------------+
-export const ENV_FRAME_EXTENTS = {
-  top: 36,
-  bottom: 22,
-  left: 8,
-  right: 8,
-} as const;
-
-export type FrameExtents = {
-  top: number;
-  bottom: number;
-  left: number;
-  right: number;
-};
-
-// A node that draws no frame: every extent is zero, so a caller adds the
-// extents unconditionally and gets its plain card box back.
-const NO_FRAME: FrameExtents = { top: 0, bottom: 0, left: 0, right: 0 };
-
-// How far a node's drawn frame reaches beyond its card box, per side. Only an
-// environment recipe draws one (ENV_FRAME_EXTENTS above); every other node
-// yields zeros. This is the single owner of that predicate: the ELK box, the
-// router obstacles (padded and raw) and the chip-seating rects all grow by
-// what it returns, so the four models can never disagree about where a plate
-// is.
-//
-// The parameter is structural rather than RFAnyNode (this module is the leaf
-// the node types are built on, not the other way round), so the ELK adapter,
-// which holds only the recipe at the point it sizes the box, can ask the same
-// question. `data` is therefore read through a cast: the union's other arms
-// carry no recipe at all.
-export function frameExtentsOf(node: {
-  type?: string | undefined;
-  data?: unknown;
-}): FrameExtents {
-  if (node.type !== "recipe") return NO_FRAME;
-  const { recipe } = (node.data ?? {}) as {
-    recipe?: { environment?: unknown } | undefined;
-  };
-  return recipe?.environment === undefined ? NO_FRAME : ENV_FRAME_EXTENTS;
-}
 
 // A generous column gap so each ItemEdge label chip (item icon + name + rate)
 // has room to breathe and doesn't overlap the source or target node. The earlier

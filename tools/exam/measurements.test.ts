@@ -50,6 +50,7 @@ const geometry = (): Geometry => ({
       outPorts: [],
       catPorts: [],
       catalystRows: 0,
+      envPlate: false,
     },
     {
       nodeId: "B",
@@ -62,6 +63,7 @@ const geometry = (): Geometry => ({
       outPorts: [],
       catPorts: [],
       catalystRows: 0,
+      envPlate: false,
     },
     {
       nodeId: "C",
@@ -74,6 +76,7 @@ const geometry = (): Geometry => ({
       outPorts: [],
       catPorts: [],
       catalystRows: 0,
+      envPlate: false,
     },
     {
       nodeId: "D",
@@ -86,6 +89,7 @@ const geometry = (): Geometry => ({
       outPorts: [],
       catPorts: [],
       catalystRows: 0,
+      envPlate: false,
     },
     {
       nodeId: "E",
@@ -98,6 +102,7 @@ const geometry = (): Geometry => ({
       outPorts: [],
       catPorts: [],
       catalystRows: 0,
+      envPlate: false,
     },
   ],
   edges: [
@@ -366,6 +371,7 @@ describe("measurementsFor", () => {
           outPorts: [],
           catPorts: [],
           catalystRows: 0,
+          envPlate: false,
         },
         {
           nodeId: "B",
@@ -378,6 +384,7 @@ describe("measurementsFor", () => {
           outPorts: [],
           catPorts: [],
           catalystRows: 0,
+          envPlate: false,
         },
         {
           nodeId: "C",
@@ -390,6 +397,7 @@ describe("measurementsFor", () => {
           outPorts: [],
           catPorts: [],
           catalystRows: 0,
+          envPlate: false,
         },
       ],
       edges: [{ id: E_IRON, d: "M 100,25 L 100,250 L 4000,250" }],

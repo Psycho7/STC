@@ -1,17 +1,16 @@
-// The environment frame's layout footprint. A recipe that must run in a gas
-// environment draws banner plates and a haze on a frame rectangle beyond its
-// card box (ENV_FRAME_EXTENTS in dimensions.ts), so the layout has to reserve
-// that rectangle or the plates land on the neighbour below. Three contracts:
+// The environment plate's layout footprint. A recipe that must run in a gas
+// environment draws its plate as the card's FIRST ROW (ruling I9), so the
+// plate is inside the card box and nothing anywhere reserves a rectangle
+// around it. Three contracts:
 //
-//   1. the ELK adapter hands ELK the CARD box grown by the extents, with the
-//      recipe's ports stamped at their card-box handle coordinates plus the
-//      frame's inner-rectangle offset, so the box ELK spaces is the frame;
-//   2. the ELK-to-React-Flow position mapping adds the offset back, so the
-//      card box lands at the frame's inner rectangle and every DOM handle
-//      keeps its plain-card position relative to the card box;
-//   3. the default spacings then guarantee the vertical clearances two stacked
-//      cards need: 36 above an environment card, 22 below it, so 58 between
-//      two of them, with no spacing change.
+//   1. the ELK adapter hands ELK the card box itself -- measureRecipe's height
+//      already carries the plate -- and stamps no port coordinates, exactly as
+//      it does for a plain card;
+//   2. the ELK-to-React-Flow position mapping is the identity, so an
+//      environment card lands where ELK put it;
+//   3. on a real plan the card boxes the layout produces never overlap and
+//      every environment card's drawn endpoints sit at plain-card offsets from
+//      its card box.
 
 import { describe, it, expect } from "vitest";
 import Fraction from "fraction.js";
@@ -22,11 +21,8 @@ import {
   type ElkGraph,
   type LayoutInput,
 } from "../../src/canvas/layout";
-import {
-  ENV_FRAME_EXTENTS,
-  PORT_HEIGHT,
-  PORT_WIDTH,
-} from "../../src/canvas/dimensions";
+import { PORT_HEIGHT, PORT_WIDTH } from "../../src/canvas/dimensions";
+import { ENV_ROW_HEIGHT } from "../../src/canvas/envBanner";
 import { measureRecipe } from "../../src/canvas/recipeGeometry";
 import {
   drawnPortsOf,
@@ -90,56 +86,44 @@ const envPlanInput = (): LayoutInput => {
 };
 
 describe("renderPlanToElkGraph: the environment footprint", () => {
-  it("grows an environment recipe's box by the frame extents", () => {
+  it("hands ELK the card box itself, plate included", () => {
     const graph = renderPlanToElkGraph(envPlanInput());
     const env = graph.children.find((c) => c.id === "u:env");
     const geom = measureRecipe(envRecipe);
-    expect(env?.width).toBe(
-      geom.width + ENV_FRAME_EXTENTS.left + ENV_FRAME_EXTENTS.right,
-    );
-    expect(env?.height).toBe(
-      geom.height + ENV_FRAME_EXTENTS.top + ENV_FRAME_EXTENTS.bottom,
+    expect(env?.width).toBe(geom.width);
+    expect(env?.height).toBe(geom.height);
+    // The plate is what the environment adds, and it is inside that box.
+    expect(geom.height).toBe(
+      measureRecipe(plainRecipe).height + ENV_ROW_HEIGHT,
     );
   });
 
-  it("stamps the environment recipe's ports at the card-box handles plus the offset", () => {
+  it("stamps no port coordinates on an environment recipe, as on a plain one", () => {
     const graph = renderPlanToElkGraph(envPlanInput());
-    const env = graph.children.find((c) => c.id === "u:env");
-    const geom = measureRecipe(envRecipe);
-    // The port box's CENTRE sits on the card-box model anchor (west x=0 /
-    // east x=width, y = the row's handle y) shifted by the inner-rectangle
-    // offset, so the graph ELK receives describes where the DOM handles are.
-    const centre = (p: { x?: number; y?: number }) => ({
-      x: (p.x ?? 0) + PORT_WIDTH / 2,
-      y: (p.y ?? 0) + PORT_HEIGHT / 2,
-    });
-    const west = env?.ports?.find((p) => p.id === "u:env.in:i");
-    expect(centre(west ?? {})).toEqual({
-      x: ENV_FRAME_EXTENTS.left,
-      y: ENV_FRAME_EXTENTS.top + (geom.inHandleYs[0] ?? 0),
-    });
-    const east = env?.ports?.find((p) => p.id === "u:env.out:o");
-    expect(centre(east ?? {})).toEqual({
-      x: ENV_FRAME_EXTENTS.left + geom.width,
-      y: ENV_FRAME_EXTENTS.top + (geom.outHandleYs[0] ?? 0),
-    });
+    for (const id of ["u:env", "u:plain"]) {
+      const child = graph.children.find((c) => c.id === id);
+      // Premise: the card carries ports at all.
+      expect(child?.ports?.length, id).toBeGreaterThan(0);
+      for (const p of child?.ports ?? []) {
+        expect(p.x, `${id} ${p.id}`).toBeUndefined();
+        expect(p.y, `${id} ${p.id}`).toBeUndefined();
+        expect(p.width).toBe(PORT_WIDTH);
+        expect(p.height).toBe(PORT_HEIGHT);
+      }
+    }
   });
 
-  it("leaves a plain recipe's box and ports untouched", () => {
+  it("leaves a plain recipe's box untouched", () => {
     const graph = renderPlanToElkGraph(envPlanInput());
     const plain = graph.children.find((c) => c.id === "u:plain");
     const geom = measureRecipe(plainRecipe);
     expect(plain?.width).toBe(geom.width);
     expect(plain?.height).toBe(geom.height);
-    for (const p of plain?.ports ?? []) {
-      expect(p.x).toBeUndefined();
-      expect(p.y).toBeUndefined();
-    }
   });
 });
 
-describe("fromElkRenderLayout: the inner-rectangle offset", () => {
-  it("lands an environment card box at the grown box's inner rectangle", () => {
+describe("fromElkRenderLayout: no frame offset", () => {
+  it("maps an environment card 1:1, exactly like a plain card", () => {
     const input = envPlanInput();
     const graph = renderPlanToElkGraph(input);
     const laid: ElkGraph = {
@@ -154,12 +138,7 @@ describe("fromElkRenderLayout: the inner-rectangle offset", () => {
     const { nodes } = fromElkRenderLayout(laid, input);
     const env = nodes.find((n) => n.id === "u:env");
     const plain = nodes.find((n) => n.id === "u:plain");
-    // The grown box sits at (0, 0); the card box is the inner rectangle.
-    expect(env?.position).toEqual({
-      x: ENV_FRAME_EXTENTS.left,
-      y: ENV_FRAME_EXTENTS.top,
-    });
-    // A plain card maps 1:1.
+    expect(env?.position).toEqual({ x: 0, y: 0 });
     expect(plain?.position).toEqual({ x: 400, y: 500 });
   });
 });
@@ -209,8 +188,8 @@ async function topLevelCards(targets: ItemTarget[]): Promise<CardBox[]> {
     }));
 }
 
-describe("layoutRenderPlan on gas-web: the frame's vertical clearances", () => {
-  it("keeps every stacked pair clear of the plates", async () => {
+describe("layoutRenderPlan on gas-web: the plate is inside the card box", () => {
+  it("keeps every stacked pair of card boxes apart", async () => {
     const cards = await topLevelCards(GAS_WEB);
     const envCards = cards.filter((c) => c.env);
     // Premise: this plan draws three environment cards with stacked pairs to
@@ -228,26 +207,10 @@ describe("layoutRenderPlan on gas-web: the frame's vertical clearances", () => {
         // Same column: the higher card is the one whose top is smaller.
         const upper = a.top <= b.top ? a : b;
         const lower = upper === a ? b : a;
+        // Nothing is drawn outside a card box any more, so the plain
+        // non-overlap is the whole clearance an environment card needs.
         if (upper.bottom > lower.top + EPS) {
           violations.push(`${upper.id} and ${lower.id} boxes overlap`);
-          continue;
-        }
-        const gap = lower.top - upper.bottom;
-        // The plates above an environment card reach ENV_FRAME_EXTENTS.top
-        // past its box, the plate below ENV_FRAME_EXTENTS.bottom; the gap
-        // between the two CARD boxes must cover them.
-        const need =
-          upper.env && lower.env
-            ? ENV_FRAME_EXTENTS.top + ENV_FRAME_EXTENTS.bottom
-            : !upper.env && lower.env
-              ? ENV_FRAME_EXTENTS.top
-              : upper.env && !lower.env
-                ? ENV_FRAME_EXTENTS.bottom
-                : 0;
-        if (gap < need - EPS) {
-          violations.push(
-            `${upper.id} (env=${upper.env}) above ${lower.id} (env=${lower.env}): gap ${gap.toFixed(1)} < ${need}`,
-          );
         }
       }
     }
