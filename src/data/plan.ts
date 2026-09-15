@@ -160,6 +160,7 @@ function isValidRational(r: RationalString): boolean {
 export async function loadPlan(
   hash: string,
   pack: RecipePack,
+  unavailableRecipeIds?: ReadonlySet<string>,
 ): Promise<LoadOutcome> {
   if (!hash || hash === "#") {
     return { kind: "seeded", plan: defaultPlan(pack) };
@@ -214,7 +215,7 @@ export async function loadPlan(
     };
   }
   const plan = fromWire(wire);
-  const error = validatePlan(plan, pack);
+  const error = validatePlan(plan, pack, unavailableRecipeIds);
   if (error) return { kind: "error", error };
   return { kind: "loaded", plan };
 }
