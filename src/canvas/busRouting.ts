@@ -978,6 +978,9 @@ type PinnedColumn = {
   // A trunk column carries every member's stroke, so a neighbour keeps a whole
   // port stub off it rather than the bare floor.
   trunk: boolean;
+  // The edge that put the column there. A pass placing a run for THAT edge reads
+  // its own column as no blocker at all: a line does not braid itself.
+  owner: string;
 };
 
 // The columns already pinned when a pass runs, keyed by gap index. Jog descents
@@ -999,11 +1002,12 @@ function pinnedColumnsByGap(
     gapKeys: ReadonlyArray<string>,
     x: number | undefined,
     trunk: boolean,
+    owner: string,
   ): void => {
     if (x === undefined) return;
     for (const key of gapKeys) {
       const list = out.get(key) ?? [];
-      list.push({ x, trunk });
+      list.push({ x, trunk, owner });
       out.set(key, list);
     }
   };
@@ -1012,8 +1016,8 @@ function pinnedColumnsByGap(
     const sourceGap = gapKeysFor(model, edge.source, "depart");
     const targetGap = gapKeysFor(model, edge.target, "arrive");
     if (edge.type === "bus") {
-      if (data?.fanout === true) add(sourceGap, data.junctionX, true);
-      if (data?.fanin === true) add(targetGap, data.junctionX, true);
+      if (data?.fanout === true) add(sourceGap, data.junctionX, true, edge.id);
+      if (data?.fanin === true) add(targetGap, data.junctionX, true, edge.id);
       continue;
     }
     if (data?.bendX !== undefined) {
@@ -1022,17 +1026,18 @@ function pinnedColumnsByGap(
         data.faninColumn === true ? targetGap : sourceGap,
         data.bendX,
         trunkPin,
+        edge.id,
       );
     }
-    add(targetGap, data?.entryX, false);
+    add(targetGap, data?.entryX, false, edge.id);
     // A backward member of a trunk carries its rail on the trunk's junction
     // column, pre-stamped by routeTrunkEdges and kept as given by
     // clampBackwardRails. It is therefore fixed while this runs, and it is a
     // trunk column like any other: an arrival slot or a jog descent staked a
     // few units off it reads as one thick line, and the rail cannot yield.
     const rail = routingHintsFromData(edge.data);
-    add(sourceGap, rail.railXRight, true);
-    add(targetGap, rail.railXLeft, true);
+    add(sourceGap, rail.railXRight, true, edge.id);
+    add(targetGap, rail.railXLeft, true, edge.id);
   }
   return out;
 }
@@ -1370,7 +1375,7 @@ export function assignBendColumns(
       if (source !== undefined) {
         const band = Math.round(absoluteLeft(source, byId));
         const list = pinnedColumnsByBand.get(band) ?? [];
-        list.push({ x: pinnedData.bendX, trunk: true });
+        list.push({ x: pinnedData.bendX, trunk: true, owner: edge.id });
         pinnedColumnsByBand.set(band, list);
       }
     }
@@ -1629,6 +1634,13 @@ export function clearColumnX(
     gap?: number;
     containerGap?: number | undefined;
     accept?: (x: number) => boolean;
+    // Candidate columns the caller derives from a constraint the obstacle list
+    // cannot express -- the x where a HORIZONTAL neighbour of the run's own
+    // connecting leg ends, say. The search only ever proposes the padded edges
+    // of the rects it is handed, so a column that must step past something else
+    // is never offered unless it is named here. Each one still passes `blocked`,
+    // `accept` and the radius.
+    extra?: ReadonlyArray<number>;
   },
 ): number {
   const gap = opts?.gap ?? CHAMFER;
@@ -1652,9 +1664,10 @@ export function clearColumnX(
   // blocked (they fall inside a neighbour's band), rejected by the caller's
   // accept, or beyond the search radius, and pick the nearest surviving
   // candidate, tie-breaking toward the target.
-  const candidates = spanned
-    .flatMap((o) => [o.left - gapOf(o), o.right + gapOf(o)])
-    .sort((a, b) => a - b);
+  const candidates = [
+    ...spanned.flatMap((o) => [o.left - gapOf(o), o.right + gapOf(o)]),
+    ...(opts?.extra ?? []),
+  ].sort((a, b) => a - b);
   let best: number | undefined;
   for (const x of candidates) {
     if (Math.abs(x - desiredX) > radius) continue;
@@ -2331,6 +2344,33 @@ function levelNear(
   );
 }
 
+// The columns at which the stub between a port at (portX, y) and a vertical run
+// at x stops sharing more than PORT_STUB of span with a level band it lies
+// beside -- one per band the stub could strike, the nearest x that satisfies
+// levelNear. The column searches take these as `extra` candidates: a band is no
+// obstacle to a VERTICAL run, so it is absent from the rect list the search
+// derives its candidates from, and a descent that need only step past the end of
+// the line beside its stub would never be offered that column. Without them the
+// whole jog is declined and the pair stays drawn as one stroke.
+// `columnSide` says which side of the port the column stands on: "left" for a
+// descent (its stub runs rightward into the target), "right" for a jogged source
+// column (its stub runs leftward back to the source port).
+function stubClearColumns(
+  bands: ReadonlyArray<LevelBand>,
+  self: LevelPorts,
+  y: number,
+  portX: number,
+  columnSide: "left" | "right",
+): number[] {
+  return bands
+    .filter((b) => !sharesPortRow(b, self, y) && y > b.top && y < b.bottom)
+    .map((b) =>
+      columnSide === "left"
+        ? Math.min(b.right, portX) - PORT_STUB
+        : Math.max(b.left, portX) + PORT_STUB,
+    );
+}
+
 // jogForwardLegs: bend a forward item edge's long horizontal around any
 // intervening card it would otherwise cross. Since the late drop that run is the
 // SOURCE one: a forward step holds the source-port y from the port out to the
@@ -2408,7 +2448,10 @@ export function jogForwardLegs(
   // registration for jogs: no two jogs into one target, and no jog vs rail /
   // rise pair, ever draw coincident verticals at the default column. The late
   // drops need no count of their own: the arrival model walks every candidate
-  // clear of the entry columns assignEntryColumns already pinned.
+  // clear of the entry columns assignEntryColumns already pinned. Every jog
+  // takes a place in the queue, the ones that descend at their own entry column
+  // included: the count is how many verticals stand in front of that card, not
+  // how many of them asked this model where to stand.
   const gutterCounts = gutterColumnCounts(edges, byId);
   const jogsByTarget = new Map<string, number>();
 
@@ -2424,6 +2467,31 @@ export function jogForwardLegs(
   // stub plus a chamfer out of the source port.
   const sourceGapOf = sourceGapOfEdge(nodes, ctx);
   const pinnedByGap = pinnedColumnsByGap(nodes, edges);
+  // The columns THIS pass stakes out, by gap. pinnedColumnsByGap is read off the
+  // edges as the earlier passes left them and so knows none of them, while the
+  // per-target counts above only separate jogs into ONE card: two jogs into two
+  // cards of the same layer stand in the same gap, walk the same zone from the
+  // same slot, and settle on the same x -- two verticals drawn as one line. A
+  // column registered here is a blocker for every jog scanned after it, exactly
+  // as a pre-pinned one is.
+  const stakedByGap = new Map<string, PinnedColumn[]>();
+  const columnsPinnedIn = (gap: GapRecord | undefined): PinnedColumn[] => {
+    if (gap === undefined) return [];
+    const key = gapKeyOf(gap);
+    return [...(pinnedByGap.get(key) ?? []), ...(stakedByGap.get(key) ?? [])];
+  };
+  const stakeColumn = (
+    gap: GapRecord | undefined,
+    x: number,
+    owner: string,
+  ): void => {
+    if (gap === undefined) return;
+    const key = gapKeyOf(gap);
+    stakedByGap.set(key, [
+      ...(stakedByGap.get(key) ?? []),
+      { x, trunk: false, owner },
+    ]);
+  };
   const trunkByEdgeId = classifyTrunks(nodes, edges).trunkByEdgeId;
   const srcSlotsByTrunk = new Map<string, number>();
   const trunkKeyOf = (edge: Edge): string | undefined => {
@@ -2482,7 +2550,7 @@ export function jogForwardLegs(
     // pushed clear of a card cannot end up inside the chip reserve in front of
     // the target.
     const descentGap = arrivals.zoneOf(edge);
-    const descentX0 = arrivals.columnOf(edge, occupied);
+    const slotX = arrivals.columnOf(edge, occupied);
     const inDescentZone = (x: number): boolean =>
       descentGap === undefined ||
       (x >= descentGap.columnZone.left && x <= descentGap.columnZone.right);
@@ -2507,7 +2575,7 @@ export function jogForwardLegs(
               ENTRY_SLOT_PITCH / 2 +
               srcSlot * ENTRY_SLOT_PITCH,
             1,
-            pinnedByGap.get(gapKeyOf(sourceGap)) ?? [],
+            columnsPinnedIn(sourceGap),
           );
 
     // Exempt from the obstacle scan: both endpoints' own cards / gutters (the leg
@@ -2550,6 +2618,15 @@ export function jogForwardLegs(
     const tgtBlocked = legBlockedIn(foreignCards, ty, dropX, tx);
     const srcBlocked = legBlockedIn(foreignCards, sy, sx, dropX);
     const cardBlocked = tgtBlocked || srcBlocked;
+
+    // The descent's desired column. A jog around a CARD takes the arrival
+    // model's next free slot: the straight shape is unroutable, so where the
+    // edge turns down is this pass's to choose. A jog fired only by the level
+    // floor moves the long run's LEVEL and nothing else, and its late-drop entry
+    // column is already a slot of its own (assignEntryColumns); taking a slot
+    // further left instead would lengthen the approach band it shares with the
+    // other flows into the same card for no gain.
+    const descentX0 = cardBlocked ? slotX : (hints.entryX ?? slotX);
 
     // The level bands this edge owes clearance to: every other edge's, confined
     // to this edge's own x-corridor, since a band it never runs beside cannot
@@ -2623,6 +2700,13 @@ export function jogForwardLegs(
         ...cardSet,
         ...(bands === "off" ? [] : foreignBands),
       ].filter((o) => o.right > sx && o.left < tx);
+      // The columns the stubs need when the bands have a say over them, offered
+      // to the searches below: stubClearColumns' header says why the searches
+      // cannot derive them for themselves.
+      const stubColumns = (y: number, portX: number, side: "left" | "right") =>
+        bands === "all"
+          ? stubClearColumns(foreignBands, self, y, portX, side)
+          : [];
       // Nearest to ty first, ties broken by the row value itself: the rails are
       // deduped numbers, so (distance, row) is a TOTAL order and the chosen
       // rail no longer depends on the order the obstacles were handed in.
@@ -2668,6 +2752,7 @@ export function jogForwardLegs(
               towardTarget: 1,
               gap: colGap,
               radius,
+              extra: stubColumns(sy, sx, "right"),
               accept: (x) =>
                 x > sx &&
                 x < tx &&
@@ -2699,6 +2784,7 @@ export function jogForwardLegs(
             towardTarget: 1,
             gap: colGap,
             radius,
+            extra: stubColumns(ty, tx, "left"),
             accept: (x) =>
               x <= tx - CHAMFER &&
               (relaxed || inDescentZone(x)) &&
@@ -2751,9 +2837,17 @@ export function jogForwardLegs(
     // walked off any column the pull put it on. clearColumnX hands the desired
     // column back when no candidate qualifies, so the zone clamp can land a
     // column on the zone's own edge, where an arrival column of the same gap may
-    // already stand -- two lines eight units apart read as one. A walk that would
-    // put the column through a card, or back out of the zone, is dropped for the
-    // clamped value: that is the degrade this pass has always taken.
+    // already stand -- two lines eight units apart read as one. This edge's OWN
+    // pinned columns (its entry column above all, which a floor-driven jog
+    // descends at on purpose) are not such neighbours and are filtered out: a
+    // line does not braid itself.
+    //
+    // The walk goes toward the source first, as it always has, and toward the
+    // target when that answer does not survive `clear` -- the floor the descent
+    // was placed to keep is a clearance the walk can spend, and the side that
+    // keeps it is the side to walk. A walk that would put the column through a
+    // card, back out of the zone, or back inside the floor either way is dropped
+    // for the clamped value: that is the degrade this pass has always taken.
     const settle = (
       x: number,
       gap: GapRecord | undefined,
@@ -2761,13 +2855,14 @@ export function jogForwardLegs(
     ): number => {
       if (!zoned) return x; // a relaxed column is out of the zone on purpose
       const pulled = clampToZone(x, gap);
-      const blockers =
-        gap === undefined ? [] : (pinnedByGap.get(gapKeyOf(gap)) ?? []);
+      const blockers = columnsPinnedIn(gap).filter((b) => b.owner !== edge.id);
       const walked = columnClearOfPinned(pulled, -1, blockers);
       if (walked === pulled) return pulled;
-      return clear(walked) && clampToZone(walked, gap) === walked
-        ? walked
-        : pulled;
+      const settled = (candidate: number): boolean =>
+        clear(candidate) && clampToZone(candidate, gap) === candidate;
+      if (settled(walked)) return walked;
+      const back = columnClearOfPinned(pulled, 1, blockers);
+      return settled(back) ? back : pulled;
     };
 
     if (jog.R !== ty) {
@@ -2779,24 +2874,27 @@ export function jogForwardLegs(
           x <= tx - CHAMFER &&
           !vRunBlockedIn(foreignAll, x, jog.R, ty) &&
           !legBlockedIn(foreignCards, ty, x, tx) &&
-          !legBlockedIn(foreignCards, jog.R, jog.C, x),
+          !legBlockedIn(foreignCards, jog.R, jog.C, x) &&
+          // The floor on the approach stub the search just cleared: a walk that
+          // puts the column back inside another line's band undoes the jog.
+          !levelNear(foreignBands, self, ty, x, tx),
       );
       if (descentX !== tx - PORT_STUB) descentXByIndex.set(index, descentX);
+      stakeColumn(descentGap, descentX, edge.id);
       jogsByTarget.set(edge.target, (jogsByTarget.get(edge.target) ?? 0) + 1);
     }
     if (srcBlocked) {
-      srcColXByIndex.set(
-        index,
-        settle(
-          jog.C,
-          sourceGap,
-          (x) =>
-            x > sx &&
-            x < tx &&
-            !vRunBlockedIn(foreignAll, x, sy, jog.R) &&
-            !legBlockedIn(foreignCards, sy, sx, x),
-        ),
+      const srcColX = settle(
+        jog.C,
+        sourceGap,
+        (x) =>
+          x > sx &&
+          x < tx &&
+          !vRunBlockedIn(foreignAll, x, sy, jog.R) &&
+          !legBlockedIn(foreignCards, sy, sx, x),
       );
+      srcColXByIndex.set(index, srcColX);
+      stakeColumn(sourceGap, srcColX, edge.id);
       if (trunkKey !== undefined) srcSlotsByTrunk.set(trunkKey, srcSlot + 1);
     }
 
