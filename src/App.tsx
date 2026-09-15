@@ -43,9 +43,11 @@ import {
   readStoredEventOverrides,
   unavailableRecipeIds,
   writeStoredEventOverrides,
+  packCohortOf,
   type EventCohortOverrides,
 } from "./data/event-cohorts";
 import { EVENT_COHORT_OVERRIDES_STORAGE_KEY } from "./data/storage-keys";
+import { SettingsPanel } from "./components/SettingsPanel";
 import { CATALYST_SUPPLY_EDGES } from "./flags";
 import type { LogicalGraph } from "./canvas/layout";
 import { LpInfeasibleError } from "./solver";
@@ -358,6 +360,14 @@ function AppInner() {
   const [eventOverrides, setEventOverrides] = useState<EventCohortOverrides>(
     readStoredEventOverrides,
   );
+  // The pack's own cohort, handed to the settings panel so its Events rows
+  // can tell current from past. `pack` is a module-stable import, so it stays
+  // out of the dependency list.
+  const packCohort = useMemo(() => packCohortOf(pack), []);
+  // Whether the settings modal (#123's shell, holding #144's Events section)
+  // is mounted. Conditional mount rather than an open prop, matching how the
+  // panels own the picker popup.
+  const [settingsOpen, setSettingsOpen] = useState(false);
   // The recipes switched off under those overrides - the availability set the
   // load, mutation, and re-solve paths below all thread into the seam from
   // T3. `pack` is a module-stable import, so it stays out of the dependency
@@ -807,6 +817,27 @@ function AppInner() {
               {status}
             </span>
             <LocaleSwitcher />
+            <button
+              type="button"
+              className="settings-open"
+              data-testid="settings-open"
+              aria-label={i18n.t("settings.open.label")}
+              title={i18n.t("settings.open.label")}
+              onClick={() => setSettingsOpen(true)}
+            >
+              {/* Sliders, not a literal gear: three rails with two offset
+                  knobs read cleanly at the topbar's 16px. */}
+              <svg
+                className="settings-open-glyph"
+                viewBox="0 0 16 16"
+                aria-hidden="true"
+              >
+                <line x1="1.5" y1="4" x2="14.5" y2="4" />
+                <circle cx="10" cy="4" r="2" />
+                <line x1="1.5" y1="12" x2="14.5" y2="12" />
+                <circle cx="6" cy="12" r="2" />
+              </svg>
+            </button>
           </div>
         </div>
         {mutationError ? (
@@ -965,6 +996,17 @@ function AppInner() {
           </div>
         </div>
       </ItemPackProvider>
+      {/* Portals to <body>; the opener button is the focus the panel hands
+          back on close. */}
+      {settingsOpen ? (
+        <SettingsPanel
+          pack={pack}
+          packCohort={packCohort}
+          overrides={eventOverrides}
+          onOverridesChange={handleEventOverridesChange}
+          onClose={() => setSettingsOpen(false)}
+        />
+      ) : null}
     </div>
   );
 }

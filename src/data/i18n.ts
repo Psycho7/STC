@@ -65,6 +65,20 @@ export type UiKey =
   | "canvas.controls.fit_view"
   | "canvas.controls.interactive"
   | "rate.invalid"
+  | "settings.open.label"
+  | "settings.title"
+  | "settings.close.label"
+  | "settings.events.title"
+  | "settings.events.reset"
+  | "settings.events.current"
+  | "settings.events.past"
+  | "settings.events.default"
+  | "settings.events.switch.label"
+  | "settings.events.counts"
+  | "settings.events.showRecipes"
+  | "settings.events.hideRecipes"
+  | "settings.events.recipe.machine"
+  | "settings.events.recipe.inputs"
   | "stats.output"
   | "stats.output.unit"
   | "stats.input"
@@ -145,6 +159,20 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "canvas.controls.fit_view": "适应视图",
     "canvas.controls.interactive": "切换交互",
     "rate.invalid": "请输入数字，例如 30 或 1/3",
+    "settings.open.label": "打开设置",
+    "settings.title": "设置",
+    "settings.close.label": "关闭",
+    "settings.events.title": "活动",
+    "settings.events.reset": "恢复默认",
+    "settings.events.current": "当前",
+    "settings.events.past": "往期",
+    "settings.events.default": "默认",
+    "settings.events.switch.label": "切换 {cohort} 活动",
+    "settings.events.counts": "{items} 个物品 · {recipes} 个配方",
+    "settings.events.showRecipes": "显示配方",
+    "settings.events.hideRecipes": "隐藏配方",
+    "settings.events.recipe.machine": "机器 {machine}",
+    "settings.events.recipe.inputs": "输入 {inputs}",
     "stats.output": "输出",
     "stats.output.unit": "目标",
     "stats.input": "输入",
@@ -221,6 +249,20 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "canvas.controls.fit_view": "Fit view",
     "canvas.controls.interactive": "Toggle interactivity",
     "rate.invalid": "Enter a number, e.g. 30 or 1/3",
+    "settings.open.label": "Open settings",
+    "settings.title": "Settings",
+    "settings.close.label": "Close",
+    "settings.events.title": "Events",
+    "settings.events.reset": "Reset to defaults",
+    "settings.events.current": "current",
+    "settings.events.past": "past",
+    "settings.events.default": "default",
+    "settings.events.switch.label": "Toggle the {cohort} event",
+    "settings.events.counts": "{items} items · {recipes} recipes",
+    "settings.events.showRecipes": "Show recipes",
+    "settings.events.hideRecipes": "Hide recipes",
+    "settings.events.recipe.machine": "machine {machine}",
+    "settings.events.recipe.inputs": "in {inputs}",
     "stats.output": "Output",
     "stats.output.unit": "targets",
     "stats.input": "Input",

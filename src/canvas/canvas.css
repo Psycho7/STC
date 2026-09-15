@@ -489,6 +489,23 @@
   color: var(--ak-text-primary);
 }
 
+/* The icon-only settings button (#123): its only content is the sliders
+   glyph, so it centres the glyph rather than sitting it on the text
+   baseline. The glyph shares the topbar's currentColor. */
+.ak-app-shell .topbar button.settings-open {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.ak-app-shell .topbar .settings-open-glyph {
+  display: block;
+  width: 14px;
+  height: 14px;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  fill: none;
+}
+
 /* Side rail: the editorial list of targets and inputs. */
 .ak-app-shell [data-testid="side-panel"] .boundary-section {
   display: flex;
@@ -2429,4 +2446,274 @@
     transparent 0 5px,
     rgba(124, 223, 252, 0.08) 5px 6px
   );
+}
+
+/* Settings modal (#123's shell) with the Events section (#144). Portaled to
+   <body> like the picker popup, so the rules live outside the side-panel
+   scope; the backdrop carries --icons-url inline so the cohort icon strips
+   resolve the icon sheet. z-index 100 clears the canvas layers (max 6). */
+.settings-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(0, 0, 0, 0.62);
+  font-family: var(--font-ui);
+}
+.settings-dialog {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 560px;
+  max-height: 80vh;
+  background: var(--ak-bg-primary);
+  border: 1px solid var(--ak-divider-strong);
+  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.55);
+  clip-path: polygon(
+    10px 0,
+    100% 0,
+    100% calc(100% - 10px),
+    calc(100% - 10px) 100%,
+    0 100%,
+    0 10px
+  );
+}
+.settings-dialog:focus-visible {
+  outline: 2px solid var(--ak-accent-cyan);
+  outline-offset: -2px;
+}
+.settings-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 18px 12px;
+  border-bottom: 1px solid var(--ak-divider);
+}
+.settings-title {
+  flex: 1;
+  font-family: var(--font-display);
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--ak-text-primary);
+  letter-spacing: -0.01em;
+}
+.settings-close {
+  flex-shrink: 0;
+  width: 26px;
+  height: 26px;
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--ak-text-decoration);
+  font-size: 16px;
+  line-height: 22px;
+  cursor: pointer;
+}
+.settings-close:hover {
+  border-color: var(--ak-accent-red);
+  color: var(--ak-accent-red);
+  background: rgba(225, 53, 30, 0.1);
+}
+.settings-close:focus-visible {
+  outline: 2px solid var(--ak-accent-cyan);
+  outline-offset: 2px;
+}
+.settings-body {
+  overflow-y: auto;
+  padding: 0 18px 18px;
+}
+/* One settings row group (Events today; locale/area/presets later). */
+.settings-section {
+  margin-top: 14px;
+}
+.settings-section-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.settings-section-title {
+  flex: 1;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--ak-text-decoration);
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+}
+.settings-reset {
+  background: transparent;
+  border: 1px solid var(--ak-divider);
+  color: var(--ak-text-secondary);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 3px 8px;
+  cursor: pointer;
+}
+.settings-reset:hover {
+  border-color: var(--ak-accent-cyan-soft);
+  color: var(--ak-text-primary);
+}
+.settings-reset:focus-visible,
+.settings-disclosure:focus-visible {
+  outline: 2px solid var(--ak-accent-cyan);
+  outline-offset: 2px;
+}
+/* One event-cohort row: header line (version / pill / switch), summary line
+   (icon strip / counts / default tag), then the recipe disclosure. */
+.settings-cohort {
+  padding: 12px 12px 10px;
+  background: var(--ak-bg-secondary);
+  border: 1px solid var(--ak-divider);
+}
+.settings-cohort + .settings-cohort {
+  margin-top: 8px;
+}
+.settings-cohort-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.settings-cohort-version {
+  font-family: var(--font-mono);
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--ak-text-primary);
+  letter-spacing: 0.04em;
+}
+.settings-pill {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  padding: 1px 8px;
+  border: 1px solid var(--ak-divider);
+  color: var(--ak-text-decoration);
+}
+.settings-pill.current {
+  border-color: var(--ak-accent-cyan-soft);
+  color: var(--ak-accent-cyan);
+}
+.settings-switch {
+  margin-left: auto;
+  appearance: none;
+  -webkit-appearance: none;
+  flex-shrink: 0;
+  width: 34px;
+  height: 18px;
+  background: var(--ak-bg-canvas);
+  border: 1px solid var(--ak-divider-strong);
+  position: relative;
+  cursor: pointer;
+}
+.settings-switch::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 12px;
+  height: 12px;
+  background: var(--ak-text-decoration);
+  transition:
+    left 120ms ease-out,
+    background 120ms ease-out;
+}
+.settings-switch:checked {
+  border-color: var(--ak-accent-cyan);
+  background: rgba(124, 223, 252, 0.12);
+}
+.settings-switch:checked::after {
+  left: 18px;
+  background: var(--ak-accent-cyan);
+}
+.settings-switch:focus-visible {
+  outline: 2px solid var(--ak-accent-cyan);
+  outline-offset: 2px;
+}
+.settings-cohort-main {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 8px;
+  flex-wrap: wrap;
+}
+/* Decorative strip: the counts line carries the numbers, and the expansion
+   names every item through the recipe inputs, so the icons stay aria-hidden. */
+.settings-icons {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.settings-icons-slot {
+  display: inline-flex;
+  width: 28px;
+  height: 28px;
+  align-items: center;
+  justify-content: center;
+  background: var(--ak-bg-canvas);
+  border: 1px solid var(--ak-divider);
+}
+.settings-icons-more {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--ak-text-decoration);
+  letter-spacing: 0.04em;
+}
+.settings-counts {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--ak-text-secondary);
+  letter-spacing: 0.04em;
+}
+.settings-default {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  padding: 1px 6px;
+  border: 1px dashed var(--ak-divider-strong);
+  color: var(--ak-text-decoration);
+}
+.settings-disclosure {
+  margin-top: 8px;
+  background: transparent;
+  border: none;
+  padding: 0;
+  color: var(--ak-accent-cyan);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.settings-disclosure:hover {
+  color: var(--ak-text-primary);
+}
+.settings-recipes {
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+  border-top: 1px solid var(--ak-divider);
+}
+.settings-recipes li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--ak-divider);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  letter-spacing: 0.02em;
+}
+.settings-recipes li:last-child {
+  border-bottom: none;
+}
+.settings-recipe-name {
+  color: var(--ak-text-primary);
+}
+.settings-recipe-meta {
+  color: var(--ak-text-secondary);
 }

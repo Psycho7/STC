@@ -155,3 +155,28 @@ test("a mid-session flip off banners without clearing the render; flipping back 
   await waitFor(() => expect(canvasSpy.status).toBe("READY"));
   expect(screen.getAllByTestId("target-row")).toHaveLength(1);
 });
+
+// The settings panel (T5) is the in-app writer for those overrides: the header
+// gear button opens the modal, whose Events section names the cohort in the UI
+// language. Escape is one of its three close paths.
+test("the header gear button opens the settings panel; Escape closes it", async () => {
+  window.location.hash = "#" + (await encodePlan(LUNG_PLAN));
+  render(<App />);
+  await screen.findAllByTestId("target-row");
+  await waitFor(() => expect(canvasSpy.status).toBe("READY"));
+
+  fireEvent.click(screen.getByRole("button", { name: "打开设置" }));
+  const dialog = screen.getByRole("dialog");
+  expect(dialog.textContent).toContain("v1.5");
+  expect(dialog.textContent).toContain("当前");
+  expect(
+    (screen.getByRole("switch", { name: "切换 v1.5 活动" }) as HTMLInputElement)
+      .checked,
+  ).toBe(true);
+
+  fireEvent.keyDown(document, { key: "Escape" });
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  // Reopening works after a close.
+  fireEvent.click(screen.getByRole("button", { name: "打开设置" }));
+  expect(screen.getByRole("dialog")).toBeTruthy();
+});
