@@ -32,6 +32,7 @@ import {
   fanJunctionX,
   forwardDropX,
   forwardStepGeometry,
+  horizontalRuns,
   routingHintsFromData,
   type ObstacleRect,
 } from "./edgePath";
@@ -1539,8 +1540,12 @@ export const CONTAINER_COLUMN_GAP = 16;
 // edge's OWN target card / gutter (the default rise and backward entry columns
 // sit inside their own target's padded left band by construction) while
 // treating every foreign rect as blocked.
+// "level" is not a node at all but another edge's drawn horizontal run, already
+// grown by the clearance it wants (forwardLevelBands); it never appears in the
+// node-derived obstacle field, only in the sets jogForwardLegs assembles, and
+// every filter over that field keys on "card" or "gutter" so it stays out.
 export type PaddedObstacle = ObstacleRect & {
-  kind: "card" | "gutter";
+  kind: "card" | "gutter" | "level";
   nodeId: string;
 };
 
@@ -2246,6 +2251,96 @@ export function clampBackwardRails(
   });
 }
 
+// The y clearance two forward horizontal runs of different edges keep where
+// they share an x-corridor. Below it the pair reads as a single thick stroke
+// carrying two chips -- gas-web held a raw supply and a catalyst supply 2 units
+// apart for about a thousand units, with the catalyst's fan-out dot sitting on
+// the raw line. ENTRY_SLOT_PITCH is the floor the rule asks for, the same value
+// the column families keep on the x axis; the separation actually taken is a
+// whole chip box, for the reason railLevelBand takes one -- each run carries
+// its rate chip centred on it, so two runs less than a box apart stack their
+// two chips into one smeared figure belonging to neither line.
+const FORWARD_LEVEL_FLOOR = Math.max(ENTRY_SLOT_PITCH, 2 * CHIP_HALF_H);
+
+// One forward edge's drawn horizontal runs, as level bands for the OTHER
+// edges' runs. Read off the drawn polyline rather than the stamps, so the band
+// covers the line the reader sees; a backward detour contributes none (its rail
+// level is clampBackwardRails' business). Each band carries the level it is
+// grown around and its edge's two port rows, which is all the waiver below
+// needs.
+type LevelPorts = {
+  source: string;
+  target: string;
+  sy: number;
+  ty: number;
+};
+
+type LevelBand = PaddedObstacle & LevelPorts & { y: number };
+
+function forwardLevelBands(
+  edge: Edge,
+  byId: ReadonlyMap<string, RFAnyNode>,
+): LevelBand[] {
+  const ends = drawnPortsOf(edge, byId);
+  if (ends === null) return [];
+  if (ends.targetX <= ends.sourceX) return [];
+  const { pts } = drawnEdge(ends, edge.type, edge.data);
+  const ports: LevelPorts = {
+    source: edge.source,
+    target: edge.target,
+    sy: ends.sourceY,
+    ty: ends.targetY,
+  };
+  return horizontalRuns(pts).map((run) => ({
+    ...ports,
+    left: run.lo,
+    right: run.hi,
+    top: run.y - FORWARD_LEVEL_FLOOR,
+    bottom: run.y + FORWARD_LEVEL_FLOOR,
+    kind: "level" as const,
+    nodeId: `level:${edge.id}`,
+    y: run.y,
+  }));
+}
+
+// Do these two runs draw as ONE line on purpose? They do when they coincide on
+// a port row the two edges share: every edge leaving one output row draws the
+// same stub out of it, and every edge arriving on one input row draws the same
+// approach into it, which is what a trunk is. Sharing the target CARD is not
+// enough -- a recipe fed the same item as a raw input and as a catalyst charge
+// takes it on two different rows, and those two supplies are two lines.
+function sharesPortRow(band: LevelBand, self: LevelPorts, y: number): boolean {
+  if (band.y !== y) return false;
+  if (band.source === self.source && band.sy === self.sy && y === self.sy) {
+    return true;
+  }
+  return band.target === self.target && band.ty === self.ty && y === self.ty;
+}
+
+// Does a horizontal run at `y` from x0 to x1 break the floor against any of
+// these bands? The x test is an OVERLAP LENGTH, not the bare intersection
+// legBlockedIn uses: two runs that share less than a port stub of span are a
+// corner meeting a line, not one smeared line, and forcing them apart would jog
+// an edge for a graze nobody reads as a collision. A band the run shares a port
+// row with is waived (sharesPortRow).
+function levelNear(
+  bands: ReadonlyArray<LevelBand>,
+  self: LevelPorts,
+  y: number,
+  x0: number,
+  x1: number,
+): boolean {
+  const lo = Math.min(x0, x1);
+  const hi = Math.max(x0, x1);
+  return bands.some(
+    (b) =>
+      !sharesPortRow(b, self, y) &&
+      Math.min(hi, b.right) - Math.max(lo, b.left) > PORT_STUB &&
+      y > b.top &&
+      y < b.bottom,
+  );
+}
+
 // jogForwardLegs: bend a forward item edge's long horizontal around any
 // intervening card it would otherwise cross. Since the late drop that run is the
 // SOURCE one: a forward step holds the source-port y from the port out to the
@@ -2281,6 +2376,21 @@ export function clampBackwardRails(
 // When no candidate clears in either tier, the edge keeps its straight leg --
 // no worse than before -- and the residual is left for a deeper routing pass
 // rather than a jog that fights itself.
+//
+// The pass has a SECOND trigger, the horizontal analog of the column pitch
+// floor: a forward run that comes closer than FORWARD_LEVEL_FLOOR in y to
+// another edge's forward run, over more than a port stub of shared x-span, is
+// jogged clear of it even though no card is in its way. The level bands of
+// every forward edge are seeded from the pre-pass geometry and refreshed as
+// each edge resolves, so the pair separates once: whichever of the two reaches
+// the scan first moves, and a run the jog cannot relocate (the stub between the
+// source port and the bend column) is a band the other edge yields to rather
+// than a strike of its own. Two runs that coincide on a port row their edges
+// share are waived (sharesPortRow): that pair is one line on purpose. The bands
+// join the tier scan beside the cards, so a level clearing the floor also
+// clears every card; should no such level exist, a card-blocked edge falls back
+// to the band-blind tier, which is exactly the tier this pass ran before the
+// floor existed. The floor never costs an edge a card-clearing jog.
 //
 // It reads each edge's FINAL bendX (the leg starts at that column); which pass
 // settles it is the ROUTING_PASSES entry in layout.ts.
@@ -2330,6 +2440,13 @@ export function jogForwardLegs(
     const sides = trunkByEdgeId.get(edge.id);
     return sides?.fanIn?.key ?? sides?.fanOut?.key;
   };
+  // The level field the floor is measured against: every forward edge's drawn
+  // runs, seeded from the geometry the passes above left and refreshed below as
+  // each edge resolves, so a jog moves the mover's band with it.
+  const levelBands = new Map<string, LevelBand[]>();
+  for (const edge of edges) {
+    levelBands.set(edge.id, forwardLevelBands(edge, byId));
+  }
 
   const legYByIndex = new Map<number, number>();
   const descentXByIndex = new Map<number, number>();
@@ -2442,7 +2559,40 @@ export function jogForwardLegs(
     // the drop collapses back onto the bend column.
     const tgtBlocked = legBlockedIn(foreignCards, ty, dropX, tx);
     const srcBlocked = legBlockedIn(foreignCards, sy, sx, dropX);
-    if (!tgtBlocked && !srcBlocked) return;
+    const cardBlocked = tgtBlocked || srcBlocked;
+
+    // The level bands this edge owes clearance to: every other edge's, confined
+    // to this edge's own x-corridor, since a band it never runs beside cannot
+    // be struck and would only lengthen the candidate scan. Which of them are
+    // waived is levelNear's rule, not a filter here, because the waiver depends
+    // on the level being tested.
+    const self: LevelPorts = {
+      source: edge.source,
+      target: edge.target,
+      sy,
+      ty,
+    };
+    const foreignBands: LevelBand[] = [];
+    for (const [otherId, bands] of levelBands) {
+      if (otherId === edge.id) continue;
+      for (const band of bands) {
+        if (band.right > sx && band.left < tx) foreignBands.push(band);
+      }
+    }
+    // The floor trigger is asked only of the stretch a jog RELOCATES: from the
+    // bend column out to the drop column at sy, and from there to the descent
+    // column at ty. The runs outside that stretch (source port to bend column,
+    // descent column to target port) survive the jog unmoved, so a strike on
+    // one of them is not this edge's to fix -- it is a band the other edge
+    // yields to when its own turn comes.
+    // Either stretch can be EMPTY -- an edge that drops at its bend column has
+    // nothing to relocate at sy, and one whose descent would stand left of its
+    // drop column has nothing to relocate at ty -- and an empty stretch owes
+    // nothing, so the bounds are taken in order rather than normalised.
+    const srcNear = dropX > bx && levelNear(foreignBands, self, sy, bx, dropX);
+    const tgtNear =
+      descentX0 > dropX && levelNear(foreignBands, self, ty, dropX, descentX0);
+    if (!cardBlocked && !srcNear && !tgtNear) return;
 
     // Try one obstacle tier: find (entry column C, rail level R, descent D)
     // with every piece clear in this tier's card / obstacle sets. R candidates:
@@ -2454,23 +2604,66 @@ export function jogForwardLegs(
     // searches drop the zone confinement and the escape radius, so a column may
     // stand inside a layer's OWN x-band and as far from its desired slot as the
     // obstacles demand.
+    // How much of the shape the level bands get a veto over:
+    //   "all"  every run, the residual stubs at sy and ty included -- the jog
+    //          that leaves the whole edge clear of the floor.
+    //   "rail" the run at R alone, the piece the jog actually relocates. The
+    //          stubs are where they were whatever R comes out, so holding them
+    //          to the floor here only vetoes jogs that could never fix them.
+    //   "off"  none of it, the shape this pass chose before the floor existed.
+    type BandMode = "all" | "rail" | "off";
     const tryTier = (
       cardSet: ReadonlyArray<PaddedObstacle>,
       columnSet: ReadonlyArray<PaddedObstacle>,
       pad: number,
       colGap: number,
       relaxed: boolean,
+      bands: BandMode,
     ): Jog | null => {
       const radius = relaxed ? Infinity : CLEAR_COLUMN_RADIUS;
-      const spanning = cardSet.filter((o) => o.right > sx && o.left < tx);
+      // Is a horizontal run dirty? The run at R answers for the bands in every
+      // mode but "off"; the residual stubs answer for them only in "all".
+      const railBlocked = (y: number, x0: number, x1: number): boolean =>
+        legBlockedIn(cardSet, y, x0, x1) ||
+        (bands !== "off" && levelNear(foreignBands, self, y, x0, x1));
+      const stubBlocked = (y: number, x0: number, x1: number): boolean =>
+        legBlockedIn(cardSet, y, x0, x1) ||
+        (bands === "all" && levelNear(foreignBands, self, y, x0, x1));
+      const spanning = [
+        ...cardSet,
+        ...(bands === "off" ? [] : foreignBands),
+      ].filter((o) => o.right > sx && o.left < tx);
       // Nearest to ty first, ties broken by the row value itself: the rails are
       // deduped numbers, so (distance, row) is a TOTAL order and the chosen
       // rail no longer depends on the order the obstacles were handed in.
+      // A level band already carries the clearance it wants, so its own edges
+      // ARE candidate levels; offering only the padded ones would skip the
+      // level that just clears a neighbouring line and land on the line past
+      // it. Both are offered, since a candidate further out of a band is no
+      // less clear of it. A card offers its padded gaps as before.
       const rails = [
-        ...new Set(spanning.flatMap((o) => [o.top - pad, o.bottom + pad])),
+        ...new Set(
+          spanning.flatMap((o) =>
+            o.kind === "level"
+              ? [o.top, o.bottom, o.top - pad, o.bottom + pad]
+              : [o.top - pad, o.bottom + pad],
+          ),
+        ),
       ].sort((a, b) => Math.abs(a - ty) - Math.abs(b - ty) || a - b);
       const candidates = srcBlocked ? [ty, ...rails] : rails;
       for (const R of candidates) {
+        // A detour level inside the floor of the row it left has cleared
+        // nothing: the stub at ty is still drawn, so the edge reads as two
+        // lines a few units apart instead of one. Only the band-blind mode
+        // takes such a level, and only because it is the shape this pass drew
+        // before the floor existed.
+        if (
+          bands !== "off" &&
+          R !== ty &&
+          Math.abs(R - ty) < FORWARD_LEVEL_FLOOR
+        ) {
+          continue;
+        }
         // Entry column: the bend column when the source leg is clean, else a
         // cleared column just out of the source port whose own stub leg stays
         // clear.
@@ -2489,13 +2682,10 @@ export function jogForwardLegs(
                 x > sx &&
                 x < tx &&
                 (relaxed || inSourceZone(x)) &&
-                !legBlockedIn(cardSet, sy, sx, x),
+                !stubBlocked(sy, sx, x),
             },
           );
-          if (
-            vRunBlockedIn(columnSet, C, sy, R) ||
-            legBlockedIn(cardSet, sy, sx, C)
-          ) {
+          if (vRunBlockedIn(columnSet, C, sy, R) || stubBlocked(sy, sx, C)) {
             continue;
           }
         } else if (vRunBlockedIn(columnSet, bx, sy, R)) {
@@ -2504,7 +2694,7 @@ export function jogForwardLegs(
         if (R === ty) {
           // Single-column shape: C from sy straight to ty, then the long
           // horizontal at ty into the target.
-          if (legBlockedIn(cardSet, ty, C, tx)) continue;
+          if (railBlocked(ty, C, tx)) continue;
           return { C, R, D: descentX0 };
         }
         // The descent must stay left of the target port (final approach runs
@@ -2522,13 +2712,13 @@ export function jogForwardLegs(
             accept: (x) =>
               x <= tx - CHAMFER &&
               (relaxed || inDescentZone(x)) &&
-              !legBlockedIn(cardSet, ty, x, tx),
+              !stubBlocked(ty, x, tx),
           },
         );
         if (D > tx - CHAMFER) continue;
-        if (legBlockedIn(cardSet, R, C, D)) continue;
+        if (railBlocked(R, C, D)) continue;
         if (vRunBlockedIn(columnSet, D, R, ty)) continue;
-        if (legBlockedIn(cardSet, ty, D, tx)) continue;
+        if (stubBlocked(ty, D, tx)) continue;
         return { C, R, D };
       }
       return null;
@@ -2536,10 +2726,20 @@ export function jogForwardLegs(
 
     // Padded tier first (full quality), then the raw-card fallback where
     // overlapping sibling paddings leave no padded-clear jog: threading the raw
-    // gaps beats keeping a straight leg through a card.
-    const confined =
-      tryTier(foreignCards, foreignAll, CHAMFER, CHAMFER, false) ??
-      tryTier(foreignRaw, foreignRaw, 2, 2, false);
+    // gaps beats keeping a straight leg through a card. Both tiers run
+    // band-aware first, so a level that also clears the floor wins; a
+    // card-blocked edge then retries band-free, because a corridor whose every
+    // level already carries a line still owes its card the detour. The floor
+    // therefore never costs an edge the jog it needed anyway.
+    const chain = (relaxed: boolean): Jog | null => {
+      const tiers = (bands: BandMode): Jog | null =>
+        tryTier(foreignCards, foreignAll, CHAMFER, CHAMFER, relaxed, bands) ??
+        tryTier(foreignRaw, foreignRaw, 2, 2, relaxed, bands);
+      return (
+        tiers("all") ?? tiers("rail") ?? (cardBlocked ? tiers("off") : null)
+      );
+    };
+    const confined = chain(false);
     // Last resort, both obstacle tiers again with the column searches relaxed.
     // A column is normally confined to its gap's column zone and to one card
     // plus one layer spacing of escape, which is the right rule while the
@@ -2550,10 +2750,7 @@ export function jogForwardLegs(
     // the radius, is clear. A column standing in that layer's own band beats a
     // leg drawn through the card; it stands in no gap, so it takes no room
     // reserved for chips or for another gap's columns.
-    const jog =
-      confined ??
-      tryTier(foreignCards, foreignAll, CHAMFER, CHAMFER, true) ??
-      tryTier(foreignRaw, foreignRaw, 2, 2, true);
+    const jog = confined ?? chain(true);
     if (jog === null) return; // no clear jog -> straight leg residual
     // The zone clamp is the confined tiers' own guard; a relaxed column is out
     // of the zone on purpose, so clamping it would put it straight back on the
@@ -2612,6 +2809,29 @@ export function jogForwardLegs(
       );
       if (trunkKey !== undefined) srcSlotsByTrunk.set(trunkKey, srcSlot + 1);
     }
+
+    // This edge now draws somewhere else, so the edges scanned after it must
+    // see the band where the line actually is. Stamps read back out of the
+    // maps, so the refreshed geometry is the one the pass returns.
+    levelBands.set(
+      edge.id,
+      forwardLevelBands(
+        {
+          ...edge,
+          data: {
+            ...edge.data,
+            ...(legYByIndex.has(index) ? { legY: legYByIndex.get(index) } : {}),
+            ...(descentXByIndex.has(index)
+              ? { jogDescentX: descentXByIndex.get(index) }
+              : {}),
+            ...(srcColXByIndex.has(index)
+              ? { srcColX: srcColXByIndex.get(index) }
+              : {}),
+          },
+        },
+        byId,
+      ),
+    );
   });
 
   if (

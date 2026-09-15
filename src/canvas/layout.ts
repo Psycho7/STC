@@ -1076,7 +1076,8 @@ export const ROUTING_PASSES: ReadonlyArray<{
       "corridor it fans across. Writes bendX for everything else.",
   },
   // Bend a blocked forward final leg to a clear y so it does not cross an
-  // intervening card (reads bendX).
+  // intervening card, and hold the horizontal level floor between two forward
+  // runs that share an x-corridor (reads bendX).
   {
     name: "jogForwardLegs",
     run: jogForwardLegs,
@@ -1084,7 +1085,10 @@ export const ROUTING_PASSES: ReadonlyArray<{
       "Reads each edge's FINAL bendX from assignBendColumns, because the leg " +
       "it jogs starts at that column, and the entry columns assignEntryColumns " +
       "already staked at the target, because a jog descent takes the next free " +
-      "slot left of them.",
+      "slot left of them. The level floor it also holds needs every forward " +
+      "edge's drawn geometry, so it is the last pass that moves a forward run: " +
+      "the bands it measures against are seeded from the three passes above " +
+      "and refreshed as it goes.",
   },
   // Move the backward detour rails clear of the cards they span.
   {
