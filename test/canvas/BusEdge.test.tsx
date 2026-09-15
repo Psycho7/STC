@@ -574,4 +574,37 @@ describe("canvas/BusEdge fan-in members", () => {
       document.querySelector('[data-testid="bus-edge-label-e1-rise"]'),
     ).not.toBeNull();
   });
+
+  // A trunk stretch of a catalyst pool is still a catalyst draw, so a retyped
+  // member carries the same ticked stroke a plain item edge would.
+  it("carries the catalyst tick overlay on a trunk member of the pool", async () => {
+    renderEdge({
+      item: "gas_xiranite",
+      rate: new Fraction(2, 1),
+      fanout: true,
+      trunkKey: "gas_xiranite|src",
+      busMemberCount: 2,
+      fromPool: "catalyst",
+    });
+    const path = await findEdgePath();
+    expect(path.getAttribute("data-pool")).toBe("catalyst");
+    const tick = document.querySelector<SVGPathElement>(
+      ".react-flow__edge path.edge-catalyst-tick",
+    );
+    expect(tick).not.toBeNull();
+    expect(tick!.getAttribute("d")).toBe(path.getAttribute("d"));
+  });
+
+  it("draws neither on a raw trunk member", async () => {
+    renderEdge({
+      item: "gas_xiranite",
+      rate: new Fraction(2, 1),
+      fanout: true,
+      trunkKey: "gas_xiranite|src",
+      busMemberCount: 2,
+    });
+    const path = await findEdgePath();
+    expect(path.hasAttribute("data-pool")).toBe(false);
+    expect(document.querySelector("path.edge-catalyst-tick")).toBeNull();
+  });
 });

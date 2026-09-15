@@ -1391,6 +1391,19 @@
   stroke-dasharray: 8 3 1.5 3 !important;
 }
 
+/* The lit-state widening above reaches every path in the edge group, including
+   a catalyst edge's tick overlay, which would flatten the ladder onto the
+   stroke it decorates. Scale the overlay by the same factor it carries at rest
+   so the crossbars keep reading as crossbars while the edge is lit. The class
+   selector outranks the bare `path` rule above, so this !important wins. */
+.ak-canvas-theme.hover-active
+  .react-flow__edge:not(.dimmed)
+  path.edge-catalyst-tick {
+  stroke-width: calc(
+    max(2.25px, calc(var(--edge-base-width, 1px) * 1.6)) * 4
+  ) !important;
+}
+
 /* React Flow's stock handle paints a white-bordered ring (its style.css
    .react-flow__handle). Every port already carries its item-tinted accent tab
    plus a transport PortGlyph, so the stock ring only adds a second ring that

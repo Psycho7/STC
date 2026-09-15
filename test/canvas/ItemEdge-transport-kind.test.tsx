@@ -3,9 +3,11 @@ import { cleanup, render, waitFor } from "@testing-library/react";
 import { ReactFlow, type Edge, type Node } from "@xyflow/react";
 import Fraction from "fraction.js";
 import ItemEdge, {
+  edgeStrokeWidth,
   strokeForKind,
   type ItemEdgeData,
 } from "../../src/canvas/ItemEdge";
+import { itemColor } from "../../src/canvas/itemColor";
 
 afterEach(() => {
   cleanup();
@@ -136,6 +138,74 @@ describe("canvas/ItemEdge transport-kind styling", () => {
     // The data attribute is omitted entirely when transportKind is absent so
     // selectors can distinguish "real belt" from "unclassified legacy edge".
     expect(path.hasAttribute("data-transport-kind")).toBe(false);
+  });
+});
+
+// The catalyst pool's stroke identity: the same colour and the same transport
+// dash as any other edge of that item, plus a ladder of crossbars over the same
+// geometry. The pane renders at zoom 1 here, so the base width is
+// edgeStrokeWidth(1) and the tick numbers below are its multiples.
+describe("canvas/ItemEdge catalyst stroke", () => {
+  const BASE_WIDTH = edgeStrokeWidth(1);
+
+  const tickPath = (): SVGPathElement | null =>
+    document.querySelector<SVGPathElement>(
+      ".react-flow__edge path.edge-catalyst-tick",
+    );
+
+  it("stamps data-pool and draws the tick overlay on a catalyst edge", async () => {
+    renderEdge({
+      item: "gas_xiranite",
+      rate: new Fraction(1),
+      transportKind: "belt",
+      fromPool: "catalyst",
+    });
+    const base = await findEdgePath();
+    expect(base.getAttribute("data-pool")).toBe("catalyst");
+
+    const tick = tickPath();
+    expect(tick).not.toBeNull();
+    // Same geometry and same colour as the stroke it decorates: the ticks are a
+    // pattern, not a second flow and not a second hue.
+    expect(tick!.getAttribute("d")).toBe(base.getAttribute("d"));
+    // (jsdom re-serializes the base path's inline stroke, so the item colour
+    // itself is the common reference.)
+    expect(tick!.getAttribute("stroke")).toBe(itemColor("gas_xiranite"));
+    expect(Number(tick!.getAttribute("stroke-width"))).toBe(4 * BASE_WIDTH);
+    expect(tick!.getAttribute("stroke-dasharray")).toBe(
+      `${BASE_WIDTH} ${7 * BASE_WIDTH}`,
+    );
+    // Butt caps are what make a one-width dash paint a crossbar instead of a
+    // blob riding along the line.
+    expect(tick!.getAttribute("stroke-linecap")).toBe("butt");
+  });
+
+  it("keeps the gas dash under the ticks on a gas catalyst edge", async () => {
+    renderEdge({
+      item: "gas_xiranite",
+      rate: new Fraction(1),
+      transportKind: "gas",
+      fromPool: "catalyst",
+    });
+    const base = await findEdgePath();
+    expect(base.style.strokeDasharray.replace(/,\s*/g, " ")).toBe("6 2 1 2");
+    expect(base.getAttribute("data-pool")).toBe("catalyst");
+    // The overlay carries no transport-kind hook: the per-kind dash rules in
+    // canvas.css belong to the base stroke alone.
+    const tick = tickPath();
+    expect(tick).not.toBeNull();
+    expect(tick!.hasAttribute("data-transport-kind")).toBe(false);
+  });
+
+  it("draws neither on a raw edge", async () => {
+    renderEdge({
+      item: "gas_xiranite",
+      rate: new Fraction(1),
+      transportKind: "gas",
+    });
+    const base = await findEdgePath();
+    expect(base.hasAttribute("data-pool")).toBe(false);
+    expect(tickPath()).toBeNull();
   });
 });
 

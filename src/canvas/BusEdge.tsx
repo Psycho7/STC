@@ -178,6 +178,7 @@ export default function BusEdge({
         zoom={zoom}
         ariaLabel={riseLabel}
         transportKind={edgeData?.transportKind}
+        fromPool={edgeData?.fromPool}
         markerEnd={markerEnd}
       />
       {/* Junction dot where the trunk's members coincide -- the split for a

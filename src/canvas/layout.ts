@@ -790,6 +790,10 @@ export function fromElkRenderLayout(
     if (renderEdge?.toPortKind !== undefined) {
       edgeData.toPortKind = renderEdge.toPortKind;
     }
+    // The pool the edge leaves, which is what the ticked catalyst stroke reads.
+    if (renderEdge?.fromPool !== undefined) {
+      edgeData.fromPool = renderEdge.fromPool;
+    }
     return {
       id: e.id,
       type: "item",

@@ -323,4 +323,69 @@ describe("catalyst supply edges", () => {
       expect(inbound.map((e) => e.fromUnit)).toEqual([aggregate!.id]);
     }
   }, 60000);
+
+  // `fromPool` marks the pool an edge LEAVES, which is what the ticked catalyst
+  // stroke draws from. The fanned-out plan is the demanding case: the flag has
+  // to reach the slices' consumer edges and the aggregate-to-slice edges too,
+  // not just the edges of a single-bucket catalyst node.
+  it("stamps fromPool on every edge leaving the catalyst pool", () => {
+    const targets: ItemTarget[] = [
+      { itemId: "proc_battery_5", ratePerSec: { num: "1", denom: "1" } },
+    ];
+    const recipeCosts = new Map<string, number>([["copper_nugget", 1000]]);
+    const out = solveForRender({ targets, recipeCosts });
+    const { plan } = out;
+    assertClean(out);
+
+    const fromCatalyst = plan.edges.filter((e) =>
+      e.fromUnit.startsWith("u:cat:"),
+    );
+    expect(fromCatalyst.length).toBeGreaterThan(0);
+    for (const e of fromCatalyst) {
+      expect(e.fromPool, `${e.fromUnit} -> ${e.toUnit}`).toBe("catalyst");
+    }
+    // The aggregate-to-slice edges land on no catalyst row, so they are the
+    // ones a toPortKind-shaped rule would miss.
+    const aggregateToSlice = fromCatalyst.filter(
+      (e) => e.toUnit.startsWith("u:cat:") && e.toPortKind === undefined,
+    );
+    expect(aggregateToSlice.length).toBeGreaterThan(0);
+
+    for (const e of plan.edges.filter((x) => x.fromUnit.startsWith("u:in:"))) {
+      expect(e.fromPool, `${e.fromUnit} -> ${e.toUnit}`).toBeUndefined();
+    }
+  }, 60000);
+
+  // The fold key carries the source pool, so the two draws of one item into one
+  // card -- raw on the in: row, cycled on the catalyst row -- survive the
+  // aggregation as two edges with two stroke identities.
+  it("keeps a raw draw and a catalyst draw of one item on one card apart", () => {
+    const targets: ItemTarget[] = [
+      { itemId: "xiranite_powder", ratePerSec: { num: "1", denom: "1" } },
+    ];
+    const recipeCosts = new Map<string, number>(
+      pack.recipes
+        .filter(
+          (r) =>
+            r.out[0]?.item === "xiranite_powder" &&
+            r.id !== "phase_trans_2-xiranite_powder",
+        )
+        .map((r) => [r.id, 1000]),
+    );
+    const out = solveForRender({ targets, recipeCosts });
+    const { plan } = out;
+    assertClean(out);
+
+    const unit = plan.units.find(
+      (u) => isRecipeUnit(u) && u.recipeId === "phase_trans_2-xiranite_powder",
+    )!;
+    const inbound = plan.edges.filter(
+      (e) => e.toUnit === unit.id && e.item === GAS_XIRANITE,
+    );
+    expect(inbound).toHaveLength(2);
+    expect(inbound.map((e) => e.fromPool).sort()).toEqual([
+      "catalyst",
+      undefined,
+    ]);
+  }, 60000);
 });

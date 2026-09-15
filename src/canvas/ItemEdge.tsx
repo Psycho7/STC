@@ -42,6 +42,12 @@ export type ItemEdgeData = {
   // from it: a card can carry the same item on an input row and a catalyst row,
   // so the item alone cannot say which row an edge arrives at.
   toPortKind?: "catalyst";
+  // Set on every edge leaving the catalyst boundary pool, mirroring
+  // RenderEdge.fromPool. It draws the ticked overlay (CatalystTicks) over the
+  // normal stroke, so a cycled charge is told from a raw draw of the same item
+  // without a second colour. Not the mirror of toPortKind: the pool's
+  // aggregate-to-slice edge lands on no catalyst row and still carries it.
+  fromPool?: "catalyst";
   // Bend column x assigned by the stagger pass (assignBendColumns). Optional:
   // when absent the path builder centers the bend at the corridor midpoint.
   bendX?: number;
@@ -498,6 +504,56 @@ export function edgeStrokeStyle(
   };
 }
 
+// Catalyst tick overlay. A catalyst edge keeps its item colour and its
+// transport dash; what marks it is a ladder of short crossbars riding the same
+// line. The overlay is a second path over the SAME geometry inside the same
+// crossing mask, stroked in the same colour at TICK_WIDTH_FACTOR times the base
+// width, dashed so each dash is one base width long with TICK_GAP_WIDTHS of gap
+// after it. With butt caps a dash that short paints a bar across the line
+// rather than a blob along it:
+//
+//   base   ---------------------------
+//   ticks  |      |      |      |
+//
+// Dash lengths are in graph units like the base dash, and the base width is
+// already zoom-compensated, so the ladder holds its on-screen pitch across
+// zoom. The overlay carries no data-transport-kind: the per-kind dash rules in
+// canvas.css belong to the stroke underneath, and the lit-state width rule
+// scales this path through its own class instead.
+const TICK_WIDTH_FACTOR = 4;
+const TICK_GAP_WIDTHS = 7;
+
+export function CatalystTicks({
+  path,
+  stroke,
+  zoom,
+}: {
+  path: string;
+  stroke: string;
+  zoom: number;
+}) {
+  const w = edgeStrokeWidth(zoom);
+  return (
+    <path
+      className="edge-catalyst-tick"
+      data-testid="edge-catalyst-tick"
+      d={path}
+      fill="none"
+      stroke={stroke}
+      strokeWidth={TICK_WIDTH_FACTOR * w}
+      strokeDasharray={`${w} ${TICK_GAP_WIDTHS * w}`}
+      strokeLinecap="butt"
+      // The base width rides on this path too, not just on the stroke below
+      // it: custom properties inherit from ancestors, and the two paths are
+      // siblings, so the lit-state rule that scales the overlay could not see
+      // the base path's copy.
+      style={{ ["--edge-base-width" as string]: `${w}px` }}
+      pointerEvents="none"
+      aria-hidden="true"
+    />
+  );
+}
+
 // The painted edge line, shared by ItemEdge and BusEdge. It owns the whole
 // drawn-stroke contract: the crossing-cue mask (this edge's stroke is cut out
 // around every proper crossing it was stamped as passing under, so the other
@@ -517,6 +573,7 @@ export function MaskedEdge({
   zoom,
   ariaLabel,
   transportKind,
+  fromPool,
   markerEnd,
 }: {
   id: string;
@@ -526,6 +583,9 @@ export function MaskedEdge({
   zoom: number;
   ariaLabel?: string | undefined;
   transportKind?: TransportKindId | undefined;
+  // Source boundary pool, stamped on the base path as data-pool and, for the
+  // catalyst pool, drawn as the tick overlay above.
+  fromPool?: "catalyst" | undefined;
   markerEnd?: string | undefined;
 }) {
   // Parse the own polyline for the cue filter once per (path, cue stamp),
@@ -557,8 +617,16 @@ export function MaskedEdge({
           {...(transportKind !== undefined
             ? { "data-transport-kind": transportKind }
             : {})}
+          {...(fromPool !== undefined ? { "data-pool": fromPool } : {})}
           {...(markerEnd ? { markerEnd } : {})}
         />
+        {fromPool === "catalyst" ? (
+          <CatalystTicks
+            path={path}
+            stroke={String(style.stroke ?? "")}
+            zoom={zoom}
+          />
+        ) : null}
       </g>
     </>
   );
@@ -717,6 +785,7 @@ export default function ItemEdge({
         zoom={zoom}
         ariaLabel={fullLabel}
         transportKind={edgeData?.transportKind}
+        fromPool={edgeData?.fromPool}
         markerEnd={markerEnd}
       />
       {chipText ? (

@@ -212,6 +212,12 @@ export type RenderEdge = {
   // row, which a card can carry for an item it ALSO consumes as an input, so
   // the two edges are told apart by this discriminator rather than by item.
   toPortKind?: "catalyst";
+  // Which boundary pool the edge LEAVES. "catalyst" means `fromUnit` is a
+  // catalyst pool node (`u:cat:<item>`, single or aggregate, or one of its
+  // container slices), which the renderer draws with its own ticked stroke. It
+  // is not the mirror of `toPortKind`: an aggregate-to-slice edge inside the
+  // pool lands on no catalyst row yet still leaves the pool.
+  fromPool?: "catalyst";
 };
 
 export type RenderPlan = {

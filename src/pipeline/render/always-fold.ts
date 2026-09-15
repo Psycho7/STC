@@ -98,17 +98,22 @@ export const AlwaysFoldRender: RenderPolicy = (input): RenderPlan => {
     );
   }
 
-  // Aggregate machine edges by (fromUnit, toUnit, item, target port kind)
-  // within the class graph. The port kind is part of the key because one card
-  // can take the same item on an `in:` row and a catalyst row, and those two
-  // edges land on different ports.
+  // Aggregate machine edges by (fromUnit, toUnit, item, target port kind,
+  // source pool) within the class graph. The port kind is part of the key
+  // because one card can take the same item on an `in:` row and a catalyst row,
+  // and those two edges land on different ports. The source pool is part of it
+  // because a raw draw and a catalyst draw of the same item between the same
+  // pair are two flows with two stroke identities, so folding them into one
+  // would erase the distinction the stroke draws.
   type EdgeKey = string;
   const keyFor = (
     fromUnit: RenderUnitId,
     toUnit: RenderUnitId,
     item: string,
     toPortKind: "catalyst" | undefined,
-  ): EdgeKey => `${fromUnit}\0${toUnit}\0${item}\0${toPortKind ?? "in"}`;
+    fromPool: "catalyst" | undefined,
+  ): EdgeKey =>
+    `${fromUnit}\0${toUnit}\0${item}\0${toPortKind ?? "in"}\0${fromPool ?? "raw"}`;
 
   type AccumEdge = {
     fromUnit: RenderUnitId;
@@ -117,11 +122,12 @@ export const AlwaysFoldRender: RenderPolicy = (input): RenderPlan => {
     rate: Fraction;
     transportKind: TransportKindId;
     toPortKind?: "catalyst";
+    fromPool?: "catalyst";
   };
   const edgeAccum = new Map<EdgeKey, AccumEdge>();
   const accumEdge = (e: AccumEdge): void => {
     if (e.fromUnit === e.toUnit) return; // self-edges suppressed
-    const k = keyFor(e.fromUnit, e.toUnit, e.item, e.toPortKind);
+    const k = keyFor(e.fromUnit, e.toUnit, e.item, e.toPortKind, e.fromPool);
     const existing = edgeAccum.get(k);
     if (existing) {
       existing.rate = existing.rate.add(e.rate);
@@ -173,6 +179,7 @@ export const AlwaysFoldRender: RenderPolicy = (input): RenderPlan => {
       rate: a.rate,
       transportKind: a.transportKind,
       ...(a.toPortKind !== undefined ? { toPortKind: a.toPortKind } : {}),
+      ...(a.fromPool !== undefined ? { fromPool: a.fromPool } : {}),
     });
   }
 
