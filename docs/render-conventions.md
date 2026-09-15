@@ -111,11 +111,18 @@ own line. The colour keeps the item's icon hue except where a family would
 otherwise read as one colour: such an item may sit up to 15 degrees off its icon
 hue, and near-gray families keep a saturation ceiling of 34.
 
-An edge out of the catalyst boundary pool draws crossbar ticks along its stroke,
-a ladder riding the transport dash it already carries, in the item's own colour.
-It is the same ladder the catalyst rows and the catalyst boundary card wear, and
-it exists so that an item supplied both ways cannot draw its charge line and its
-ordinary supply line as the same mark. No new colour is spent on it.
+Line style says what the edge is for, not what carries it. Every edge that moves
+material is solid, whether it rides a belt, a pipe or a gas line. Only an edge
+out of the catalyst boundary pool is dashed, in the item's own colour, so that an
+item supplied both ways cannot draw its charge line and its ordinary supply line
+as the same mark. No new colour is spent on it, and the dash does not fade: a
+catalyst edge sits at the same opacity as any other.
+
+Transport kind reaches the reader through the port glyph -- filled square for
+belt, hollow circle for pipe, hollow diamond for gas -- and through the item's
+own row on the card, never through the line. Kind is a property of the item, so
+the line would only repeat what the glyph and the icon already say, and it would
+spend the one visual channel the catalyst rule needs.
 
 A container's frame is kept clear of strokes. A loop's return edge runs in the
 corridor, never along the box border: its two verticals hold a fixed gap off

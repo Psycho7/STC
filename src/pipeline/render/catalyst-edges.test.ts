@@ -324,7 +324,7 @@ describe("catalyst supply edges", () => {
     }
   }, 60000);
 
-  // `fromPool` marks the pool an edge LEAVES, which is what the ticked catalyst
+  // `fromPool` marks the pool an edge LEAVES, which is what the dashed catalyst
   // stroke draws from. The fanned-out plan is the demanding case: the flag has
   // to reach the slices' consumer edges and the aggregate-to-slice edges too,
   // not just the edges of a single-bucket catalyst node.

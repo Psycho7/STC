@@ -32,10 +32,10 @@ export type ItemEdgeData = {
   item: ItemId;
   rate: Fraction;
   // Per-edge transport phase (belt, pipe, or gas, with room to grow). Picks the
-  // stroke and dash pattern below. It is optional so callers that have not
-  // wired it through yet, including older fixtures and tests, still render with
-  // the belt default; an unknown value also lands on the belt default instead
-  // of throwing.
+  // no-item fallback stroke colour below; the drawn line is the same for every
+  // kind. It is optional so callers that have not wired it through yet,
+  // including older fixtures and tests, still render with the belt default; an
+  // unknown value also lands on the belt default instead of throwing.
   transportKind?: TransportKindId;
   // Set only on an edge landing on a catalyst row's `cat:` port, mirroring
   // RenderEdge.toPortKind. The geometry readers pick the target row's column
@@ -43,10 +43,10 @@ export type ItemEdgeData = {
   // so the item alone cannot say which row an edge arrives at.
   toPortKind?: "catalyst";
   // Set on every edge leaving the catalyst boundary pool, mirroring
-  // RenderEdge.fromPool. It draws the ticked overlay (CatalystTicks) over the
-  // normal stroke, so a cycled charge is told from a raw draw of the same item
-  // without a second colour. Not the mirror of toPortKind: the pool's
-  // aggregate-to-slice edge lands on no catalyst row and still carries it.
+  // RenderEdge.fromPool. It dashes the stroke (CATALYST_DASH), so a cycled
+  // charge is told from a raw draw of the same item without a second colour.
+  // Not the mirror of toPortKind: the pool's aggregate-to-slice edge lands on
+  // no catalyst row and still carries it.
   fromPool?: "catalyst";
   // Bend column x assigned by the stagger pass (assignBendColumns). Optional:
   // when absent the path builder centers the bend at the corridor midpoint.
@@ -147,17 +147,6 @@ export type ItemEdgeData = {
   // EITHER side of the pair drops the gap instead of floating it.
   crossingCues?: ReadonlyArray<CrossingCue>;
 };
-
-// Dash pattern per transport kind. Belt is solid; pipe is dashed; gas is
-// dash-dot, so the two fluid carriers read as related media of different
-// density. The stroke COLOR comes from itemColor whenever the edge carries an
-// item id, so the same item reads the same on every edge kind, and falls back to
-// the shared transport palette only on the item-less edges older fixtures and
-// tests build. Unknown kinds fall through to the belt default on purpose. The
-// real guard against bad data happens at load time; this render-time fallback
-// just keeps the UI alive.
-const PIPE_DASH = "4 2";
-const GAS_DASH = "6 2 1 2";
 
 // The two zoom LOD gates are declared in ./dimensions, beside the rest of the
 // geometry contract, so a consumer that only needs a threshold does not have to
@@ -463,40 +452,49 @@ export function JunctionDot({
   );
 }
 
-type StrokeStyle = { stroke: string; strokeDasharray?: string };
-
-export function strokeForKind(
+// Line style says ROLE, not carrier: every edge that moves material is drawn
+// solid, belt, pipe and gas alike, and only a catalyst supply edge is dashed
+// (see CATALYST_DASH). Transport kind is carried by the port glyph instead.
+// So the kind decides colour and nothing else here, and even that only as a
+// fallback: with an item id the colour comes from itemColor, so the same item
+// reads the same on every edge, and the transport palette shows through only on
+// the item-less edges older fixtures and tests build. Unknown kinds fall
+// through to the belt default on purpose. The real guard against bad data
+// happens at load time; this render-time fallback just keeps the UI alive.
+export function strokeColorForKind(
   kind: TransportKindId | undefined,
   itemId?: ItemId,
-): StrokeStyle {
-  const stroke = itemId !== undefined ? itemColor(itemId) : undefined;
+): string {
+  if (itemId !== undefined) {
+    return itemColor(itemId);
+  }
   if (kind === "gas") {
-    return { stroke: stroke ?? GAS_COLOR, strokeDasharray: GAS_DASH };
+    return GAS_COLOR;
   }
   if (kind === "pipe") {
-    return { stroke: stroke ?? PIPE_COLOR, strokeDasharray: PIPE_DASH };
+    return PIPE_COLOR;
   }
-  return { stroke: stroke ?? BELT_COLOR };
+  return BELT_COLOR;
 }
 
 // The drawn stroke style both edge components hand to BaseEdge: the kind's
-// stroke and dash, plus the zoom-compensated base width published as
+// stroke colour, plus the zoom-compensated base width published as
 // --edge-base-width so the hover emphasis CSS can scale relative to it. A
 // caller-supplied style wins over these defaults, so later overrides for hover,
 // tear edges or cross-group edges take effect without this file knowing about
-// them. The kind's stroke colour is returned alongside because both components
-// also paint their junction dots with it.
+// them. The stroke colour is returned alongside because both components also
+// paint their junction dots with it.
 export function edgeStrokeStyle(
   kind: TransportKindId | undefined,
   itemId: ItemId | undefined,
   zoom: number,
   style: React.CSSProperties | undefined,
 ): { stroke: string; style: React.CSSProperties } {
-  const kindStyle = strokeForKind(kind, itemId);
+  const stroke = strokeColorForKind(kind, itemId);
   return {
-    stroke: kindStyle.stroke,
+    stroke,
     style: {
-      ...kindStyle,
+      stroke,
       ["--edge-base-width" as string]: `${edgeStrokeWidth(zoom)}px`,
       strokeWidth: "var(--edge-base-width)",
       ...(style ?? {}),
@@ -504,67 +502,24 @@ export function edgeStrokeStyle(
   };
 }
 
-// Catalyst tick overlay. A catalyst edge keeps its item colour and its
-// transport dash; what marks it is a ladder of short crossbars riding the same
-// line. The overlay is a second path over the SAME geometry inside the same
-// crossing mask, stroked in the same colour at TICK_WIDTH_FACTOR times the base
-// width, dashed so each dash is one base width long with TICK_GAP_WIDTHS of gap
-// after it. With butt caps a dash that short paints a bar across the line
-// rather than a blob along it:
-//
-//   base   ---------------------------
-//   ticks  |      |      |      |
-//
-// Dash lengths are in graph units like the base dash, and the base width is
-// already zoom-compensated, so the ladder holds its on-screen pitch across
-// zoom. The overlay carries no data-transport-kind: the per-kind dash rules in
-// canvas.css belong to the stroke underneath, and the lit-state width rule
-// scales this path through its own class instead.
-const TICK_WIDTH_FACTOR = 4;
-const TICK_GAP_WIDTHS = 7;
-
-export function CatalystTicks({
-  path,
-  stroke,
-  zoom,
-}: {
-  path: string;
-  stroke: string;
-  zoom: number;
-}) {
-  const w = edgeStrokeWidth(zoom);
-  return (
-    <path
-      className="edge-catalyst-tick"
-      data-testid="edge-catalyst-tick"
-      d={path}
-      fill="none"
-      stroke={stroke}
-      strokeWidth={TICK_WIDTH_FACTOR * w}
-      strokeDasharray={`${w} ${TICK_GAP_WIDTHS * w}`}
-      strokeLinecap="butt"
-      // The base width rides on this path too, not just on the stroke below
-      // it: custom properties inherit from ancestors, and the two paths are
-      // siblings, so the lit-state rule that scales the overlay could not see
-      // the base path's copy.
-      style={{ ["--edge-base-width" as string]: `${w}px` }}
-      pointerEvents="none"
-      aria-hidden="true"
-    />
-  );
-}
+// The catalyst pool's mark on the line: a supply edge keeps its item colour and
+// is dashed, while every material edge stays solid. The lengths are graph units
+// like the geometry around them, so the pattern holds its proportion to the
+// path across zoom, and butt caps (the SVG default, nothing overrides linecap
+// on an edge path) keep the gaps square rather than closing them at width.
+const CATALYST_DASH = "5 3";
 
 // The painted edge line, shared by ItemEdge and BusEdge. It owns the whole
 // drawn-stroke contract: the crossing-cue mask (this edge's stroke is cut out
 // around every proper crossing it was stamped as passing under, so the other
 // flow's stroke shows through a transparent gap and nothing beneath the pair is
 // painted over), the aria-label, the markerEnd arrow, and the
-// data-transport-kind hook the per-phase dim and hover rules in canvas.css
-// select on. The cue stamps are filtered here rather than by the callers, so
-// both components pay the same one-parse-per-edge-per-path cost and neither can
-// drift from the stale-stamp rule. The attribute is omitted entirely when the
-// edge carries no kind, so a selector can still tell a real belt from an
-// unclassified legacy edge.
+// data-transport-kind / data-pool stamps selectors and the exam probes read the
+// edge's phase and pool from. The cue stamps are filtered here rather than by
+// the callers, so both components pay the same one-parse-per-edge-per-path cost
+// and neither can drift from the stale-stamp rule. data-transport-kind is
+// omitted entirely when the edge carries no kind, so a selector can still tell
+// a real belt from an unclassified legacy edge.
 export function MaskedEdge({
   id,
   path,
@@ -584,7 +539,9 @@ export function MaskedEdge({
   ariaLabel?: string | undefined;
   transportKind?: TransportKindId | undefined;
   // Source boundary pool, stamped on the base path as data-pool and, for the
-  // catalyst pool, drawn as the tick overlay above.
+  // catalyst pool, drawn as CATALYST_DASH. The dash is applied here rather than
+  // in edgeStrokeStyle so both of the pool's marks sit at one site; it also
+  // means it beats a caller-supplied strokeDasharray, which no caller sets.
   fromPool?: "catalyst" | undefined;
   markerEnd?: string | undefined;
 }) {
@@ -612,7 +569,11 @@ export function MaskedEdge({
         <BaseEdge
           id={id}
           path={path}
-          style={style}
+          style={
+            fromPool === "catalyst"
+              ? { ...style, strokeDasharray: CATALYST_DASH }
+              : style
+          }
           {...(ariaLabel ? { "aria-label": ariaLabel } : {})}
           {...(transportKind !== undefined
             ? { "data-transport-kind": transportKind }
@@ -620,13 +581,6 @@ export function MaskedEdge({
           {...(fromPool !== undefined ? { "data-pool": fromPool } : {})}
           {...(markerEnd ? { markerEnd } : {})}
         />
-        {fromPool === "catalyst" ? (
-          <CatalystTicks
-            path={path}
-            stroke={String(style.stroke ?? "")}
-            zoom={zoom}
-          />
-        ) : null}
       </g>
     </>
   );
