@@ -72,7 +72,8 @@ function countDistinctRecipes(logical: LogicalGraph): number {
 
 // Loading and error surfaces render inside the themed .ak-app-shell so there is
 // no unstyled white page. These lay out a centered card; the shell class
-// supplies the dark background and text color.
+// supplies the dark background and text color. The positioning context also
+// anchors the error splash's settings gear slot (top-right, out of the card).
 const splashStyle: CSSProperties = {
   width: "100vw",
   height: "100vh",
@@ -81,6 +82,7 @@ const splashStyle: CSSProperties = {
   justifyContent: "center",
   padding: 24,
   boxSizing: "border-box",
+  position: "relative",
 };
 
 const splashCardStyle: CSSProperties = {
@@ -396,6 +398,15 @@ function AppInner() {
   useEffect(() => {
     unavailableRef.current = unavailable;
   }, [unavailable]);
+  // Mirrors initialError for the availability effect below, the same trick as
+  // unavailableRef: that effect must fire on cohort flips alone, so it cannot
+  // also key on the error object - every failed load stores a fresh one, and
+  // keying on it would re-run the pending load after each failure (each retry
+  // failing again) into a loop. It reads the current value through this ref.
+  const initialErrorRef = useRef(initialError);
+  useEffect(() => {
+    initialErrorRef.current = initialError;
+  }, [initialError]);
   // The one writer for override state: apply in memory and persist, so every
   // path that changes cohorts - T5's settings panel per switch and section
   // reset, the cross-tab storage listener below - lands identically. Kept as a
@@ -606,13 +617,26 @@ function AppInner() {
   // against the new set. A cohort switched off can invalidate a target only
   // its recipes produce: keep the last render up (banner + stale, never
   // cleared here - the plan itself is untouched) so flipping the cohort back
-  // re-solves from the same plan; a still-valid plan just re-solves. Boot-time
-  // runs no-op because planRef.current is null until the first load commits,
-  // and loads and mutations never change the derived set, so only a flip
-  // re-triggers this effect.
+  // re-solves from the same plan; a still-valid plan just re-solves. With no
+  // plan committed (the boot load failed onto the splash) there is no render
+  // to re-check, so a flip re-runs the pending load instead: the stored
+  // overrides are plausibly what rejected the hash's event target, and
+  // flipping the cohort on must recover into the linked plan. The reload
+  // joins the same solveGen last-write-wins flow as any navigation, and a
+  // link still invalid under the new set simply fails again onto a fresh,
+  // correctly-localized splash - one idempotent retry, not a loop, because
+  // this effect fires on cohort flips and not on the error those flips may
+  // rewrite. Boot-time runs with no splash up no-op because planRef.current
+  // is null and so is initialErrorRef.current, and loads and mutations never
+  // change the derived set, so only a flip re-triggers this effect.
   useEffect(() => {
     const current = planRef.current;
-    if (!current) return;
+    if (!current) {
+      if (initialErrorRef.current !== null) {
+        void loadFromHash(window.location.hash, "navigation");
+      }
+      return;
+    }
     const error = validatePlan(current, pack, unavailable);
     if (error) {
       setMutationError({ kind: "edit", error });
@@ -620,7 +644,7 @@ function AppInner() {
       return;
     }
     void scheduleSolve(current);
-  }, [unavailable, scheduleSolve]);
+  }, [unavailable, scheduleSolve, loadFromHash]);
 
   // Cross-tab sync for the overrides: a `storage` event fires in every OTHER
   // window sharing this origin's localStorage when the key changes, which is
@@ -719,6 +743,46 @@ function AppInner() {
     // `pack` is a module-stable import, so it stays out of the dependency list.
   }, [supplyRateByItem, catalystDraw]);
 
+  // One gear button and one panel mount serve every surface a boot can end
+  // on (#144): the normal shell's topbar AND the error splash. A shared link
+  // whose event target the stored overrides reject lands on the splash, and
+  // the settings panel is the one way out that keeps the link - so it must be
+  // reachable exactly there, not only from a plan that already rendered.
+  const settingsGear = (
+    <button
+      type="button"
+      className="settings-open"
+      data-testid="settings-open"
+      aria-label={i18n.t("settings.open.label")}
+      title={i18n.t("settings.open.label")}
+      onClick={() => setSettingsOpen(true)}
+    >
+      {/* Sliders, not a literal gear: three rails with two offset
+          knobs read cleanly at the topbar's 16px. */}
+      <svg
+        className="settings-open-glyph"
+        viewBox="0 0 16 16"
+        aria-hidden="true"
+      >
+        <line x1="1.5" y1="4" x2="14.5" y2="4" />
+        <circle cx="10" cy="4" r="2" />
+        <line x1="1.5" y1="12" x2="14.5" y2="12" />
+        <circle cx="6" cy="12" r="2" />
+      </svg>
+    </button>
+  );
+  // Portals to <body>; the opener button (topbar or splash gear) is the focus
+  // the panel hands back on close.
+  const settingsMount = settingsOpen ? (
+    <SettingsPanel
+      pack={pack}
+      packCohort={packCohort}
+      overrides={eventOverrides}
+      onOverridesChange={handleEventOverridesChange}
+      onClose={() => setSettingsOpen(false)}
+    />
+  ) : null;
+
   if (initialError) {
     return (
       <div className="ak-app-shell" style={splashStyle}>
@@ -733,6 +797,11 @@ function AppInner() {
             {i18n.t("app.error.reset")}
           </button>
         </div>
+        {/* The same gear the topbar hosts, pinned top-right so the panel is
+            reachable from the splash - flipping the rejecting cohort on is
+            what re-runs the pending load below. */}
+        <div className="splash-settings-slot">{settingsGear}</div>
+        {settingsMount}
       </div>
     );
   }
@@ -827,27 +896,7 @@ function AppInner() {
               {status}
             </span>
             <LocaleSwitcher />
-            <button
-              type="button"
-              className="settings-open"
-              data-testid="settings-open"
-              aria-label={i18n.t("settings.open.label")}
-              title={i18n.t("settings.open.label")}
-              onClick={() => setSettingsOpen(true)}
-            >
-              {/* Sliders, not a literal gear: three rails with two offset
-                  knobs read cleanly at the topbar's 16px. */}
-              <svg
-                className="settings-open-glyph"
-                viewBox="0 0 16 16"
-                aria-hidden="true"
-              >
-                <line x1="1.5" y1="4" x2="14.5" y2="4" />
-                <circle cx="10" cy="4" r="2" />
-                <line x1="1.5" y1="12" x2="14.5" y2="12" />
-                <circle cx="6" cy="12" r="2" />
-              </svg>
-            </button>
+            {settingsGear}
           </div>
         </div>
         {mutationError ? (
@@ -1008,17 +1057,7 @@ function AppInner() {
           </div>
         </div>
       </ItemPackProvider>
-      {/* Portals to <body>; the opener button is the focus the panel hands
-          back on close. */}
-      {settingsOpen ? (
-        <SettingsPanel
-          pack={pack}
-          packCohort={packCohort}
-          overrides={eventOverrides}
-          onOverridesChange={handleEventOverridesChange}
-          onClose={() => setSettingsOpen(false)}
-        />
-      ) : null}
+      {settingsMount}
     </div>
   );
 }

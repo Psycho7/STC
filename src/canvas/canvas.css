@@ -491,19 +491,31 @@
 
 /* The icon-only settings button (#123): its only content is the sliders
    glyph, so it centres the glyph rather than sitting it on the text
-   baseline. The glyph shares the topbar's currentColor. */
-.ak-app-shell .topbar button.settings-open {
+   baseline. The glyph shares the host's currentColor. Shell-wide rather
+   than topbar-scoped: the SAME button element renders in the topbar and in
+   the error splash's corner slot below, and both must draw it identically. */
+.ak-app-shell button.settings-open {
   display: inline-flex;
   align-items: center;
   justify-content: center;
 }
-.ak-app-shell .topbar .settings-open-glyph {
+.ak-app-shell .settings-open-glyph {
   display: block;
   width: 14px;
   height: 14px;
   stroke: currentColor;
   stroke-width: 1.5;
   fill: none;
+}
+
+/* The error splash's gear slot (#144): pins the settings button to the
+   top-right corner, unobtrusive beside the centred card, so the panel stays
+   reachable exactly when stored cohort overrides rejected the shared link in
+   the hash. Anchored against the splash shell's position: relative. */
+.ak-app-shell .splash-settings-slot {
+  position: absolute;
+  top: 14px;
+  right: 14px;
 }
 
 /* Side rail: the editorial list of targets and inputs. */

@@ -8,6 +8,10 @@
 // event a second browser tab would fire, which routes through the same
 // override writer the T5 settings panel will use: the committed plan must
 // re-validate WITHOUT clearing the render, and flipping back must re-solve.
+// The rejected-link splash carries the T7 recovery: the settings gear is
+// reachable from it, and a flip re-runs the pending load - into the linked
+// plan when the cohort was the blocker, onto a fresh identical error when
+// the link stays invalid.
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import {
   cleanup,
@@ -129,6 +133,65 @@ test("a stored off override boots to the localized cohort validation error", asy
   expect(alert.textContent).toContain("v1.5");
   expect(screen.queryByTestId("side-panel")).toBeNull();
   expect(screen.queryByTestId("target-row")).toBeNull();
+});
+
+// T7's end-to-end flow at unit level: the rejected link's splash hosts the
+// same gear the topbar does, and the panel it opens is the recovery path that
+// keeps the link - flipping the rejecting cohort on re-runs the pending load,
+// which lands on the linked lung plan instead of the splash.
+test("flipping the cohort on from the splash's settings panel recovers the linked plan", async () => {
+  window.localStorage.setItem(
+    EVENT_COHORT_OVERRIDES_STORAGE_KEY,
+    '{"v1.5": false}',
+  );
+  window.location.hash = "#" + (await encodePlan(LUNG_PLAN));
+  render(<App />);
+  await screen.findByRole("alert");
+
+  // The splash renders the gear (no topbar exists there), and the panel it
+  // opens shows the cohort row in its stored-off state.
+  fireEvent.click(screen.getByRole("button", { name: "打开设置" }));
+  expect(screen.getByRole("dialog").textContent).toContain("v1.5");
+  const cohortSwitch = screen.getByRole("switch", {
+    name: "切换 v1.5 活动",
+  }) as HTMLInputElement;
+  expect(cohortSwitch.checked).toBe(false);
+
+  fireEvent.click(cohortSwitch);
+
+  // The availability flip re-runs the pending load: the splash clears and the
+  // linked plan commits. The panel survives the swap (settingsOpen is branch-
+  // independent), so close it the way a user would before the final asserts.
+  expect(await screen.findAllByTestId("target-row")).toHaveLength(1);
+  fireEvent.keyDown(document, { key: "Escape" });
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  await waitFor(() => expect(canvasSpy.status).toBe("READY"));
+  expect(screen.queryByRole("alert")).toBeNull();
+});
+
+// A flip that cannot fix the link (the rejecting cohort stays off) must not
+// recover: the re-run load fails the same way, so a fresh, correctly
+// localized error keeps owning the viewport.
+test("a flip that leaves the rejecting cohort off keeps the localized splash error", async () => {
+  window.localStorage.setItem(
+    EVENT_COHORT_OVERRIDES_STORAGE_KEY,
+    '{"v1.5": false}',
+  );
+  window.location.hash = "#" + (await encodePlan(LUNG_PLAN));
+  render(<App />);
+  const alert = await screen.findByRole("alert");
+  expect(alert.textContent).toContain(zhCohortError);
+
+  // Another tab flips an unrelated cohort on while v1.5 stays off.
+  flipStoredOverrides('{"v1.2": true, "v1.5": false}');
+
+  // The re-run load fails identically: still the splash, still the same
+  // localized cohort error, and no plan ever commits.
+  await waitFor(() =>
+    expect(screen.getByRole("alert").textContent).toContain(zhCohortError),
+  );
+  expect(screen.queryByTestId("target-row")).toBeNull();
+  expect(screen.queryByTestId("side-panel")).toBeNull();
 });
 
 test("a mid-session flip off banners without clearing the render; flipping back re-solves", async () => {
