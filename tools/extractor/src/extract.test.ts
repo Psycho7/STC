@@ -19,6 +19,7 @@ import {
   collapseSyntheticChains,
   main as runExtractor,
   splitCatalyst,
+  tagEventCohorts,
   validateReferentialIntegrity,
 } from "./extract.ts";
 import type { UpstreamRecipe } from "./upstream.ts";
@@ -31,15 +32,11 @@ const TRANSPORT_CONFIG_PATH = resolve(
 
 let pack: RecipePack;
 let i18n: RecipePackI18n;
-let droppedEventItems: string[];
-let droppedEventRecipes: string[];
 
 beforeAll(async () => {
   // Build in-memory only; a test run must never rewrite the committed
   // data/aef/ artifacts.
-  ({ pack, i18n, droppedEventItems, droppedEventRecipes } = await runExtractor({
-    write: false,
-  }));
+  ({ pack, i18n } = await runExtractor({ write: false }));
 });
 
 describe("schema and source provenance", () => {
@@ -71,11 +68,11 @@ describe("counts", () => {
     // purification gate or cleaner sink upstream shows up only as a machine or
     // recipe count that moved here. When a count moves, check those tables
     // before re-pinning the number.
-    expect(pack.items).toHaveLength(113);
+    expect(pack.items).toHaveLength(124);
     expect(pack.machines).toHaveLength(33);
     // Two upstream transports (belt, pipe) plus the synthetic gas carrier.
     expect(pack.transports).toHaveLength(3);
-    expect(pack.recipes).toHaveLength(242);
+    expect(pack.recipes).toHaveLength(256);
     expect(pack.categories).toHaveLength(5);
     expect(pack.locations).toHaveLength(2);
   });
@@ -159,11 +156,11 @@ describe("transmuter catalysts", () => {
     "phase_trans_2-xiranite_powder",
   ];
 
-  test("exactly the 22 single-transmuter recipes carry a catalyst", () => {
+  test("exactly the 24 single-transmuter recipes carry a catalyst", () => {
     const carriers = pack.recipes
       .filter((r) => r.catalyst !== undefined)
       .map((r) => r.id);
-    expect(carriers).toHaveLength(22);
+    expect(carriers).toHaveLength(24);
     const expected = pack.recipes
       .filter(
         (r) =>
@@ -197,7 +194,7 @@ describe("transmuter catalysts", () => {
   test("catalyst quantities are 0.2 per 2s cycle and 1 per 10s cycle", () => {
     const short = pack.recipes.filter((r) => r.catalyst && r.time === 2);
     const long = pack.recipes.filter((r) => r.catalyst && r.time === 10);
-    expect(short).toHaveLength(18);
+    expect(short).toHaveLength(20);
     expect(long).toHaveLength(4);
     for (const r of short) expect(r.catalyst![0]!.qty).toBe(0.2);
     for (const r of long) expect(r.catalyst![0]!.qty).toBe(1);
@@ -308,7 +305,7 @@ describe("splitCatalyst guards", () => {
 });
 
 describe("recipe environment", () => {
-  test("environment is stamped on exactly the four table recipes", () => {
+  test("environment is stamped on exactly the five table recipes", () => {
     const stamped = Object.fromEntries(
       pack.recipes
         .filter((r) => r.environment !== undefined)
@@ -318,6 +315,7 @@ describe("recipe environment", () => {
       "gas_copper_enr-gas_inert": "stable",
       "gas_xiranite_enr-gas_inert": "stable",
       "xiranite_powder-carbon_mtl": "stable",
+      activity_copper_poly_gas: "stable",
       gas_copper_enr2: "acidic",
     });
     expect(stamped).toEqual(ENVIRONMENT_BY_RECIPE);
@@ -415,8 +413,10 @@ describe("optional-field counts", () => {
     expect(pack.recipes.filter((r) => r.usage !== undefined)).toHaveLength(9);
   });
 
-  test("34 recipes carry a cost hint", () => {
-    expect(pack.recipes.filter((r) => r.cost !== undefined)).toHaveLength(34);
+  test("36 recipes carry a cost hint", () => {
+    // The two event settlement recipes (jinlong_coupon-activity_xiranite_lung
+    // and its enr twin) carry upstream cost 30.
+    expect(pack.recipes.filter((r) => r.cost !== undefined)).toHaveLength(36);
   });
 
   test("4 items carry a buildIcon", () => {
@@ -605,25 +605,34 @@ describe("hand-pinned skip sentinels", () => {
   });
 });
 
-describe("retired event rows", () => {
-  test("the dropped item set is exactly the eleven event items", () => {
-    expect(droppedEventItems).toEqual([
-      "activity_copper_poly",
-      "activity_copper_poly_cmpt",
-      "activity_copper_poly_gas",
-      "activity_copper_poly_tool",
-      "activity_copper_xiranite_tool",
-      "activity_xiranite_box",
-      "activity_xiranite_enr_box",
-      "activity_xiranite_enr_lung",
-      "activity_xiranite_enr_nugget",
-      "activity_xiranite_lung",
-      "activity_xiranite_nugget",
-    ]);
+describe("event cohort tagging", () => {
+  // The v1.5 cohort is the only one the vendor snapshot carries; the ledger's
+  // v1.2 ids are absent from the pack and stamp nothing.
+  const V15_ITEMS = [
+    "activity_copper_poly",
+    "activity_copper_poly_cmpt",
+    "activity_copper_poly_gas",
+    "activity_copper_poly_tool",
+    "activity_copper_xiranite_tool",
+    "activity_xiranite_box",
+    "activity_xiranite_enr_box",
+    "activity_xiranite_enr_lung",
+    "activity_xiranite_enr_nugget",
+    "activity_xiranite_lung",
+    "activity_xiranite_nugget",
+  ];
+
+  test("exactly the eleven ledger items are tagged v1.5", () => {
+    const tagged = pack.items.filter((i) => i.event !== undefined);
+    expect(tagged).toHaveLength(11);
+    expect(tagged.map((i) => i.id).sort()).toEqual(V15_ITEMS);
+    for (const item of tagged) expect(item.event).toBe("v1.5");
   });
 
-  test("the dropped recipe set is exactly the fourteen event recipes", () => {
-    expect(droppedEventRecipes).toEqual([
+  test("exactly the fourteen event-bound recipes are tagged v1.5", () => {
+    const tagged = pack.recipes.filter((r) => r.event !== undefined);
+    expect(tagged).toHaveLength(14);
+    expect(tagged.map((r) => r.id).sort()).toEqual([
       "activity_copper_poly_cmpt",
       "activity_copper_poly_gas",
       "activity_copper_poly_tool",
@@ -639,41 +648,144 @@ describe("retired event rows", () => {
       "phase_trans_2-activity_copper_poly",
       "phase_trans_2-activity_copper_poly_gas",
     ]);
+    for (const r of tagged) expect(r.event).toBe("v1.5");
   });
 
-  test("no event id survives anywhere in the pack", () => {
+  test("no untagged activity_ id survives anywhere in the pack", () => {
     for (const item of pack.items) {
-      expect(item.id.startsWith("activity_"), item.id).toBe(false);
-    }
-    for (const r of pack.recipes) {
-      expect(r.id.startsWith("activity_"), r.id).toBe(false);
-      for (const s of [...r.in, ...r.out]) {
-        expect(s.item.startsWith("activity_"), `${r.id} -> ${s.item}`).toBe(
-          false,
-        );
+      if (item.id.startsWith("activity_")) {
+        expect(item.event, item.id).toBeDefined();
       }
     }
+    for (const r of pack.recipes) {
+      const touchesActivity =
+        r.id.startsWith("activity_") ||
+        [...r.in, ...r.out].some((s) => s.item.startsWith("activity_"));
+      if (touchesActivity) expect(r.event, r.id).toBeDefined();
+    }
   });
 
-  test("jinlong_coupon keeps its twelve producer recipes", () => {
+  test("the tagged items are exactly the activity-category items", () => {
+    const tagged = new Set(
+      pack.items.filter((i) => i.event !== undefined).map((i) => i.id),
+    );
+    const activity = new Set(
+      pack.items.filter((i) => i.category === "activity").map((i) => i.id),
+    );
+    expect(tagged).toEqual(activity);
+  });
+
+  test("jinlong_coupon keeps its fourteen producer recipes", () => {
     const producers = pack.recipes.filter((r) =>
       r.out.some((s) => s.item === "jinlong_coupon"),
     );
-    expect(producers).toHaveLength(12);
+    expect(producers).toHaveLength(14);
   });
 
-  test("the i18n sidecar carries no event key", () => {
-    for (const locale of LOCALES) {
-      const buckets = Object.values(i18n.names[locale]) as Record<
-        string,
-        string
-      >[];
-      for (const bucket of buckets) {
-        for (const id of Object.keys(bucket)) {
-          expect(id.startsWith("activity_"), `${locale}: ${id}`).toBe(false);
-        }
-      }
-    }
+  test("the i18n sidecar carries the event keys again", () => {
+    expect(i18n.names.en.items.activity_copper_poly).toBe(
+      "Proto Xiran-Cuprium",
+    );
+    expect(i18n.names.en.recipes["jinlong_coupon-activity_xiranite_lung"]).toBe(
+      "Wuling Stock Bill(Xiranite Chubby Lung)",
+    );
+  });
+});
+
+describe("tagEventCohorts guards", () => {
+  // Smallest rows the stamp reads: category on items, in/out stoichiometry on
+  // recipes. The other fields just need to typecheck.
+  const makeItem = (id: string, category = "material"): Item => ({
+    id,
+    name: id,
+    category,
+    icon: id,
+    row: 0,
+    raw: false,
+    transportKind: "belt",
+  });
+  const makeRecipe = (
+    id: string,
+    inEntries: { item: string; qty: number }[],
+    outEntries: { item: string; qty: number }[],
+  ): Recipe => ({
+    id,
+    name: id,
+    category: "material",
+    icon: id,
+    row: 0,
+    time: 1,
+    in: inEntries,
+    out: outEntries,
+    producers: ["assembler"],
+  });
+
+  test("throws when an activity-category item is missing from the ledger", () => {
+    // A snapshot bump that adds an event item without a ledger entry would
+    // ship it untagged - invisible to every cohort filter - so it has to fail
+    // the extract instead.
+    const items = [makeItem("activity_new_thing", "activity")];
+    const recipes = [
+      makeRecipe(
+        "make_new_thing",
+        [{ item: "copper_ore", qty: 1 }],
+        [{ item: "activity_new_thing", qty: 1 }],
+      ),
+    ];
+    expect(() => tagEventCohorts({ items, recipes }, {})).toThrow(
+      "activity item activity_new_thing is missing from the event-cohorts ledger",
+    );
+  });
+
+  test("throws when a recipe mixes event items from two cohorts", () => {
+    // A recipe spanning two events cannot be assigned one cohort, so it is a
+    // build error rather than a silent pick.
+    const items = [
+      makeItem("activity_old_thing", "activity"),
+      makeItem("activity_new_thing", "activity"),
+    ];
+    const recipes = [
+      makeRecipe(
+        "mixer",
+        [
+          { item: "activity_old_thing", qty: 1 },
+          { item: "activity_new_thing", qty: 1 },
+        ],
+        [{ item: "product", qty: 1 }],
+      ),
+    ];
+    const cohorts = {
+      activity_old_thing: "v1.2",
+      activity_new_thing: "v1.5",
+    };
+    expect(() => tagEventCohorts({ items, recipes }, cohorts)).toThrow(
+      "recipe mixer mixes event items from cohorts v1.2, v1.5",
+    );
+  });
+
+  test("stamps `in`/`out` refs but never a catalyst-only ref", () => {
+    // The transmuter charge is machine state, not event content, so a recipe
+    // whose only event item sits on `catalyst` stays untagged.
+    const items = [makeItem("activity_thing", "activity")];
+    const recipes = [
+      {
+        ...makeRecipe(
+          "carrier",
+          [{ item: "copper_ore", qty: 1 }],
+          [{ item: "product", qty: 1 }],
+        ),
+        catalyst: [{ item: "activity_thing", qty: 1 }],
+      },
+      makeRecipe(
+        "consumer",
+        [{ item: "activity_thing", qty: 1 }],
+        [{ item: "product", qty: 1 }],
+      ),
+    ];
+    tagEventCohorts({ items, recipes }, { activity_thing: "v1.5" });
+    expect(recipes[0]!.event).toBeUndefined();
+    expect(recipes[1]!.event).toBe("v1.5");
+    expect(items[0]!.event).toBe("v1.5");
   });
 });
 
