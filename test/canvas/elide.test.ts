@@ -1,10 +1,11 @@
-// Tail-preserving label elision (issue #84): distinct item names must stay
-// distinct after truncation on recipe cards. The helper owns the visible
-// string; CSS ellipsis is only the fallback for names with no distinguishing
-// tail. The five en name families (copper/iron solution bottles, the two
-// canned-food bracket families, the syringe bracket family) and their ru,
-// ja and zh forms are exercised with a monospace stub estimator so the
-// assertions are pure string math, not font metrics.
+// Head-first label elision: a name that fits is returned untouched, a name
+// that does not keeps the longest head prefix that fits beside the
+// ellipsis. Nothing after the cut survives -- no tail, no bracket group,
+// no window. Two names that differ only after the cut therefore read the
+// same, which is the accepted cost of the rule; the full name stays on the
+// `title` attribute. The en/ru/ja/zh families below are exercised with a
+// monospace stub estimator so the assertions are pure string math, not
+// font metrics.
 //
 // Supersedes the e2e title-truncation spec (issue #38): with the helper
 // owning the title string against the pinned header budget, a DOM
@@ -46,103 +47,56 @@ function monoStub(text: string): number {
 
 const ELLIPSIS = "\u2026";
 
-// (name, budget px, expected visible string). Every elided row keeps its
-// distinguishing tail whole and puts the ellipsis in front of it.
+// (name, budget px, expected visible string). Every elided row is a head
+// prefix plus the ellipsis; a cut that would leave a trailing space gives
+// the space back.
 const CASES: ReadonlyArray<readonly [string, number, string]> = [
-  // Parenthesis family, en: suffix "(...)" preserved, base head-truncated.
+  // Parenthesis family, en: the tail goes, whatever it carried.
   [
     "Cuprium Bottle(Jincao Solution)",
     208,
-    `Cuprium${ELLIPSIS}(Jincao Solution)`,
+    `Cuprium Bottle(Jincao Sol${ELLIPSIS}`,
   ],
-  ["Cuprium Bottle(Jincao Solution)", 176, `Cupr${ELLIPSIS}(Jincao Solution)`],
-  [
-    "Cuprium Bottle(Yazhen Solution)",
-    208,
-    `Cuprium${ELLIPSIS}(Yazhen Solution)`,
-  ],
-  [
-    "Ferrium Bottle(Jincao Solution)",
-    208,
-    `Ferrium${ELLIPSIS}(Jincao Solution)`,
-  ],
-  // Bracket family, en: the leading space rides with the "[X]" suffix.
-  ["Canned Citrome [C]", 104, `Canned C${ELLIPSIS} [C]`],
-  ["Canned Citrome [B]", 104, `Canned C${ELLIPSIS} [B]`],
-  ["Buck Capsule [C]", 96, `Buck Ca${ELLIPSIS} [C]`],
-  ["Yazhen Syringe [C]", 104, `Yazhen S${ELLIPSIS} [C]`],
-  // Parenthesis family, ru: Cyrillic base, ASCII parens, same rule.
+  ["Cuprium Bottle(Jincao Solution)", 176, `Cuprium Bottle(Jincao${ELLIPSIS}`],
+  // Bracket family, en: the "[X]" mark is past the cut and is dropped.
+  ["Canned Citrome [C]", 104, `Canned Citro${ELLIPSIS}`],
+  ["Buck Capsule [C]", 96, `Buck Capsul${ELLIPSIS}`],
+  // Cyrillic base, same rule.
   [
     "\u041a\u0443\u043f\u0440\u0438\u0435\u0432\u0430\u044f \u0431\u0443\u0442\u044b\u043b\u043a\u0430(\u0420\u0430\u0441\u0442\u0432\u043e\u0440 \u0446\u0437\u0438\u043d\u044c\u0446\u0430\u043e)",
-    208,
-    `\u041a\u0443\u043f\u0440\u0438\u0435\u0432${ELLIPSIS}(\u0420\u0430\u0441\u0442\u0432\u043e\u0440 \u0446\u0437\u0438\u043d\u044c\u0446\u0430\u043e)`,
+    120,
+    `\u041a\u0443\u043f\u0440\u0438\u0435\u0432\u0430\u044f \u0431\u0443\u0442\u044b${ELLIPSIS}`,
   ],
-  [
-    "\u041a\u0443\u043f\u0440\u0438\u0435\u0432\u0430\u044f \u0431\u0443\u0442\u044b\u043b\u043a\u0430(\u0420\u0430\u0441\u0442\u0432\u043e\u0440 \u044f\u0447\u0436\u044d\u043d\u044f)",
-    208,
-    `\u041a\u0443\u043f\u0440\u0438\u0435\u0432\u0430\u044f${ELLIPSIS}(\u0420\u0430\u0441\u0442\u0432\u043e\u0440 \u044f\u0447\u0436\u044d\u043d\u044f)`,
-  ],
-  [
-    "\u0413\u0440\u0435\u0447\u0435\u043a\u0430\u043f\u0441\u0443\u043b\u0430 [C]",
-    96,
-    `\u0413\u0440\u0435\u0447\u0435\u043a\u0430${ELLIPSIS} [C]`,
-  ],
-  // ja: no brackets in the canned family -- the trailing Roman-numeral code
-  // point is the distinguishing tail and survives alone.
+  // ja: wide code points cost 12px, the trailing Roman numeral is dropped.
   [
     "\u30b7\u30c8\u30ed\u30fc\u30e0\u306e\u7f36\u8a70\u2160",
     64,
-    `\u30b7\u30c8\u30ed${ELLIPSIS}\u2160`,
+    `\u30b7\u30c8\u30ed\u30fc${ELLIPSIS}`,
   ],
-  [
-    "\u30b7\u30c8\u30ed\u30fc\u30e0\u306e\u7f36\u8a70\u2161",
-    64,
-    `\u30b7\u30c8\u30ed${ELLIPSIS}\u2161`,
-  ],
-  // ja parenthesis family: CJK base with a two-CJK-char minimum head.
-  [
-    "\u8d64\u9285\u30dc\u30c8\u30eb(\u9326\u8349\u30a8\u30ad\u30b9)",
-    112,
-    `\u8d64\u9285${ELLIPSIS}(\u9326\u8349\u30a8\u30ad\u30b9)`,
-  ],
-  [
-    "\u8d64\u9285\u30dc\u30c8\u30eb(\u82bd\u91dd\u30a8\u30ad\u30b9)",
-    112,
-    `\u8d64\u9285${ELLIPSIS}(\u82bd\u91dd\u30a8\u30ad\u30b9)`,
-  ],
-  // zh parenthesis family: same shape as en.
+  // zh parenthesis family.
   [
     "\u8d64\u94dc\u74f6(\u9526\u8349\u6eb6\u6db2)",
     96,
-    `\u8d64\u94dc${ELLIPSIS}(\u9526\u8349\u6eb6\u6db2)`,
+    `\u8d64\u94dc\u74f6(\u9526\u8349\u6eb6${ELLIPSIS}`,
   ],
-  // A plain two-word name still keeps its last word (the rule fires
-  // whenever a name has a distinguishing tail, not only on brackets).
-  ["Stabilized Carbon", 96, `Stabi${ELLIPSIS}Carbon`],
+  // A plain two-word name loses its last word rather than its head.
+  ["Stabilized Carbon", 96, `Stabilized${ELLIPSIS}`],
 ];
 
-// Names returned UNCHANGED at the given budget: either the whole name fits,
-// there is no distinguishing tail, or no window respecting the minimum
-// grapheme floors can fit -- CSS tail ellipsis stays the fallback in every
-// one of those cases. (R5: a budget that fits a partial window no longer
-// returns the raw string; @168 below became "Cupr...(Jincao Solution" and
-// moved into the windowed regime.)
+// Names returned UNCHANGED at the given budget: the whole name fits, or
+// not even one code point fits beside the ellipsis (then the raw string
+// goes back and the CSS clip shows what the box allows).
 const RAW_CASES: ReadonlyArray<readonly [string, number]> = [
   ["Cuprium Bottle(Jincao Solution)", 248], // fits whole (31 chars x 8px)
-  ["Cuprium Bottle(Jincao Solution)", 64], // window below the 4-grapheme floor
+  ["Cuprium Bottle(Jincao Solution)", 8], // only the ellipsis itself fits
   ["Canned Citrome [C]", 144], // fits whole
   ["\u30b7\u30c8\u30ed\u30fc\u30e0\u306e\u7f36\u8a70\u2160", 112], // fits whole (9 wide x 12px)
-  ["\u30b7\u30c8\u30ed\u30fc\u30e0\u306e\u7f36\u8a70\u2160", 40], // roman tail + 2-CJK head too wide
-  // zh tier prefixes are a leading affix a tail rule cannot protect (R2):
-  // no distinguishing tail, raw string at every budget. Recorded gap.
-  ["\u4f18\u8d28\u67d1\u5b9e\u7f50\u5934", 72],
-  ["\u4f18\u8d28\u67d1\u5b9e\u7f50\u5934", 48],
-  ["Carbon", 24], // single token: the tail IS the name
-  ["\u8d64\u9285\u30dc\u30c8\u30eb", 100], // single CJK token
+  ["\u4f18\u8d28\u67d1\u5b9e\u7f50\u5934", 72], // fits whole (6 wide x 12px)
+  ["Carbon", 48], // fits whole
 ];
 
 describe("canvas/elide", () => {
-  it("keeps the distinguishing tail and elides the head", () => {
+  it("keeps the longest head prefix and appends the ellipsis", () => {
     for (const [name, budget, expected] of CASES) {
       expect(
         elideName(name, budget, monoStub, "mono"),
@@ -151,7 +105,7 @@ describe("canvas/elide", () => {
     }
   });
 
-  it("returns the raw string when elision cannot preserve a tail", () => {
+  it("returns the raw string when the name fits or nothing fits", () => {
     for (const [name, budget] of RAW_CASES) {
       expect(
         elideName(name, budget, monoStub, "mono"),
@@ -160,50 +114,39 @@ describe("canvas/elide", () => {
     }
   });
 
-  it("keeps family members pairwise distinct at a shared budget", () => {
+  it("drops a distinguishing tail instead of keeping it", () => {
+    // Ruling I8: titles elide their tail like everything else, so the
+    // machine class word at the end is gone rather than the head.
+    const visible = elideName(
+      "Solid-Gas Transfer Unit",
+      13 * NARROW_PX,
+      monoStub,
+      "mono",
+    );
+    expect(visible.endsWith(ELLIPSIS)).toBe(true);
+    expect(visible).not.toContain("Unit");
+    expect(visible).toBe(`Solid-Gas Tr${ELLIPSIS}`);
+  });
+
+  // The bottle [A]/[B]/[C] and solution-bottle distinctness batteries are
+  // retired: their members differ only past the cut, so head-first elision
+  // renders them identically by design (docs/plans/2026-09-15-catalyst-exam-fixes.md,
+  // ruling I8). Distinctness is pinned only where the names differ inside
+  // the surviving head.
+  it("keeps family members distinct when they differ inside the head", () => {
     const families: ReadonlyArray<readonly [number, readonly string[]]> = [
-      [
-        208,
-        [
-          "Cuprium Bottle(Jincao Solution)",
-          "Cuprium Bottle(Yazhen Solution)",
-          "Ferrium Bottle(Jincao Solution)",
-          "Ferrium Bottle(Yazhen Solution)",
-        ],
-      ],
-      [104, ["Canned Citrome [A]", "Canned Citrome [B]", "Canned Citrome [C]"]],
-      [
-        64,
-        [
-          "\u30b7\u30c8\u30ed\u30fc\u30e0\u306e\u7f36\u8a70\u2160",
-          "\u30b7\u30c8\u30ed\u30fc\u30e0\u306e\u7f36\u8a70\u2161",
-          "\u30b7\u30c8\u30ed\u30fc\u30e0\u306e\u7f36\u8a70\u2162",
-        ],
-      ],
-      [
-        112,
-        [
-          "\u8d64\u9285\u30dc\u30c8\u30eb(\u9326\u8349\u30a8\u30ad\u30b9)",
-          "\u8d64\u9285\u30dc\u30c8\u30eb(\u82bd\u91dd\u30a8\u30ad\u30b9)",
-        ],
-      ],
+      [64, ["Cuprium Bottle", "Ferrium Bottle"]],
       [
         96,
         [
           "\u8d64\u94dc\u74f6(\u9526\u8349\u6eb6\u6db2)",
-          "\u8d64\u94dc\u74f6(\u82bd\u9488\u6eb6\u6db2)",
+          "\u8d64\u94dc\u7f50(\u9526\u8349\u6eb6\u6db2)",
         ],
       ],
     ];
     for (const [budget, names] of families) {
       const visible = names.map((n) => elideName(n, budget, monoStub, "mono"));
       expect(new Set(visible).size, `@${budget}`).toBe(names.length);
-      // Each member still ends in its own distinguishing tail.
-      for (let i = 0; i < names.length; i++) {
-        const vis = visible[i]!;
-        const nm = names[i]!;
-        expect(vis, nm).toContain(nm.slice(nm.search(/[[(\u2160]/)));
-      }
     }
   });
 
@@ -222,12 +165,12 @@ describe("canvas/elide", () => {
         (w, ch) => w + (isWideCodePoint(ch.codePointAt(0)!) ? 100 : NARROW_PX),
         0,
       );
-    // A tail of wide code points busts the budget under the wide-heavy
-    // estimator, so a font-key-blind cache would wrongly replay the elided
-    // mono entry computed one line earlier at the same budget.
+    // Wide code points bust the budget under the wide-heavy estimator, so a
+    // font-key-blind cache would wrongly replay the elided mono entry
+    // computed one line earlier at the same budget.
     const zhParen = "\u8d64\u94dc\u74f6(\u9526\u8349\u6eb6\u6db2)";
     expect(elideName(zhParen, 96, monoStub, "mono")).toBe(
-      `\u8d64\u94dc${ELLIPSIS}(\u9526\u8349\u6eb6\u6db2)`,
+      `\u8d64\u94dc\u74f6(\u9526\u8349\u6eb6${ELLIPSIS}`,
     );
     expect(elideName(zhParen, 96, wideHeavy, "mono-wide")).toBe(zhParen);
   });
@@ -235,10 +178,6 @@ describe("canvas/elide", () => {
 
 // Real-budget battery: the production estimator against budgets derived
 // from the pinned card geometry exactly the way RecipeNode derives them.
-// The rate left the flow as an overlay over the label tail, so the full
-// inner row width minus its own padding and the sprite line is the
-// label's: 81px on a sprite row (106px without one). This battery pins
-// the production regime.
 describe("canvas/elide real-budget battery", () => {
   const ROW_FONT: TextWidthFont = { fontSize: 12, weight: 400 };
   const TITLE_FONT: TextWidthFont = { fontSize: 17, weight: 600 };
@@ -246,8 +185,7 @@ describe("canvas/elide real-budget battery", () => {
 
   // Mirrors RecipeNode.elideRowLabel: half of the 240px card body minus
   // the row's 14px horizontal padding, minus the 20px sprite and one 5px
-  // gap when a sprite renders. Nothing is reserved for the rate.
-  // rowBudget(true) = 81; rowBudget(false) = 106.
+  // gap when a sprite renders. rowBudget(true) = 81.
   const rowBudget = (hasSprite = true): number =>
     120 - 14 - (hasSprite ? 25 : 0);
 
@@ -258,104 +196,35 @@ describe("canvas/elide real-budget battery", () => {
   const elideRow = (name: string): string =>
     elideName(name, rowBudget(), (t) => est(t, ROW_FONT), "row-12");
 
-  it("keeps the parenthesis-bottle goal pairs distinct at the 81px row budget", () => {
-    // The review's headline defect: the two copper bottles may never read
-    // the same. Exact expected strings document the window policy (lead
-    // window for Latin/CJK brackets, trailing window for Cyrillic): at the
-    // narrower card every pair windows -- the Latin and CJK pairs keep a
-    // partial bracket window, the Cyrillic pair its distinguishing end.
-    const cases: ReadonlyArray<readonly [number, readonly string[], string[]]> =
-      [
-        [
-          81,
-          [
-            "Cuprium Bottle(Jincao Solution)",
-            "Cuprium Bottle(Yazhen Solution)",
-          ],
-          [`Cupr${ELLIPSIS}(Jin`, `Cupr${ELLIPSIS}(Yaz`],
-        ],
-        [
-          81,
-          [
-            "\u041a\u0443\u043f\u0440\u0438\u0435\u0432\u0430\u044f \u0431\u0443\u0442\u044b\u043b\u043a\u0430(\u0420\u0430\u0441\u0442\u0432\u043e\u0440 \u0446\u0437\u0438\u043d\u044c\u0446\u0430\u043e)",
-            "\u041a\u0443\u043f\u0440\u0438\u0435\u0432\u0430\u044f \u0431\u0443\u0442\u044b\u043b\u043a\u0430(\u0420\u0430\u0441\u0442\u0432\u043e\u0440 \u044f\u0447\u0436\u044d\u043d\u044f)",
-          ],
-          [
-            `\u041a\u0443\u043f\u0440${ELLIPSIS}\u0446\u0430\u043e)`,
-            `\u041a\u0443\u043f\u0440${ELLIPSIS}\u044d\u043d\u044f)`,
-          ],
-        ],
-        [
-          81,
-          [
-            "\u8d64\u9285\u30dc\u30c8\u30eb(\u9326\u8349\u30a8\u30ad\u30b9)",
-            "\u8d64\u9285\u30dc\u30c8\u30eb(\u82bd\u91dd\u30a8\u30ad\u30b9)",
-          ],
-          [
-            `\u8d64\u9285${ELLIPSIS}(\u9326\u8349\u30a8`,
-            `\u8d64\u9285${ELLIPSIS}(\u82bd\u91dd\u30a8`,
-          ],
-        ],
-        [
-          81,
-          [
-            "\u8d64\u94dc\u74f6(\u9526\u8349\u6eb6\u6db2)",
-            "\u8d64\u94dc\u74f6(\u82bd\u9488\u6eb6\u6db2)",
-          ],
-          [
-            `\u8d64\u94dc${ELLIPSIS}(\u9526\u8349\u6eb6`,
-            `\u8d64\u94dc${ELLIPSIS}(\u82bd\u9488\u6eb6`,
-          ],
-        ],
-      ];
-    for (const [budget, names, expected] of cases) {
-      const visible = names.map((n) =>
-        elideName(n, budget, (t) => est(t, ROW_FONT), "row-12"),
-      );
-      expect(new Set(visible).size, `@${budget}`).toBe(names.length);
-      expect(visible).toEqual(expected);
+  it("never returns a string wider than the row budget", () => {
+    const names = [
+      "Cuprium Bottle(Jincao Solution)",
+      "Canned Citrome [C]",
+      "Dense Originium Powder",
+      "\u041c\u0435\u043b\u043a\u043e\u043c\u043e\u043b\u043e\u0442\u0430\u044f \u043e\u0440\u0438\u0434\u0436\u0435\u043e\u0434\u0430",
+      "\u8d64\u94dc\u74f6(\u9526\u8349\u6eb6\u6db2)",
+      "\u30b5\u30f3\u30c9\u30ea\u30fc\u30d5\u7c89\u672b",
+    ];
+    for (const name of names) {
+      const visible = elideRow(name);
+      expect(est(visible, ROW_FONT), name).toBeLessThanOrEqual(rowBudget());
+      if (visible !== name) {
+        expect(visible.endsWith("\u2026"), name).toBe(true);
+      }
     }
   });
 
-  it("keeps the four-bottle families and the residue goal families distinct at the row budget", () => {
+  it("keeps names distinct at the row budget when they diverge inside the head", () => {
     const families: ReadonlyArray<readonly string[]> = [
-      // The multi6 bottle rows.
-      [
-        "Cuprium Bottle(Jincao Solution)",
-        "Cuprium Bottle(Yazhen Solution)",
-        "Ferrium Bottle(Jincao Solution)",
-        "Ferrium Bottle(Yazhen Solution)",
-      ],
-      [
-        "\u041a\u0443\u043f\u0440\u0438\u0435\u0432\u0430\u044f \u0431\u0443\u0442\u044b\u043b\u043a\u0430(\u0420\u0430\u0441\u0442\u0432\u043e\u0440 \u0446\u0437\u0438\u043d\u044c\u0446\u0430\u043e)",
-        "\u041a\u0443\u043f\u0440\u0438\u0435\u0432\u0430\u044f \u0431\u0443\u0442\u044b\u043b\u043a\u0430(\u0420\u0430\u0441\u0442\u0432\u043e\u0440 \u044f\u0447\u0436\u044d\u043d\u044f)",
-        // The plain bottle stays raw (its window would fall below the
-        // floor) and is still distinct from the windowed solutions.
-        "\u041a\u0443\u043f\u0440\u0438\u0435\u0432\u0430\u044f \u0431\u0443\u0442\u044b\u043b\u043a\u0430",
-      ],
-      // Bracket family: whole-tail tier.
-      ["Canned Citrome [C]", "Canned Citrome [B]"],
-      // The ru residue families from the validation round; the budget no
-      // longer varies with the rate, so the old per-rate entries collapse
-      // into one per family.
-      [
-        "\u041c\u0435\u043b\u043a\u043e\u043c\u043e\u043b\u043e\u0442\u0430\u044f \u043e\u0440\u0438\u0434\u0436\u0435\u043e\u0434\u0430",
-        "\u041c\u0435\u043b\u043a\u043e\u043c\u043e\u043b\u043e\u0442\u044b\u0439 \u043e\u0440\u0438\u0434\u0436\u0438\u043d\u0438\u0439",
-      ],
+      ["Cuprium Bottle(Jincao Solution)", "Ferrium Bottle(Jincao Solution)"],
+      ["Dense Originium Powder", "Dense Crystal Powder"],
       [
         "\u041a\u0443\u043f\u0440\u0438\u0435\u0432\u0430\u044f \u0434\u0435\u0442\u0430\u043b\u044c",
-        "\u041a\u0443\u043f\u0440\u0438\u0435\u0432\u0430\u044f \u0440\u0443\u0434\u0430",
-      ],
-      [
         "\u041f\u0438\u0440\u0440\u043e\u043b\u0438\u0442\u043e\u0432\u0430\u044f \u0434\u0435\u0442\u0430\u043b\u044c",
-        "\u041f\u0438\u0440\u0440\u043e\u043b\u0438\u0442\u043e\u0432\u044b\u0439 \u043a\u043e\u043c\u043f\u043e\u043d\u0435\u043d\u0442",
       ],
-      // ja sandleaf: the short two fit whole, the powder windows into its
-      // bracket-free base -- all three distinct either way.
       [
-        "\u30b5\u30f3\u30c9\u30ea\u30fc\u30d5\u7c89\u672b",
-        "\u30b5\u30f3\u30c9\u30ea\u30fc\u30d5\u306e\u7a2e",
-        "\u30b5\u30f3\u30c9\u30ea\u30fc\u30d5",
+        "\u9ad8\u5bc6\u5ea6\u7d50\u6676\u7c89\u672b",
+        "\u9ad8\u5bc6\u5ea6\u6e90\u77f3\u7c89\u672b",
       ],
     ];
     for (const names of families) {
@@ -366,70 +235,52 @@ describe("canvas/elide real-budget battery", () => {
     }
   });
 
-  it("pins the heavy-xira residue pair whole at the row budget", () => {
-    // At the narrower card the pair leaves the leading-window regime that
-    // made the two outputs IDENTICAL (both windowed from the stem "ksir-",
-    // discarding the distinguishing endings): both names now fit the row
-    // budget whole. Pinned exactly, so a policy or budget change that
-    // reintroduces the collision cannot pass silently.
-    const gen =
-      "\u0422\u044f\u0436\u0435\u043b\u044b\u0439 \u043a\u0441\u0438\u0440\u0430\u0433\u0435\u043d";
-    const nit =
-      "\u0422\u044f\u0436\u0435\u043b\u044b\u0439 \u043a\u0441\u0438\u0440\u0430\u043d\u0438\u0442";
-    expect(elideRow(gen)).toBe(
-      "\u0422\u044f\u0436\u0435\u043b\u044b\u0439 \u043a\u0441\u0438\u0440\u0430\u0433\u0435\u043d",
-    );
-    expect(elideRow(nit)).toBe(
-      "\u0422\u044f\u0436\u0435\u043b\u044b\u0439 \u043a\u0441\u0438\u0440\u0430\u043d\u0438\u0442",
-    );
-  });
-
-  it("returns no-suffix and guarded names raw at the row budget", () => {
-    // No suffix to preserve (CSS tail ellipsis stays the fallback)...
-    const raw: ReadonlyArray<string> = [
-      "\u4f18\u8d28\u67d1\u5b9e\u7f50\u5934",
-      // ...and the measured guards: a multi-word base whose last word is
-      // the shared generic noun (en powders), and an all-ideograph CJK
-      // name with no kana boundary (ja powders) -- both are distinct under
-      // the raw clip and must not be windowed.
-      "Dense Originium Powder",
-      "Dense Crystal Powder",
-      "Ferrium Powder",
-      "\u9ad8\u5bc6\u5ea6\u7d50\u6676\u7c89\u672b",
-      "\u9ad8\u5bc6\u5ea6\u6e90\u77f3\u7c89\u672b",
+  it("collapses names that differ only past the cut", () => {
+    // The accepted cost of ruling I8, pinned so it is a decision rather
+    // than a surprise: these pairs read the same on the row and are told
+    // apart by the `title` attribute alone.
+    const pairs: ReadonlyArray<readonly [string, string]> = [
+      ["Cuprium Bottle(Jincao Solution)", "Cuprium Bottle(Yazhen Solution)"],
+      // The heavy-xira residues: "ksiragen" / "ksiranit".
+      [
+        "\u0422\u044f\u0436\u0435\u043b\u044b\u0439 \u043a\u0441\u0438\u0440\u0430\u0433\u0435\u043d",
+        "\u0422\u044f\u0436\u0435\u043b\u044b\u0439 \u043a\u0441\u0438\u0440\u0430\u043d\u0438\u0442",
+      ],
     ];
-    for (const name of raw) {
-      expect(elideRow(name), name).toBe(name);
+    for (const [a, b] of pairs) {
+      const visible = elideRow(a);
+      expect(visible.endsWith("\u2026"), a).toBe(true);
+      expect(visible, `${a} vs ${b}`).toBe(elideRow(b));
     }
   });
 
-  it("elides the title surface through the same tiers at the pinned header budget", () => {
+  it("elides the title surface head-first at the pinned header budget", () => {
     const budget = headerContentWidth; // 187 - 2*8, from dimensions.ts
-    const visible = [
+    const visible = elideName(
       "Cuprium Bottle(Jincao Solution)",
-      "Cuprium Bottle(Yazhen Solution)",
-    ].map((n) => elideName(n, budget, (t) => est(t, TITLE_FONT), "title-17"));
-    expect(new Set(visible).size).toBe(2);
-    expect(visible[0]).toBe(`Cupriu${ELLIPSIS}(Jinca`);
-    expect(visible[1]).toBe(`Cupriu${ELLIPSIS}(Yazhe`);
-    // The zh gate pair keeps its distinguishing parenthesis tail whole
-    // beside a floor head (the jsdom title test covers the chip-bearing,
-    // narrower budget).
+      budget,
+      (t) => est(t, TITLE_FONT),
+      "title-17",
+    );
+    expect(visible.endsWith("\u2026")).toBe(true);
+    expect(visible).not.toContain("Solution");
+    expect(est(visible, TITLE_FONT)).toBeLessThanOrEqual(budget);
+    // The zh gate pair diverges inside the head, so the titles stay apart.
+    const zhTitle = (n: string) =>
+      elideName(n, budget, (t) => est(t, TITLE_FONT), "title-17");
     expect(
-      elideName(
-        "\u51c0\u6c34\u8282\u70b9(\u6c61\u6c34\u63a5\u5165\u53e3)",
-        budget,
-        (t) => est(t, TITLE_FONT),
-        "title-17",
-      ),
-    ).toBe(`\u51c0\u6c34${ELLIPSIS}(\u6c61\u6c34\u63a5\u5165\u53e3)`);
+      zhTitle("\u51c0\u6c34\u8282\u70b9(\u6c61\u6c34\u63a5\u5165\u53e3)"),
+    ).not.toBe(
+      zhTitle("\u6c61\u6c34\u8282\u70b9(\u4ea7\u7269\u6392\u51fa\u53e3)"),
+    );
   });
 
-  it("keeps the ru module titles distinct at the real x2.50 chip budget", () => {
-    // The round-2 finding: at a wider card's chip-bearing title budget both
-    // module names once read the same windowed string. At the current
-    // narrower budget both fit whole, the stronger guarantee. Budget
-    // derived exactly as RecipeNode derives it for the "x2.50" chip.
+  it("elides the ru module titles at the real x2.50 chip budget", () => {
+    // The chip-bearing title budget cannot hold either module name, and
+    // both diverge only past the cut ("Modul upakovki" / "Modul
+    // formovki"), so both read "Modul..." and the `title` attribute
+    // carries the difference. Budget derived exactly as RecipeNode
+    // derives it for the "x2.50" chip.
     const CHIP_FONT: TextWidthFont = { fontSize: 12, weight: 700 };
     const badge = "x2.50";
     const budget =
@@ -446,8 +297,10 @@ describe("canvas/elide real-budget battery", () => {
       elideName(n, budget, (t) => est(t, TITLE_FONT), "title-17"),
     );
     expect(budget).toBeCloseTo(107.6416, 3);
-    expect(visible[0]).toBe(upak);
-    expect(visible[1]).toBe(form);
-    expect(new Set(visible).size).toBe(2);
+    expect(visible[0]).toBe(`\u041c\u043e\u0434\u0443\u043b\u044c\u2026`);
+    expect(visible[1]).toBe(visible[0]);
+    for (const v of visible) {
+      expect(est(v!, TITLE_FONT)).toBeLessThanOrEqual(budget);
+    }
   });
 });

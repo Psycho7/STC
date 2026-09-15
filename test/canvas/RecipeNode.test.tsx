@@ -586,13 +586,11 @@ describe("RecipeNode", () => {
     });
   });
 
-  // Tail-preserving row-label elision (issue #84): the four solution-bottle
-  // recipes and the bracket-family syringes render under the en locale, where
-  // their long shared prefixes are exactly the collision the helper exists to
-  // break. The bottles' parenthesis tails cannot fit the row budget whole,
-  // so those rows keep a PARTIAL tail window (ruling R5) and must read
-  // distinctly; the syringes' "[A]"/"[C]" tails fit whole, so those rows
-  // elide head-first and end in their distinguishing tail.
+  // Head-first row-label elision (ruling I8): a row label that does not fit
+  // keeps its head and drops everything after the cut, tail marks included.
+  // The bracket-family "[A]"/"[C]" distinctness battery is retired with the
+  // tail tiers (docs/plans/2026-09-15-catalyst-exam-fixes.md); what the rows
+  // still owe the reader is the full name on the `title` attribute.
   describe("row label elision", () => {
     function renderEn(data: RecipeNodeData) {
       return render(
@@ -627,13 +625,7 @@ describe("RecipeNode", () => {
       } as unknown as Recipe;
     }
 
-    function outputLabels(container: HTMLElement): string[] {
-      return Array.from(
-        container.querySelectorAll(".rn-side.out .rn-row.output .lbl"),
-      ).map((el) => el.textContent ?? "");
-    }
-
-    it("keeps the four solution-bottle rows distinct with the full name on title", () => {
+    it("elides the four solution-bottle rows head-first with the full name on title", () => {
       const recipes = [
         bottleRecipe("copper_bottle", "liquid_plant_grass_1"),
         bottleRecipe("copper_bottle", "liquid_plant_grass_2"),
@@ -654,13 +646,18 @@ describe("RecipeNode", () => {
         titles.push(el.getAttribute("title") ?? "");
         visible.push(el.textContent ?? "");
       }
-      // No two of the four names render the same visible string, and every
-      // tooltip carries its own full name.
-      expect(new Set(visible).size).toBe(4);
+      // Every row is cut to its head, so the four names read as two (the
+      // solutions differ only past the cut); every tooltip still carries
+      // its own full name.
+      for (const v of visible) {
+        expect(v.endsWith("\u2026"), v).toBe(true);
+        expect(v, v).not.toContain("Solution");
+      }
+      expect(new Set(visible).size).toBe(2);
       expect(new Set(titles).size).toBe(4);
     });
 
-    it("elides a bracket-family row to its distinguishing tail", () => {
+    it("elides a bracket-family row past its bracket mark", () => {
       const syringe = (item: string): Recipe =>
         ({
           ...bottleRecipe("copper_cmpt", "liquid_plant_grass_1"),
@@ -675,21 +672,28 @@ describe("RecipeNode", () => {
         recipe: syringe("bottled_rec_hp_5"),
         kind: "recipe",
       });
-      const [visA, visC] = [
-        outputLabels(first.container)[0]!,
-        outputLabels(second.container)[0]!,
-      ];
-      // Both elide head-first and end in their own bracket tail.
-      expect(visA).toContain("\u2026");
-      expect(visA.endsWith("[C]")).toBe(true);
-      expect(visC.endsWith("[A]")).toBe(true);
-      expect(visA).not.toBe(visC);
+      const labelOf = (c: HTMLElement) =>
+        c.querySelector(".rn-side.out .rn-row.output .lbl")!;
+      for (const c of [first.container, second.container] as HTMLElement[]) {
+        const el = labelOf(c);
+        const visible = el.textContent ?? "";
+        // The mark is past the cut, so the row keeps the head only and the
+        // full name lives on the tooltip.
+        expect(visible.endsWith("\u2026"), visible).toBe(true);
+        expect(visible, visible).not.toContain("[");
+        expect(el.getAttribute("title"), visible).toContain("[");
+      }
+      expect(
+        labelOf(first.container as HTMLElement).getAttribute("title"),
+      ).not.toBe(
+        labelOf(second.container as HTMLElement).getAttribute("title"),
+      );
     });
 
-    it("keeps a colliding machine-title pair distinct with tails intact (zh gates)", () => {
+    it("elides a machine-title pair head-first, full names on title (zh gates)", () => {
       // The two Purification Node machines differ only in their parenthesis
-      // tail; under the pinned title budget the visible titles elide
-      // head-first and keep it.
+      // tail, which sits past the cut: the visible titles drop it and the
+      // `title` attributes carry the full names.
       const gate = (id: string): RecipeNodeData => ({
         recipe: {
           ...bottleRecipe("copper_bottle", "liquid_plant_grass_1"),
@@ -720,15 +724,22 @@ describe("RecipeNode", () => {
         c.querySelector(".machine-title .cn")?.textContent ?? "";
       const a = t(first.container as HTMLElement);
       const b = t(second.container as HTMLElement);
+      for (const visible of [a, b]) {
+        // Cut mid-tail: the group never closes on screen.
+        expect(visible.endsWith("\u2026"), visible).toBe(true);
+        expect(visible, visible).not.toContain(")");
+      }
+      // These two diverge before the cut, so the rows still read apart.
       expect(a).not.toBe(b);
-      expect(a.endsWith("(\u6c61\u6c34\u63a5\u5165\u53e3)")).toBe(true);
-      expect(b.endsWith("(\u4ea7\u7269\u6392\u51fa\u53e3)")).toBe(true);
       // The full machine names stay on the title attributes.
-      expect(
-        first.container
-          .querySelector(".machine-title .cn")
-          ?.getAttribute("title"),
-      ).toBe("\u51c0\u6c34\u8282\u70b9(\u6c61\u6c34\u63a5\u5165\u53e3)");
+      const titleAttr = (c: HTMLElement) =>
+        c.querySelector(".machine-title .cn")?.getAttribute("title");
+      expect(titleAttr(first.container as HTMLElement)).toBe(
+        "\u51c0\u6c34\u8282\u70b9(\u6c61\u6c34\u63a5\u5165\u53e3)",
+      );
+      expect(titleAttr(second.container as HTMLElement)).not.toBe(
+        titleAttr(first.container as HTMLElement),
+      );
     });
   });
 
