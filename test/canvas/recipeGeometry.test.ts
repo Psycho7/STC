@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type { Recipe } from "@aef/schema";
 import { measureRecipe } from "../../src/canvas/recipeGeometry";
-import { portOffsetY } from "../../src/canvas/nodeGeometry";
+import { nodeHeight, portOffsetY } from "../../src/canvas/nodeGeometry";
+import { ENV_ROW_HEIGHT } from "../../src/canvas/envBanner";
 import type { RFAnyNode } from "../../src/canvas/layout";
 import {
   CATALYST_BLOCK_GAP,
@@ -54,6 +55,11 @@ function fakeRecipe(
       : {}),
     producers: ["smelter"],
   } as Recipe;
+}
+
+// The same recipe, gas-gated: the only field the plate row turns on.
+function withEnvironment(recipe: Recipe): Recipe {
+  return { ...recipe, environment: "stable" } as Recipe;
 }
 
 // A recipe node standing in for what the routing passes hand portOffsetY. Only
@@ -173,6 +179,54 @@ describe("measureRecipe", () => {
     );
     // An input item is on no catalyst row: centre fallback.
     expect(portOffsetY(fakeNode(withCatalyst), "i0", "cat")).toBe(72.5);
+  });
+
+  // The environment plate is the card's first row (ruling I9): it grows the
+  // box by one ENV_ROW_HEIGHT and pushes every row below it down by the same,
+  // so the ELK box the layout hands out IS the box the DOM paints.
+  it("charges the environment plate to the height and shifts every handle by it", () => {
+    const plain = measureRecipe(fakeRecipe(2, 1, 1));
+    const env = measureRecipe(withEnvironment(fakeRecipe(2, 1, 1)));
+
+    expect(env.height).toBe(plain.height + ENV_ROW_HEIGHT);
+    expect(env.height).toBe(recipeHeight(3, 1, true, true));
+    expect(env.width).toBe(plain.width);
+
+    const shifted = (ys: number[]) => ys.map((y) => y + ENV_ROW_HEIGHT);
+    expect(env.inHandleYs).toEqual(shifted(plain.inHandleYs));
+    expect(env.outHandleYs).toEqual(shifted(plain.outHandleYs));
+    expect(env.catHandleYs).toEqual(shifted(plain.catHandleYs));
+  });
+
+  it("nodeHeight of an environment card is recipeHeight plus the plate", () => {
+    const recipe = withEnvironment(fakeRecipe(2, 3));
+    expect(nodeHeight(fakeNode(recipe))).toBe(recipeHeight(2, 3, false, true));
+    expect(nodeHeight(fakeNode(recipe))).toBe(
+      recipeHeight(2, 3) + ENV_ROW_HEIGHT,
+    );
+  });
+
+  // The plate moves the rows AND the card centre, so the row-vs-centre
+  // discriminator portRowResolved rests on has to survive it (nodeGeometry's
+  // header contract, item 4).
+  it("keeps the centre fallback off every row on an environment card", () => {
+    for (const [ins, outs, cats] of [
+      [1, 1, 0],
+      [3, 1, 0],
+      [2, 1, 1],
+      [4, 2, 2],
+    ] as const) {
+      const recipe = withEnvironment(fakeRecipe(ins, outs, cats));
+      const geom = measureRecipe(recipe);
+      const centre = geom.height / 2;
+      for (const y of [
+        ...geom.inHandleYs,
+        ...geom.outHandleYs,
+        ...geom.catHandleYs,
+      ]) {
+        expect(y, `${ins}x${outs}+${cats}`).not.toBe(centre);
+      }
+    }
   });
 
   it("keeps the two sides apart when one item is both an input and a catalyst", () => {

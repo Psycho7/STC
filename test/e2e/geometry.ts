@@ -17,6 +17,7 @@ import {
   RECIPE_WIDTH,
   recipeHeight,
 } from "../../src/canvas/dimensions";
+import { ENV_ROW_HEIGHT } from "../../src/canvas/envBanner";
 import { RESERVE_COLUMN_PAD } from "../../src/canvas/layerModel";
 import {
   CARD_BORDER,
@@ -1227,6 +1228,9 @@ export type PortedNode = NodeRect & {
   // Catalyst rows on the card. They add a row of height each, so every height
   // rebuilt here counts them alongside inPorts.
   catalystRows: number;
+  // The card draws the environment plate. It is the card's first row, so it
+  // adds ENV_ROW_HEIGHT to the height and shifts every row y below it.
+  envPlate: boolean;
 };
 
 type PortDrift = { sourceDx: number; targetDx: number; dy: number };
@@ -1272,9 +1276,16 @@ function driftOf(type: string): PortDrift {
 // off the shared dimension constants (that helper is module-private). The row
 // index is the item's position in the node's own side, which the collected port
 // lists carry in model order. A catalyst row also clears the half-row gap that
-// opens the catalyst block, exactly as catHandleYs does.
-function recipeRowY(rowIndex: number, belowBlockGap = false): number {
+// opens the catalyst block, exactly as catHandleYs does, and an environment
+// card's rows all sit one plate row lower: the plate is the card's first row,
+// above the header.
+function recipeRowY(
+  rowIndex: number,
+  belowBlockGap = false,
+  envPlate = false,
+): number {
   return (
+    (envPlate ? ENV_ROW_HEIGHT : 0) +
     RECIPE_HEADER_HEIGHT +
     RECIPE_ROWS_TOP_PAD +
     rowIndex * RECIPE_ROW_HEIGHT +
@@ -1329,7 +1340,10 @@ function rowIndexOf(
 
   const offBy = (row: number): number =>
     Math.abs(
-      node.top + recipeRowY(row, row >= node.inPorts.length) + driftDy - drawnY,
+      node.top +
+        recipeRowY(row, row >= node.inPorts.length, node.envPlate) +
+        driftDy -
+        drawnY,
     );
   return offBy(catRow) < offBy(inRow) ? catRow : inRow;
 }
@@ -1388,6 +1402,7 @@ export function auditEndpointParity(
             node.inPorts.length + node.catalystRows,
             node.outPorts.length,
             node.catalystRows > 0,
+            node.envPlate,
           )
         : node.bottom - node.top;
       // A target row past the in: rows is a catalyst row, so it sits below the
@@ -1397,7 +1412,7 @@ export function auditEndpointParity(
       // item / node kind, and driftedPortY leaves that fallback undrifted.
       const localY =
         rowIndex >= 0
-          ? recipeRowY(rowIndex, belowBlockGap) + drift.dy
+          ? recipeRowY(rowIndex, belowBlockGap, node.envPlate) + drift.dy
           : modelHeight / 2;
       const rebuilt: Pt = [
         end === "source"
@@ -1441,14 +1456,11 @@ export type CardFrameMismatch = {
 // card's border, so the two frames have to be the same box, and this states it
 // against the DOM.
 //
-// One kind grows further: an environment recipe's obstacle is that model box
-// grown by `cardGrowth` PLUS the environment frame extents -- the plates and
-// haze beyond the card box, ENV_FRAME_EXTENTS in src/canvas/dimensions.ts,
-// added per node by cardRectsFor in src/canvas/chipSeating.ts so no chip seats
-// on a plate. This criterion still compares the DRAWN card box against the
-// model box plus cardGrowth alone: the frame element draws at negative insets
-// outside the card's layout, so the plain comparison is what keeps proving
-// the DOM box did not grow.
+// An environment recipe needs no separate term: its plate is the card's first
+// row, so recipeHeight charges the model box for it and the DOM box carries
+// it too. That makes the comparison below the check that the plate really is
+// in flow -- a plate drawn outside the card's layout would show up here as a
+// height mismatch on every environment card.
 //
 // Recipes only. A product or group card rebuilds its model width from the DOM
 // (nothing else knows it), so it would agree by construction -- the same blind
@@ -1471,6 +1483,7 @@ export function auditCardFrames(
         n.inPorts.length + n.catalystRows,
         n.outPorts.length,
         n.catalystRows > 0,
+        n.envPlate,
       ) + growth;
     const drawnWidth = n.right - n.left;
     const drawnHeight = n.bottom - n.top;

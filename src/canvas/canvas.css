@@ -1933,26 +1933,49 @@
   position: relative;
 }
 
-/* The gas-environment frame: one absolutely positioned child RecipeNode adds
-   to environment cards, carrying the six --rn-env-* custom properties (the
-   five banner layer data URIs plus the plate colour). It takes no part in
-   layout -- the card box, its border, the header height and every port
-   y-slot are unchanged -- and the sides stay open. The frame draws at every
-   zoom band (a build requirement, not a LOD ornament), so no zoom-low or
-   zoom-mid rule may touch it. */
+/* The gas-environment plate: one in-flow child RecipeNode puts FIRST on an
+   environment card, above the header, carrying the four --rn-env-* custom
+   properties (the three banner layer data URIs plus the plate colour). It is
+   a row of the card -- ENV_ROW_HEIGHT tall, the content width, no inset and
+   no margin -- so the card box, measureRecipe's height and every port y-slot
+   below it count it. The plate draws at every zoom band (a build requirement,
+   not a LOD ornament), so no zoom-low or zoom-mid rule may touch it.
+
+   Three layers in paint order: the glyph on top, then the left cap, the
+   stretched solid and the right cap. A one-row cap SVG is 72x18 natural and
+   draws at its natural size, so the two caps take 144px of the 240px row;
+   each cap's chevron gap is transparent, so the solid spans 2px more than the
+   bare subtraction (2 * 72 - 2 = 142) and peeks 1px into each cap instead of
+   underfilling the seam. The glyph is 29/36 of the row tall, 3.5/36 from its
+   top, centred -- the same proportions the game plate uses. */
 .rn-env {
-  position: absolute;
-  /* 8px gap every side: top 8 + 28 (two-row plate) = 36 above the card,
-     bottom 8 + 14 (single-row plate) = 22 below, 8 each side. */
-  inset: -36px -8px -22px;
+  /* ENV_ROW_HEIGHT in envBanner.ts, which recipeHeight charges the card; keep
+     the two in step. */
+  height: 18px;
   pointer-events: none;
+  background-image:
+    var(--rn-env-glyph), var(--rn-env-cap-left),
+    linear-gradient(var(--rn-env-plate), var(--rn-env-plate)),
+    var(--rn-env-cap-right);
+  background-size:
+    auto calc(18px * 29 / 36),
+    72px 18px,
+    calc(100% - 142px) 18px,
+    72px 18px;
+  background-position:
+    center calc(18px * 3.5 / 36),
+    left top,
+    center top,
+    right top;
+  background-repeat: no-repeat;
 }
 
-/* The haze fills the whole frame rectangle behind the card: the React Flow
-   node wrapper is a stacking context, so -1 paints under the card background
-   but above the canvas. .rn-env itself must stay z-index:auto -- a z-index
-   here would trap the pseudo's -1 inside the frame and lift the haze onto
-   the card. */
+/* The haze fills the whole CARD behind it: .rn-env is static, so this pseudo
+   resolves inset:0 against .recipe-node, the nearest positioned ancestor, and
+   the glow spreads past the card's edges. The React Flow node wrapper is a
+   stacking context, so -1 paints under the card background but above the
+   canvas; .rn-env itself must stay z-index:auto, or the pseudo's -1 would be
+   trapped inside the plate row and lift the haze onto the card. */
 .rn-env::before {
   content: "";
   position: absolute;
@@ -1961,44 +1984,6 @@
   background: color-mix(in srgb, var(--rn-env-plate) 12%, transparent);
   box-shadow: 0 0 18px 4px
     color-mix(in srgb, var(--rn-env-plate) 14%, transparent);
-}
-
-/* The two plates, stacked on one pseudo in paint order: glyph, top plate
-   (left cap, stretched solid, right cap), bottom plate the same. The caps
-   are the fixed-ratio SVGs scaled by height, so a cap's width is
-   72 * plateHeight / (18 * rows) -- 56px at both the 28px two-row top and
-   the 14px single-row bottom, every triangle the same size on the card.
-   Each cap's chevron gap is transparent, so each solid spans 2px less than
-   the full subtraction (2 * 56 - 2 = 110): it may peek 1px into a cap, it
-   must never underfill the seam. The glyph is 29/36 of the top plate tall,
-   3.5/36 from its top, centred. */
-.rn-env::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background-image:
-    var(--rn-env-glyph), var(--rn-env-top-left),
-    linear-gradient(var(--rn-env-plate), var(--rn-env-plate)),
-    var(--rn-env-top-right), var(--rn-env-bottom-left),
-    linear-gradient(var(--rn-env-plate), var(--rn-env-plate)),
-    var(--rn-env-bottom-right);
-  background-size:
-    auto calc(28px * 29 / 36),
-    calc(72px * 28 / 36) 28px,
-    calc(100% - 110px) 28px,
-    calc(72px * 28 / 36) 28px,
-    calc(72px * 14 / 18) 14px,
-    calc(100% - 110px) 14px,
-    calc(72px * 14 / 18) 14px;
-  background-position:
-    center calc(28px * 3.5 / 36),
-    left top,
-    center top,
-    right top,
-    left bottom,
-    center bottom,
-    right bottom;
-  background-repeat: no-repeat;
 }
 
 .rn-body {
@@ -2305,10 +2290,10 @@
 }
 
 /* An environment card suppresses the outer selection ring: at -6px it would
-   sit 1px inside the frame's plates (the frame extends 8px out). The card's
-   own lime border above still applies, and the plates and haze keep their
-   environment colour while selected -- selection and environment are
-   orthogonal and never share a colour. */
+   sit inside the band the haze's glow already fills, and the two read as one
+   smeared outline. The card's own lime border above still applies, and the
+   plate and haze keep their environment colour while selected -- selection
+   and environment are orthogonal and never share a colour. */
 .recipe-node.selected[data-environment]::before {
   content: none;
 }

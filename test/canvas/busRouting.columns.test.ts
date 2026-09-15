@@ -25,9 +25,9 @@ import {
 import {
   BETWEEN_LAYERS_SPACING,
   ENTRY_GUTTER_OVERHANG,
-  ENV_FRAME_EXTENTS,
   RECIPE_WIDTH,
 } from "../../src/canvas/dimensions";
+import { ENV_ROW_HEIGHT } from "../../src/canvas/envBanner";
 import { cardRectsFor } from "../../src/canvas/chipSeating";
 import { widenLayerGaps } from "../../src/canvas/layerModel";
 import { nodeIndexOf } from "../../src/canvas/nodeGeometry";
@@ -467,11 +467,11 @@ describe("paddedObstacles", () => {
     expect(card!.nodeId).toBe("n");
   });
 
-  it("grows an environment recipe's card obstacle by the plate frame it draws", () => {
-    // An environment recipe draws plates and haze ENV_FRAME_EXTENTS beyond its
-    // card box. cardRectsFor (the chip/pierce rect model) already counts that
-    // growth; the router's obstacle has to agree, or a rail threads a band the
-    // plate occupies and the drawn stroke crosses the frame.
+  it("adds no frame term to an environment recipe's card obstacle: the plate is a row of the card", () => {
+    // An environment recipe draws its plate as the card's first row (ruling
+    // I9), so the obstacle is the plain card box, one ENV_ROW_HEIGHT taller
+    // than the same recipe without an environment. Nothing reaches outside it,
+    // and the pierce rect model (cardRectsFor) says the same.
     const plain = recipeNode("p", 0, 0, mkRecipe("p", ["a"], ["b"]));
     const env: RFAnyNode = {
       ...plain,
@@ -487,30 +487,25 @@ describe("paddedObstacles", () => {
       return card!;
     };
     const bare = cardOf(plain);
-    const framed = cardOf(env);
-    expect(bare.left - framed.left).toBe(ENV_FRAME_EXTENTS.left);
-    expect(framed.right - bare.right).toBe(ENV_FRAME_EXTENTS.right);
-    expect(bare.top - framed.top).toBe(ENV_FRAME_EXTENTS.top);
-    expect(framed.bottom - bare.bottom).toBe(ENV_FRAME_EXTENTS.bottom);
-    // Same growth the pierce audit's rect model applies for the frame. The two
-    // models still differ by the card border and the router's own padding, so
-    // the comparison is of the FRAME term alone: what each model adds when the
-    // recipe turns environment-gated.
+    const plated = cardOf(env);
+    expect(plated.left).toBe(bare.left);
+    expect(plated.right).toBe(bare.right);
+    expect(plated.top).toBe(bare.top);
+    expect(plated.bottom - bare.bottom).toBe(ENV_ROW_HEIGHT);
+    // The pierce audit's rect model grows by the same row and no more, so the
+    // two models cannot disagree about where the plate is.
     const drawnOf = (node: RFAnyNode) =>
       cardRectsFor([node], nodeIndexOf([node]))[0]!;
     const drawnBare = drawnOf(plain);
-    const drawnFramed = drawnOf(env);
-    expect(bare.top - framed.top).toBe(drawnBare.top - drawnFramed.top);
-    expect(framed.bottom - bare.bottom).toBe(
-      drawnFramed.bottom - drawnBare.bottom,
-    );
+    const drawnPlated = drawnOf(env);
+    expect(drawnPlated.top).toBe(drawnBare.top);
+    expect(drawnPlated.bottom - drawnBare.bottom).toBe(ENV_ROW_HEIGHT);
   });
 
-  it("grows an environment recipe's RAW rect by the plate frame too", () => {
+  it("adds no frame term to an environment recipe's RAW rect either", () => {
     // The raw-fallback tiers (clearColumnKeepingLeg's tier 2, its leg check and
-    // desiredPierces) resolve against rawCardRects. A frame the padded model
-    // blocks and the raw model does not is a column the fallback happily seats
-    // inside the plates.
+    // desiredPierces) resolve against rawCardRects, so they have to see the
+    // same box: the card box, plate row included.
     const plain = recipeNode("p", 0, 0, mkRecipe("p", ["a"], ["b"]));
     const env: RFAnyNode = {
       ...plain,
@@ -521,11 +516,11 @@ describe("paddedObstacles", () => {
       },
     };
     const bare = rawCardRects([plain])[0]!;
-    const framed = rawCardRects([env])[0]!;
-    expect(bare.left - framed.left).toBe(ENV_FRAME_EXTENTS.left);
-    expect(framed.right - bare.right).toBe(ENV_FRAME_EXTENTS.right);
-    expect(bare.top - framed.top).toBe(ENV_FRAME_EXTENTS.top);
-    expect(framed.bottom - bare.bottom).toBe(ENV_FRAME_EXTENTS.bottom);
+    const plated = rawCardRects([env])[0]!;
+    expect(plated.left).toBe(bare.left);
+    expect(plated.right).toBe(bare.right);
+    expect(plated.top).toBe(bare.top);
+    expect(plated.bottom - bare.bottom).toBe(ENV_ROW_HEIGHT);
   });
 
   it("includes each node's entry-gutter rect as a first-class obstacle tagged with its node id", () => {

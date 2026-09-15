@@ -77,20 +77,20 @@ function headerContentWidth(): number {
   return RECIPE_HEAD_TITLE_COL - 2 * RECIPE_HEAD_BLOCK_PAD_X;
 }
 
-// The gas-environment frame around an environment card: the plate SVGs bake
-// the plate colour into their data URIs (an SVG fill cannot resolve a CSS
-// var), so the token VALUE is read from the stylesheet at runtime. The tokens
-// never change at runtime, so the whole six-property style is memoised per
+// The gas-environment plate, the card's first row: the plate SVGs bake the
+// plate colour into their data URIs (an SVG fill cannot resolve a CSS var), so
+// the token VALUE is read from the stylesheet at runtime. The tokens never
+// change at runtime, so the whole four-property style is memoised per
 // environment on first render.
 const ENV_PLATE_TOKEN: Record<EnvironmentId, string> = {
   stable: "--ak-env-stable",
   acidic: "--ak-env-acidic",
 };
 
-const envFrameStyles = new Map<EnvironmentId, CSSProperties>();
+const envPlateStyles = new Map<EnvironmentId, CSSProperties>();
 
-function envFrameStyle(environment: EnvironmentId): CSSProperties {
-  const cached = envFrameStyles.get(environment);
+function envPlateStyle(environment: EnvironmentId): CSSProperties {
+  const cached = envPlateStyles.get(environment);
   if (cached !== undefined) {
     return cached;
   }
@@ -101,13 +101,11 @@ function envFrameStyle(environment: EnvironmentId): CSSProperties {
   const layers = envBannerLayers(environment, plate);
   const style: CSSProperties = {
     ["--rn-env-plate" as string]: plate,
-    ["--rn-env-glyph" as string]: layers.top.glyph.uri,
-    ["--rn-env-top-left" as string]: layers.top.leftCap.uri,
-    ["--rn-env-top-right" as string]: layers.top.rightCap.uri,
-    ["--rn-env-bottom-left" as string]: layers.bottom.leftCap.uri,
-    ["--rn-env-bottom-right" as string]: layers.bottom.rightCap.uri,
+    ["--rn-env-glyph" as string]: layers.glyph.uri,
+    ["--rn-env-cap-left" as string]: layers.leftCap.uri,
+    ["--rn-env-cap-right" as string]: layers.rightCap.uri,
   };
-  envFrameStyles.set(environment, style);
+  envPlateStyles.set(environment, style);
   return style;
 }
 
@@ -308,15 +306,16 @@ export default function RecipeNode({
         minHeight: geom.height,
       }}
     >
-      {/* The environment frame: canvas.css paints the plates and the haze
-          from the custom properties. Absolutely positioned at negative
-          insets, so it takes no part in the card's layout -- the box,
-          border, header height and every port y-slot are unchanged. */}
+      {/* The environment plate: the card's first row, above the header, one
+          ENV_ROW_HEIGHT tall and the card's content width. canvas.css paints
+          the caps and the glyph from the custom properties, and the haze
+          behind the whole card from its ::before. In flow, so measureRecipe's
+          height and every port y-slot below it already count it. */}
       {environment !== undefined ? (
         <div
           className="rn-env"
           aria-hidden="true"
-          style={envFrameStyle(environment)}
+          style={envPlateStyle(environment)}
         />
       ) : null}
       {/* Header: the 40px machine icon block plus the machine title line. */}

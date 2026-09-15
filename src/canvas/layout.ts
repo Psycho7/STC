@@ -41,11 +41,9 @@ import {
   PORT_WIDTH,
   PRODUCT_HEIGHT,
   PRODUCT_WIDTH,
-  type FrameExtents,
-  frameExtentsOf,
   loopBoxDimensions,
 } from "./dimensions";
-import { measureRecipe, type RecipeGeometry } from "./recipeGeometry";
+import { measureRecipe } from "./recipeGeometry";
 import {
   assignBendColumns,
   assignEntryColumns,
@@ -431,17 +429,11 @@ function makePort(
   index: number,
   itemId: ItemId,
   kindOf: KindOf,
-  // The port-box CENTRE in node-local coordinates, stamped only where the node
-  // box is not the card box (see recipeUnitToElk).
-  at?: { x: number; y: number },
 ): ElkPortWithKind {
   const port: ElkPortWithKind = {
     id,
     width: PORT_WIDTH,
     height: PORT_HEIGHT,
-    ...(at !== undefined
-      ? { x: at.x - PORT_WIDTH / 2, y: at.y - PORT_HEIGHT / 2 }
-      : {}),
     layoutOptions: {
       "org.eclipse.elk.port.side": side,
       "org.eclipse.elk.port.index": String(index),
@@ -454,10 +446,9 @@ function makePort(
 
 // Ports are emitted in recipe.in / recipe.out declaration order here; under
 // FIXED_SIDE ELK is free to reorder them within each side to minimize crossings,
-// so declaration order is only the starting point. We set port coordinates only
-// on the grown environment box (they state where the DOM handles sit); on plain
-// cards we set none, and elkjs recomputes whatever we hand it anyway. On the
-// React side the Handle takes its visual top offset from
+// so declaration order is only the starting point. No port carries coordinates:
+// every node box IS the card box, and elkjs recomputes whatever we hand it
+// anyway. On the React side the Handle takes its visual top offset from
 // `measureRecipe(recipe).inHandleYs[i] / outHandleYs[i]`, indexed by the
 // resolved slot i. An input slot comes from the ELK-resolved inputOrder; an
 // output slot is the declaration index (ruling R4: output rows read in the
@@ -468,23 +459,10 @@ function buildRecipePorts(
   unitId: string,
   recipe: Recipe,
   kindOf: KindOf,
-  geom: RecipeGeometry,
-  // Where the card box sits inside the ELK node box (the environment frame's
-  // inner rectangle); absent when the node box IS the card box.
-  origin?: { x: number; y: number },
 ): ElkPortWithKind[] {
-  const at = (x: number, y: number) =>
-    origin === undefined ? undefined : { x: origin.x + x, y: origin.y + y };
   return [
     ...recipe.in.map((p, i) =>
-      makePort(
-        `${unitId}.in:${p.item}`,
-        "WEST",
-        i,
-        p.item,
-        kindOf,
-        at(0, geom.inHandleYs[i] ?? 0),
-      ),
+      makePort(`${unitId}.in:${p.item}`, "WEST", i, p.item, kindOf),
     ),
     // Catalyst rows take a WEST port too: their edge comes from the item's
     // catalyst boundary card, exactly like an input row's. The port id uses the
@@ -497,69 +475,29 @@ function buildRecipePorts(
         recipe.in.length + i,
         p.item,
         kindOf,
-        at(0, geom.catHandleYs[i] ?? 0),
       ),
     ),
     ...recipe.out.map((p, i) =>
-      makePort(
-        `${unitId}.out:${p.item}`,
-        "EAST",
-        i,
-        p.item,
-        kindOf,
-        at(geom.width, geom.outHandleYs[i] ?? 0),
-      ),
+      makePort(`${unitId}.out:${p.item}`, "EAST", i, p.item, kindOf),
     ),
   ];
 }
 
-// Where an environment recipe's card box sits inside the box handed to ELK:
-// the frame's inner rectangle. The offset contract runs one direction in each
-// adapter half -- recipeUnitToElk ADDS it (grown box, ports stamped at the
-// card-box handle coordinates plus the offset) and unitToRFNode adds it back
-// (card box at the inner rectangle) -- so the DOM card and every handle
-// relative to it are byte-identical to a plain card's.
-//
-// The port stamps state where the DOM handles will be. elkjs under FIXED_SIDE
-// recomputes port positions itself (probed 2026-09-12: explicit port x/y come
-// back redistributed along the side) and this module discards ELK's routed
-// edge geometry, so what the stamps actually buy is a truthful description of
-// the grown box on the input graph; the drawn endpoints follow from the
-// position mapping and the row slots, as on every plain card.
-function envFrameOrigin(
-  recipe: Recipe | undefined,
-): { x: number; y: number } | undefined {
-  const { left, top } = recipeFrameExtents(recipe);
-  // A card that draws no frame must keep its ports unstamped (buildRecipePorts
-  // reads "no origin" that way), so zero extents map back to no origin.
-  if (left === 0 && top === 0) return undefined;
-  return { x: left, y: top };
-}
-
-// The frame extents of a recipe the adapter has not built a node for yet.
-function recipeFrameExtents(recipe: Recipe | undefined): FrameExtents {
-  return frameExtentsOf({ type: "recipe", data: { recipe } });
-}
-
-// An environment recipe's ELK box is the CARD box grown by the frame extents:
-// the default nodeNode spacing (30) between two grown boxes then leaves
-// 30 + 22 + 36 = 88px between two stacked environment cards and 30 + 36 /
-// 30 + 22 between an environment card and a plain neighbour, all past the
-// extents the plates need, with no spacing change.
+// Every recipe's ELK box is its CARD box. An environment recipe draws its
+// plate as the card's first row (ruling I9), so measureRecipe already counts
+// it and no box anywhere grows past what the DOM paints.
 function recipeUnitToElk(
   u: RenderUnitRecipe,
   recipe: Recipe,
   kindOf: KindOf,
 ): ElkNode {
   const geom = measureRecipe(recipe);
-  const origin = envFrameOrigin(recipe);
-  const frame = recipeFrameExtents(recipe);
   return {
     id: u.id,
-    width: geom.width + frame.left + frame.right,
-    height: geom.height + frame.top + frame.bottom,
+    width: geom.width,
+    height: geom.height,
     layoutOptions: { ...RECIPE_LAYOUT_OPTIONS },
-    ports: buildRecipePorts(u.id, recipe, kindOf, geom, origin),
+    ports: buildRecipePorts(u.id, recipe, kindOf),
   };
 }
 
@@ -893,18 +831,8 @@ function unitToRFNode(
   interiorByLoopId: ReadonlyMap<SccId, LoopInteriorSize>,
   catalystAccount: CatalystAccount | undefined,
 ): RFAnyNode {
-  // An environment recipe's ELK box is the frame rectangle; ELK positions its
-  // top-left, so shift by the inner-rectangle offset to land the CARD box
-  // where the frame's inner rectangle is (the counterpart of the growth in
-  // recipeUnitToElk).
-  const origin =
-    unit.kind === "recipe"
-      ? envFrameOrigin(recipeById.get(unit.recipeId))
-      : undefined;
-  const position = {
-    x: (laidChild.x ?? 0) + (origin?.x ?? 0),
-    y: (laidChild.y ?? 0) + (origin?.y ?? 0),
-  };
+  // Every ELK box is the card box, so ELK's top-left IS the card's.
+  const position = { x: laidChild.x ?? 0, y: laidChild.y ?? 0 };
   const base = parentId !== undefined ? { position, parentId } : { position };
   const portTransportKinds = portKindsFromElkNode(laidChild);
 

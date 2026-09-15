@@ -153,6 +153,10 @@ export type NodeGeom = {
   // count is read from the row markup rather than from catPorts so it still
   // holds when the catalyst rows draw no handle.
   catalystRows: number;
+  // Does the card draw the environment plate (the .rn-env row)? The plate is
+  // the card's FIRST row, so it adds its height to the card AND pushes every
+  // port row down by it; both halves of the offline model need to know.
+  envPlate: boolean;
 };
 export type ChipGeom = {
   edgeId: string;
@@ -304,6 +308,7 @@ export function collectGeometry(): Geometry {
       outPorts,
       catPorts,
       catalystRows: el.querySelectorAll(".rn-row.catalyst").length,
+      envPlate: el.querySelector(".rn-env") !== null,
     };
   });
 

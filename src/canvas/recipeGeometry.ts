@@ -7,6 +7,7 @@ import {
   RECIPE_WIDTH,
   recipeHeight,
 } from "./dimensions";
+import { ENV_ROW_HEIGHT } from "./envBanner";
 
 // One measurement record per recipe-node. Both the React component
 // (RecipeNode.tsx) and the ELK layout (layout.ts) read it, so the rule that the
@@ -21,6 +22,10 @@ import {
 // start at row 0 on the left, output rows at row 0 on the right), not by some
 // shared row index. When iterating recipe.in or recipe.out, callers can read
 // inHandleYs[i] or outHandleYs[i] directly without a bounds check.
+//
+// A recipe with an environment draws the plate as the card's first row, above
+// the header, so its height carries one ENV_ROW_HEIGHT more than the same
+// recipe without one and every handle y here is shifted down by it.
 //
 // Catalyst rows share the left column with the input rows but keep their own
 // array. They are appended at the BOTTOM of that column, so their row indices
@@ -54,16 +59,31 @@ export function measureRecipe(recipe: Recipe): RecipeGeometry {
   const outCount = recipe.out.length;
   const catalystCount = recipe.catalyst?.length ?? 0;
   const hasCatalystBlock = catalystCount > 0;
+  // The environment plate is the card's first row, above the header, so it
+  // shifts every row below it -- input, catalyst and output alike -- and the
+  // card box grows by it.
+  const plate = recipe.environment === undefined ? 0 : ENV_ROW_HEIGHT;
   const geometry: RecipeGeometry = {
     width: RECIPE_WIDTH,
-    height: recipeHeight(inCount + catalystCount, outCount, hasCatalystBlock),
-    inHandleYs: Array.from({ length: inCount }, (_, i) => rowHandleY(i)),
-    outHandleYs: Array.from({ length: outCount }, (_, i) => rowHandleY(i)),
+    height: recipeHeight(
+      inCount + catalystCount,
+      outCount,
+      hasCatalystBlock,
+      plate > 0,
+    ),
+    inHandleYs: Array.from(
+      { length: inCount },
+      (_, i) => plate + rowHandleY(i),
+    ),
+    outHandleYs: Array.from(
+      { length: outCount },
+      (_, i) => plate + rowHandleY(i),
+    ),
     // The block gap sits above the first catalyst row, so every catalyst row
     // is pushed down by it while the input rows above keep their y.
     catHandleYs: Array.from(
       { length: catalystCount },
-      (_, i) => rowHandleY(inCount + i) + CATALYST_BLOCK_GAP,
+      (_, i) => plate + rowHandleY(inCount + i) + CATALYST_BLOCK_GAP,
     ),
   };
   geometryByRecipe.set(recipe, geometry);
