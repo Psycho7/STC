@@ -25,9 +25,9 @@ import {
 import {
   BETWEEN_LAYERS_SPACING,
   ENTRY_GUTTER_OVERHANG,
-  ENV_FRAME_EXTENTS,
   RECIPE_WIDTH,
 } from "../../src/canvas/dimensions";
+import { ENV_ROW_HEIGHT } from "../../src/canvas/envBanner";
 import { cardRectsFor } from "../../src/canvas/chipSeating";
 import { widenLayerGaps } from "../../src/canvas/layerModel";
 import { nodeIndexOf } from "../../src/canvas/nodeGeometry";
@@ -467,11 +467,11 @@ describe("paddedObstacles", () => {
     expect(card!.nodeId).toBe("n");
   });
 
-  it("grows an environment recipe's card obstacle by the plate frame it draws", () => {
-    // An environment recipe draws plates and haze ENV_FRAME_EXTENTS beyond its
-    // card box. cardRectsFor (the chip/pierce rect model) already counts that
-    // growth; the router's obstacle has to agree, or a rail threads a band the
-    // plate occupies and the drawn stroke crosses the frame.
+  it("adds no frame term to an environment recipe's card obstacle: the plate is a row of the card", () => {
+    // An environment recipe draws its plate as the card's first row (ruling
+    // I9), so the obstacle is the plain card box, one ENV_ROW_HEIGHT taller
+    // than the same recipe without an environment. Nothing reaches outside it,
+    // and the pierce rect model (cardRectsFor) says the same.
     const plain = recipeNode("p", 0, 0, mkRecipe("p", ["a"], ["b"]));
     const env: RFAnyNode = {
       ...plain,
@@ -487,30 +487,25 @@ describe("paddedObstacles", () => {
       return card!;
     };
     const bare = cardOf(plain);
-    const framed = cardOf(env);
-    expect(bare.left - framed.left).toBe(ENV_FRAME_EXTENTS.left);
-    expect(framed.right - bare.right).toBe(ENV_FRAME_EXTENTS.right);
-    expect(bare.top - framed.top).toBe(ENV_FRAME_EXTENTS.top);
-    expect(framed.bottom - bare.bottom).toBe(ENV_FRAME_EXTENTS.bottom);
-    // Same growth the pierce audit's rect model applies for the frame. The two
-    // models still differ by the card border and the router's own padding, so
-    // the comparison is of the FRAME term alone: what each model adds when the
-    // recipe turns environment-gated.
+    const plated = cardOf(env);
+    expect(plated.left).toBe(bare.left);
+    expect(plated.right).toBe(bare.right);
+    expect(plated.top).toBe(bare.top);
+    expect(plated.bottom - bare.bottom).toBe(ENV_ROW_HEIGHT);
+    // The pierce audit's rect model grows by the same row and no more, so the
+    // two models cannot disagree about where the plate is.
     const drawnOf = (node: RFAnyNode) =>
       cardRectsFor([node], nodeIndexOf([node]))[0]!;
     const drawnBare = drawnOf(plain);
-    const drawnFramed = drawnOf(env);
-    expect(bare.top - framed.top).toBe(drawnBare.top - drawnFramed.top);
-    expect(framed.bottom - bare.bottom).toBe(
-      drawnFramed.bottom - drawnBare.bottom,
-    );
+    const drawnPlated = drawnOf(env);
+    expect(drawnPlated.top).toBe(drawnBare.top);
+    expect(drawnPlated.bottom - drawnBare.bottom).toBe(ENV_ROW_HEIGHT);
   });
 
-  it("grows an environment recipe's RAW rect by the plate frame too", () => {
+  it("adds no frame term to an environment recipe's RAW rect either", () => {
     // The raw-fallback tiers (clearColumnKeepingLeg's tier 2, its leg check and
-    // desiredPierces) resolve against rawCardRects. A frame the padded model
-    // blocks and the raw model does not is a column the fallback happily seats
-    // inside the plates.
+    // desiredPierces) resolve against rawCardRects, so they have to see the
+    // same box: the card box, plate row included.
     const plain = recipeNode("p", 0, 0, mkRecipe("p", ["a"], ["b"]));
     const env: RFAnyNode = {
       ...plain,
@@ -521,11 +516,11 @@ describe("paddedObstacles", () => {
       },
     };
     const bare = rawCardRects([plain])[0]!;
-    const framed = rawCardRects([env])[0]!;
-    expect(bare.left - framed.left).toBe(ENV_FRAME_EXTENTS.left);
-    expect(framed.right - bare.right).toBe(ENV_FRAME_EXTENTS.right);
-    expect(bare.top - framed.top).toBe(ENV_FRAME_EXTENTS.top);
-    expect(framed.bottom - bare.bottom).toBe(ENV_FRAME_EXTENTS.bottom);
+    const plated = rawCardRects([env])[0]!;
+    expect(plated.left).toBe(bare.left);
+    expect(plated.right).toBe(bare.right);
+    expect(plated.top).toBe(bare.top);
+    expect(plated.bottom - bare.bottom).toBe(ENV_ROW_HEIGHT);
   });
 
   it("includes each node's entry-gutter rect as a first-class obstacle tagged with its node id", () => {
@@ -1128,6 +1123,108 @@ describe("jogForwardLegs", () => {
       expect(srcColX).toBeGreaterThanOrEqual(gap.columnZone.left);
       expect(srcColX).toBeLessThanOrEqual(gap.columnZone.right);
       expect(srcColX).toBeGreaterThan(gap.sourceZone.right - 1e-6);
+    });
+  });
+
+  // The horizontal level floor: two forward runs of different edges sharing an
+  // x-corridor keep ENTRY_SLOT_PITCH apart in y, the y-axis twin of the column
+  // pitch floor the rail cases above pin. The fixture is the shape the exam
+  // found on gas-web: one edge's long final leg runs at the level another
+  // edge's source stub already holds, for hundreds of units.
+  describe("the forward level floor", () => {
+    // e0's final leg runs at ty 139 from the bend column out to t. e1 leaves
+    // its own source at that same row and holds it to ITS bend column at 400,
+    // so the two share 200 units of corridor. No card stands in either leg:
+    // the first test below proves it by running e0 alone.
+    const fixture = (
+      secondSourceTop: number,
+    ): { nodes: RFAnyNode[]; edges: Edge[] } => ({
+      nodes: [
+        inputProductNode("s1", "ore", 0, 0, 148, 78), // right 148, port y 39
+        inputProductNode("s2", "ore", 0, secondSourceTop, 148, 78),
+        inputProductNode("t1", "ore", 760, 100, 148, 78), // left 760, port y 139
+        inputProductNode("t2", "ore", 1000, 300, 148, 78), // left 1000, port y 339
+      ],
+      edges: [
+        {
+          ...mkEdge("e0", "s1", "t1", "ore"),
+          data: { item: "ore", rate: new Fraction(1), bendX: 200 },
+        },
+        {
+          ...mkEdge("e1", "s2", "t2", "ore"),
+          data: { item: "ore", rate: new Fraction(1), bendX: 400 },
+        },
+      ],
+    });
+
+    // s2 top 100 puts its port row at 139, exactly where e0's final leg runs.
+    const COINCIDENT_TOP = 100;
+
+    it("leaves a lone leg alone, so the fixture blames no card", () => {
+      const { nodes, edges } = fixture(COINCIDENT_TOP);
+      const out = jogForwardLegs(nodes, [edges[0]!]);
+      expect(legYOf(out, "e0")).toBeUndefined();
+      expect(out[0]).toBe(edges[0]);
+    });
+
+    it("moves one of two legs that would draw on the same row", () => {
+      const { nodes, edges } = fixture(COINCIDENT_TOP);
+      const byId = nodeIndexOf(nodes);
+      // Premise: the two runs really do want the same level over a corridor
+      // longer than a port stub -- e0's leg at ty, e1's stub at its own sy.
+      expect(edgePortsModel(edges[0]!, byId)!.ty).toBe(
+        edgePortsModel(edges[1]!, byId)!.sy,
+      );
+
+      const out = jogForwardLegs(nodes, edges);
+      const legY = legYOf(out, "e0")!;
+      expect(typeof legY).toBe("number");
+      expect(Math.abs(legY - 139)).toBeGreaterThanOrEqual(ENTRY_SLOT_PITCH);
+      // e1 has nothing to move: its stub is the run between its port and its
+      // bend column, which no legY relocates.
+      expect(legYOf(out, "e1")).toBeUndefined();
+    });
+
+    it("leaves a pair already clear of the floor alone", () => {
+      // s2 one row band lower: the two runs are 100 apart, so neither owes the
+      // other anything and both edges pass through by reference.
+      const { nodes, edges } = fixture(200);
+      const out = jogForwardLegs(nodes, edges);
+      expect(legYOf(out, "e0")).toBeUndefined();
+      expect(out[0]).toBe(edges[0]);
+      expect(out[1]).toBe(edges[1]);
+    });
+
+    it("exempts two members of one fan-in trunk from each other's level", () => {
+      // Both edges land on the same target port, so their final legs share one
+      // row for the whole approach -- which is what a trunk IS. Forcing them
+      // apart would split the trunk into two lines.
+      const nodes: RFAnyNode[] = [
+        inputProductNode("s1", "ore", 0, 0, 148, 78), // port y 39
+        inputProductNode("s2", "ore", 0, 300, 148, 78), // port y 339
+        inputProductNode("t", "ore", 760, 100, 148, 78), // port y 139
+      ];
+      const edges: Edge[] = [
+        {
+          ...mkEdge("e0", "s1", "t", "ore"),
+          data: { item: "ore", rate: new Fraction(1), bendX: 200 },
+        },
+        {
+          ...mkEdge("e1", "s2", "t", "ore"),
+          data: { item: "ore", rate: new Fraction(1), bendX: 200 },
+        },
+      ];
+      const byId = nodeIndexOf(nodes);
+      // Premise: both final legs really do run at the same y.
+      expect(edgePortsModel(edges[0]!, byId)!.ty).toBe(
+        edgePortsModel(edges[1]!, byId)!.ty,
+      );
+
+      const out = jogForwardLegs(nodes, edges);
+      expect(legYOf(out, "e0")).toBeUndefined();
+      expect(legYOf(out, "e1")).toBeUndefined();
+      expect(out[0]).toBe(edges[0]);
+      expect(out[1]).toBe(edges[1]);
     });
   });
 });

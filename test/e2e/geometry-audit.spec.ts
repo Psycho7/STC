@@ -1,5 +1,10 @@
 import { test, expect, type Page } from "@playwright/test";
-import { CENSUS_ZOOM, bootExamPage, loadCensusScenario } from "./viewport";
+import {
+  CENSUS_ZOOM,
+  READING_ZOOM,
+  bootExamPage,
+  loadCensusScenario,
+} from "./viewport";
 import { SCENARIOS, extraScenariosFromEnv, scenarioHash } from "./scenarios";
 import {
   CARD_INTRUSION_BUDGET,
@@ -7,6 +12,7 @@ import {
   auditChipCardIntrusion,
   auditChipForeignStrokes,
   auditChipPortCover,
+  auditChipBoxOverlaps,
   auditChipsOnOwnPath,
   auditChipsVsCards,
   auditDotsUnderChips,
@@ -289,7 +295,8 @@ test.describe("DOM geometry audit", () => {
 // census, padding-only grazes, foreign strokes through a chip box, chips off
 // their own trunk leg in each direction, own-endpoint pierces, frame rides,
 // junction dots hidden under a chip, and the endpoint-parity tolerance. The
-// reading-zoom census at the bottom of this file carries three more.
+// 0.6 chip seating census below carries three more, and the reading-zoom census
+// at the bottom of this file five.
 //
 // NOTE on all ratchet tables in this file. Baselines do NOT auto-tighten: when a
 // change improves a scenario, re-record the lower count manually (downward
@@ -316,6 +323,21 @@ test.describe("DOM geometry audit", () => {
 // at their measured counts as first pins. One cell moved UP and carries its own
 // ruling note below (CROSSING_BASELINE battery5-xiranite); every other cell
 // held or fell.
+//
+// CATALYST EXAM FIXES 2026-09-15, docs/plans/2026-09-15-catalyst-exam-fixes.md
+// (T9): nine cells moved UP on the integrated campaign branch, seven crossing
+// counts and two padding grazes, each noted at its cell below. They are one
+// family. T6 gives forward horizontal runs of different edges a y floor of a
+// chip box (I2), so a run that used to hide inside a neighbour's stroke now
+// steps off it and crosses whatever that neighbour's corridor holds; T7 layers
+// each container interior in its own scope, which moves the cards a step apart
+// on the plans that have containers; and T2 / T3 change what a card is tall,
+// which moves every row a stroke lands on. A separation the reader can see,
+// bought with crossings the cue mask already marks. Nothing else in either
+// table moved, and no counter in the 0.6 census or the reading-zoom census
+// moved at all. Both directions are harvested in one run (every ratchet here is
+// a soft expect), but only an exceeded pin prints its measurement, so a cell
+// that FELL is invisible to this harvest and keeps its old pin.
 
 // Crossing census: pairwise proper crossings between segments of different
 // edges, at fit zoom. An upper bound that ratchets down, not a target -- a plan
@@ -338,26 +360,44 @@ const CROSSING_BASELINE: Record<string, number> = {
   // the rail deconfliction switched off, so four of the five added crossings
   // are the topology and one is a rail stepping off a column it used to share.
   // UP move, listed for ruling.
-  "battery5-xiranite": 26,
+  //
+  // CATALYST EXAM FIXES 2026-09-15 (T6): 26 -> 27. One forward horizontal takes
+  // the new chip-box floor off the run it shared and crosses one more corridor
+  // on its way down. UP move, listed for ruling.
+  "battery5-xiranite": 27,
   crystal: 1,
   // CATALYST NODE 2026-09-14 (PR B): 1 -> 2. The plan's one catalyst charge
   // moved to its own card, one layer further from its consumer. UP move,
   // listed for ruling.
   equip4: 2,
   // ROUTING FINDINGS 2026-09-14: 90 -> 88, re-measured on this branch.
-  multi6: 88,
+  //
+  // CATALYST EXAM FIXES 2026-09-15 (T7 with T6): 88 -> 90. The plan's loop
+  // containers are laid out in their own scopes now, which spreads the cards
+  // the supply runs cross, and the forward floor lifts two of those runs off
+  // their neighbours. UP move, listed for ruling.
+  multi6: 90,
   tundra: 0,
   // CATALYST NODE 2026-09-14 (PR B of the catalyst supply pools plan): every
   // catalyst charge now leaves the item's own u:cat:* boundary card instead of
   // its ordinary u:in:* one: the three gas_xiranite runs leave the new card and
   // cross more of the chain they feed. UP move, listed for ruling.
-  script43: 31,
+  //
+  // CATALYST EXAM FIXES 2026-09-15 (T6): 31 -> 32. The gas_xiranite charge run
+  // e:0 is the loser of the new forward floor against the raw supply run it used
+  // to shadow, and crosses one more corridor at its new level. UP move, listed
+  // for ruling.
+  script43: 32,
   // CATALYST NODE 2026-09-14 (PR B of the catalyst supply pools plan): every
   // catalyst charge now leaves the item's own u:cat:* boundary card instead of
   // its ordinary u:in:* one, so each transmuter plan gained a card and a set of
   // supply runs that cross the chain they feed. Both cells: UP moves, listed
   // for ruling.
-  "coupon-web": 5,
+  // CATALYST EXAM FIXES 2026-09-15 (T6 with T2 / T3): 5 -> 7. A small plan, so
+  // every stroke that steps clear of another crosses the few corridors there
+  // are; the taller cards move the rows those runs land on as well. UP move,
+  // listed for ruling.
+  "coupon-web": 7,
   "gas-web": 18,
   "rot-bottled_food_3": 2,
   "rot-bottled_food_4": 3,
@@ -365,7 +405,11 @@ const CROSSING_BASELINE: Record<string, number> = {
   // catalyst charge now leaves the item's own u:cat:* boundary card instead of
   // its ordinary u:in:* one, so each transmuter plan gained a card and a set of
   // supply runs that cross the chain they feed. UP move, listed for ruling.
-  transmuters: 22,
+  //
+  // CATALYST EXAM FIXES 2026-09-15 (T6 with T2 / T3): 22 -> 24. Two of those
+  // supply runs take the forward floor off the lines they shadowed, at rows the
+  // taller cards moved. UP move, listed for ruling.
+  transmuters: 24,
   // ROUTING FINDINGS 2026-09-14 (docs/plans/2026-09-14-render-findings.md): the
   // two reported plans join the corpus. Both route several flows through one
   // corridor (a 14x refinery fan-in on script43-xiranite), so these are first
@@ -376,8 +420,15 @@ const CROSSING_BASELINE: Record<string, number> = {
   // its ordinary u:in:* one, so each transmuter plan gained a card and a set of
   // supply runs that cross the chain they feed. Both cells: UP moves, listed
   // for ruling.
-  "copper-script43": 31,
-  "script43-xiranite": 30,
+  //
+  // CATALYST EXAM FIXES 2026-09-15 (T6, T7): copper-script43 31 -> 38,
+  // script43-xiranite 30 -> 31. The largest move in this table is
+  // copper-script43, whose two long supply corridors ran several flows within a
+  // couple of units of each other: the floor lifts them apart, and each run it
+  // moves crosses the chain at its new level. Seven is the largest move in this
+  // table. Both cells: UP moves, listed for ruling.
+  "copper-script43": 38,
+  "script43-xiranite": 31,
 };
 
 // Padding-graze ratchet (tier 3): segments that clip only a foreign card's
@@ -395,7 +446,13 @@ const PADDED_GRAZE_BASELINE: Record<string, number> = {
   // foreign card's padding overhang on the way. UP move, listed for ruling.
   multi6: 2,
   tundra: 0,
-  script43: 0,
+  // CATALYST EXAM FIXES 2026-09-15 (T6): script43 0 -> 1, script43-xiranite
+  // 0 -> 1. One graze, the same on both plans: the charge run
+  // e:0 u:cat:gas_xiranite -> u:class:q:20, jogged off the raw supply run it
+  // used to shadow by the forward floor, clips u:class:q:23's padding overhang
+  // at the level it lands on. The padding, not the box -- tier 1 stays at zero.
+  // Both cells: UP moves, listed for ruling.
+  script43: 1,
   "coupon-web": 0,
   "gas-web": 0,
   "rot-bottled_food_3": 0,
@@ -404,7 +461,7 @@ const PADDED_GRAZE_BASELINE: Record<string, number> = {
   // longer clips u:class:q:13's padding.
   transmuters: 0,
   "copper-script43": 0,
-  "script43-xiranite": 0,
+  "script43-xiranite": 1,
 };
 
 // Chip-segment ratchet: (segment, chip) pairs where a foreign flow's line passes
@@ -1177,7 +1234,7 @@ test.describe("chip seating census", () => {
     test(scenario.id, async ({ page }) => {
       const unpinned: string[] = [];
       const hash = await scenarioHash(scenario);
-      await loadCensusScenario(page, hash, { locale: "en" });
+      await loadCensusScenario(page, hash, CENSUS_ZOOM, { locale: "en" });
 
       const geom = await page.evaluate(collectGeometry);
 
@@ -1256,6 +1313,310 @@ test.describe("chip seating census", () => {
             `${scenario.id}: ${portCover.length} chip(s) covering their own endpoint's port furniture exceeds baseline ${portCoverPin} among ${chips.length} chips:\n${censusInventory(portCover)}`,
           )
           .toBeLessThanOrEqual(portCoverPin);
+      }
+
+      skipUnpinnedRatchets(unpinned);
+    });
+  }
+});
+
+// -- reading-zoom census ------------------------------------------------------
+//
+// A third describe with a THIRD page load, at READING_ZOOM (0.75) rather than
+// the 0.6 census camera or the app's fit camera. Its own load for the same
+// reason the 0.6 census has one: auditDotsUnderChips consumes geom.zoom and
+// every counter here is a reading at ONE camera, so moving the camera inside
+// another describe would silently re-frame its ratchets.
+//
+// Why a THIRD camera rather than one more counter on the 0.6 census: 0.75 is the
+// zoom the exam capture CLI shoots its tiles at (READING_ZOOM, imported by
+// tools/exam/capture.ts), and the chip LOD gates make WHICH chips are mounted
+// and which are collapsed to icons zoom-specific. So this is the only table set
+// whose numbers describe the same picture an exam image shows, and it is where a
+// chip collision or a buried dot that a reader reported is confirmed or refuted.
+//
+// The counters are the seat-identity ones -- what a chip stands ON, and whether
+// anything is lost under it -- rather than the card-relation ones the 0.6 census
+// carries: a chip off its own run, a member chip off its own leg or stub, a
+// junction dot swallowed, and two chip boxes on each other.
+//
+// NOTE 2026-09-15, docs/plans/2026-09-15-catalyst-exam-fixes.md (I7, T8): every
+// cell of every table below was pinned from ONE harvest on the integrated
+// campaign branch, at the commit where the container-aware layer model (T7)
+// landed. They are first pins, not moves: no earlier reading at this camera
+// exists. From here they ratchet DOWN under the convention stated for the tables
+// above; a rise needs a fresh ruling. The overlap and buried-dot tables are zero
+// on every plan, which is the browser-side confirmation of the node-side pin in
+// test/canvas/chipOverlap.corpus.test.ts.
+
+// Chips off every horizontal run of their own polyline, at reading zoom. The
+// hard tier at fit zoom asserts this at zero; here it is a table only because
+// far more chips are mounted, so a seat the fit camera never drew is measured
+// for the first time. Target state zero.
+const READING_OWN_PATH_BASELINE: Record<string, number> = {
+  default: 0,
+  battery5: 0,
+  "battery5-xiranite": 0,
+  crystal: 0,
+  equip4: 0,
+  multi6: 0,
+  tundra: 0,
+  script43: 0,
+  "coupon-web": 0,
+  "gas-web": 0,
+  "rot-bottled_food_3": 0,
+  "rot-bottled_food_4": 0,
+  transmuters: 0,
+  "copper-script43": 0,
+  "script43-xiranite": 0,
+};
+
+// Fan-out member chips off their own leg (the suffix right of the shared
+// junction column), at reading zoom.
+const READING_FANOUT_LEG_BASELINE: Record<string, number> = {
+  default: 0,
+  battery5: 0,
+  "battery5-xiranite": 0,
+  crystal: 0,
+  equip4: 0,
+  multi6: 0,
+  tundra: 0,
+  script43: 0,
+  "coupon-web": 0,
+  "gas-web": 0,
+  "rot-bottled_food_3": 0,
+  "rot-bottled_food_4": 0,
+  transmuters: 0,
+  "copper-script43": 0,
+  "script43-xiranite": 0,
+};
+
+// Fan-in chips off their own stretch (a member off its source stub, an
+// aggregate off the shared leg into the target), at reading zoom.
+const READING_FANIN_LEG_BASELINE: Record<string, number> = {
+  default: 0,
+  battery5: 0,
+  "battery5-xiranite": 0,
+  crystal: 0,
+  equip4: 0,
+  multi6: 0,
+  tundra: 0,
+  script43: 0,
+  "coupon-web": 0,
+  "gas-web": 0,
+  "rot-bottled_food_3": 0,
+  "rot-bottled_food_4": 0,
+  transmuters: 0,
+  "copper-script43": 0,
+  "script43-xiranite": 0,
+};
+
+// Junction dots whose whole disc sits under a chip box at reading zoom. Chips
+// paint above the dots, so a covered dot is a deleted one and the split or merge
+// it marks reads as an ordinary corner. Zero everywhere.
+const READING_DOT_COVER_BASELINE: Record<string, number> = {
+  default: 0,
+  battery5: 0,
+  "battery5-xiranite": 0,
+  crystal: 0,
+  equip4: 0,
+  multi6: 0,
+  tundra: 0,
+  script43: 0,
+  "coupon-web": 0,
+  "gas-web": 0,
+  "rot-bottled_food_3": 0,
+  "rot-bottled_food_4": 0,
+  transmuters: 0,
+  "copper-script43": 0,
+  "script43-xiranite": 0,
+};
+
+// Pairs of chip boxes standing on each other at reading zoom. PAIRS, like the
+// node-side pin. Zero everywhere: two chips on one seat is the defect the scoped
+// layer model was built to end.
+const READING_CHIP_OVERLAP_BASELINE: Record<string, number> = {
+  default: 0,
+  battery5: 0,
+  "battery5-xiranite": 0,
+  crystal: 0,
+  equip4: 0,
+  multi6: 0,
+  tundra: 0,
+  script43: 0,
+  "coupon-web": 0,
+  "gas-web": 0,
+  "rot-bottled_food_3": 0,
+  "rot-bottled_food_4": 0,
+  transmuters: 0,
+  "copper-script43": 0,
+  "script43-xiranite": 0,
+};
+
+// Corpus-wide totals, one per counter, asserted arithmetically against the
+// tables above (see CENSUS_TOTALS for why: the suite is often run one scenario
+// at a time, and a total summed over a run would then say nothing).
+const READING_TOTALS: {
+  ownPath: number;
+  fanoutLeg: number;
+  faninLeg: number;
+  dotCover: number;
+  chipOverlap: number;
+} = {
+  ownPath: 0,
+  fanoutLeg: 0,
+  faninLeg: 0,
+  dotCover: 0,
+  chipOverlap: 0,
+};
+
+test.describe("reading-zoom census", () => {
+  test("corpus totals match the per-scenario tables", () => {
+    expect(sumOf(READING_OWN_PATH_BASELINE), "ownPath totals").toBe(
+      READING_TOTALS.ownPath,
+    );
+    expect(sumOf(READING_FANOUT_LEG_BASELINE), "fanoutLeg totals").toBe(
+      READING_TOTALS.fanoutLeg,
+    );
+    expect(sumOf(READING_FANIN_LEG_BASELINE), "faninLeg totals").toBe(
+      READING_TOTALS.faninLeg,
+    );
+    expect(sumOf(READING_DOT_COVER_BASELINE), "dotCover totals").toBe(
+      READING_TOTALS.dotCover,
+    );
+    expect(sumOf(READING_CHIP_OVERLAP_BASELINE), "chipOverlap totals").toBe(
+      READING_TOTALS.chipOverlap,
+    );
+  });
+
+  for (const scenario of AUDIT_SCENARIOS) {
+    test(scenario.id, async ({ page }) => {
+      const unpinned: string[] = [];
+      const hash = await scenarioHash(scenario);
+      await loadCensusScenario(page, hash, READING_ZOOM, { locale: "en" });
+
+      const geom = await page.evaluate(collectGeometry);
+
+      // The commanded camera has to be the camera that was measured: every count
+      // below is a reading at ONE zoom, and setViewport assigns the transform
+      // verbatim without promising the store kept it.
+      expect(
+        geom.zoom,
+        `${scenario.id}: reading camera did not land at ${READING_ZOOM}`,
+      ).toBeCloseTo(READING_ZOOM, 5);
+
+      const chips = geom.chips as ChipRect[];
+      const dots = geom.dots as DotRect[];
+      const rawEdges = toRawEdges(geom.edges);
+
+      // Premise: this camera really does mount chips on this plan, so the zeros
+      // below are verdicts rather than an empty scan. Hard, because every
+      // counter under it is vacuous without it.
+      expect(
+        chips.length,
+        `${scenario.id}: no chips mounted at ${READING_ZOOM}; every count below would be a vacuous zero`,
+      ).toBeGreaterThan(0);
+
+      // Soft throughout: one red counter must not hide the other four.
+
+      const offPath = auditChipsOnOwnPath(chips, rawEdges);
+      const ownPathPin = baselineFor(
+        READING_OWN_PATH_BASELINE,
+        "READING_OWN_PATH_BASELINE",
+        scenario.id,
+        unpinned,
+      );
+      if (ownPathPin !== null) {
+        const inventory = offPath.map(
+          (v) =>
+            `  chip ${v.chipId} of ${v.chipEdgeId} ("${v.chipLabel}") is ${v.distance.toFixed(2)} off every horizontal run of its own polyline`,
+        );
+        expect
+          .soft(
+            offPath.length,
+            `${scenario.id}: ${offPath.length} chip(s) off their own polyline exceeds baseline ${ownPathPin} among ${chips.length} chips:\n${inventory.join("\n")}`,
+          )
+          .toBeLessThanOrEqual(ownPathPin);
+      }
+
+      const offLeg = auditFanoutChipsOnOwnLeg(chips, rawEdges, dots);
+      const fanoutPin = baselineFor(
+        READING_FANOUT_LEG_BASELINE,
+        "READING_FANOUT_LEG_BASELINE",
+        scenario.id,
+        unpinned,
+      );
+      if (fanoutPin !== null) {
+        const inventory = offLeg.map(
+          (v) =>
+            `  chip ${v.chipId} of ${v.chipEdgeId} ("${v.chipLabel}") is ${v.distance.toFixed(2)} off its own fan-out leg`,
+        );
+        expect
+          .soft(
+            offLeg.length,
+            `${scenario.id}: ${offLeg.length} fan-out member chip(s) off their own leg exceeds baseline ${fanoutPin}:\n${inventory.join("\n")}`,
+          )
+          .toBeLessThanOrEqual(fanoutPin);
+      }
+
+      const offStub = auditFaninChipsOnOwnLeg(chips, rawEdges, dots);
+      const faninPin = baselineFor(
+        READING_FANIN_LEG_BASELINE,
+        "READING_FANIN_LEG_BASELINE",
+        scenario.id,
+        unpinned,
+      );
+      if (faninPin !== null) {
+        const inventory = offStub.map(
+          (v) =>
+            `  chip ${v.chipId} of ${v.chipEdgeId} ("${v.chipLabel}") is ${v.distance.toFixed(2)} off its own fan-in stretch`,
+        );
+        expect
+          .soft(
+            offStub.length,
+            `${scenario.id}: ${offStub.length} fan-in chip(s) off their own stretch exceeds baseline ${faninPin}:\n${inventory.join("\n")}`,
+          )
+          .toBeLessThanOrEqual(faninPin);
+      }
+
+      const hiddenDots = auditDotsUnderChips(chips, dots, geom.zoom);
+      const dotPin = baselineFor(
+        READING_DOT_COVER_BASELINE,
+        "READING_DOT_COVER_BASELINE",
+        scenario.id,
+        unpinned,
+      );
+      if (dotPin !== null) {
+        const inventory = hiddenDots.map(
+          (v) =>
+            `  ${v.dotId} at (${v.at[0].toFixed(1)},${v.at[1].toFixed(1)}) hidden under the chip of ${v.chipEdgeId} ("${v.chipLabel}")`,
+        );
+        expect
+          .soft(
+            hiddenDots.length,
+            `${scenario.id}: ${hiddenDots.length} junction dot(s) hidden under a chip exceeds baseline ${dotPin} among ${dots.length} dots:\n${inventory.join("\n")}`,
+          )
+          .toBeLessThanOrEqual(dotPin);
+      }
+
+      const collisions = auditChipBoxOverlaps(chips);
+      const overlapPin = baselineFor(
+        READING_CHIP_OVERLAP_BASELINE,
+        "READING_CHIP_OVERLAP_BASELINE",
+        scenario.id,
+        unpinned,
+      );
+      if (overlapPin !== null) {
+        const inventory = collisions.map(
+          (v) =>
+            `  ${v.aId} ("${v.aLabel}") and ${v.bId} ("${v.bLabel}") interpenetrate ${v.dx.toFixed(1)}x${v.dy.toFixed(1)}`,
+        );
+        expect
+          .soft(
+            collisions.length,
+            `${scenario.id}: ${collisions.length} overlapping chip pair(s) exceeds baseline ${overlapPin} among ${chips.length} chips:\n${inventory.join("\n")}`,
+          )
+          .toBeLessThanOrEqual(overlapPin);
       }
 
       skipUnpinnedRatchets(unpinned);

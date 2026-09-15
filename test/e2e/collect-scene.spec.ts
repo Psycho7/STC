@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { loadCensusScenario } from "./viewport";
+import { CENSUS_ZOOM, loadCensusScenario } from "./viewport";
 import { SCENARIOS, scenarioHash } from "./scenarios";
 import { collectScene } from "./collect";
 
@@ -26,7 +26,7 @@ test("collectScene inventories every element kind on a dense plan", async ({
 }) => {
   const scenario = SCENARIOS.find((s) => s.id === "battery5-xiranite")!;
   const hash = await scenarioHash(scenario);
-  await loadCensusScenario(page, hash, { locale: "en" });
+  await loadCensusScenario(page, hash, CENSUS_ZOOM, { locale: "en" });
 
   const scene = await page.evaluate(collectScene);
   const countOf = (kind: string): number =>

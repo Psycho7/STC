@@ -1,5 +1,25 @@
 # Testing conventions
 
+## Geometry audit cameras
+
+`test/e2e/geometry-audit.spec.ts` reads at three fixed cameras, one per
+describe, each with its own page load. A camera decides which chips the LOD
+bands mount and collapse, so a count is only comparable with counts taken at the
+same zoom, and every baseline table belongs to exactly one of them.
+
+| camera  | zoom                   | what it is for                                                                            |
+| ------- | ---------------------- | ----------------------------------------------------------------------------------------- |
+| fit     | the app's own fit view | the hard criteria and the crossing, graze, pierce and frame-ride ratchets                 |
+| census  | `CENSUS_ZOOM` (0.6)    | the chip census against cards: intrusion, foreign strokes, port cover                     |
+| reading | `READING_ZOOM` (0.75)  | seat identity and what is lost under a chip: own path, own leg, buried dots, chip-on-chip |
+
+The chip census is not one table set. A chip that a dense plan's fit view never
+draws is measured for the first time at 0.6, and again at 0.75, which is also
+the zoom `tools/exam/capture.ts` shoots its tiles at -- so the reading camera is
+the one whose numbers describe the same picture an exam image shows, and the one
+where a chip collision a reader reported is confirmed or refuted. Moving a
+camera means re-measuring every table under it.
+
 ## Where a test lives
 
 A module has one test home, and it sits beside the module. The test for

@@ -1,5 +1,12 @@
 # Gas Transport Implementation Plan
 
+> **Superseded in part, 2026-09-15, on `feat/catalyst-exam-fixes`.** The tasks
+> that gave gas its own dash pattern and its own dim and hover rules have been
+> reversed: every material edge is solid now and only catalyst supply is dashed,
+> with transport kind left to the port glyph. The data-layer tasks, the
+> `gas_pipe` carrier and the glyph work stand. See `docs/render-conventions.md`,
+> Edges.
+
 > **For agentic workers:** Use superpowers:subagent-driven-development or
 > superpowers:executing-plans to implement this plan task-by-task. Steps use
 > checkbox (`- [ ]`) syntax for tracking.

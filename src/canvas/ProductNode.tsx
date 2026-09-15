@@ -49,69 +49,53 @@ export type ProductNodeData =
 
 export type ProductNodeType = Node<ProductNodeData, "product">;
 
-// Build the pn-kind caption words shown on a ProductNode.
+// Word separator of the spoken label below. A comma gives a screen reader a
+// pause between the direction and the classification without spelling out a
+// piece of punctuation the way the deleted caption's middle dot did.
+const LABEL_SEP = ", ";
+
+// Spoken identity of a boundary card: direction plus classification, localized
+// through the i18n table.
 //
-// Every card reads "<Direction> <Classification>"; the parts are joined by a
-// middle-dot separator and localized through the i18n table. An output's rate
-// used to ride this string and now comes from buildPnKindRate below, because
-// .pn-kind runs the words through text-transform: uppercase and the rate's
-// localized unit ("/min", the Russian per-minute string) must keep its own
-// casing (unit-casing-mix family).
+// The card draws none of these words any more. Direction reads from the side
+// the accent tab sits on and from the column the card stands in, and the
+// classification from the tab's own treatment (solid for a plain input, dashed
+// for a tap, ticked for the catalyst pool). None of that reaches a screen
+// reader, so the same words ride the card root's aria-label.
 //
-// Direction is "In" for an inputProduct and "Out" for an outputProduct.
-// For an inputProduct, a card of the item's catalyst pool states the pool
-// rather than the item's provenance ("In · catalyst"): the charge is cycled,
-// not consumed, and the same item can carry an ordinary card beside it. Any
-// other card reads "tap" when it is a fanout slice of an aggregate, otherwise
-// "raw" when item.raw is true and "import" when it is not. A fanout slice OF a
-// catalyst card keeps both words ("In · catalyst · tap"), since a slice of the
-// pool is still catalyst supply. For an outputProduct, the classification is
-// data.flavor ("target" or "surplus").
-//
-// The NBSP after each middle dot keeps a wrapped caption from stranding the
-// dot at line end; a break lands before the dot instead.
-export function buildPnKind(
+// Direction is "In" for an inputProduct and "Out" for an outputProduct. For an
+// inputProduct, a card of the item's catalyst pool states the pool rather than
+// the item's provenance: the same item can carry an ordinary card beside it.
+// Any other card reads "tap" when it is a fanout slice of an aggregate,
+// otherwise "raw" when item.raw is true and "import" when it is not. A fanout
+// slice OF a catalyst card keeps both words, since a slice of the pool is
+// still catalyst supply. For an outputProduct, the classification is
+// data.flavor ("target" or "surplus"). An item missing from the pack
+// contributes no provenance word rather than a guessed one.
+function buildPnAriaLabel(
   data: ProductNodeData,
-  item: Item,
+  item: Item | undefined,
   i18n: I18nIndex,
 ): string {
-  if (data.kind === "inputProduct") {
-    const words = [i18n.t("product.dir.in")];
-    if (data.role === "catalyst") {
-      words.push(i18n.t("product.class.catalyst"));
-    }
-    if (data.isFanout) {
-      words.push(i18n.t("product.class.tap"));
-    } else if (data.role !== "catalyst") {
-      words.push(
-        i18n.t(item.raw ? "product.class.raw" : "product.class.import"),
-      );
-    }
-    return words.join(` ·\u00A0`);
+  if (data.kind === "outputProduct") {
+    const flavor = i18n.t(
+      data.flavor === "surplus"
+        ? "product.flavor.surplus"
+        : "product.flavor.target",
+    );
+    return `${i18n.t("product.dir.out")}${LABEL_SEP}${flavor}`;
   }
-  const flavor = i18n.t(
-    data.flavor === "surplus"
-      ? "product.flavor.surplus"
-      : "product.flavor.target",
-  );
-  return `${i18n.t("product.dir.out")} ·\u00A0${flavor}`;
-}
 
-// Build the trailing rate segment of an output's pn-kind caption: the
-// formatted rate followed by the locale's canvas.rate.unit string
-// (formatRationalPerMin(rate) + "/min" under en). Inputs carry no rate in the
-// caption, mirroring buildPnKind's input branch, so the helper returns null
-// and the caller renders no span.
-//
-// The caller joins this to the caption words with the same "space, middle
-// dot, NBSP" glue and renders it inside a span the caption's uppercase
-// transform does not reach, so the composed caption's text is unchanged.
-export function buildPnKindRate(
-  data: ProductNodeData,
-  i18n: I18nIndex,
-): string | null {
-  if (data.kind === "inputProduct") return null;
-  return `${formatRationalPerMin(data.rate)}${i18n.t("canvas.rate.unit")}`;
+  const words = [i18n.t("product.dir.in")];
+  if (data.role === "catalyst") {
+    words.push(i18n.t("product.class.catalyst"));
+  }
+  if (data.isFanout) {
+    words.push(i18n.t("product.class.tap"));
+  } else if (data.role !== "catalyst" && item !== undefined) {
+    words.push(i18n.t(item.raw ? "product.class.raw" : "product.class.import"));
+  }
+  return words.join(LABEL_SEP);
 }
 
 // Name tooltip of a product card: the display name, plus the catalyst pool
@@ -174,15 +158,8 @@ export default function ProductNode({
   // pack entries that declare none.
   const iconId = item?.icon ?? data.itemId;
 
-  // The pn-kind caption comes from the helper above. If the item is missing
-  // from the pack (corrupt data), fall back to nothing.
-  const pnKindText = item ? buildPnKind(data, item, i18n) : null;
-  // Trailing rate segment of the caption, outputs only. Rendered in a child
-  // span joined by the same dot+NBSP glue so the caption's total text is
-  // unchanged; the span drops the caption's uppercase transform so the
-  // localized unit keeps its casing beside the uppercased label words
-  // (unit-casing-mix family).
-  const pnKindRate = item ? buildPnKindRate(data, i18n) : null;
+  // Direction and classification, spoken rather than drawn.
+  const ariaLabel = buildPnAriaLabel(data, item, i18n);
 
   // Primary rate. For inputs this is realized demand; for outputs the target or
   // surplus rate.
@@ -203,6 +180,7 @@ export default function ProductNode({
   return (
     <div
       data-testid="product-node"
+      aria-label={ariaLabel}
       data-flavor={flavorMarker(data)}
       data-item-id={data.itemId}
       {...(isInput && data.role !== undefined
@@ -259,18 +237,8 @@ export default function ProductNode({
         ) : (
           <div />
         )}
-        <div>
-          <div className="pn-name" title={nameTitle}>
-            {displayName}
-          </div>
-          {pnKindText !== null ? (
-            <div className="pn-kind">
-              {pnKindText}
-              {pnKindRate !== null ? (
-                <span className="pn-kind__rate">{` ·\u00A0${pnKindRate}`}</span>
-              ) : null}
-            </div>
-          ) : null}
+        <div className="pn-name" title={nameTitle}>
+          {displayName}
         </div>
       </div>
       <div className="pn-rate">

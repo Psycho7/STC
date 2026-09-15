@@ -15,8 +15,8 @@ import {
 } from "./node.testkit";
 import { LocaleProvider } from "../data/i18n-context";
 import { cssBlock, cssPx, cssValue } from "./cssContract.testkit";
-import { envBannerLayers } from "./envBanner";
-import { RECIPE_HEADER_HEIGHT } from "./dimensions";
+import { ENV_CAP_WIDTH, ENV_ROW_HEIGHT, envBannerLayers } from "./envBanner";
+import { RECIPE_HEADER_HEIGHT, RECIPE_WIDTH } from "./dimensions";
 
 afterEach(cleanup);
 
@@ -375,44 +375,46 @@ test("an environment recipe's root carries data-environment and a localised titl
   expect(container.querySelector(".rn-env")).toBeNull();
 });
 
-// The frame itself: one aria-hidden child the stylesheet paints the plates
-// and the haze from. canvas.css is never loaded under jsdom, so the token
-// lookup feeding the SVG data URIs returns "" (probed: getComputedStyle on
-// the bare documentElement yields the empty string for --ak-env-*); the five
-// layer properties are therefore pinned against the URIs envBanner emits for
-// that same plate colour, never against an embedded hue.
+// The plate itself: one aria-hidden child the stylesheet paints the caps, the
+// glyph and the haze from. canvas.css is never loaded under jsdom, so the
+// token lookup feeding the SVG data URIs returns "" (probed: getComputedStyle
+// on the bare documentElement yields the empty string for --ak-env-*); the
+// three layer properties are therefore pinned against the URIs envBanner emits
+// for that same plate colour, never against an embedded hue.
 test("an environment card renders one aria-hidden .rn-env carrying the banner layer properties; a plain card renders none", () => {
   for (const environment of ["stable", "acidic"] as const) {
     const root = renderedRoot(environment);
-    const frames = root.querySelectorAll(".rn-env");
-    expect(frames.length).toBe(1);
-    const frame = frames[0] as HTMLElement;
-    expect(frame.getAttribute("aria-hidden")).toBe("true");
+    const plates = root.querySelectorAll(".rn-env");
+    expect(plates.length).toBe(1);
+    const el = plates[0] as HTMLElement;
+    expect(el.getAttribute("aria-hidden")).toBe("true");
 
     const plate = getComputedStyle(document.documentElement)
       .getPropertyValue(`--ak-env-${environment}`)
       .trim();
     const layers = envBannerLayers(environment, plate);
-    expect(frame.style.getPropertyValue("--rn-env-glyph")).toBe(
-      layers.top.glyph.uri,
+    expect(el.style.getPropertyValue("--rn-env-glyph")).toBe(layers.glyph.uri);
+    expect(el.style.getPropertyValue("--rn-env-cap-left")).toBe(
+      layers.leftCap.uri,
     );
-    expect(frame.style.getPropertyValue("--rn-env-top-left")).toBe(
-      layers.top.leftCap.uri,
+    expect(el.style.getPropertyValue("--rn-env-cap-right")).toBe(
+      layers.rightCap.uri,
     );
-    expect(frame.style.getPropertyValue("--rn-env-top-right")).toBe(
-      layers.top.rightCap.uri,
-    );
-    expect(frame.style.getPropertyValue("--rn-env-bottom-left")).toBe(
-      layers.bottom.leftCap.uri,
-    );
-    expect(frame.style.getPropertyValue("--rn-env-bottom-right")).toBe(
-      layers.bottom.rightCap.uri,
-    );
-    // The plate colour is the sixth property; the CSSOM drops an empty
-    // value, so under jsdom exactly the five layer URIs are declared inline
-    // and the browser run carries all six.
-    expect(frame.style.length).toBe(5);
+    // The plate colour is the fourth property; the CSSOM drops an empty
+    // value, so under jsdom exactly the three layer URIs are declared inline
+    // and the browser run carries all four.
+    expect(el.style.length).toBe(3);
   }
+});
+
+// The plate is the card's FIRST row: it stands above the header in the DOM,
+// which is what puts it inside the card box instead of over the neighbour
+// above.
+test("the plate is the first child of an environment card, ahead of the header", () => {
+  const root = renderedRoot("stable");
+  const first = root.firstElementChild;
+  expect(first?.className).toBe("rn-env");
+  expect(first?.nextElementSibling?.className).toBe("rn-head");
 });
 
 // --- Environment frame contract (canvas.css) -------------------------------
@@ -437,17 +439,20 @@ function rulesWithSelectorContaining(marker: string): string[] {
     .map((m) => m[0]!.trim());
 }
 
-describe("environment frame CSS contract", () => {
-  test("pins .rn-env to the frame rectangle, out of layout and interaction", () => {
-    expect(cssValue(".rn-env", "position")).toBe("absolute");
+describe("environment plate CSS contract", () => {
+  test("keeps .rn-env in flow as a card row: one row tall, content width, no inset", () => {
+    // One banner row tall, the height recipeHeight charges the card for.
+    expect(cssPx(".rn-env", "height", 0)).toBe(ENV_ROW_HEIGHT);
     expect(cssValue(".rn-env", "pointer-events")).toBe("none");
-    // 8px gap every side: top 8 + 28 (two-row plate), bottom 8 + 14
-    // (single-row plate), so the frame reaches 36 above and 22 below.
-    expect(cssPx(".rn-env", "inset", 0)).toBe(-36);
-    expect(cssPx(".rn-env", "inset", 1)).toBe(-8);
-    expect(cssPx(".rn-env", "inset", 2)).toBe(-22);
-    // The sides stay open: no border on the frame element.
-    expect(cssBlock(".rn-env")).not.toMatch(/border/);
+    // In flow and unshifted: a block child of the card takes the card's
+    // content width (.recipe-node is a 240px content box), so any width,
+    // margin, inset or positioning here would break that identity.
+    const block = cssBlock(".rn-env");
+    expect(block).not.toMatch(
+      /[;{]\s*(position|inset|top|left|right|bottom)\s*:/,
+    );
+    expect(block).not.toMatch(/[;{]\s*(width|margin|padding|border)\s*:/);
+    expect(cssPx(".recipe-node", "width", 0)).toBe(RECIPE_WIDTH);
   });
 
   test("paints the haze as ::before behind the card", () => {
@@ -461,45 +466,38 @@ describe("environment frame CSS contract", () => {
     );
   });
 
-  test("paints the plates as seven ordered ::after background layers", () => {
+  test("paints the plate as four ordered background layers on the row itself", () => {
     const SOLID = "linear-gradient(var(--rn-env-plate), var(--rn-env-plate))";
-    // Layer order is paint order: the glyph rides on top, each plate reads
-    // left cap, stretched solid, right cap, bottom plate last.
-    expect(cssValue(".rn-env::after", "background-image")).toBe(
+    // Layer order is paint order: the glyph rides on top of the left cap, the
+    // stretched solid and the right cap. There is no second plate.
+    expect(cssValue(".rn-env", "background-image")).toBe(
       [
         "var(--rn-env-glyph)",
-        "var(--rn-env-top-left)",
+        "var(--rn-env-cap-left)",
         SOLID,
-        "var(--rn-env-top-right)",
-        "var(--rn-env-bottom-left)",
-        SOLID,
-        "var(--rn-env-bottom-right)",
+        "var(--rn-env-cap-right)",
       ].join(", "),
     );
-    // Cap width 72 * plateHeight / (18 * rows) -- 56px at both plate
-    // heights; the glyph is 29/36 of the top plate's height. Each solid is
-    // 2px wider than the span between the cap boxes (2 * 56 - 2 = 110) so
-    // it peeks 1px into the caps' transparent chevron gaps instead of
-    // underfilling the seam.
-    expect(cssValue(".rn-env::after", "background-size")).toBe(
+    // A one-row cap SVG is ENV_CAP_WIDTH x ENV_ROW_HEIGHT natural and draws
+    // at that size; the solid is 2px wider than the span between the two cap
+    // boxes (2 * 72 - 2 = 142) so it peeks 1px into each cap's transparent
+    // chevron gap instead of underfilling the seam. The glyph is 29/36 of the
+    // row's height.
+    expect(cssValue(".rn-env", "background-size")).toBe(
       [
-        "auto calc(28px * 29 / 36)",
-        "calc(72px * 28 / 36) 28px",
-        "calc(100% - 110px) 28px",
-        "calc(72px * 28 / 36) 28px",
-        "calc(72px * 14 / 18) 14px",
-        "calc(100% - 110px) 14px",
-        "calc(72px * 14 / 18) 14px",
+        "auto calc(18px * 29 / 36)",
+        "72px 18px",
+        "calc(100% - 142px) 18px",
+        "72px 18px",
       ].join(", "),
     );
-    // Glyph 3.5/36 from the top of the plate, centred; the plates anchor to
-    // the frame rect's top and bottom edges.
-    expect(cssValue(".rn-env::after", "background-position")).toBe(
-      "center calc(28px * 3.5 / 36), left top, center top, right top, left bottom, center bottom, right bottom",
+    expect(2 * ENV_CAP_WIDTH - 2).toBe(142);
+    // Glyph 3.5/36 from the top of the row, centred; the caps anchor to the
+    // row's two ends.
+    expect(cssValue(".rn-env", "background-position")).toBe(
+      "center calc(18px * 3.5 / 36), left top, center top, right top",
     );
-    expect(cssValue(".rn-env::after", "background-repeat")).toBe("no-repeat");
-    // No side lines: the pseudo carries no border either.
-    expect(cssBlock(".rn-env::after")).not.toMatch(/border/);
+    expect(cssValue(".rn-env", "background-repeat")).toBe("no-repeat");
   });
 
   test("keeps the card's own box and header contract off the environment attribute", () => {
@@ -532,7 +530,7 @@ describe("environment frame CSS contract", () => {
     );
   });
 
-  test("zoom bands never gate the frame and their recipe border rules are unchanged", () => {
+  test("zoom bands never gate the plate and their recipe border rules are unchanged", () => {
     const zoomRules = [
       ...rulesWithSelectorContaining("zoom-low"),
       ...rulesWithSelectorContaining("zoom-mid"),
@@ -541,7 +539,7 @@ describe("environment frame CSS contract", () => {
     for (const rule of zoomRules) {
       expect(rule).not.toMatch(/rn-env|data-environment/);
     }
-    // The frame draws at every zoom band: no rule anywhere hides it.
+    // The plate draws at every zoom band: no rule anywhere hides it.
     for (const rule of rulesWithSelectorContaining(".rn-env")) {
       expect(rule).not.toMatch(/display:\s*none/);
     }

@@ -3,9 +3,10 @@ import { cleanup, render, waitFor } from "@testing-library/react";
 import { ReactFlow, type Edge, type Node } from "@xyflow/react";
 import Fraction from "fraction.js";
 import ItemEdge, {
-  strokeForKind,
+  strokeColorForKind,
   type ItemEdgeData,
 } from "../../src/canvas/ItemEdge";
+import { itemColor } from "../../src/canvas/itemColor";
 
 afterEach(() => {
   cleanup();
@@ -50,46 +51,24 @@ async function findEdgePath(): Promise<SVGPathElement> {
 }
 
 describe("canvas/ItemEdge transport-kind styling", () => {
-  it("renders a solid stroke (no dasharray) for transportKind belt", async () => {
-    renderEdge({
-      item: "copper_nugget",
-      rate: new Fraction(1),
-      transportKind: "belt",
-    });
-    const path = await findEdgePath();
-    // ItemEdge passes the stroke via inline style; jsdom exposes it as the
-    // strokeDasharray DOM property. Belt = solid: dasharray must be empty.
-    expect(path.style.strokeDasharray).toBe("");
-    expect(path.getAttribute("data-transport-kind")).toBe("belt");
-  });
-
-  it("renders a dashed stroke (4 2) for transportKind pipe", async () => {
-    renderEdge({
-      item: "water",
-      rate: new Fraction(1),
-      transportKind: "pipe",
-    });
-    const path = await findEdgePath();
-    // Normalise the comma form some browsers emit (e.g. "4, 2"), then compare
-    // to the chosen pattern.
-    const dash = path.style.strokeDasharray.replace(/,\s*/g, " ");
-    expect(dash).toBe("4 2");
-    expect(path.getAttribute("data-transport-kind")).toBe("pipe");
-  });
-
-  it("renders a dash-dot stroke (6 2 1 2) for transportKind gas", async () => {
-    renderEdge({
-      item: "gas_water",
-      rate: new Fraction(1),
-      transportKind: "gas",
-    });
-    const path = await findEdgePath();
-    const dash = path.style.strokeDasharray.replace(/,\s*/g, " ");
-    expect(dash).toBe("6 2 1 2");
-    // The attribute is what the gas dim and hover rules in canvas.css select
-    // on, so it is part of the contract, not an implementation detail.
-    expect(path.getAttribute("data-transport-kind")).toBe("gas");
-  });
+  // Every carrier draws the same line: solid. The kind survives on the line
+  // only as the data attribute selectors and the exam probes read; what tells a
+  // belt from a pipe visually is the port glyph.
+  it.each(["belt", "pipe", "gas"] as const)(
+    "renders a solid stroke and stamps the kind for transportKind %s",
+    async (transportKind) => {
+      renderEdge({
+        item: "copper_nugget",
+        rate: new Fraction(1),
+        transportKind,
+      });
+      const path = await findEdgePath();
+      // ItemEdge passes the stroke via inline style; jsdom exposes it as the
+      // strokeDasharray DOM property. Solid = the dasharray must be empty.
+      expect(path.style.strokeDasharray).toBe("");
+      expect(path.getAttribute("data-transport-kind")).toBe(transportKind);
+    },
+  );
 
   it("colors a gas edge by item, like belt and pipe edges", async () => {
     renderEdge({
@@ -99,21 +78,8 @@ describe("canvas/ItemEdge transport-kind styling", () => {
     });
     const path = await findEdgePath();
     // itemColor drives the stroke for every kind; only the no-item fallback
-    // differs per kind, and that is pinned in the strokeForKind block below.
+    // differs per kind, and that is pinned in the block below.
     expect(path.style.stroke).not.toBe("");
-  });
-
-  it("keeps the gas attribute on a dimmed edge, which is what the gas dim rule selects on", async () => {
-    // jsdom does not apply the stylesheet, so this pins the hook the CSS needs
-    // rather than the fade itself; the rendered result is checked in a browser.
-    renderEdge({
-      item: "gas_water",
-      rate: new Fraction(1),
-      transportKind: "gas",
-      dimmed: true,
-    });
-    const path = await findEdgePath();
-    expect(path.getAttribute("data-transport-kind")).toBe("gas");
   });
 
   it("falls back to belt styling for an unknown transportKind without throwing", async () => {
@@ -139,20 +105,49 @@ describe("canvas/ItemEdge transport-kind styling", () => {
   });
 });
 
+// The catalyst pool's stroke identity: the same colour as any other edge of
+// that item, and the only dashed line on the canvas. The dash marks the role,
+// so it is the same pattern whatever carrier the charge rides.
+describe("canvas/ItemEdge catalyst stroke", () => {
+  const dashOf = (path: SVGPathElement): string =>
+    path.style.strokeDasharray.replace(/,\s*/g, " ");
+
+  it.each(["belt", "gas"] as const)(
+    "stamps data-pool and dashes a catalyst edge on %s",
+    async (transportKind) => {
+      renderEdge({
+        item: "gas_xiranite",
+        rate: new Fraction(1),
+        transportKind,
+        fromPool: "catalyst",
+      });
+      const base = await findEdgePath();
+      expect(base.getAttribute("data-pool")).toBe("catalyst");
+      expect(dashOf(base)).toBe("5 3");
+    },
+  );
+
+  it("leaves a raw edge of the same item solid and unstamped", async () => {
+    renderEdge({
+      item: "gas_xiranite",
+      rate: new Fraction(1),
+      transportKind: "gas",
+    });
+    const base = await findEdgePath();
+    expect(base.hasAttribute("data-pool")).toBe(false);
+    expect(dashOf(base)).toBe("");
+  });
+});
+
 // The fallback colors only show on edges with no item id (older fixtures and
 // tests), so they are easier to pin directly than through a render.
-describe("canvas/ItemEdge strokeForKind fallbacks", () => {
+describe("canvas/ItemEdge strokeColorForKind fallbacks", () => {
   it("gives gas its own fallback stroke, distinct from pipe", () => {
-    const gas = strokeForKind("gas");
-    const pipe = strokeForKind("pipe");
-    expect(gas.stroke).toBe("#22d3ee");
-    expect(gas.stroke).not.toBe(pipe.stroke);
-    expect(gas.strokeDasharray).toBe("6 2 1 2");
+    expect(strokeColorForKind("gas")).toBe("#22d3ee");
+    expect(strokeColorForKind("gas")).not.toBe(strokeColorForKind("pipe"));
   });
 
   it("prefers the item color over the gas fallback when an item is given", () => {
-    const withItem = strokeForKind("gas", "gas_water");
-    expect(withItem.stroke).not.toBe("#22d3ee");
-    expect(withItem.strokeDasharray).toBe("6 2 1 2");
+    expect(strokeColorForKind("gas", "gas_water")).toBe(itemColor("gas_water"));
   });
 });
