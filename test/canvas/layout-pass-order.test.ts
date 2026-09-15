@@ -52,6 +52,17 @@ describe("canvas/ROUTING_PASSES", () => {
     );
   });
 
+  // The forward level floor lives inside jogForwardLegs rather than in a pass
+  // of its own: it moves a forward run with the same legY stamp, and it has to
+  // see the final bend and entry columns the three passes above settle. Pinning
+  // it here keeps the "which pass owns what" note beside the order it depends
+  // on, the way every other `because` line is.
+  it("gives the forward level floor to jogForwardLegs", () => {
+    const jog = ROUTING_PASSES.find((p) => p.name === "jogForwardLegs")!;
+    expect(jog.because).toContain("level floor");
+    expect(ROUTING_PASSES.map((p) => p.name)).not.toContain("spaceForwardLegs");
+  });
+
   it("is a no-op chain on an empty edge list", () => {
     let edges: ReturnType<(typeof ROUTING_PASSES)[number]["run"]> = [];
     for (const pass of ROUTING_PASSES) edges = pass.run([], edges);

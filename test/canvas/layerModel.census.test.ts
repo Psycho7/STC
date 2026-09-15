@@ -22,6 +22,7 @@ import {
   isNToM,
   buildLayerModel,
   classifyTrunks,
+  gapKeyOf,
   gapSpansOf,
   gapRequirements,
   sameItemComponentsOf,
@@ -49,7 +50,7 @@ import { SCENARIOS } from "../e2e/scenarios";
 const SPAN_TOLERANCE = 1e-6;
 
 const OUT =
-  "/tmp/claude-1000/-home-rins-workspace-STC-workspace-STC/4420d6c0-9b09-48da-8173-d55d95e33754/scratchpad/t2-width-census.json";
+  "/tmp/claude-1000/-home-rins-workspace-STC-workspace-STC/a0f99249-1eb8-4705-b511-edeea31a8f21/scratchpad/layer-width-census.json";
 
 // Laid-out width of a plan: the leaf nodes' bounding span in x. Containers are
 // skipped because they only wrap their children.
@@ -93,33 +94,38 @@ describe("layer-gap widening: width census over the exam corpus", () => {
       const widthBefore = plannedWidth(before.nodes);
       const widthAfter = plannedWidth(after.nodes);
 
-      // Per-gap delta: the widened span against ELK's own span at the same gap
-      // index. The before layout carries no gap records (the pre-pass is off), so
-      // its spans come straight off its layer model.
+      // Per-gap delta: the widened span against ELK's own span at the same gap,
+      // keyed by scope and index (a root gap and a container interior gap can
+      // cover one x band). The before layout carries no gap records (the pre-pass
+      // is off), so its spans come straight off its layer model.
       const beforeGaps = gapSpans(before.nodes);
-      const afterGaps = after.gaps.map((g) => g.right - g.left);
       let gapsWidened = 0;
       let largestDelta = 0;
-      afterGaps.forEach((width, index) => {
-        const baseline = beforeGaps[index];
-        if (baseline === undefined) return;
-        const delta = width - baseline;
-        if (delta <= 0) return;
+      for (const gap of after.gaps) {
+        const baseline = beforeGaps.get(gapKeyOf(gap));
+        if (baseline === undefined) continue;
+        const delta = gap.right - gap.left - baseline;
+        if (delta <= 0) continue;
         gapsWidened += 1;
         largestDelta = Math.max(largestDelta, delta);
-      });
+      }
 
       // The pre-pass's own contract, on real layouts: no gap comes out narrower
       // than what it owes. The requirements are re-measured on the WIDENED nodes
       // (a uniform per-layer shift leaves layer membership, and so every
       // requirement, unchanged), and compared against the spans it reported.
-      const required = gapRequirements(after.nodes, after.edges);
-      expect(required).toHaveLength(after.gaps.length);
+      const required = new Map(
+        gapRequirements(after.nodes, after.edges).map((gap) => [
+          gapKeyOf(gap),
+          gap.required,
+        ]),
+      );
+      expect(required.size).toBe(after.gaps.length);
       const short = after.gaps
-        .map((gap, index) => ({
-          index,
+        .map((gap) => ({
+          gap: gapKeyOf(gap),
           span: gap.right - gap.left,
-          required: required[index]!.required,
+          required: required.get(gapKeyOf(gap))!,
         }))
         .filter((row) => row.span + SPAN_TOLERANCE < row.required);
       expect({ plan: scenario.id, short }).toEqual({
@@ -157,8 +163,13 @@ describe("layer-gap widening: width census over the exam corpus", () => {
   }, 600_000);
 });
 
-// The inter-layer gap widths of a laid-out plan, by gap index. Needed for the
+// The inter-layer gap widths of a laid-out plan, by gap key. Needed for the
 // before layout, which runs with the pre-pass off and so reports no gap records.
-function gapSpans(nodes: ReadonlyArray<RFAnyNode>): number[] {
-  return gapSpansOf(buildLayerModel(nodes)).map((gap) => gap.right - gap.left);
+function gapSpans(nodes: ReadonlyArray<RFAnyNode>): Map<string, number> {
+  return new Map(
+    gapSpansOf(buildLayerModel(nodes)).map((gap) => [
+      gapKeyOf(gap),
+      gap.right - gap.left,
+    ]),
+  );
 }

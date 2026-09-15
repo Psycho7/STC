@@ -38,7 +38,9 @@ import { drawnPortsOf, nodeIndexOf } from "../../src/canvas/nodeGeometry";
 import {
   RESERVE_COLUMN_PAD,
   buildLayerModel,
+  layerSpanOf,
   type GapRecord,
+  type LayerModel,
 } from "../../src/canvas/layerModel";
 import {
   CHIP_HALF_H,
@@ -151,10 +153,19 @@ function onHorizontalSegment(
 // No growth allowed.
 const RESIDUE: Array<{ plan: string; edge: string; kind: string }> = [];
 
+// The gap a chip of THIS edge is reserved in. Scoped: a root gap and a container
+// interior gap can cover one x band, and the edge's own frame is the scope its
+// two endpoints share.
 const gapAt = (
   gaps: ReadonlyArray<GapRecord>,
+  model: LayerModel,
+  edge: Edge,
   x: number,
-): GapRecord | undefined => gaps.find((g) => x > g.left && x < g.right);
+): GapRecord | undefined => {
+  const span = layerSpanOf(model, edge.source, edge.target);
+  if (span === undefined) return undefined;
+  return gaps.find((g) => g.scope === span.scope && x > g.left && x < g.right);
+};
 
 describe("every chip anchor stands on a horizontal run of its own line", () => {
   it("holds on every corpus plan", async () => {
@@ -192,6 +203,7 @@ describe("every trunk chip's box stands in its gap's chip reserve", () => {
     for (const scenario of SCENARIOS) {
       const { nodes, edges, gaps } = await layOut(scenario.id);
       const byId = nodeIndexOf(nodes);
+      const model = buildLayerModel(nodes);
       for (const edge of edges) {
         if (edge.type !== "bus") continue;
         const ends = drawnPortsOf(edge, byId);
@@ -215,7 +227,12 @@ describe("every trunk chip's box stands in its gap's chip reserve", () => {
           // column stands in.
           const sourceSide =
             chip.kind === "fanout aggregate" || chip.kind === "fanin member";
-          const gap = gapAt(gaps, sourceSide ? ends.sourceX : ends.targetX);
+          const gap = gapAt(
+            gaps,
+            model,
+            edge,
+            sourceSide ? ends.sourceX : ends.targetX,
+          );
           if (gap === undefined) continue;
           const zone = sourceSide ? gap.sourceZone : gap.targetZone;
           checked += 1;
@@ -433,14 +450,14 @@ describe("no 1-to-1 chip box stands over a card", () => {
       const byId = nodeIndexOf(nodes);
       const cards = cardRectsOf(nodes);
       const furniture = portFurnitureOf(nodes);
-      const { layerByNodeId } = buildLayerModel(nodes);
+      const model = buildLayerModel(nodes);
       for (const edge of edges) {
         if (edge.type !== "item" && edge.type !== "bus") continue;
         const ends = drawnPortsOf(edge, byId);
         if (ends === null) continue;
         const drawn = drawnEdge(ends, edge.type, edge.data);
-        const crossesLayer =
-          layerByNodeId.get(edge.source) !== layerByNodeId.get(edge.target);
+        const span = layerSpanOf(model, edge.source, edge.target);
+        const crossesLayer = span !== undefined && span.from !== span.to;
         const obstacles = crossesLayer ? [...cards, ...furniture] : cards;
         for (const chip of chipsOf(scenario.id, edge, drawn)) {
           checked += 1;

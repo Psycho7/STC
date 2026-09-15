@@ -942,9 +942,10 @@ export type RoutingPass = (
 export type RoutingCtx = { readonly gaps: ReadonlyArray<GapRecord> };
 
 // The one pre-pass: it runs BEFORE every routing pass and is the only step that
-// moves a node after ELK. It widens each inter-layer gap to the chip reserves the
-// gap owes, so every pass below routes through corridors that already have room
-// for the chips they will carry. Pinned ahead of ROUTING_PASSES by
+// moves a node after ELK. It widens each inter-layer gap -- of the root and of
+// every container interior -- to the chip reserves that gap owes, so every pass
+// below routes through corridors that already have room for the chips they will
+// carry. Pinned ahead of ROUTING_PASSES by
 // test/canvas/layout-pass-order.test.ts.
 export const LAYOUT_PREPASS: {
   readonly name: string;
@@ -1007,7 +1008,8 @@ export const ROUTING_PASSES: ReadonlyArray<{
       "corridor it fans across. Writes bendX for everything else.",
   },
   // Bend a blocked forward final leg to a clear y so it does not cross an
-  // intervening card (reads bendX).
+  // intervening card, and hold the horizontal level floor between two forward
+  // runs that share an x-corridor (reads bendX).
   {
     name: "jogForwardLegs",
     run: jogForwardLegs,
@@ -1015,7 +1017,10 @@ export const ROUTING_PASSES: ReadonlyArray<{
       "Reads each edge's FINAL bendX from assignBendColumns, because the leg " +
       "it jogs starts at that column, and the entry columns assignEntryColumns " +
       "already staked at the target, because a jog descent takes the next free " +
-      "slot left of them.",
+      "slot left of them. The level floor it also holds needs every forward " +
+      "edge's drawn geometry, so it is the last pass that moves a forward run: " +
+      "the bands it measures against are seeded from the three passes above " +
+      "and refreshed as it goes.",
   },
   // Move the backward detour rails clear of the cards they span.
   {

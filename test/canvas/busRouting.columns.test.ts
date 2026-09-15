@@ -1125,6 +1125,108 @@ describe("jogForwardLegs", () => {
       expect(srcColX).toBeGreaterThan(gap.sourceZone.right - 1e-6);
     });
   });
+
+  // The horizontal level floor: two forward runs of different edges sharing an
+  // x-corridor keep ENTRY_SLOT_PITCH apart in y, the y-axis twin of the column
+  // pitch floor the rail cases above pin. The fixture is the shape the exam
+  // found on gas-web: one edge's long final leg runs at the level another
+  // edge's source stub already holds, for hundreds of units.
+  describe("the forward level floor", () => {
+    // e0's final leg runs at ty 139 from the bend column out to t. e1 leaves
+    // its own source at that same row and holds it to ITS bend column at 400,
+    // so the two share 200 units of corridor. No card stands in either leg:
+    // the first test below proves it by running e0 alone.
+    const fixture = (
+      secondSourceTop: number,
+    ): { nodes: RFAnyNode[]; edges: Edge[] } => ({
+      nodes: [
+        inputProductNode("s1", "ore", 0, 0, 148, 78), // right 148, port y 39
+        inputProductNode("s2", "ore", 0, secondSourceTop, 148, 78),
+        inputProductNode("t1", "ore", 760, 100, 148, 78), // left 760, port y 139
+        inputProductNode("t2", "ore", 1000, 300, 148, 78), // left 1000, port y 339
+      ],
+      edges: [
+        {
+          ...mkEdge("e0", "s1", "t1", "ore"),
+          data: { item: "ore", rate: new Fraction(1), bendX: 200 },
+        },
+        {
+          ...mkEdge("e1", "s2", "t2", "ore"),
+          data: { item: "ore", rate: new Fraction(1), bendX: 400 },
+        },
+      ],
+    });
+
+    // s2 top 100 puts its port row at 139, exactly where e0's final leg runs.
+    const COINCIDENT_TOP = 100;
+
+    it("leaves a lone leg alone, so the fixture blames no card", () => {
+      const { nodes, edges } = fixture(COINCIDENT_TOP);
+      const out = jogForwardLegs(nodes, [edges[0]!]);
+      expect(legYOf(out, "e0")).toBeUndefined();
+      expect(out[0]).toBe(edges[0]);
+    });
+
+    it("moves one of two legs that would draw on the same row", () => {
+      const { nodes, edges } = fixture(COINCIDENT_TOP);
+      const byId = nodeIndexOf(nodes);
+      // Premise: the two runs really do want the same level over a corridor
+      // longer than a port stub -- e0's leg at ty, e1's stub at its own sy.
+      expect(edgePortsModel(edges[0]!, byId)!.ty).toBe(
+        edgePortsModel(edges[1]!, byId)!.sy,
+      );
+
+      const out = jogForwardLegs(nodes, edges);
+      const legY = legYOf(out, "e0")!;
+      expect(typeof legY).toBe("number");
+      expect(Math.abs(legY - 139)).toBeGreaterThanOrEqual(ENTRY_SLOT_PITCH);
+      // e1 has nothing to move: its stub is the run between its port and its
+      // bend column, which no legY relocates.
+      expect(legYOf(out, "e1")).toBeUndefined();
+    });
+
+    it("leaves a pair already clear of the floor alone", () => {
+      // s2 one row band lower: the two runs are 100 apart, so neither owes the
+      // other anything and both edges pass through by reference.
+      const { nodes, edges } = fixture(200);
+      const out = jogForwardLegs(nodes, edges);
+      expect(legYOf(out, "e0")).toBeUndefined();
+      expect(out[0]).toBe(edges[0]);
+      expect(out[1]).toBe(edges[1]);
+    });
+
+    it("exempts two members of one fan-in trunk from each other's level", () => {
+      // Both edges land on the same target port, so their final legs share one
+      // row for the whole approach -- which is what a trunk IS. Forcing them
+      // apart would split the trunk into two lines.
+      const nodes: RFAnyNode[] = [
+        inputProductNode("s1", "ore", 0, 0, 148, 78), // port y 39
+        inputProductNode("s2", "ore", 0, 300, 148, 78), // port y 339
+        inputProductNode("t", "ore", 760, 100, 148, 78), // port y 139
+      ];
+      const edges: Edge[] = [
+        {
+          ...mkEdge("e0", "s1", "t", "ore"),
+          data: { item: "ore", rate: new Fraction(1), bendX: 200 },
+        },
+        {
+          ...mkEdge("e1", "s2", "t", "ore"),
+          data: { item: "ore", rate: new Fraction(1), bendX: 200 },
+        },
+      ];
+      const byId = nodeIndexOf(nodes);
+      // Premise: both final legs really do run at the same y.
+      expect(edgePortsModel(edges[0]!, byId)!.ty).toBe(
+        edgePortsModel(edges[1]!, byId)!.ty,
+      );
+
+      const out = jogForwardLegs(nodes, edges);
+      expect(legYOf(out, "e0")).toBeUndefined();
+      expect(legYOf(out, "e1")).toBeUndefined();
+      expect(out[0]).toBe(edges[0]);
+      expect(out[1]).toBe(edges[1]);
+    });
+  });
 });
 
 describe("clampBackwardRails column clamp", () => {
