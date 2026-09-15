@@ -79,6 +79,27 @@ export function unavailableRecipeIds(
   return ids;
 }
 
+// The event ITEMS of effectively-off cohorts, each mapped to the cohort that
+// switched it off: what the pickers dim (#144's T6). Item-driven on purpose -
+// an item's cohort is what its tiles and validation errors speak of, and the
+// extractor's mixed-cohort guard keeps a row's tag in agreement with its
+// items, so this walks pack.items directly rather than going through the
+// recipe set above.
+export function unavailableEventItems(
+  pack: RecipePack,
+  overrides: EventCohortOverrides,
+): ReadonlyMap<string /*itemId*/, string /*cohort*/> {
+  const packCohort = packCohortOf(pack);
+  const ids = new Map<string, string>();
+  for (const item of pack.items) {
+    if (item.event === undefined) continue;
+    if (!effectiveCohortEnabled(item.event, packCohort, overrides)) {
+      ids.set(item.id, item.event);
+    }
+  }
+  return ids;
+}
+
 // The stored value is trusted exactly as far as the locale is: malformed JSON,
 // a non-object, or non-boolean values fall back to the default rule ({}),
 // because a damaged key should degrade to a fresh browser, not a broken boot.

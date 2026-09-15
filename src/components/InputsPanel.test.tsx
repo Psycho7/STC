@@ -5,8 +5,11 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { InputsPanel, displayedInputCount } from "./InputsPanel";
 import { makePack } from "../solver/closed-form-fixtures";
 import { LocaleProvider } from "../data/i18n-context";
+import { loadI18n } from "../data/i18n";
+import { pack as realPack } from "../data/load";
+import { unavailableEventItems } from "../data/event-cohorts";
 import type { ItemOverride } from "../data/plan";
-import { controlledOwner, rateInputs } from "./panel.testkit";
+import { controlledOwner, pickerTile, rateInputs } from "./panel.testkit";
 
 afterEach(cleanup);
 afterEach(() => vi.useRealTimers());
@@ -507,4 +510,143 @@ test("clearing the cap on a non-raw row outside the auto-row set keeps the overr
   fireEvent.change(input, { target: { value: "" } });
   fireEvent.blur(input);
   expect(latest).toEqual([{ itemId: "liquid_xiranite" }]);
+});
+
+// ---------------------------------------------------------------------------
+// Off-cohort event items in the inputs picker (#144's T6).
+
+// The shipped pack's v1.5 cohort forced off through the real helper - the same
+// map App derives from its stored overrides.
+const V15_OFF = unavailableEventItems(realPack, { "v1.5": false });
+const COHORT = V15_OFF.values().next().value!;
+
+function pickerHintText(): string | null {
+  return (
+    document.querySelector('[data-testid="picker-hint"]')?.textContent ?? null
+  );
+}
+
+// Open the Add-input picker under the given locale.
+function openAddPicker(
+  locale: "en" | "zh",
+  props: Partial<Parameters<typeof InputsPanel>[0]> = {},
+) {
+  render(
+    <LocaleProvider locale={locale}>
+      <InputsPanel
+        itemOverrides={[]}
+        onChange={() => {}}
+        pack={realPack}
+        {...props}
+      />
+    </LocaleProvider>,
+  );
+  fireEvent.click(
+    screen.getByRole("button", {
+      name: locale === "zh" ? "添加输入" : "Add input",
+    }),
+  );
+}
+
+test("off-cohort event items render as disabled tiles with the cohort hint (inputs picker)", () => {
+  openAddPicker("en", { eventOffItems: V15_OFF });
+  for (const id of V15_OFF.keys()) {
+    expect(pickerTile(id)).not.toBeNull();
+    expect(pickerTile(id)!.disabled).toBe(true);
+  }
+  expect(pickerTile("activity_xiranite_lung")!.disabled).toBe(true);
+  expect(pickerTile("iron_powder")!.disabled).toBe(false);
+  const hint = pickerHintText();
+  expect(hint).toBe(loadI18n("en").t("picker.event.off", { cohorts: COHORT }));
+  // Parity with the validation message: both carry the same raw cohort token.
+  const validation = loadI18n("en").t("app.error.producer-unavailable.event", {
+    itemId: "activity_xiranite_lung",
+    cohort: COHORT,
+  });
+  expect(validation).toContain(COHORT);
+  expect(hint).toContain(COHORT);
+});
+
+test("the inputs picker's cohort hint localizes under zh with the same token parity", () => {
+  openAddPicker("zh", { eventOffItems: V15_OFF });
+  const hint = pickerHintText();
+  expect(hint).toBe(loadI18n("zh").t("picker.event.off", { cohorts: COHORT }));
+  expect(hint).not.toBe(
+    loadI18n("en").t("picker.event.off", { cohorts: COHORT }),
+  );
+  const validation = loadI18n("zh").t("app.error.producer-unavailable.event", {
+    itemId: "activity_xiranite_lung",
+    cohort: COHORT,
+  });
+  expect(validation).toContain(COHORT);
+  expect(hint).toContain(COHORT);
+});
+
+// Without the map no tile dims for cohort reasons and the hint line is absent
+// (the prop defaults empty), which is what every pre-T6 caller still sees.
+test("without eventOffItems the inputs picker shows no hint", () => {
+  openAddPicker("en");
+  expect(pickerTile("activity_xiranite_lung")!.disabled).toBe(false);
+  expect(document.querySelector('[data-testid="picker-hint"]')).toBeNull();
+});
+
+// The hint now covers up to two dimming causes. Both present: the listed
+// sentence and the event sentence render together, joined with the panel's
+// " · " separator.
+test("the hint joins the listed and event sentences when both causes apply", () => {
+  render(
+    <LocaleProvider locale="en">
+      <InputsPanel
+        itemOverrides={[{ itemId: "widget" }]}
+        onChange={() => {}}
+        pack={PACK3}
+        eventOffItems={new Map([["gadget", "v1.5"]])}
+      />
+    </LocaleProvider>,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Add input" }));
+  // widget is dimmed because it is listed; gadget because its cohort is off;
+  // sprocket for neither.
+  expect(pickerTile("widget")!.disabled).toBe(true);
+  expect(pickerTile("gadget")!.disabled).toBe(true);
+  expect(pickerTile("sprocket")!.disabled).toBe(false);
+  expect(pickerHintText()).toBe(
+    [
+      loadI18n("en").t("inputs.picker.listed"),
+      loadI18n("en").t("picker.event.off", { cohorts: "v1.5" }),
+    ].join(" · "),
+  );
+});
+
+// Single cause, listed only: exactly the pre-T6 hint, unchanged.
+test("the hint is the listed sentence alone when only listed items are dimmed", () => {
+  render(
+    <LocaleProvider locale="en">
+      <InputsPanel
+        itemOverrides={[{ itemId: "widget" }]}
+        onChange={() => {}}
+        pack={PACK3}
+      />
+    </LocaleProvider>,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Add input" }));
+  expect(pickerHintText()).toBe(loadI18n("en").t("inputs.picker.listed"));
+});
+
+// Single cause, event only: the event sentence alone, no listed sentence.
+test("the hint is the event sentence alone when only event items are dimmed", () => {
+  render(
+    <LocaleProvider locale="en">
+      <InputsPanel
+        itemOverrides={[]}
+        onChange={() => {}}
+        pack={PACK3}
+        eventOffItems={new Map([["gadget", "v1.5"]])}
+      />
+    </LocaleProvider>,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Add input" }));
+  expect(pickerHintText()).toBe(
+    loadI18n("en").t("picker.event.off", { cohorts: "v1.5" }),
+  );
 });

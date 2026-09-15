@@ -38,6 +38,7 @@ import { defaultPlan, encodePlan, type Plan } from "./data/plan";
 import { pack } from "./data/load";
 import { loadI18n } from "./data/i18n";
 import { EVENT_COHORT_OVERRIDES_STORAGE_KEY } from "./data/storage-keys";
+import { pickerTile } from "./components/panel.testkit";
 
 // The lung is v1.5 event content whose only producer is the event recipe of
 // the same id: with the cohort on it solves through that recipe, with it off
@@ -179,4 +180,38 @@ test("the header gear button opens the settings panel; Escape closes it", async 
   // Reopening works after a close.
   fireEvent.click(screen.getByRole("button", { name: "打开设置" }));
   expect(screen.getByRole("dialog")).toBeTruthy();
+});
+
+// The pickers (T6): App derives the off-cohort item map from the stored
+// overrides and hands it to both panels, so their tiles dim and the hint names
+// the cohort the validation error also names - default zh locale here.
+test("a stored off override dims the cohort's items in both pickers with the hint", async () => {
+  window.localStorage.setItem(
+    EVENT_COHORT_OVERRIDES_STORAGE_KEY,
+    '{"v1.5": false}',
+  );
+  render(<App />);
+  await screen.findByTestId("side-panel");
+
+  // Targets picker: the add-target draft's choose trigger.
+  fireEvent.click(screen.getByRole("button", { name: "添加目标" }));
+  fireEvent.click(screen.getByLabelText("选择物品…"));
+  const lungTile = pickerTile("activity_xiranite_lung")!;
+  expect(lungTile).not.toBeNull();
+  expect(lungTile.disabled).toBe(true);
+  const targetHint = document.querySelector('[data-testid="picker-hint"]')!;
+  expect(targetHint.textContent).toBe(
+    loadI18n("zh").t("picker.event.off", { cohorts: "v1.5" }),
+  );
+  fireEvent.keyDown(document, { key: "Escape" });
+
+  // Inputs picker: same cohort, same dimming, same hint line.
+  fireEvent.click(screen.getByRole("button", { name: "添加输入" }));
+  const polyTile = pickerTile("activity_copper_poly")!;
+  expect(polyTile).not.toBeNull();
+  expect(polyTile.disabled).toBe(true);
+  const inputHint = document.querySelector('[data-testid="picker-hint"]')!;
+  expect(inputHint.textContent).toBe(
+    loadI18n("zh").t("picker.event.off", { cohorts: "v1.5" }),
+  );
 });

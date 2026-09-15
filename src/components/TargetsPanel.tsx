@@ -15,6 +15,9 @@ import { useRateEdit } from "./useRateEdit";
 
 type PendingFocus = { itemId: string; kind: "rate" | "trigger" };
 
+// Default for the optional eventOffItems prop: nothing is off-cohort.
+const NO_EVENT_OFF: ReadonlyMap<string, string> = new Map();
+
 type Props = {
   targets: Target[];
   // Changes are emitted as functional updaters applied by the owner against
@@ -24,9 +27,19 @@ type Props = {
   // (same reference) so the owner can skip a no-op commit.
   onChange: (update: (current: Target[]) => Target[]) => void;
   pack: RecipePack;
+  // Event items of effectively-off cohorts (#144's T6), itemId -> cohort, as
+  // derived by unavailableEventItems(pack, overrides) in the owner. Both picker
+  // call sites dim these tiles and the hint names the cohort(s). Optional with
+  // an empty default so callers that model no cohorts render every tile enabled.
+  eventOffItems?: ReadonlyMap<string, string> | undefined;
 };
 
-export function TargetsPanel({ targets, onChange, pack }: Props) {
+export function TargetsPanel({
+  targets,
+  onChange,
+  pack,
+  eventOffItems = NO_EVENT_OFF,
+}: Props) {
   const i18n = useI18n();
   // Producible items are the pickable targets: any item produced with positive
   // qty by a non-internal, non-input-supply recipe (raw and byproduct-only
@@ -37,6 +50,17 @@ export function TargetsPanel({ targets, onChange, pack }: Props) {
   }, [pack]);
   // Availability depth per item id, used by the picker popup to group tiles.
   const tierByItemId = useMemo(() => computeItemDepths(pack), [pack]);
+  // The picker hint for off-cohort event items (#144's T6): the raw cohort
+  // tokens ("v1.2 · v1.5"), the same ones the producer-unavailable validation
+  // error interpolates, so both surfaces name a cohort identically. Gated on at
+  // least one of the items being in the catalogue above - a cohort whose every
+  // item is non-producible would explain dimming the grid never shows.
+  const eventOffHint = useMemo(() => {
+    if (eventOffItems.size === 0) return undefined;
+    if (!pickableItems.some((it) => eventOffItems.has(it.id))) return undefined;
+    const cohorts = [...new Set(eventOffItems.values())].sort().join(" · ");
+    return i18n.t("picker.event.off", { cohorts });
+  }, [eventOffItems, pickableItems, i18n]);
   // Which row/draft the picker popup is open for, plus the trigger button that
   // opened it so focus can return there on close.
   const [pickerFor, setPickerFor] = useState<
@@ -381,17 +405,20 @@ export function TargetsPanel({ targets, onChange, pack }: Props) {
       // pick arms a focus token for a commit that can never apply.
       if (!targets.some((t) => t.itemId === rowId)) return null;
       // Disable items other targets or any draft already claim; the row's own
-      // item stays enabled and highlighted as selected.
+      // item stays enabled and highlighted as selected. Off-cohort event items
+      // (#144's T6) dim on top, like every other unavailable pick.
       const disabledIds = new Set<string>([
         ...targets.filter((t) => t.itemId !== rowId).map((t) => t.itemId),
         ...drafts.map((d) => d.itemId).filter((id) => id !== ""),
       ]);
+      for (const id of eventOffItems.keys()) disabledIds.add(id);
       return (
         <ItemPickerPopup
           items={pickableItems}
           disabledIds={disabledIds}
           selectedId={rowId}
           tierByItemId={tierByItemId}
+          disabledHint={eventOffHint}
           onPick={(newId) => {
             // Re-picking the row's own (still-enabled, highlighted) item is a
             // confirm, not a swap; without this guard the dup check would match
@@ -418,12 +445,14 @@ export function TargetsPanel({ targets, onChange, pack }: Props) {
         .filter((d) => d.id !== draft.id && d.itemId !== "")
         .map((d) => d.itemId),
     ]);
+    for (const id of eventOffItems.keys()) disabledIds.add(id);
     return (
       <ItemPickerPopup
         items={pickableItems}
         disabledIds={disabledIds}
         selectedId={draft.itemId || undefined}
         tierByItemId={tierByItemId}
+        disabledHint={eventOffHint}
         onPick={(newId) => {
           applyDraft({ ...draft, itemId: newId });
           closePicker();

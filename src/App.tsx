@@ -41,6 +41,7 @@ import type { Target } from "./data/targets";
 import { pack } from "./data/load";
 import {
   readStoredEventOverrides,
+  unavailableEventItems,
   unavailableRecipeIds,
   writeStoredEventOverrides,
   packCohortOf,
@@ -374,6 +375,15 @@ function AppInner() {
   // list; only an override flip re-derives the set.
   const unavailable = useMemo(
     () => unavailableRecipeIds(pack, eventOverrides),
+    [eventOverrides],
+  );
+  // The event items behind that set, each with its cohort (#144's T6): the
+  // pickers dim exactly these tiles and their hint names the cohort(s) the
+  // validation error above also interpolates. Derived beside `unavailable`
+  // from the same overrides, so the tiles, the hint, and the banner can never
+  // disagree about which cohort is off.
+  const eventOffItems = useMemo(
+    () => unavailableEventItems(pack, eventOverrides),
     [eventOverrides],
   );
   // loadFromHash is a long-lived callback: the mount/hashchange wiring below
@@ -955,6 +965,7 @@ function AppInner() {
                   targets={plan.targets}
                   pack={pack}
                   onChange={handleTargetsChange}
+                  eventOffItems={eventOffItems}
                 />
               </div>
               <div id="side-inputs">
@@ -963,6 +974,7 @@ function AppInner() {
                   itemOverrides={plan.itemOverrides ?? []}
                   onChange={handleItemOverridesChange}
                   pack={pack}
+                  eventOffItems={eventOffItems}
                   targetItemIds={targetItemIds}
                   supplyRateByItem={supplyRateByItem}
                   assumedRawItemIds={assumedRawItemIds}

@@ -21,6 +21,7 @@ export type UiKey =
   | "picker.group.unranked"
   | "picker.empty"
   | "picker.close.label"
+  | "picker.event.off"
   | "app.loading"
   | "app.error.load"
   | "app.error.edit"
@@ -113,6 +114,11 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "picker.group.unranked": "循环 / 未分级",
     "picker.empty": "没有匹配的物品",
     "picker.close.label": "关闭",
+    // {cohorts} is the raw cohort tokens ("v1.2 · v1.5") the validation error
+    // app.error.producer-unavailable.event also interpolates: the two surfaces
+    // must name a cohort identically in every locale.
+    "picker.event.off":
+      "灰显的物品来自未开启的活动（{cohorts}）— 可在设置中开启",
     "app.loading": "正在加载布局...",
     "app.error.load": "加载方案失败: {message}",
     "app.error.edit": "无法应用此更改: {message}",
@@ -198,6 +204,10 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "picker.group.unranked": "Cyclic / unranked",
     "picker.empty": "No items match your search",
     "picker.close.label": "Close",
+    // See the zh entry: {cohorts} carries the same raw tokens the
+    // producer-unavailable validation error interpolates.
+    "picker.event.off":
+      "Dimmed items belong to a switched-off event ({cohorts}) — switch it on in Settings",
     "app.loading": "Loading layout...",
     "app.error.load": "Failed to load plan: {message}",
     "app.error.edit": "Cannot apply this change: {message}",

@@ -13,6 +13,7 @@ import {
   eventCohortsOf,
   packCohortOf,
   readStoredEventOverrides,
+  unavailableEventItems,
   unavailableRecipeIds,
   writeStoredEventOverrides,
 } from "./event-cohorts";
@@ -161,6 +162,43 @@ describe("unavailableRecipeIds", () => {
     expect(
       unavailableRecipeIds(fixturePack(), { "v1.5": false }),
     ).not.toContain("smelt");
+  });
+});
+
+describe("unavailableEventItems", () => {
+  it("defaults to the off-cohort items only, each mapped to its cohort", () => {
+    // Pack cohort is v1.5: coin (v1.2) is off, and so is token_orphan (v1.1)
+    // - the derivation is item-driven, so an item whose cohort carries no
+    // recipe still surfaces with the cohort its tiles must name.
+    expect(unavailableEventItems(fixturePack(), {})).toEqual(
+      new Map([
+        ["coin", "v1.2"],
+        ["token_orphan", "v1.1"],
+      ]),
+    );
+  });
+
+  it("follows overrides in both directions", () => {
+    // v1.2 forced on drops its item; v1.5 forced off adds the pack cohort's;
+    // untouched v1.1 keeps its default-off item.
+    expect(
+      unavailableEventItems(fixturePack(), { "v1.2": true, "v1.5": false }),
+    ).toEqual(
+      new Map([
+        ["lung", "v1.5"],
+        ["token_orphan", "v1.1"],
+      ]),
+    );
+  });
+
+  it("never contains non-event items, under any override map", () => {
+    const map = unavailableEventItems(fixturePack(), { "v1.5": false });
+    expect(map.has("ore")).toBe(false);
+    expect(map.has("bar")).toBe(false);
+    // And every cohort on empties it entirely.
+    expect(
+      unavailableEventItems(fixturePack(), { "v1.1": true, "v1.2": true }),
+    ).toEqual(new Map());
   });
 });
 
