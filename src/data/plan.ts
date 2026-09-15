@@ -1,7 +1,7 @@
 import type { RecipePack } from "@aef/schema";
 import type { RationalString, Target } from "./targets";
 import { defaultTargets } from "./targets";
-import { producibleItemIds } from "./recipe-category";
+import { producersOfItem, producibleItemIds } from "./recipe-category";
 import type { PlanWireV1 } from "./plan-wire-v1";
 import {
   decodeWire,
@@ -48,6 +48,12 @@ export const MAX_RATIONAL_DIGITS = 400;
 
 const CURRENT_VERSION = 1;
 
+// Why a target item's producers are all unavailable (#144). An extensible
+// discriminated union: today the only cause is an event cohort switched off;
+// #124 (area restrictions) and #125 (manual recipe toggles) add their own
+// kinds to the same union.
+export type ProducerUnavailableCause = { kind: "event"; cohort: string };
+
 export type PlanLoadError =
   | { kind: "malformed-hash"; reason: string }
   | { kind: "payload-too-large"; length: number; limit: number }
@@ -56,6 +62,11 @@ export type PlanLoadError =
   | { kind: "duplicate-target"; itemId: string }
   | { kind: "unknown-target-item"; itemId: string }
   | { kind: "target-not-producible"; itemId: string }
+  | {
+      kind: "producer-unavailable";
+      itemId: string;
+      cause: ProducerUnavailableCause;
+    }
   | { kind: "unknown-recipe-cost"; recipeId: string }
   | { kind: "unknown-item-override"; itemId: string }
   | { kind: "duplicate-item-override"; itemId: string }
@@ -98,6 +109,8 @@ export function describePlanLoadError(error: PlanLoadError): string {
       return `Target references unknown item ${error.itemId}.`;
     case "target-not-producible":
       return `Item ${error.itemId} cannot be a target: no non-internal, non-input-supply recipe produces it.`;
+    case "producer-unavailable":
+      return `Item ${error.itemId} cannot be a target right now: every recipe producing it is unavailable (event ${error.cause.cohort} is switched off).`;
     case "unknown-recipe-cost":
       return `Recipe cost references unknown recipe ${error.recipeId}.`;
     case "unknown-item-override":
@@ -147,6 +160,7 @@ function isValidRational(r: RationalString): boolean {
 export async function loadPlan(
   hash: string,
   pack: RecipePack,
+  unavailableRecipeIds?: ReadonlySet<string>,
 ): Promise<LoadOutcome> {
   if (!hash || hash === "#") {
     return { kind: "seeded", plan: defaultPlan(pack) };
@@ -201,7 +215,7 @@ export async function loadPlan(
     };
   }
   const plan = fromWire(wire);
-  const error = validatePlan(plan, pack);
+  const error = validatePlan(plan, pack, unavailableRecipeIds);
   if (error) return { kind: "error", error };
   return { kind: "loaded", plan };
 }
@@ -214,6 +228,7 @@ export async function encodePlan(plan: Plan): Promise<string> {
 export function validatePlan(
   plan: Plan,
   pack: RecipePack,
+  unavailableRecipeIds?: ReadonlySet<string>,
 ): PlanLoadError | null {
   if (plan.pack.schemaVersion !== pack.schemaVersion) {
     return {
@@ -252,6 +267,30 @@ export function validatePlan(
     // byproduct-only items ARE producible and pass here.
     if (!producible.has(itemId)) {
       return { kind: "target-not-producible", itemId };
+    }
+    // Availability seam (#144): an item WITH producers can still be
+    // untargetable when every one of them is switched off. Same producer
+    // notion as the producible set above (producersOfItem shares its
+    // predicate), so the two errors partition: no producers at all ->
+    // target-not-producible; producers, all unavailable -> here.
+    if (unavailableRecipeIds && unavailableRecipeIds.size > 0) {
+      const producers = producersOfItem(pack.recipes, itemId);
+      if (
+        producers.length > 0 &&
+        producers.every((r) => unavailableRecipeIds.has(r.id))
+      ) {
+        // The extractor's mixed-cohort guard means the unavailable producers
+        // of one item share a single cohort. If a future producer set ever
+        // splits cohorts, take the first tagged producer's cohort; #124
+        // (areas) and #125 (manual toggles) will generalize cause derivation
+        // into their own kinds anyway.
+        const tagged = producers.find((r) => r.event !== undefined);
+        return {
+          kind: "producer-unavailable",
+          itemId,
+          cause: { kind: "event", cohort: tagged?.event ?? "" },
+        };
+      }
     }
   }
   if (plan.itemOverrides) {

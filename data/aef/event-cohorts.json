@@ -1,0 +1,42 @@
+{
+  "source": "https://data.akedata.wiki/manifest.json",
+  "rule": "event items are ItemTable keys whose noObtainWayId contains \"item_obtain_activity_formula\"",
+  "versions": [
+    "1.0.14@5793042-32",
+    "1.1.9@6478171-19",
+    "1.2.5@7215718-17",
+    "1.3.3@8190425-29",
+    "1.4.4@8764515-7",
+    "1.4.4@9433094-12",
+    "1.4.4@9599201-14",
+    "1.5.3@9764758-3",
+    "1.5.3@9885010-4",
+    "1.5.3@9913107-5",
+    "1.5.3@10024360-6"
+  ],
+  "cohorts": {
+    "v1.2": [
+      "activity_xiranite_bottle",
+      "activity_xiranite_cmpt",
+      "activity_xiranite_enr_bottle",
+      "activity_xiranite_enr_cmpt",
+      "activity_xiranite_enr_hulu",
+      "activity_xiranite_enr_tool",
+      "activity_xiranite_hulu",
+      "fbottle_xiranenr_grass_2"
+    ],
+    "v1.5": [
+      "activity_copper_poly",
+      "activity_copper_poly_cmpt",
+      "activity_copper_poly_gas",
+      "activity_copper_poly_tool",
+      "activity_copper_xiranite_tool",
+      "activity_xiranite_box",
+      "activity_xiranite_enr_box",
+      "activity_xiranite_enr_lung",
+      "activity_xiranite_enr_nugget",
+      "activity_xiranite_lung",
+      "activity_xiranite_nugget"
+    ]
+  }
+}

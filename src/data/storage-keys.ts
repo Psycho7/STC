@@ -1,15 +1,22 @@
-// The localStorage key the app persists its view locale under.
+// localStorage keys the app persists boot-time state under.
 //
-// It is read during boot - in the i18n provider's initial state - so anything
-// that wants a page to come up in a chosen locale has to write it before the app
+// Both are read during boot - the i18n provider's initial state, and the
+// event-cohort overrides that decide which recipes exist (#144) - so anything
+// that wants a page to come up with them set has to write them before the app
 // runs. The exam CLIs and the e2e specs do exactly that from an init script,
-// which means the string exists on both sides of the browser boundary and a
-// rename that misses one side changes nothing visible: the page simply boots on
-// its default, and every capture taken after it is silently in the wrong locale.
+// which means each string exists on both sides of the browser boundary and a
+// rename that misses one side changes nothing visible: the page simply boots
+// on its default, and every capture taken after it is silently in the wrong
+// state.
 //
-// A leaf with no imports, so a CLI can name the key without loading the app. An
-// addInitScript callback is serialised and cannot close over an import, but it
-// can be handed an argument, so both writers import this and pass it in
+// A leaf with no imports, so a CLI can name the keys without loading the app.
+// An addInitScript callback is serialised and cannot close over an import, but
+// it can be handed an argument, so both writers import this and pass it in
 // through the boot helper in test/e2e/viewport.ts: a rename is a compile error
 // on both sides of the browser boundary rather than a silent no-op.
 export const LOCALE_STORAGE_KEY = "aef.locale";
+
+// The event-cohort overrides map (#144): a JSON object of cohort -> boolean.
+// Seeded before boot the same way when an exam or spec needs a specific cohort
+// switched off from the first solve.
+export const EVENT_COHORT_OVERRIDES_STORAGE_KEY = "aef.eventCohortOverrides";

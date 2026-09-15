@@ -19,6 +19,11 @@ type Props = {
   // (same reference) so the owner can skip a no-op commit.
   onChange: (update: (current: ItemOverride[]) => ItemOverride[]) => void;
   pack: RecipePack;
+  // Event items of effectively-off cohorts (#144's T6), itemId -> cohort, as
+  // derived by unavailableEventItems(pack, overrides) in the owner. The picker
+  // dims these tiles and the hint names the cohort(s). Optional with an empty
+  // default so callers that model no cohorts render every tile enabled.
+  eventOffItems?: ReadonlyMap<string, string> | undefined;
   targetItemIds?: ReadonlySet<string>;
   // Boundary supply per item: the realized demand of the latest render pass
   // plus any catalyst draw the solve reported, already summed by the owner.
@@ -58,10 +63,14 @@ export function displayedInputCount(
 // ref swallow every token and the add path's rate focus would never fire.
 type PendingFocus = { itemId: string; kind: "rate" | "trigger" };
 
+// Default for the optional eventOffItems prop: nothing is off-cohort.
+const NO_EVENT_OFF: ReadonlyMap<string, string> = new Map();
+
 export function InputsPanel({
   itemOverrides,
   onChange,
   pack,
+  eventOffItems = NO_EVENT_OFF,
   targetItemIds,
   supplyRateByItem,
   assumedRawItemIds,
@@ -76,6 +85,17 @@ export function InputsPanel({
   // computeItemDepths seeds every pack item; ones no recipe can reach land in
   // the unranked bucket, which on the shipped pack is empty.
   const tierByItemId = useMemo(() => computeItemDepths(pack), [pack]);
+  // The off-cohort event sentence of the picker hint (#144's T6): the raw
+  // cohort tokens ("v1.2 · v1.5"), the same ones the producer-unavailable
+  // validation error interpolates. Gated on at least one of the items being in
+  // the catalogue (pack.items here), so a hand-built map naming items the grid
+  // never shows explains nothing.
+  const eventOffHint = useMemo(() => {
+    if (eventOffItems.size === 0) return undefined;
+    if (!pack.items.some((it) => eventOffItems.has(it.id))) return undefined;
+    const cohorts = [...new Set(eventOffItems.values())].sort().join(" · ");
+    return i18n.t("picker.event.off", { cohorts });
+  }, [eventOffItems, pack, i18n]);
   // Which row the picker popup is open for, plus the trigger button that
   // opened it so focus can return there on close.
   const [pickerFor, setPickerFor] = useState<
@@ -527,28 +547,37 @@ export function InputsPanel({
     // into its auto-row, whose commit promotes it to a real override.
     // Add reaches this with row undefined, so it filters nothing out and takes
     // the raw-item branch, which is exactly its own rule.
-    const disabledIds = new Set<string>(
+    const listedIds = new Set<string>(
       itemOverrides
         .filter((o) => o.itemId !== row?.itemId)
         .map((o) => o.itemId),
     );
     if (row?.ratePerSec === undefined) {
-      for (const id of assumedRawItemIds ?? []) disabledIds.add(id);
+      for (const id of assumedRawItemIds ?? []) listedIds.add(id);
     }
+    // Off-cohort event items (#144's T6) dim on top of the listed ones.
+    const disabledIds = new Set<string>(listedIds);
+    for (const id of eventOffItems.keys()) disabledIds.add(id);
+    // Accurate for every reason a tile is dimmed here, one sentence per cause:
+    // a sibling row already claims the item (or it has an auto-row this popup
+    // cannot usefully take over), and/or it belongs to an off-cohort event. A
+    // single cause renders its sentence alone; both together join with the
+    // panel's " · " separator, since the popup renders exactly one hint line.
+    // Before the first solve lands there are no auto-rows and no overrides, so
+    // with every cohort on nothing is dimmed and the hint would explain an
+    // absence.
+    const hintSentences = [
+      ...(listedIds.size > 0 ? [i18n.t("inputs.picker.listed")] : []),
+      ...(eventOffHint !== undefined ? [eventOffHint] : []),
+    ];
     return (
       <ItemPickerPopup
         items={pack.items}
         disabledIds={disabledIds}
         selectedId={row?.itemId}
         tierByItemId={tierByItemId}
-        // Accurate for every reason a tile is dimmed here: a sibling row
-        // already claims the item, or it has an auto-row this popup cannot
-        // usefully take over. Either way the advice is to edit that row.
-        // Before the first solve lands there are no auto-rows and no
-        // overrides, so nothing is dimmed and the hint would explain an
-        // absence.
         disabledHint={
-          disabledIds.size > 0 ? i18n.t("inputs.picker.listed") : undefined
+          hintSentences.length > 0 ? hintSentences.join(" · ") : undefined
         }
         onPick={(newId) => {
           if (row === undefined) {

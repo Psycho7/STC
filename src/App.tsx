@@ -32,18 +32,29 @@ import {
   loadPlan,
   validatePlan,
 } from "./data/plan";
-import type { ItemOverride, Plan } from "./data/plan";
+import type { ItemOverride, Plan, PlanLoadError } from "./data/plan";
 import {
   defaultTransportConfig,
   loadTransportConfig,
 } from "./data/transport-config";
 import type { Target } from "./data/targets";
 import { pack } from "./data/load";
+import {
+  readStoredEventOverrides,
+  unavailableEventItems,
+  unavailableRecipeIds,
+  writeStoredEventOverrides,
+  packCohortOf,
+  type EventCohortOverrides,
+} from "./data/event-cohorts";
+import { EVENT_COHORT_OVERRIDES_STORAGE_KEY } from "./data/storage-keys";
+import { SettingsPanel } from "./components/SettingsPanel";
 import { CATALYST_SUPPLY_EDGES } from "./flags";
 import type { LogicalGraph } from "./canvas/layout";
 import { LpInfeasibleError } from "./solver";
 import { solveFromPlan } from "./pipeline/solveForRender";
 import { LocaleProvider, useI18n } from "./data/i18n-context";
+import type { I18nIndex } from "./data/i18n";
 import { LocaleSwitcher } from "./components/LocaleSwitcher";
 import { ItemPackProvider } from "./canvas/itemPackContext";
 import StatsStrip from "./canvas/StatsStrip";
@@ -61,7 +72,8 @@ function countDistinctRecipes(logical: LogicalGraph): number {
 
 // Loading and error surfaces render inside the themed .ak-app-shell so there is
 // no unstyled white page. These lay out a centered card; the shell class
-// supplies the dark background and text color.
+// supplies the dark background and text color. The positioning context also
+// anchors the error splash's settings gear slot (top-right, out of the card).
 const splashStyle: CSSProperties = {
   width: "100vw",
   height: "100vh",
@@ -70,6 +82,7 @@ const splashStyle: CSSProperties = {
   justifyContent: "center",
   padding: 24,
   boxSizing: "border-box",
+  position: "relative",
 };
 
 const splashCardStyle: CSSProperties = {
@@ -115,16 +128,41 @@ const shortfallStripStyle: CSSProperties = {
 loadTransportConfig(defaultTransportConfig, pack);
 
 // A dismissible banner error. "load" wraps a hash-decode / validation failure
-// (the pasted link, not the solver); "edit" wraps an in-app edit that
-// validatePlan rejected; "solver" wraps an exception thrown while solving a
-// valid plan, which the render layer maps to localized copy (naming the
-// implicated items for an LpInfeasibleError); "busy" reports an edit refused
-// because a hash navigation was still landing.
+// (the pasted link, not the solver); "edit" wraps an in-app edit (or a
+// mid-session availability change) that validatePlan rejected; "solver" wraps
+// an exception thrown while solving a valid plan, which the render layer maps
+// to localized copy (naming the implicated items for an LpInfeasibleError);
+// "busy" reports an edit refused because a hash navigation was still landing.
+// The load/edit kinds carry the structured PlanLoadError so the render phase,
+// which holds the i18n index, can localize the user-facing kinds - see
+// describeLoadError.
 type BannerError =
-  | { kind: "load"; message: string }
-  | { kind: "edit"; message: string }
+  | { kind: "load"; error: PlanLoadError }
+  | { kind: "edit"; error: PlanLoadError }
   | { kind: "busy" }
   | { kind: "solver"; error: unknown };
+
+// Boot-time failure before any plan renders, owning the whole viewport: the
+// structured load error when validation failed (so the splash can localize
+// the user-facing kinds), or a solve exception's message.
+type InitialError =
+  | { kind: "load"; error: PlanLoadError }
+  | { kind: "solve"; message: string };
+
+// Localized text for a plan-load error on a user-facing surface. The
+// producer-unavailable kind is the one failure aimed at the player rather
+// than the link (#144): it names the target item and the switched-off event
+// cohort, in the UI language. Every other kind describes a damaged share
+// link - developer-facing detail - and keeps describePlanLoadError's text.
+function describeLoadError(error: PlanLoadError, i18n: I18nIndex): string {
+  if (error.kind === "producer-unavailable" && error.cause.kind === "event") {
+    return i18n.t("app.error.producer-unavailable.event", {
+      itemId: error.itemId,
+      cohort: error.cause.cohort,
+    });
+  }
+  return describePlanLoadError(error);
+}
 
 type SideSection = "targets" | "inputs";
 
@@ -286,7 +324,7 @@ function AppInner() {
   // local edits when it changes, so a freshly loaded plan never shows leftover
   // text from the previous one.
   const [planEpoch, setPlanEpoch] = useState(0);
-  const [initialError, setInitialError] = useState<Error | null>(null);
+  const [initialError, setInitialError] = useState<InitialError | null>(null);
   const [mutationError, setMutationError] = useState<BannerError | null>(null);
   // Target items the last successful render delivers below their declared rate.
   // Kept apart from mutationError on purpose: this describes the plan on screen
@@ -307,8 +345,9 @@ function AppInner() {
   // would win the last-write-wins race and silently
   // rewrite the URL back to the plan the user just navigated away from, so
   // both refuse and say so instead. The flag cannot stick: only the newest
-  // generation clears it, and the only two paths that bump solveGen past a
-  // live navigation are exactly the two that refuse while it is set.
+  // generation clears it - the navigation itself when it lands, and
+  // scheduleSolve when an availability re-solve (which does not go through
+  // the refusal) supersedes one mid-flight.
   const navigationInFlightRef = useRef(false);
   // The hash the app last handled: written by itself (history.replaceState on
   // solve success) or already picked up by loadFromHash. The hashchange
@@ -317,6 +356,68 @@ function AppInner() {
   // hashchange event, so for self-writes this is belt-and-braces; it becomes
   // load-bearing if a hash write ever switches to a location.hash assignment.
   const lastHandledHashRef = useRef<string | null>(null);
+  // Event-cohort overrides (#144): cohort -> forced on/off beyond the default
+  // rule (on iff the cohort matches the pack's own version). Read once at
+  // boot; every later change goes through handleEventOverridesChange, which
+  // persists it, so state and storage never disagree.
+  const [eventOverrides, setEventOverrides] = useState<EventCohortOverrides>(
+    readStoredEventOverrides,
+  );
+  // The pack's own cohort, handed to the settings panel so its Events rows
+  // can tell current from past. `pack` is a module-stable import, so it stays
+  // out of the dependency list.
+  const packCohort = useMemo(() => packCohortOf(pack), []);
+  // Whether the settings modal (#123's shell, holding #144's Events section)
+  // is mounted. Conditional mount rather than an open prop, matching how the
+  // panels own the picker popup.
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  // The recipes switched off under those overrides - the availability set the
+  // load, mutation, and re-solve paths below all thread into the seam from
+  // T3. `pack` is a module-stable import, so it stays out of the dependency
+  // list; only an override flip re-derives the set.
+  const unavailable = useMemo(
+    () => unavailableRecipeIds(pack, eventOverrides),
+    [eventOverrides],
+  );
+  // The event items behind that set, each with its cohort (#144's T6): the
+  // pickers dim exactly these tiles and their hint names the cohort(s) the
+  // validation error above also interpolates. Derived beside `unavailable`
+  // from the same overrides, so the tiles, the hint, and the banner can never
+  // disagree about which cohort is off.
+  const eventOffItems = useMemo(
+    () => unavailableEventItems(pack, eventOverrides),
+    [eventOverrides],
+  );
+  // loadFromHash is a long-lived callback: the mount/hashchange wiring below
+  // must not re-run when a flip recreates it, or every flip would reload the
+  // plan and reset the panels. It reads the set through this ref instead of
+  // closing over it; the re-solve effect owns flip-time work. The initializer
+  // covers boot, and the effect below (declared before anything that calls
+  // loadFromHash) keeps the ref current on later renders.
+  const unavailableRef = useRef(unavailable);
+  useEffect(() => {
+    unavailableRef.current = unavailable;
+  }, [unavailable]);
+  // Mirrors initialError for the availability effect below, the same trick as
+  // unavailableRef: that effect must fire on cohort flips alone, so it cannot
+  // also key on the error object - every failed load stores a fresh one, and
+  // keying on it would re-run the pending load after each failure (each retry
+  // failing again) into a loop. It reads the current value through this ref.
+  const initialErrorRef = useRef(initialError);
+  useEffect(() => {
+    initialErrorRef.current = initialError;
+  }, [initialError]);
+  // The one writer for override state: apply in memory and persist, so every
+  // path that changes cohorts - T5's settings panel per switch and section
+  // reset, the cross-tab storage listener below - lands identically. Kept as a
+  // stable callback so effects can depend on it.
+  const handleEventOverridesChange = useCallback(
+    (next: EventCohortOverrides): void => {
+      setEventOverrides(next);
+      writeStoredEventOverrides(next);
+    },
+    [],
+  );
   // Accepted transient: this recomputes from the synchronously committed plan,
   // so ProductNode override chips on the still-stale canvas nodes update
   // against the new overrides during the solve window. Sub-second cosmetic
@@ -353,31 +454,38 @@ function AppInner() {
       // the load: a second bad hash pasted while the splash is up must refresh
       // the splash, and a failed reset from the splash must not write a banner
       // nothing displays.
-      const failLoad = (message: string) => {
+      const failLoad = (error: PlanLoadError) => {
         if (myGen !== solveGen.current) return;
-        if (planRef.current === null) setInitialError(new Error(message));
+        if (planRef.current === null) setInitialError({ kind: "load", error });
         else {
-          setMutationError({ kind: "load", message });
+          setMutationError({ kind: "load", error });
           setStale(true);
         }
       };
       const failSolve = (e: unknown) => {
         if (myGen !== solveGen.current) return;
         if (planRef.current === null) {
-          setInitialError(e instanceof Error ? e : new Error(String(e)));
+          setInitialError({
+            kind: "solve",
+            message: e instanceof Error ? e.message : String(e),
+          });
         } else {
           setMutationError({ kind: "solver", error: e });
           setStale(true);
         }
       };
       try {
-        const outcome = await loadPlan(hash, pack);
+        const outcome = await loadPlan(hash, pack, unavailableRef.current);
         if (outcome.kind === "error") {
-          failLoad(describePlanLoadError(outcome.error));
+          failLoad(outcome.error);
           return;
         }
         const nextPlan = outcome.plan;
-        const solved = solveFromPlan(nextPlan);
+        const solved = solveFromPlan(
+          nextPlan,
+          undefined,
+          unavailableRef.current,
+        );
         const laid = await layoutSolved(solved);
         if (outcome.kind === "seeded") {
           const newHash = "#" + (await encodePlan(nextPlan));
@@ -439,6 +547,50 @@ function AppInner() {
     return () => window.removeEventListener("hashchange", onHashChange);
   }, [loadFromHash]);
 
+  // Async derived-state refresh for an already-committed plan. solveGen is
+  // last-write-wins: every solve corresponds to a committed plan, so the
+  // newest generation's render is always the right one to keep. A stable
+  // callback (the setters are stable and `unavailable` changes only on an
+  // override flip) so the availability re-solve effect below can key on it.
+  // Declared before commitPlan, which forwards into it.
+  const scheduleSolve = useCallback(
+    async (nextPlan: Plan): Promise<void> => {
+      const myGen = ++solveGen.current;
+      // This generation now supersedes anything in flight, including a hash
+      // navigation the re-solve effect can preempt mid-load (commitPlan cannot:
+      // it refuses while the flag is set). The navigation's finally clears the
+      // flag only when it is the newest generation, which it no longer is, so
+      // clear it here to keep the "the flag cannot stick" invariant.
+      navigationInFlightRef.current = false;
+      setPending(true);
+      try {
+        const solved = solveFromPlan(nextPlan, undefined, unavailable);
+        const laid = await layoutSolved(solved);
+        if (myGen !== solveGen.current) return;
+        setRecipeCount(countDistinctRecipes(solved.full.logical));
+        setCatalystDraw(solved.full.catalystDraw);
+        setNodes(laid.nodes as Node[]);
+        setEdges(laid.edges);
+        setGaps(laid.gaps);
+        setUnderDelivered(solved.underDelivered);
+        setLayoutGeneration((g) => g + 1);
+        setMutationError(null);
+        setStale(false);
+        const newHash = "#" + (await encodePlan(nextPlan));
+        if (myGen !== solveGen.current) return;
+        lastHandledHashRef.current = newHash;
+        history.replaceState(null, "", newHash);
+      } catch (e) {
+        if (myGen !== solveGen.current) return;
+        setMutationError({ kind: "solver", error: e });
+        setStale(true);
+      } finally {
+        if (myGen === solveGen.current) setPending(false);
+      }
+    },
+    [setNodes, setEdges, setGaps, unavailable],
+  );
+
   // Commit the plan (user intent) synchronously, then kick off the async
   // solve + layout for the derived state. On a solver failure the committed
   // plan stays put and the error banner is the signal; the canvas keeps the
@@ -448,11 +600,11 @@ function AppInner() {
       setMutationError({ kind: "busy" });
       return;
     }
-    const error = validatePlan(nextPlan, pack);
+    const error = validatePlan(nextPlan, pack, unavailable);
     if (error) {
       // The edit itself is what validatePlan rejected, and the canvas keeps the
       // last good render, so mark it stale.
-      setMutationError({ kind: "edit", message: describePlanLoadError(error) });
+      setMutationError({ kind: "edit", error });
       setStale(true);
       return;
     }
@@ -461,37 +613,53 @@ function AppInner() {
     void scheduleSolve(nextPlan);
   }
 
-  // Async derived-state refresh for an already-committed plan. solveGen is
-  // last-write-wins: every solve corresponds to a committed plan, so the
-  // newest generation's render is always the right one to keep.
-  async function scheduleSolve(nextPlan: Plan): Promise<void> {
-    const myGen = ++solveGen.current;
-    setPending(true);
-    try {
-      const solved = solveFromPlan(nextPlan);
-      const laid = await layoutSolved(solved);
-      if (myGen !== solveGen.current) return;
-      setRecipeCount(countDistinctRecipes(solved.full.logical));
-      setCatalystDraw(solved.full.catalystDraw);
-      setNodes(laid.nodes as Node[]);
-      setEdges(laid.edges);
-      setGaps(laid.gaps);
-      setUnderDelivered(solved.underDelivered);
-      setLayoutGeneration((g) => g + 1);
-      setMutationError(null);
-      setStale(false);
-      const newHash = "#" + (await encodePlan(nextPlan));
-      if (myGen !== solveGen.current) return;
-      lastHandledHashRef.current = newHash;
-      history.replaceState(null, "", newHash);
-    } catch (e) {
-      if (myGen !== solveGen.current) return;
-      setMutationError({ kind: "solver", error: e });
-      setStale(true);
-    } finally {
-      if (myGen === solveGen.current) setPending(false);
+  // A mid-session availability change (#144) re-checks the committed plan
+  // against the new set. A cohort switched off can invalidate a target only
+  // its recipes produce: keep the last render up (banner + stale, never
+  // cleared here - the plan itself is untouched) so flipping the cohort back
+  // re-solves from the same plan; a still-valid plan just re-solves. With no
+  // plan committed (the boot load failed onto the splash) there is no render
+  // to re-check, so a flip re-runs the pending load instead: the stored
+  // overrides are plausibly what rejected the hash's event target, and
+  // flipping the cohort on must recover into the linked plan. The reload
+  // joins the same solveGen last-write-wins flow as any navigation, and a
+  // link still invalid under the new set simply fails again onto a fresh,
+  // correctly-localized splash - one idempotent retry, not a loop, because
+  // this effect fires on cohort flips and not on the error those flips may
+  // rewrite. Boot-time runs with no splash up no-op because planRef.current
+  // is null and so is initialErrorRef.current, and loads and mutations never
+  // change the derived set, so only a flip re-triggers this effect.
+  useEffect(() => {
+    const current = planRef.current;
+    if (!current) {
+      if (initialErrorRef.current !== null) {
+        void loadFromHash(window.location.hash, "navigation");
+      }
+      return;
     }
-  }
+    const error = validatePlan(current, pack, unavailable);
+    if (error) {
+      setMutationError({ kind: "edit", error });
+      setStale(true);
+      return;
+    }
+    void scheduleSolve(current);
+  }, [unavailable, scheduleSolve, loadFromHash]);
+
+  // Cross-tab sync for the overrides: a `storage` event fires in every OTHER
+  // window sharing this origin's localStorage when the key changes, which is
+  // how a cohort flipped in one tab reaches a second open tab. Route it through
+  // the same writer the settings panel (T5) will use, so both tabs converge on
+  // the same normalized map. Same-document writes fire no `storage` event, so
+  // the panel path never double-applies.
+  useEffect(() => {
+    const onStorage = (e: StorageEvent) => {
+      if (e.key !== EVENT_COHORT_OVERRIDES_STORAGE_KEY) return;
+      handleEventOverridesChange(readStoredEventOverrides());
+    };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, [handleEventOverridesChange]);
 
   function handleTargetsChange(update: (current: Target[]) => Target[]): void {
     const current = planRef.current;
@@ -575,16 +743,65 @@ function AppInner() {
     // `pack` is a module-stable import, so it stays out of the dependency list.
   }, [supplyRateByItem, catalystDraw]);
 
+  // One gear button and one panel mount serve every surface a boot can end
+  // on (#144): the normal shell's topbar AND the error splash. A shared link
+  // whose event target the stored overrides reject lands on the splash, and
+  // the settings panel is the one way out that keeps the link - so it must be
+  // reachable exactly there, not only from a plan that already rendered.
+  const settingsGear = (
+    <button
+      type="button"
+      className="settings-open"
+      data-testid="settings-open"
+      aria-label={i18n.t("settings.open.label")}
+      title={i18n.t("settings.open.label")}
+      onClick={() => setSettingsOpen(true)}
+    >
+      {/* Sliders, not a literal gear: three rails with two offset
+          knobs read cleanly at the topbar's 16px. */}
+      <svg
+        className="settings-open-glyph"
+        viewBox="0 0 16 16"
+        aria-hidden="true"
+      >
+        <line x1="1.5" y1="4" x2="14.5" y2="4" />
+        <circle cx="10" cy="4" r="2" />
+        <line x1="1.5" y1="12" x2="14.5" y2="12" />
+        <circle cx="6" cy="12" r="2" />
+      </svg>
+    </button>
+  );
+  // Portals to <body>; the opener button (topbar or splash gear) is the focus
+  // the panel hands back on close.
+  const settingsMount = settingsOpen ? (
+    <SettingsPanel
+      pack={pack}
+      packCohort={packCohort}
+      overrides={eventOverrides}
+      onOverridesChange={handleEventOverridesChange}
+      onClose={() => setSettingsOpen(false)}
+    />
+  ) : null;
+
   if (initialError) {
     return (
       <div className="ak-app-shell" style={splashStyle}>
         <div role="alert" style={splashCardStyle}>
           <p style={splashTitleStyle}>{i18n.t("app.error.corrupt")}</p>
-          <p style={splashDetailStyle}>{initialError.message}</p>
+          <p style={splashDetailStyle}>
+            {initialError.kind === "load"
+              ? describeLoadError(initialError.error, i18n)
+              : initialError.message}
+          </p>
           <button type="button" onClick={handleReset}>
             {i18n.t("app.error.reset")}
           </button>
         </div>
+        {/* The same gear the topbar hosts, pinned top-right so the panel is
+            reachable from the splash - flipping the rejecting cohort on is
+            what re-runs the pending load below. */}
+        <div className="splash-settings-slot">{settingsGear}</div>
+        {settingsMount}
       </div>
     );
   }
@@ -607,9 +824,13 @@ function AppInner() {
   // solver message otherwise.
   const bannerText = (err: BannerError): string => {
     if (err.kind === "load")
-      return i18n.t("app.error.load", { message: err.message });
+      return i18n.t("app.error.load", {
+        message: describeLoadError(err.error, i18n),
+      });
     if (err.kind === "edit")
-      return i18n.t("app.error.edit", { message: err.message });
+      return i18n.t("app.error.edit", {
+        message: describeLoadError(err.error, i18n),
+      });
     if (err.kind === "busy") return i18n.t("app.error.busy");
     const e = err.error;
     if (e instanceof LpInfeasibleError) {
@@ -675,6 +896,7 @@ function AppInner() {
               {status}
             </span>
             <LocaleSwitcher />
+            {settingsGear}
           </div>
         </div>
         {mutationError ? (
@@ -792,6 +1014,7 @@ function AppInner() {
                   targets={plan.targets}
                   pack={pack}
                   onChange={handleTargetsChange}
+                  eventOffItems={eventOffItems}
                 />
               </div>
               <div id="side-inputs">
@@ -800,6 +1023,7 @@ function AppInner() {
                   itemOverrides={plan.itemOverrides ?? []}
                   onChange={handleItemOverridesChange}
                   pack={pack}
+                  eventOffItems={eventOffItems}
                   targetItemIds={targetItemIds}
                   supplyRateByItem={supplyRateByItem}
                   assumedRawItemIds={assumedRawItemIds}
@@ -833,6 +1057,7 @@ function AppInner() {
           </div>
         </div>
       </ItemPackProvider>
+      {settingsMount}
     </div>
   );
 }

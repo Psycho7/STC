@@ -18,6 +18,7 @@ import Fraction from "fraction.js";
 import {
   BETWEEN_LAYERS_SPACING,
   ENTRY_GUTTER_OVERHANG,
+  ENV_FRAME_EXTENTS,
   RECIPE_WIDTH,
 } from "./dimensions";
 import {
@@ -1444,7 +1445,9 @@ export function assignBendColumns(
 //             wider of the target port stub and the entry-gutter overhang
 //             (ENTRY_GUTTER_OVERHANG, the arrival corridor kept clear before a
 //             Left port). Top / bottom carry the CHAMFER bevel overhang,
-//             matching the gutter rects.
+//             matching the gutter rects. An environment recipe's box grows to
+//             its frame's outer rectangle BEFORE the pads (envFrameGrowth
+//             below), so the plates count as the card's body.
 //   - gutter: each node's entry-gutter rect (entryGutterRects), a first-class
 //             obstacle so a run stays out of a foreign node's entry corridor.
 // Pure: rects are a deterministic function of node geometry and the gutter
@@ -1498,6 +1501,31 @@ export type PaddedObstacle = ObstacleRect & {
 // Each pass therefore rebuilds the field instead of sharing one hoisted to a
 // stage boundary. Hoisting would give the same rects today and go silently
 // wrong the day a pass that retypes an edge is added after it.
+// An environment recipe's frame is drawn geometry a routed run must clear just
+// like the card body: the layout positions the node by its CARD box (the inner
+// rectangle; unitToRFNode shifts by the frame origin) and the pads below reach
+// CHAMFER past it, far short of the plates, so a lane that clears the card can
+// still slice a plate -- the coupon-web event-chain plan drew two far-member
+// jogs through gas-environment slabs exactly there, in the band between the
+// card's model box and its frame. The obstacle providers below therefore grow
+// an environment recipe's box out to the frame's outer rectangle: the same box
+// ELK was handed (recipeUnitToElk grew it), the same one the drawn-rect audits
+// score (chipSeating's cardRectsFor), and the same treatment that file already
+// gives a chip ("or a chip seats on a plate"). Every other kind grows by zero
+// and keeps its byte-identical obstacle rect.
+function envFrameGrowth(node: RFAnyNode): {
+  left: number;
+  top: number;
+  right: number;
+  bottom: number;
+} {
+  if (node.type !== "recipe") return { left: 0, top: 0, right: 0, bottom: 0 };
+  if (node.data.recipe.environment === undefined) {
+    return { left: 0, top: 0, right: 0, bottom: 0 };
+  }
+  return { ...ENV_FRAME_EXTENTS };
+}
+
 export function paddedObstacles(
   nodes: ReadonlyArray<RFAnyNode>,
   edges: ReadonlyArray<Edge>,
@@ -1507,11 +1535,12 @@ export function paddedObstacles(
   for (const node of nodes) {
     const left = absoluteLeft(node, byId);
     const top = absoluteTop(node, byId);
+    const env = envFrameGrowth(node);
     out.push({
-      left: left - OBSTACLE_PAD_LEFT,
-      right: left + nodeWidth(node) + OBSTACLE_PAD_RIGHT,
-      top: top - OBSTACLE_PAD_Y,
-      bottom: top + nodeHeight(node) + OBSTACLE_PAD_Y,
+      left: left - env.left - OBSTACLE_PAD_LEFT,
+      right: left + nodeWidth(node) + env.right + OBSTACLE_PAD_RIGHT,
+      top: top - env.top - OBSTACLE_PAD_Y,
+      bottom: top + nodeHeight(node) + env.bottom + OBSTACLE_PAD_Y,
       kind: "card",
       nodeId: node.id,
       container: node.type === "group" || node.type === "loop",
@@ -1619,17 +1648,21 @@ export function clearColumnX(
 // side-keeping fallback below resolves against these when no fully padded-clear
 // column exists: a run that at least threads the raw gaps never slices a card
 // the user sees, even where sibling paddings overlap and the padded model calls
-// the whole corridor blocked.
+// the whole corridor blocked. "What the user sees" includes an environment
+// recipe's plates, so these grow by envFrameGrowth too -- the raw tier is the
+// last line before a degrade, and a rail parked RAW_GAP off the card box would
+// still sit inside the frame band the coupon-web jog family pierced.
 function rawCardRects(nodes: ReadonlyArray<RFAnyNode>): PaddedObstacle[] {
   const byId = nodeIndexOf(nodes);
   return nodes.map((node) => {
     const left = absoluteLeft(node, byId);
     const top = absoluteTop(node, byId);
+    const env = envFrameGrowth(node);
     return {
-      left,
-      right: left + nodeWidth(node),
-      top,
-      bottom: top + nodeHeight(node),
+      left: left - env.left,
+      right: left + nodeWidth(node) + env.right,
+      top: top - env.top,
+      bottom: top + nodeHeight(node) + env.bottom,
       kind: "card" as const,
       nodeId: node.id,
       // Same container tag paddedObstacles stamps: the raw-fallback tiers read

@@ -173,6 +173,7 @@ function runSolvePipeline(
   rawPack: RecipePack,
   itemOverrides: ItemOverride[] | undefined,
   recipeCosts: Map<RecipeId, number> | undefined,
+  unavailableRecipeIds: ReadonlySet<RecipeId> | undefined,
 ): { full: SolvePlanFull; lpResult: LpResult; nettedPack: NettedPack } {
   // Everything below (graph walk, LP, replication, assembly, and the
   // nettedRecipeById map that feeds the render pipeline) must see the netted
@@ -184,12 +185,18 @@ function runSolvePipeline(
     pack.recipes.map((r) => [r.id, r]),
   ) as NettedRecipeMap;
 
-  const g = buildRecipeGraphMulti(targets, pack, itemOverrides);
+  const g = buildRecipeGraphMulti(
+    targets,
+    pack,
+    itemOverrides,
+    unavailableRecipeIds,
+  );
   const lpResult = solveLp({
     targets,
     pack,
     itemOverrides: itemOverrides ?? [],
     ...(recipeCosts !== undefined && { recipeCosts }),
+    ...(unavailableRecipeIds !== undefined && { unavailableRecipeIds }),
   });
   assertSolvable(lpResult.status, targets, itemOverrides);
   const rates = lpResult.rates;
@@ -204,7 +211,13 @@ function runSolvePipeline(
   // Close graph membership over the LP support before any graph-derived
   // structure is computed: a disposal absorber the LP runs is unreachable from
   // the target cone and would otherwise be missing from the render entirely.
-  const augmented = augmentGraphWithLpSupport(g, rates, pack, itemOverrides);
+  const augmented = augmentGraphWithLpSupport(
+    g,
+    rates,
+    pack,
+    itemOverrides,
+    unavailableRecipeIds,
+  );
   const sccs = tarjanScc(g);
   const c = condense(g, sccs);
   if (import.meta.env.DEV && augmented.size > 0) {
@@ -286,18 +299,25 @@ function runSolvePipeline(
  * Solve a plan and return the assembled LogicalGraph together with the
  * intermediate artifacts the render pipeline (cluster, expand, bisim, render)
  * needs. Runs the reference-free invariant assertions in dev/test builds.
+ *
+ * `unavailableRecipeIds` is app-level availability state (#144): recipe ids
+ * switched off for this solve, treated like the extraction ban (no LP variable,
+ * skipped in the graph walk). Defaults empty. It is deliberately NOT a recipe
+ * cost or a plan field - it never rides the wire.
  */
 export function solvePlanWithIntermediates(
   targets: ReadonlyArray<ItemTarget>,
   pack: RecipePack,
   itemOverrides?: ItemOverride[],
   recipeCosts?: Map<RecipeId, number>,
+  unavailableRecipeIds?: ReadonlySet<RecipeId>,
 ): SolvePlanFull {
   const { full, lpResult, nettedPack } = runSolvePipeline(
     targets,
     pack,
     itemOverrides,
     recipeCosts,
+    unavailableRecipeIds,
   );
 
   if (import.meta.env.DEV) {
