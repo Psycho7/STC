@@ -224,11 +224,16 @@ export const HOVER_INTENT_MS = 150;
 // is a 124px content column plus 10px of padding per side, a 1px border and the
 // 3px accent border the direction modifier swaps in on one edge, which is why the
 // card-growth table treats a product's model box as already including its border.
-// PRODUCT_HEIGHT is kept tight to the actual ProductNode chrome (icon row + rate
-// row + padding) so that React Flow's default Handle position of top:50% falls
-// inside the visible card instead of below it.
+// PRODUCT_HEIGHT is the drawn height of that chrome, summed from canvas.css:
+// 2x1px border + 8px top and 9px bottom padding + the 28px head (the item
+// sprite, taller than the name's 16px line) + the 4px column gap + the rate
+// row's 2px margin and 18px line. The card lost its caption row with ruling
+// I5/I10, and the constant gave up the slack it used to carry over the drawn
+// box along with it (78 -> 71). Equality with the drawn box is what
+// puts React Flow's default top:50% handle on the port y the layout model
+// assigns; test/canvas/ProductNode.test.tsx re-derives it from the stylesheet.
 export const PRODUCT_WIDTH = 148;
-export const PRODUCT_HEIGHT = 78;
+export const PRODUCT_HEIGHT = 71;
 
 // Top padding ELK reserves inside a container so a member card flush against the
 // corner cannot cover the slab's caption strip. Must stay at or above the
