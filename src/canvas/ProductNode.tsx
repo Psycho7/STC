@@ -7,6 +7,13 @@ import type { RationalString } from "../pipeline/types";
 import { PortGlyph } from "./PortGlyph";
 import { useItemPack } from "./itemPackContext";
 import type { CatalystBreakdown, PortTransportKinds } from "./layout";
+import { elideName } from "./elide";
+import {
+  measureTextWidth,
+  useFontMetrics,
+  widthFnFor,
+  type MeasuredFont,
+} from "./measureText";
 import { iconPosition } from "./iconSprite";
 import { Sprite } from "./RecipeNode";
 
@@ -129,6 +136,32 @@ function buildPnNameTitle(data: ProductNodeData, i18n: I18nIndex): string {
   return [name, ...lines].join("\n");
 }
 
+// Name-row budget of a catalyst boundary card, pinned to canvas.css:
+// .product-node is a 124px content column (the PRODUCT_WIDTH box less its 10px
+// of side padding, the 1px border and the 3px accent tab), the head row spends
+// 28px on the item sprite and 8px of gap, and the CATALYST badge rides the
+// name's own line box with a 6px margin and 10px of chrome (2x4px padding +
+// 2x1px border) around its measured text. The visible name elides against
+// whatever is left, so the row keeps fitting the way every other elided
+// surface does (assumption A4); the width estimates err high, so the elision
+// errs early -- the safe direction for a line that must not overflow.
+const PN_NAME_COLUMN_PX = 124;
+const PN_HEAD_SPRITE_PX = 28;
+const PN_HEAD_GAP_PX = 8;
+const PN_NAME_FONT: MeasuredFont = {
+  fontSize: 12,
+  weight: 700,
+  family: "--font-ui",
+};
+const PN_BADGE_FONT: MeasuredFont = {
+  fontSize: 9,
+  weight: 500,
+  family: "--font-mono",
+  letterSpacingEm: 0.05,
+};
+const PN_BADGE_GAP_PX = 6;
+const PN_BADGE_CHROME_PX = 10;
+
 function chromeClasses(data: ProductNodeData): string {
   if (data.kind === "inputProduct") {
     // A fanout slice is a derived view of the item's aggregate card, not an
@@ -150,6 +183,10 @@ export default function ProductNode({
 }: NodeProps<ProductNodeType>) {
   const i18n = useI18n();
   const { itemById } = useItemPack();
+  // Re-render when the resolved faces arrive: the badge measurement and the
+  // name elision below answer to the metrics in effect, and a face landing
+  // late changes both.
+  useFontMetrics();
   const item = itemById.get(data.itemId);
   const displayName = i18n.displayName(data.itemId);
   const nameTitle = buildPnNameTitle(data, i18n);
@@ -160,6 +197,29 @@ export default function ProductNode({
 
   // Direction and classification, spoken rather than drawn.
   const ariaLabel = buildPnAriaLabel(data, item, i18n);
+
+  // The catalyst boundary card's one drawn word (ruling R3): a yellow boxed
+  // CATALYST after the name. It is aria-hidden because the spoken label above
+  // already names the pool, and the visible name gives way to it: its elision
+  // budget is the name column less the badge's margin, chrome and measured
+  // text, so the pair fits the row the way an ordinary name fits its row.
+  const badgeText =
+    isInput && data.role === "catalyst"
+      ? i18n.t("inputs.catalyst.badge")
+      : null;
+  const visibleName =
+    badgeText === null
+      ? displayName
+      : elideName(
+          displayName,
+          PN_NAME_COLUMN_PX -
+            PN_HEAD_SPRITE_PX -
+            PN_HEAD_GAP_PX -
+            PN_BADGE_GAP_PX -
+            (measureTextWidth(badgeText, PN_BADGE_FONT) + PN_BADGE_CHROME_PX),
+          widthFnFor(PN_NAME_FONT),
+          "pn-name-12",
+        );
 
   // Primary rate. For inputs this is realized demand; for outputs the target or
   // surplus rate.
@@ -238,7 +298,16 @@ export default function ProductNode({
           <div />
         )}
         <div className="pn-name" title={nameTitle}>
-          {displayName}
+          {visibleName}
+          {badgeText !== null ? (
+            <span
+              className="pn-badge"
+              data-testid="pn-catalyst-badge"
+              aria-hidden="true"
+            >
+              {badgeText}
+            </span>
+          ) : null}
         </div>
       </div>
       <div className="pn-rate">

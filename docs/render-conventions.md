@@ -55,7 +55,9 @@ The catalyst rows are a block of their own, set off from the inputs above them b
 a hairline with half a row of air around it. They read at full ink, as important
 as the supplied rows, and each carries a TICKED accent tab in the item's hue
 where an input row carries a solid bar: the ladder, not a colour, is what says
-catalyst on this canvas. No word names the block. The rate reads like an input
+catalyst on this canvas -- rows and edges keep the item hue, and the boundary
+card's yellow tab and badge below are the canvas's one yellow. No word names the
+block. The rate reads like an input
 row's -- a bare number in the same trailing slot -- and states whole machines'
 worth of charge, `ceil(machines)` times the per-machine figure, since a machine
 takes its whole charge to start whether or not its last run is a full one. A card
@@ -67,9 +69,10 @@ A boundary card draws the item's name and its amount. Nothing else: no word on
 it names the card's direction, its provenance or its class. What kind of card it
 is reads off the drawing instead -- direction off the side the accent tab sits on
 and the column the card stands in, a tap off its dashed tab and the `of N/min`
-share under its figure, catalyst supply off a TICKED tab in the boundary cyan.
+share under its figure, catalyst supply off a TICKED tab in the catalyst yellow.
 The words are not lost, they ride the card's aria-label, so a screen reader still
-hears the direction and the class. Any of them drawn on the card is a defect.
+hears the direction and the class. Any of them drawn on the card is a defect --
+with the one exception the next paragraph names.
 
 Catalyst supply leaves the boundary on cards of its own, the `u:cat:<item>`
 family, never on the item's ordinary supply card: an item feeding both an input
@@ -77,7 +80,12 @@ row somewhere and a catalyst row elsewhere draws two boundary cards, and each
 card's rate counts only its own side. The catalyst family follows the ordinary
 one's shape -- a single card when one bucket takes the item, otherwise an
 aggregate card plus a tap slice per container. A cap typed on the catalyst
-supply draws its chip in the ordinary cap slot.
+supply draws its chip in the ordinary cap slot. The catalyst boundary card also
+carries the one word any boundary card draws: a small yellow boxed CATALYST
+badge after the item's name, so the pool reads at a glance and not only through
+the tab's pattern. It is the deliberate exception to the no-words rule above;
+the name gives way to it, eliding its tail like any over-long name, and no
+chip, recipe row or edge carries the word.
 
 Two pools answer the plan's catalyst need: the dedicated catalyst supply and
 whatever headroom the ordinary supply has left after its own consumers. So an
