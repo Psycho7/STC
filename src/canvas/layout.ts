@@ -1042,6 +1042,27 @@ export const ROUTING_PASSES: ReadonlyArray<{
   },
 ];
 
+// The drag-stop replay: the same left fold layoutRenderPlan's tail runs, over
+// live node positions and the stored post-ELK, pre-pass edges. App keeps the
+// pristine array beside `gaps` for exactly this call (ruling R1: a drop re-runs
+// the routing passes; nothing re-routes per frame). Replaying from baseEdges
+// rather than the routed edges avoids having to un-stamp the hint keys and
+// un-retype bus edges, and cannot drift from a fresh layout. Because
+// deconflictChipAnchors is the last entry of ROUTING_PASSES, chips, junction
+// dots and crossing cues re-seat on the fresh route in the same call.
+export function rerouteEdges(
+  nodes: ReadonlyArray<RFAnyNode>,
+  baseEdges: RFEdge[],
+  ctx?: RoutingCtx,
+): RFEdge[] {
+  // Left fold over the passes: every pass sees the SAME nodes array, never a
+  // re-derived one, plus the previous pass's output edges.
+  return ROUTING_PASSES.reduce<RFEdge[]>(
+    (routed, pass) => pass.run(nodes, routed, ctx),
+    baseEdges,
+  );
+}
+
 // layoutRenderPlan: one elk.layout() call per cycle.
 
 const elk = new ELK();
@@ -1050,6 +1071,10 @@ export async function layoutRenderPlan(input: LayoutInput): Promise<{
   nodes: RFAnyNode[];
   edges: RFEdge[];
   gaps: ReadonlyArray<GapRecord>;
+  // Post-ELK, pre-pass, pre-retype: the array the routing fold starts from,
+  // handed back so App can store it and replay the fold at drag-stop (see
+  // rerouteEdges).
+  baseEdges: RFEdge[];
 }> {
   const elkGraph = renderPlanToElkGraph(input);
   const laid = (await elk.layout(elkGraph)) as ElkGraph;
@@ -1062,15 +1087,10 @@ export async function layoutRenderPlan(input: LayoutInput): Promise<{
       ? { nodes: placed.nodes, gaps: [] as GapRecord[] }
       : LAYOUT_PREPASS.run(placed.nodes, placed.edges);
   const { nodes, gaps } = widened;
-  // Left fold over the passes: every pass sees the SAME nodes array the
-  // pre-pass returned (final absolute positions), never a re-derived one, plus
-  // the previous pass's output edges.
   return {
     nodes,
     gaps,
-    edges: ROUTING_PASSES.reduce<RFEdge[]>(
-      (routed, pass) => pass.run(nodes, routed, { gaps }),
-      placed.edges,
-    ),
+    edges: rerouteEdges(nodes, placed.edges, { gaps }),
+    baseEdges: placed.edges,
   };
 }

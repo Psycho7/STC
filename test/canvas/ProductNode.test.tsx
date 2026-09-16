@@ -220,46 +220,53 @@ describe("ProductNode", () => {
     ).toBe("输出, 过剩");
   });
 
-  it("renders the realized rate primary row (no uncapped literal, no cap chip) when rateCap is absent", () => {
-    const { container } = renderProduct(
-      {
-        kind: "inputProduct",
-        itemId: "copper_ore",
-        rate: { num: "2", denom: "1" },
-      },
-      [makeItem("copper_ore", true)],
-    );
-    const rate = container.querySelector(".pn-rate");
-    expect(rate).not.toBeNull();
-    // 2/s * 60 = 120/min; rendered as primary content with /min unit.
-    expect(rate?.textContent).toBe("120/min");
-    expect(rate?.querySelector(".unit")?.textContent).toBe("/min");
-    // No cap chip when rateCap is absent.
-    expect(rate?.querySelector(".pn-rate__cap")).toBeNull();
-    // Guard against the deleted "uncapped" branch.
-    expect(rate?.classList.contains("uncapped")).toBe(false);
-    expect(container.textContent ?? "").not.toContain("uncapped");
-  });
-
-  it("renders the rate primary row plus the cap chip when rateCap is set", () => {
+  // The general rule (ruling R9): the cap chip is dropped outright, so a card
+  // with rateCap set renders the exact DOM of one without, and the realized
+  // rate stands alone as the primary row.
+  it("renders the realized rate primary row and never a cap chip", () => {
+    const cardHtml = (rateCap: { num: string; denom: string } | undefined) => {
+      const { container } = renderProduct(
+        rateCap === undefined
+          ? {
+              kind: "inputProduct",
+              itemId: "copper_ore",
+              rate: { num: "4", denom: "1" },
+            }
+          : {
+              kind: "inputProduct",
+              itemId: "copper_ore",
+              rate: { num: "4", denom: "1" },
+              rateCap,
+            },
+        [makeItem("copper_ore", true)],
+      );
+      const html =
+        container.querySelector("[data-testid='product-node']")?.innerHTML ??
+        "";
+      cleanup();
+      return html;
+    };
+    const uncapped = cardHtml(undefined);
+    expect(cardHtml({ num: "1", denom: "2" })).toBe(uncapped);
     const { container } = renderProduct(
       {
         kind: "inputProduct",
         itemId: "copper_ore",
         rate: { num: "4", denom: "1" },
-        rateCap: { num: "4", denom: "1" },
+        rateCap: { num: "1", denom: "2" },
       },
       [makeItem("copper_ore", true)],
     );
     const rate = container.querySelector(".pn-rate");
-    expect(rate?.classList.contains("uncapped")).toBe(false);
-    // Primary rate text: 4/s * 60 = 240/min.
-    expect(rate?.textContent).toContain("240/min");
+    expect(rate).not.toBeNull();
+    // 4/s * 60 = 240/min; rendered as primary content with /min unit.
+    expect(rate?.textContent).toBe("240/min");
     expect(rate?.querySelector(".unit")?.textContent).toBe("/min");
-    // Secondary cap chip carries the per-min cap value.
-    const cap = rate?.querySelector(".pn-rate__cap");
-    expect(cap).not.toBeNull();
-    expect(cap?.textContent).toContain("240");
+    // The unit span is the row's only child: no secondary chip element.
+    expect(rate?.querySelectorAll("span")).toHaveLength(1);
+    // Guard against the deleted "uncapped" branch.
+    expect(rate?.classList.contains("uncapped")).toBe(false);
+    expect(container.textContent ?? "").not.toContain("uncapped");
   });
 
   it("renders a fanout slice with tap chrome and the parent share", () => {
@@ -394,20 +401,6 @@ describe("ProductNode", () => {
           .querySelector("[data-testid='product-node']")
           ?.hasAttribute("data-role"),
       ).toBe(false);
-    });
-
-    it("keeps the cap chip in the slot an ordinary capped card uses", () => {
-      const { container } = renderProduct(
-        catalystData({ rateCap: { num: "1", denom: "2" } }),
-        [makeItem("gas_xiranite", true)],
-      );
-      const rate = container.querySelector(".pn-rate");
-      const cap = rate?.querySelector(".pn-rate__cap");
-      expect(cap?.textContent).toContain("30");
-      // Same seat as an ordinary card: last child of .pn-rate, straight after
-      // the primary rate's unit span.
-      expect(rate?.lastElementChild).toBe(cap);
-      expect(cap?.previousElementSibling?.className).toBe("unit");
     });
 
     it("appends the pool breakdown to the name tooltip of an aggregate or single card", () => {

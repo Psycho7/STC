@@ -21,7 +21,8 @@ import { Sprite } from "./RecipeNode";
 // `flavor` for outputs) to pick the look and handle direction:
 //  - inputProduct (cyan): one right-side source handle for downstream consumer
 //    recipes. `rate` is the realized demand, always present; `rateCap` is an
-//    optional user-set cap shown as a secondary chip.
+//    optional user-set cap carried as data only — it draws nothing (ruling
+//    R9), so capped and uncapped cards look identical.
 //  - outputProduct, "target" (lime): one left-side target handle for upstream
 //    producer recipes. `rate` always present.
 //  - outputProduct, "surplus" (amber): same shape as target, for byproducts
@@ -224,12 +225,6 @@ export default function ProductNode({
   // Primary rate. For inputs this is realized demand; for outputs the target or
   // surplus rate.
   const rateValue = formatRationalPerMin(data.rate);
-  // Secondary cap chip, inputs only. Present when the user set a finite
-  // ratePerSec via an ItemOverride.
-  const capValue =
-    isInput && data.rateCap !== undefined
-      ? formatRationalPerMin(data.rateCap)
-      : null;
   // Share of the parent aggregate, fanout slices only: "of <total>/min" points
   // the reader back at the source card this tap draws from.
   const shareOf =
@@ -313,11 +308,6 @@ export default function ProductNode({
       <div className="pn-rate">
         {rateValue}
         <span className="unit">{i18n.t("canvas.rate.unit")}</span>
-        {capValue !== null ? (
-          <span className="pn-rate__cap">
-            {i18n.t("inputs.rate.cap", { rate: capValue })}
-          </span>
-        ) : null}
         {shareOf !== null ? (
           <span className="pn-rate__of">
             {i18n.t("product.tap.share", { rate: shareOf })}

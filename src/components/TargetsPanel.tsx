@@ -1,16 +1,21 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+// Aliased: the bare name would shadow the DOM MouseEvent the Add handler below
+// is typed against.
+import type { MouseEvent as ReactMouseEvent } from "react";
 import type { RecipePack } from "@aef/schema";
-import type { Target } from "../data/targets";
+import type { RationalString, Target } from "../data/targets";
 import { useI18n } from "../data/i18n-context";
 import { producibleItemIds } from "../data/recipe-category";
-import {
-  parsePerMinToRatePerSec,
-  ratePerSecToPerMin,
-} from "../data/rate-format";
+import { ratePerSecToPerMin } from "../data/rate-format";
 import { computeItemDepths } from "../data/recipe-depth";
-import { iconIdForItem, iconPosition } from "../canvas/iconSprite";
+import {
+  iconIdForItem,
+  iconPosition,
+  iconSheetUrl,
+} from "../canvas/iconSprite";
 import { Sprite } from "../canvas/RecipeNode";
 import { ItemPickerPopup } from "./ItemPickerPopup";
+import { RatePromptPopup } from "./RatePromptPopup";
 import { useRateEdit } from "./useRateEdit";
 
 type PendingFocus = { itemId: string; kind: "rate" | "trigger" };
@@ -61,26 +66,29 @@ export function TargetsPanel({
     const cohorts = [...new Set(eventOffItems.values())].sort().join(" · ");
     return i18n.t("picker.event.off", { cohorts });
   }, [eventOffItems, pickableItems, i18n]);
-  // Which row/draft the picker popup is open for, plus the trigger button that
-  // opened it so focus can return there on close.
+  // Which row the row-swap picker popup is open for, or that Add opened the
+  // picker directly (R4), plus the trigger button that opened it so focus can
+  // return there on close.
   const [pickerFor, setPickerFor] = useState<
-    { kind: "row"; itemId: string } | { kind: "draft"; draftId: string } | null
+    { kind: "row"; itemId: string } | { kind: "add" } | null
   >(null);
+  // The item whose amount prompt (R4) is open. Picking in the add picker
+  // closes it and opens this, so only one popup is ever mounted.
+  const [prompt, setPrompt] = useState<{ itemId: string } | null>(null);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   function closePicker() {
     setPickerFor(null);
     const btn = triggerRef.current;
     triggerRef.current = null;
-    // The trigger may have been removed (a promoted draft, or a row swapped
-    // onto another item - rows are keyed by itemId), so guard the focus. The
-    // removed cases hand focus to the replacement row through the
-    // pending-focus token below instead.
+    // The trigger may have been removed (a row swapped onto another item -
+    // rows are keyed by itemId), so guard the focus. The removed case hands
+    // focus to the replacement row through the pending-focus token below.
     if (btn && document.contains(btn)) btn.focus();
   }
-  // Armed by a pick or a draft promotion, consumed by the matching row's
+  // Armed by a row swap or an add confirm, consumed by the matching row's
   // callback ref on the next commit (the InputsPanel token, same rules): a
-  // swap or promotion unmounts the element that held focus, so the token
-  // hands it to the replacement row.
+  // swap unmounts the element that held focus, and a fresh add must hand it
+  // to the new row's rate input.
   const pendingFocus = useRef<PendingFocus | null>(null);
   // The token lives for exactly one commit: ref callbacks run before effects,
   // so a consumed token is already null here and an unapplied one is dropped
@@ -150,56 +158,39 @@ export function TargetsPanel({
     });
   }
 
-  // Clicking Add creates a local draft row instead of committing an arbitrary
-  // first-pack-order item at rate 0. A draft never touches the plan until it
-  // has both a chosen item and a committed nonzero rate; drafts are local
-  // state, so navigation (which remounts the panel) drops them.
-  const [drafts, setDrafts] = useState<
-    Array<{ id: string; itemId: string; rate: string; invalid?: boolean }>
-  >([]);
-  const draftSeq = useRef(0);
-
-  function handleAdd() {
-    const id = `draft:${draftSeq.current++}`;
-    setDrafts((prev) => [...prev, { id, itemId: "", rate: "" }]);
+  // R4: Add opens the item picker directly. The picked item's amount is asked
+  // in the prompt that follows the pick; nothing commits until a positive rate
+  // confirms there (R6), so no draft row ever exists.
+  function handleAdd(e: ReactMouseEvent<HTMLButtonElement>) {
+    triggerRef.current = e.currentTarget;
+    setPickerFor({ kind: "add" });
   }
 
-  function removeDraft(id: string) {
-    setDrafts((prev) => prev.filter((d) => d.id !== id));
+  // The add prompt confirmed a rate. The row commits exactly once (the picker
+  // disables already-targeted items, so the guard is belt and braces), and the
+  // pending-focus token hands focus to the new row's rate input.
+  function confirmPromptRate(rate: RationalString | undefined) {
+    const itemId = prompt?.itemId;
+    // The "invalid" mode never confirms without a rate; the guard only tells
+    // the type system that.
+    if (itemId === undefined || rate === undefined) return;
+    pendingFocus.current = { itemId, kind: "rate" };
+    onChange((current) =>
+      current.some((t) => t.itemId === itemId)
+        ? current
+        : [...current, { itemId, ratePerSec: rate }],
+    );
+    triggerRef.current = null;
+    setPrompt(null);
   }
 
-  // Apply an edited draft: promote it into a real target once it carries an
-  // item and a committed nonzero rate (dropping the draft), otherwise just
-  // store the updated draft. A nonzero rate is required so an empty or 0 draft
-  // never churns a re-solve for a row that renders nothing.
-  function applyDraft(next: {
-    id: string;
-    itemId: string;
-    rate: string;
-    invalid?: boolean;
-  }) {
-    const parsed = parsePerMinToRatePerSec(next.rate);
-    const ready =
-      next.itemId !== "" && parsed !== undefined && parsed.num !== "0";
-    if (ready) {
-      // Promotion swaps the draft's inputs for the new row's, so hand the
-      // focus to the replacement rate input.
-      pendingFocus.current = { itemId: next.itemId, kind: "rate" };
-      onChange((current) =>
-        current.some((t) => t.itemId === next.itemId)
-          ? current
-          : [...current, { itemId: next.itemId, ratePerSec: parsed }],
-      );
-      removeDraft(next.id);
-    } else {
-      // Cue an unparseable non-empty rate the way a committed row does. Empty
-      // text stays quiet (a fresh draft blurs constantly), and so does the
-      // pinned zero-rate refusal, whose cue still needs a ruling.
-      const invalid = next.rate.trim() !== "" && parsed === undefined;
-      setDrafts((prev) =>
-        prev.map((d) => (d.id === next.id ? { ...next, invalid } : d)),
-      );
-    }
+  // R7: cancelling the prompt cancels the whole add - nothing committed, and
+  // focus returns to the Add button that started it.
+  function cancelPrompt() {
+    setPrompt(null);
+    const btn = triggerRef.current;
+    triggerRef.current = null;
+    if (btn && document.contains(btn)) btn.focus();
   }
 
   return (
@@ -295,166 +286,77 @@ export function TargetsPanel({
           </div>
         );
       })}
-      {drafts.map((draft) => {
-        const iconId =
-          draft.itemId !== "" ? iconIdForItem(draft.itemId) : undefined;
-        const iconPos = iconPosition(iconId);
-        return (
-          <div key={draft.id} className="b-row" data-testid="target-draft-row">
-            <span className={"slot" + (iconPos === undefined ? " empty" : "")}>
-              <Sprite iconId={iconId} size={40} />
-            </span>
-            <div className="info">
-              <span className="b-pick">
-                <button
-                  type="button"
-                  className={
-                    "b-pick-trigger" +
-                    (draft.itemId === "" ? " placeholder" : "")
-                  }
-                  // An empty draft has no item to name, so it keeps the
-                  // call-to-action string; once picked it names the item like a
-                  // target row's trigger does.
-                  aria-label={
-                    draft.itemId !== ""
-                      ? i18n.t("item.selected", {
-                          name: i18n.displayName(draft.itemId),
-                        })
-                      : i18n.t("targets.item.choose")
-                  }
-                  aria-haspopup="dialog"
-                  title={
-                    draft.itemId !== ""
-                      ? i18n.displayName(draft.itemId)
-                      : undefined
-                  }
-                  onClick={(e) => {
-                    triggerRef.current = e.currentTarget;
-                    setPickerFor({ kind: "draft", draftId: draft.id });
-                  }}
-                >
-                  {draft.itemId !== ""
-                    ? i18n.displayName(draft.itemId)
-                    : i18n.t("targets.item.choose")}
-                </button>
-              </span>
-            </div>
-            <div className="b-rate">
-              <input
-                type="text"
-                inputMode="decimal"
-                aria-label={i18n.t("targets.rate.label")}
-                aria-invalid={draft.invalid === true ? true : undefined}
-                aria-describedby={
-                  draft.invalid === true ? `t-rate-err-${draft.id}` : undefined
-                }
-                className={draft.invalid === true ? "invalid" : undefined}
-                value={draft.rate}
-                onChange={(e) =>
-                  setDrafts((prev) =>
-                    prev.map((d) =>
-                      d.id === draft.id
-                        ? // Typing clears the cue; the value is re-checked on
-                          // the next apply, like the committed-row protocol.
-                          { ...d, rate: e.target.value, invalid: false }
-                        : d,
-                    ),
-                  )
-                }
-                onBlur={() => applyDraft(draft)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") applyDraft(draft);
-                }}
-              />
-              <span className="unit">{i18n.t("targets.rate.unit")}</span>
-              {draft.invalid === true ? (
-                <span
-                  className="b-rate-err"
-                  id={`t-rate-err-${draft.id}`}
-                  data-testid="rate-invalid"
-                >
-                  {i18n.t("rate.invalid")}
-                </span>
-              ) : null}
-            </div>
-            <button
-              className="b-remove"
-              data-testid="remove-draft"
-              onClick={() => removeDraft(draft.id)}
-              aria-label={i18n.t("targets.remove.label")}
-            >
-              ×
-            </button>
-          </div>
-        );
-      })}
       <button className="b-add" onClick={handleAdd}>
         {i18n.t("targets.add")}
       </button>
       {pickerFor !== null ? renderPicker() : null}
+      {prompt !== null ? (
+        <RatePromptPopup
+          item={{ id: prompt.itemId, name: i18n.displayName(prompt.itemId) }}
+          emptyMeans="invalid"
+          iconSheetUrl={iconSheetUrl}
+          onConfirm={confirmPromptRate}
+          onCancel={cancelPrompt}
+        />
+      ) : null}
     </div>
   );
 
   function renderPicker() {
     if (pickerFor === null) return null;
-    if (pickerFor.kind === "row") {
-      const rowId = pickerFor.itemId;
-      // The row may have gone (removed, or swapped by another commit) while the
-      // popup was open, the same guard the draft branch below carries: without
-      // it the popup highlights a tile for a row that no longer exists and a
-      // pick arms a focus token for a commit that can never apply.
-      if (!targets.some((t) => t.itemId === rowId)) return null;
-      // Disable items other targets or any draft already claim; the row's own
-      // item stays enabled and highlighted as selected. Off-cohort event items
+    if (pickerFor.kind === "add") {
+      // Items already targeted are disabled tiles. Off-cohort event items
       // (#144's T6) dim on top, like every other unavailable pick.
-      const disabledIds = new Set<string>([
-        ...targets.filter((t) => t.itemId !== rowId).map((t) => t.itemId),
-        ...drafts.map((d) => d.itemId).filter((id) => id !== ""),
-      ]);
+      const disabledIds = new Set<string>(targets.map((t) => t.itemId));
       for (const id of eventOffItems.keys()) disabledIds.add(id);
       return (
         <ItemPickerPopup
           items={pickableItems}
           disabledIds={disabledIds}
-          selectedId={rowId}
           tierByItemId={tierByItemId}
           disabledHint={eventOffHint}
           onPick={(newId) => {
-            // Re-picking the row's own (still-enabled, highlighted) item is a
-            // confirm, not a swap; without this guard the dup check would match
-            // the row itself and raise a false duplicate alert.
-            if (newId !== rowId) {
-              // The swap unmounts this row (rows are keyed by itemId), so
-              // closePicker's refocus lands on a button the next commit
-              // removes. Hand focus to the swapped row's trigger instead.
-              pendingFocus.current = { itemId: newId, kind: "trigger" };
-              handleItemChange(rowId, newId);
-            }
-            closePicker();
+            // The prompt takes focus when it opens (its rate input
+            // autofocuses), so the trigger is not refocused here; it stays
+            // stashed for the prompt's cancel path (R7).
+            setPickerFor(null);
+            setPrompt({ itemId: newId });
           }}
           onClose={closePicker}
         />
       );
     }
-    const draft = drafts.find((d) => d.id === pickerFor.draftId);
-    // The draft may have vanished (promoted or removed) before the popup closed.
-    if (!draft) return null;
-    const disabledIds = new Set<string>([
-      ...targets.map((t) => t.itemId),
-      ...drafts
-        .filter((d) => d.id !== draft.id && d.itemId !== "")
-        .map((d) => d.itemId),
-    ]);
+    const rowId = pickerFor.itemId;
+    // The row may have gone (removed, or swapped by another commit) while the
+    // popup was open: without this guard the popup highlights a tile for a row
+    // that no longer exists and a pick arms a focus token for a commit that
+    // can never apply.
+    if (!targets.some((t) => t.itemId === rowId)) return null;
+    // Disable items other targets already claim; the row's own item stays
+    // enabled and highlighted as selected. Off-cohort event items (#144's T6)
+    // dim on top, like every other unavailable pick.
+    const disabledIds = new Set<string>(
+      targets.filter((t) => t.itemId !== rowId).map((t) => t.itemId),
+    );
     for (const id of eventOffItems.keys()) disabledIds.add(id);
     return (
       <ItemPickerPopup
         items={pickableItems}
         disabledIds={disabledIds}
-        selectedId={draft.itemId || undefined}
+        selectedId={rowId}
         tierByItemId={tierByItemId}
         disabledHint={eventOffHint}
         onPick={(newId) => {
-          applyDraft({ ...draft, itemId: newId });
+          // Re-picking the row's own (still-enabled, highlighted) item is a
+          // confirm, not a swap; without this guard the dup check would match
+          // the row itself and raise a false duplicate alert.
+          if (newId !== rowId) {
+            // The swap unmounts this row (rows are keyed by itemId), so
+            // closePicker's refocus lands on a button the next commit
+            // removes. Hand focus to the swapped row's trigger instead.
+            pendingFocus.current = { itemId: newId, kind: "trigger" };
+            handleItemChange(rowId, newId);
+          }
           closePicker();
         }}
         onClose={closePicker}

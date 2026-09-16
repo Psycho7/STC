@@ -17,10 +17,9 @@ import {
 import Canvas, { type CanvasStatus } from "./canvas/Canvas";
 import { TargetsPanel } from "./components/TargetsPanel";
 import { InputsPanel } from "./components/InputsPanel";
-import type { RFAnyNode } from "./canvas/layout";
+import { rerouteEdges, type RFAnyNode } from "./canvas/layout";
 import { layoutSolved } from "./canvas/layoutSolved";
 import type { GapRecord } from "./canvas/layerModel";
-import { reseatChips } from "./canvas/chipSeating";
 import { buildRealizedRateByItem } from "./canvas/realizedRateByItem";
 import {
   describePlanLoadError,
@@ -300,15 +299,25 @@ function AppInner() {
   }, [plan]);
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
-  // The layout's inter-layer gap reserves, kept only to hand to the canvas for
-  // the exam hook. Nothing the app draws reads them.
+  // The layout's inter-layer gap reserves. The canvas reads them for the exam
+  // hook, and the drag-stop replay below routes against them as the RoutingCtx
+  // (widenLayerGaps is not re-run at drag-stop, so a drag that changes a node's
+  // layer membership routes against slightly stale gap records; accepted).
   const [gaps, setGaps] = useState<ReadonlyArray<GapRecord>>([]);
-  // The seating pass is layout-time, so a drop re-seats every chip.
+  // The post-ELK, pre-pass edges the current render was routed from. A drop
+  // replays the routing passes from this pristine array rather than the routed
+  // one, so the replay cannot drift from a fresh layout and no hint key has to
+  // be un-stamped.
+  const [baseEdges, setBaseEdges] = useState<Edge[]>([]);
+  // A drop re-runs the routing passes over the live node positions (ruling R1:
+  // replay at drag-stop, no per-frame re-route). The last pass
+  // (deconflictChipAnchors) re-seats chips, junction dots and crossing cues on
+  // the fresh route in the same call.
   const handleNodeDragStop = useCallback(
     (liveNodes: Node[]) => {
-      setEdges((prev) => reseatChips(liveNodes as RFAnyNode[], prev));
+      setEdges(rerouteEdges(liveNodes as RFAnyNode[], baseEdges, { gaps }));
     },
-    [setEdges],
+    [setEdges, baseEdges, gaps],
   );
   // `pending` is true while a solve + layout generation is in flight. It drives
   // the header status chip and the canvas status annotation (SOLVING), so both
@@ -500,6 +509,7 @@ function AppInner() {
         setNodes(laid.nodes as Node[]);
         setEdges(laid.edges);
         setGaps(laid.gaps);
+        setBaseEdges(laid.baseEdges);
         setUnderDelivered(solved.underDelivered);
         setLayoutGeneration((g) => g + 1);
         setPlanEpoch((e) => e + 1);
@@ -520,7 +530,7 @@ function AppInner() {
         }
       }
     },
-    [setNodes, setEdges, setGaps],
+    [setNodes, setEdges, setGaps, setBaseEdges],
   );
 
   // Recover from a damaged share link: drop the hash and load the default plan
@@ -571,6 +581,7 @@ function AppInner() {
         setNodes(laid.nodes as Node[]);
         setEdges(laid.edges);
         setGaps(laid.gaps);
+        setBaseEdges(laid.baseEdges);
         setUnderDelivered(solved.underDelivered);
         setLayoutGeneration((g) => g + 1);
         setMutationError(null);
@@ -587,7 +598,7 @@ function AppInner() {
         if (myGen === solveGen.current) setPending(false);
       }
     },
-    [setNodes, setEdges, setGaps, unavailable],
+    [setNodes, setEdges, setGaps, setBaseEdges, unavailable],
   );
 
   // Commit the plan (user intent) synchronously, then kick off the async
