@@ -1830,21 +1830,6 @@
   margin-left: 3px;
 }
 
-.pn-rate__cap {
-  display: inline-flex;
-  align-items: center;
-  line-height: 1;
-  margin-left: 6px;
-  padding: 1px 5px;
-  border: 1px solid var(--ak-divider);
-  font-family: var(--ak-font-mono);
-  font-size: 9px;
-  font-weight: 500;
-  font-style: italic;
-  letter-spacing: 0.05em;
-  color: var(--ak-text-secondary);
-}
-
 /* Per-consumer / per-container tap slice of a bussed raw input: a derived view
    of the aggregate source card, not another source. Dashed accent and a muted
    name keep it from being counted as an independent input; the share chip

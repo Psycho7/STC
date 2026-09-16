@@ -41,7 +41,6 @@ export type UiKey =
   | "canvas.rate.unit"
   | "canvas.catalyst.perMachine"
   | "inputs.rate.placeholder"
-  | "inputs.rate.cap"
   | "inputs.remove"
   | "inputs.remove.label"
   | "inputs.add"
@@ -152,7 +151,6 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "canvas.rate.unit": "/分",
     "canvas.catalyst.perMachine": "每台 {rate}/分",
     "inputs.rate.placeholder": "上限 / 分",
-    "inputs.rate.cap": "上限 {rate}/分",
     "inputs.remove": "移除",
     "inputs.remove.label": "移除输入行",
     "inputs.add": "添加输入",
@@ -257,7 +255,6 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "canvas.rate.unit": "/min",
     "canvas.catalyst.perMachine": "{rate}/min per machine",
     "inputs.rate.placeholder": "cap /min",
-    "inputs.rate.cap": "cap {rate}/min",
     "inputs.remove": "Remove",
     "inputs.remove.label": "Remove input row",
     "inputs.add": "Add input",
