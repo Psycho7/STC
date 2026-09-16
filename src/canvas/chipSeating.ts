@@ -36,7 +36,7 @@
 
 import type { Edge } from "@xyflow/react";
 
-import { ENV_FRAME_EXTENTS, GLYPH_SIDE_OFFSET } from "./dimensions";
+import { GLYPH_SIDE_OFFSET, frameExtentsOf } from "./dimensions";
 import {
   CHAMFER,
   cardClearRunAnchor,
@@ -236,7 +236,7 @@ function cardBorder(type: string | undefined): number {
 // frames two units apart on every recipe.
 //
 // One kind grows further: an environment recipe's frame rectangle (plates and
-// haze beyond the card box, ENV_FRAME_EXTENTS) is an obstacle too, or a chip
+// haze beyond the card box, frameExtentsOf) is an obstacle too, or a chip
 // seats on a plate. That growth is per-node, on top of the neutral
 // cardGrowth; the e2e card-frame criterion still compares the DRAWN card box
 // against the model box plus cardGrowth alone, which is what keeps proving
@@ -255,24 +255,14 @@ export function cardRectsFor(
     const left = absoluteLeft(n, byId);
     const top = absoluteTop(n, byId);
     const growth = cardGrowth(n.type);
-    const env = n.type === "recipe" && n.data.recipe.environment !== undefined;
-    if (!env) {
-      return {
-        id: n.id,
-        left,
-        top,
-        right: left + nodeWidth(n) + growth,
-        bottom: top + nodeHeight(n) + growth,
-        border: cardBorder(n.type),
-      };
-    }
+    const frame = frameExtentsOf(n);
     return {
       id: n.id,
-      left: left - ENV_FRAME_EXTENTS.left,
-      top: top - ENV_FRAME_EXTENTS.top,
-      right: left + nodeWidth(n) + growth + ENV_FRAME_EXTENTS.right,
-      bottom: top + nodeHeight(n) + growth + ENV_FRAME_EXTENTS.bottom,
-      border: cardBorder(n.type) + ENV_FRAME_EXTENTS.left,
+      left: left - frame.left,
+      top: top - frame.top,
+      right: left + nodeWidth(n) + growth + frame.right,
+      bottom: top + nodeHeight(n) + growth + frame.bottom,
+      border: cardBorder(n.type) + frame.left,
     };
   });
 }

@@ -279,8 +279,11 @@ test("handle and port glyph render inside their recipe row", () => {
 // A catalyst is supplied from the plan boundary, so its row carries a target
 // Handle in the `cat:` namespace and no transport glyph unless the port map
 // names a kind. The row declares the draw the way an input row does: the
-// aggregate across every machine, as a bare number.
-test("a catalyst renders a cat: port row carrying the aggregate draw", () => {
+// aggregate across every machine, as a bare number. The charge is per MACHINE,
+// though, so the aggregate counts whole machines: a card running 2.5 machines
+// holds three machines' worth, and the per-machine figure moves to the row's
+// tooltip.
+test("a catalyst renders a cat: port row carrying the whole-machine aggregate draw", () => {
   // qty 1 over a 10s cycle at speed 1 is the pack's 6/min catalyst draw.
   const recipe: Recipe = {
     ...RECIPE,
@@ -290,7 +293,7 @@ test("a catalyst renders a cat: port row carrying the aggregate draw", () => {
   const props = makeRecipeNodeProps({
     recipe,
     kind: "recipe",
-    multiplicity: { num: "3", denom: "1" },
+    multiplicity: { num: "5", denom: "2" },
   });
   const { container } = wrap(<RecipeNode {...props} />, packWithSpeed(1));
 
@@ -299,8 +302,10 @@ test("a catalyst renders a cat: port row carrying the aggregate draw", () => {
   const handles = row!.querySelectorAll<HTMLElement>("[data-handleid]");
   expect(handles.length).toBe(1);
   expect(handles[0]!.getAttribute("data-handleid")).toBe("cat:gas_xiranite");
-  // 6/min per machine at multiplicity 3, bare like the port rows.
+  // 2.5 machines hold three machines' charge: 3 * 6/min. The port rows below
+  // still scale by the fractional 2.5, so the two figures differ on purpose.
   expect(row!.querySelector(".rate")?.textContent).toBe("18");
+  expect(row!.getAttribute("title")).toBe("6/min per machine");
   // The port rows are untouched: the row adds one target handle on the left
   // and nothing on the right.
   expect(container.querySelectorAll('[data-handlepos="left"]').length).toBe(2);

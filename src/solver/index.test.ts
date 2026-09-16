@@ -473,6 +473,7 @@ describe("LP-split target item through replicate and render", () => {
       pack: p,
       targets,
       itemOverrides,
+      catalystAccount: full.catalystAccount,
     }).flatMap((r) => r.violations);
     expect(violations).toEqual([]);
 
@@ -522,6 +523,7 @@ describe("co-product target items through replicate and render", () => {
       pack: p,
       targets,
       itemOverrides: [],
+      catalystAccount: full.catalystAccount,
     }).flatMap((r) => r.violations);
     expect(violations).toEqual([]);
 
@@ -559,6 +561,7 @@ describe("co-product target items through replicate and render", () => {
       pack: p,
       targets,
       itemOverrides: [],
+      catalystAccount: full.catalystAccount,
     }).flatMap((r) => r.violations);
     expect(violations).toEqual([]);
 
@@ -595,6 +598,7 @@ describe("co-product target items through replicate and render", () => {
       pack,
       targets,
       itemOverrides: [],
+      catalystAccount: full.catalystAccount,
     }).flatMap((r) => r.violations);
     expect(violations).toEqual([]);
     const zero = new Fraction(0);
@@ -626,6 +630,7 @@ describe("free-boundary target items through render", () => {
       pack,
       targets,
       itemOverrides: [],
+      catalystAccount: full.catalystAccount,
     }).flatMap((r) => r.violations);
     expect(violations).toEqual([]);
 

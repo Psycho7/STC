@@ -1,7 +1,7 @@
 // End-to-end render corpus test.
 //
 // Known-good group: the four feasible closed-form micro-fixtures (chain,
-// multi-producer, byproduct, raw-draw) all pass the nine render invariants.
+// multi-producer, byproduct, raw-draw) all pass the ten render invariants.
 //
 // RF-1 regression: the real-pack plan in RF1_HASH has an internally balanced
 // intermediate iron_nugget whose render edge used to be dropped (surfaced as a
@@ -93,6 +93,7 @@ describe("render corpus: known-good fixtures pass all invariants", () => {
           pack: fixture.pack,
           targets: fixture.targets,
           itemOverrides: fixture.itemOverrides ?? [],
+          catalystAccount: full.catalystAccount,
         }),
       ).not.toThrow();
     });
@@ -117,6 +118,7 @@ describe("render corpus: RF-1 regression", () => {
       pack,
       targets,
       itemOverrides,
+      catalystAccount: full.catalystAccount,
     });
     const allViolations = results.flatMap((r) => r.violations);
     const ironNuggetViolations = allViolations.filter((v) =>
@@ -208,6 +210,7 @@ function sweepPlan(
     pack,
     targets,
     itemOverrides: [],
+    catalystAccount: full.catalystAccount,
   });
   for (const r of results) {
     for (const v of r.violations) {
@@ -295,6 +298,7 @@ describe("render corpus: raw-also-target boundary feed (1B regression)", () => {
       pack,
       targets,
       itemOverrides: [],
+      catalystAccount: full.catalystAccount,
     });
     return { plan, violations: results.flatMap((r) => r.violations) };
   }
@@ -386,6 +390,7 @@ function machineCountGaps(targets: Target[], packArg = pack) {
     pack: packArg,
     targets,
     itemOverrides: [],
+    catalystAccount: full.catalystAccount,
   });
   return { gaps, violations: results.flatMap((r) => r.violations) };
 }
@@ -454,6 +459,7 @@ describe("render corpus: tiny plan clears sub-unit checker tolerances", () => {
       pack,
       targets,
       itemOverrides: [],
+      catalystAccount: full.catalystAccount,
     }).flatMap((r) => r.violations);
     expect(violations).toEqual([]);
   });
@@ -650,6 +656,7 @@ describe("torn-arc regression: intra-SCC demand apportionment", () => {
         pack: legacyPack,
         targets,
         itemOverrides: [],
+        catalystAccount: full.catalystAccount,
       }).flatMap((r) => r.violations);
       expect(violations).toEqual([]);
 
@@ -677,6 +684,7 @@ describe("torn-arc regression: intra-SCC demand apportionment", () => {
       pack: legacyPack,
       targets,
       itemOverrides: [],
+      catalystAccount: full.catalystAccount,
     }).flatMap((r) => r.violations);
     expect(violations).toEqual([]);
 
@@ -756,6 +764,7 @@ describe("torn-arc coverage: back-edge tearing on witness plans", () => {
         pack,
         targets,
         itemOverrides: [],
+        catalystAccount: full.catalystAccount,
       }).flatMap((r) => r.violations);
       expect(violations).toEqual([]);
 
@@ -844,6 +853,7 @@ describe("render corpus: co-product fans across sibling replicas (P6)", () => {
       pack,
       targets: P6_TARGETS,
       itemOverrides: [],
+      catalystAccount: full.catalystAccount,
     });
     const xiranite = result.violations.filter((v) =>
       v.includes("liquid_xiranite"),
@@ -882,7 +892,7 @@ describe("render corpus: co-product fans across sibling replicas (P6)", () => {
     expect(shipped.equals(production)).toBe(true);
   });
 
-  // (iii) P6 is clean on all nine checkRenderPlan checkers today and must stay so.
+  // (iii) P6 is clean on all ten checkRenderPlan checkers today and must stay so.
   it("all checkRenderPlan checkers report zero violations", () => {
     const { full, plan } = solveP6();
     const violations = checkRenderPlan({
@@ -891,6 +901,7 @@ describe("render corpus: co-product fans across sibling replicas (P6)", () => {
       pack,
       targets: P6_TARGETS,
       itemOverrides: [],
+      catalystAccount: full.catalystAccount,
     }).flatMap((r) => r.violations);
     expect(violations).toEqual([]);
   });
@@ -1004,6 +1015,7 @@ describe("render corpus: target-edge spare aggregates per render unit (Bug 3)", 
       pack,
       targets,
       itemOverrides: [],
+      catalystAccount: full.catalystAccount,
     }).flatMap((r) => r.violations);
     expect(violations).toEqual([]);
   });
@@ -1063,6 +1075,7 @@ describe("render corpus: target-edge spare aggregates per render unit (Bug 3)", 
       pack: legacyPack,
       targets,
       itemOverrides: [],
+      catalystAccount: full.catalystAccount,
     }).flatMap((r) => r.violations);
     expect(violations).toEqual([]);
   });
@@ -1088,6 +1101,7 @@ describe("render corpus: target-edge spare aggregates per render unit (Bug 3)", 
       pack,
       targets: targets,
       itemOverrides: [],
+      catalystAccount: full.catalystAccount,
     });
     expect(outflow.violations).toEqual([]);
 
@@ -1097,6 +1111,7 @@ describe("render corpus: target-edge spare aggregates per render unit (Bug 3)", 
       pack,
       targets,
       itemOverrides: [],
+      catalystAccount: full.catalystAccount,
     }).flatMap((r) => r.violations);
     expect(violations).toEqual([]);
   });
@@ -1150,6 +1165,7 @@ describe("render corpus: torn-arc returns fan across sibling stamps (Bug 2b)", (
         pack,
         targets: targets,
         itemOverrides: [],
+        catalystAccount: full.catalystAccount,
       });
       expect(result.violations).toEqual([]);
     });
@@ -1194,8 +1210,8 @@ describe("render corpus: torn-arc returns fan across sibling stamps (Bug 2b)", (
       }
     });
 
-    // (iii) All nine checkRenderPlan checkers clean.
-    it(`${w.name}: all nine checkRenderPlan checkers report zero violations`, () => {
+    // (iii) All ten checkRenderPlan checkers clean.
+    it(`${w.name}: all ten checkRenderPlan checkers report zero violations`, () => {
       const { full, plan } = solveWitness();
       const results = checkRenderPlan({
         plan,
@@ -1203,8 +1219,9 @@ describe("render corpus: torn-arc returns fan across sibling stamps (Bug 2b)", (
         pack,
         targets,
         itemOverrides: [],
+        catalystAccount: full.catalystAccount,
       });
-      expect(results.length).toBe(9);
+      expect(results.length).toBe(10);
       expect(results.flatMap((r) => r.violations)).toEqual([]);
     });
   }

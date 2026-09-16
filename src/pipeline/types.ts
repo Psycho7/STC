@@ -158,6 +158,12 @@ export type RenderUnitInputProduct = {
   count: 1;
   rate: RationalString;
   rateCap?: RationalString;
+  // Set on the boundary nodes of the catalyst pool (`u:cat:<item>` and its
+  // container slices), which feed `cat:` ports only. Absent on an ordinary
+  // node, whose rate is ordinary consumption and never a cycled charge. The
+  // two pools of one item are accounted separately, so an item can carry a
+  // node of each.
+  role?: "catalyst";
   isFanout?: true;
   isAggregate?: true;
   // The parent aggregate's total realized rate, stamped on every fanout slice

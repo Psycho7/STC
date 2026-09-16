@@ -1,7 +1,8 @@
-// Catalyst rows draw from the item's boundary input node, so the render plan
-// carries one edge per (recipe unit, catalyst item) marked `toPortKind:
-// "catalyst"`, and the boundary node's rate covers ordinary consumption plus
-// the cycled draw. The draw is boundary supply no matter what the item is:
+// A cycled catalyst charge is drawn from a boundary node of its own,
+// `u:cat:<item>`, never from the item's ordinary `u:in:<item>` node. The render
+// plan carries one edge per (recipe unit, catalyst item) marked `toPortKind:
+// "catalyst"`, all of them leaving the catalyst node, and that node's rate is
+// the account's `need`. The draw is boundary supply no matter what the item is:
 // raw or not, produced in-plan or not, capped or not.
 //
 // vitest runs with import.meta.env.DEV = true, so the render driver's
@@ -12,26 +13,25 @@ import Fraction from "fraction.js";
 
 import { pack } from "../../data/load";
 import { solveForRender } from "../solveForRender";
+import type { SolveForRenderOutput } from "../solveForRender";
 import { checkRenderPlan } from "./invariants";
 import { rationalFromString } from "./rational";
 import { isInputProductUnit, isRecipeUnit } from "../types";
-import type { RenderPlan, RenderEdge } from "../types";
+import type { RenderPlan, RenderEdge, RenderUnitInputProduct } from "../types";
 import type { ItemTarget } from "../../data/targets";
+import type { ItemOverride } from "../../data/plan";
 
 const GAS_XIRANITE = "gas_xiranite";
 const LIQUID_XIRANITE = "liquid_xiranite";
 
-function assertClean(
-  plan: RenderPlan,
-  rates: ReadonlyMap<string, Fraction>,
-  targets: ItemTarget[],
-): void {
+function assertClean(out: SolveForRenderOutput): void {
   const violations = checkRenderPlan({
-    plan,
-    rates,
-    pack,
-    targets,
-    itemOverrides: [],
+    plan: out.plan,
+    rates: out.full.rates,
+    pack: out.pack,
+    targets: out.targets,
+    itemOverrides: out.itemOverrides,
+    catalystAccount: out.full.catalystAccount,
   }).flatMap((r) => r.violations);
   expect(violations).toEqual([]);
 }
@@ -42,32 +42,57 @@ function catalystEdgesInto(plan: RenderPlan, unitId: string): RenderEdge[] {
   );
 }
 
+function inputsForItem(
+  plan: RenderPlan,
+  itemId: string,
+): RenderUnitInputProduct[] {
+  return plan.units.filter(
+    (u): u is RenderUnitInputProduct =>
+      isInputProductUnit(u) && u.itemId === itemId,
+  );
+}
+
 function unitRate(plan: RenderPlan, unitId: string): Fraction {
   const unit = plan.units.find((u) => u.id === unitId);
   expect(unit, `no unit ${unitId}`).toBeDefined();
   expect(isInputProductUnit(unit!)).toBe(true);
-  return rationalFromString(
-    (unit as { rate: import("../types").RationalString }).rate,
-  );
+  return rationalFromString((unit as RenderUnitInputProduct).rate);
+}
+
+function sumRates(edges: ReadonlyArray<{ rate: Fraction }>): Fraction {
+  return edges.reduce((acc, e) => acc.add(e.rate), new Fraction(0));
+}
+
+// Every catalyst edge in the plan, with the node it leaves.
+function catalystEdges(plan: RenderPlan): RenderEdge[] {
+  return plan.edges.filter((e) => e.toPortKind === "catalyst");
 }
 
 describe("catalyst supply edges", () => {
   // The worked example: gas_xiranite feeds equipment scripts as an ordinary
-  // raw AND is cycled by every solid-gas transmuter the plan runs. The boundary
-  // node has to read the sum, 390/min ordinary + 78/min cycled = 468/min.
-  it("adds the catalyst draw to the boundary node rate on the worked example", () => {
+  // raw AND is cycled by every solid-gas transmuter the plan runs. The two
+  // draws now sit on two nodes: 390/min ordinary on `u:in:`, the whole cycled
+  // need on `u:cat:`.
+  it("splits the worked example into an ordinary node and a catalyst node", () => {
     const targets: ItemTarget[] = [
       { itemId: "equip_script_4_3", ratePerSec: { num: "1", denom: "5" } },
       { itemId: "xiranite_enr_powder", ratePerSec: { num: "2", denom: "5" } },
     ];
-    const { full, plan } = solveForRender({ targets });
-    assertClean(plan, full.rates, targets);
+    const out = solveForRender({ targets });
+    const { full, plan } = out;
+    assertClean(out);
 
     expect(
-      unitRate(plan, `u:in:${GAS_XIRANITE}`).equals(new Fraction(468, 60)),
+      unitRate(plan, `u:in:${GAS_XIRANITE}`).equals(new Fraction(390, 60)),
     ).toBe(true);
+    const need = full.catalystAccount.get(GAS_XIRANITE)!.need;
+    expect(unitRate(plan, `u:cat:${GAS_XIRANITE}`).equals(need)).toBe(true);
 
-    // Every solid-gas transmuter unit draws its cycled charge over an edge.
+    // Every catalyst edge in the plan leaves a catalyst node, and every
+    // solid-gas transmuter unit draws its charge over one.
+    for (const e of catalystEdges(plan)) {
+      expect(e.fromUnit.startsWith("u:cat:"), e.fromUnit).toBe(true);
+    }
     const transmuters = plan.units.filter(
       (u) => isRecipeUnit(u) && u.recipeId.startsWith("phase_trans_2-"),
     );
@@ -78,18 +103,19 @@ describe("catalyst supply edges", () => {
         cat.map((e) => e.item),
         `unit ${u.id}`,
       ).toEqual([GAS_XIRANITE]);
-      expect(cat[0]!.fromUnit).toBe(`u:in:${GAS_XIRANITE}`);
+      expect(cat[0]!.fromUnit).toBe(`u:cat:${GAS_XIRANITE}`);
     }
   }, 60000);
 
-  // A catalyst rate is `executionRate * qty` summed over the unit's machines,
-  // whatever the item's cap or in-plan production says.
-  it("sizes each catalyst edge at the unit's aggregate draw", () => {
+  // A catalyst rate is the stamp's per-machine charge, whatever the item's cap
+  // or in-plan production says.
+  it("sizes each catalyst edge at the stamp's per-machine charge", () => {
     const targets: ItemTarget[] = [
       { itemId: "liquid_copper", ratePerSec: { num: "1", denom: "1" } },
     ];
-    const { full, plan } = solveForRender({ targets });
-    assertClean(plan, full.rates, targets);
+    const out = solveForRender({ targets });
+    const { full, plan } = out;
+    assertClean(out);
 
     const recipeId = "phase_trans_1-liquid_copper";
     const unit = plan.units.find(
@@ -97,29 +123,31 @@ describe("catalyst supply edges", () => {
     );
     expect(unit).toBeDefined();
     const cat = catalystEdgesInto(plan, unit!.id);
-    expect(cat).toHaveLength(1);
-    // 1 liquid_copper/s over a 2s cycle at 1 out/cycle is 1 execution/s, and
-    // the recipe cycles 0.2 liquid_xiranite per execution.
-    const expected = full.rates.get(recipeId)!.mul(new Fraction(1, 5));
-    expect(cat[0]!.rate.equals(expected)).toBe(true);
-    expect(cat[0]!.item).toBe(LIQUID_XIRANITE);
+    expect(cat.length).toBeGreaterThan(0);
+    expect(cat.every((e) => e.item === LIQUID_XIRANITE)).toBe(true);
+    // One whole transmuter, holding 0.2 per 2 s cycle: 1/10 per second, which
+    // is the 6/min the pack declares per machine.
+    expect(sumRates(cat).equals(new Fraction(1, 10))).toBe(true);
+    expect(
+      sumRates(cat).equals(full.catalystAccount.get(LIQUID_XIRANITE)!.need),
+    ).toBe(true);
     // The consumer sits in a loop container, so it taps that container's
-    // bucket card rather than the bare aggregate.
-    const source = plan.units.find((u) => u.id === cat[0]!.fromUnit);
-    expect(source && isInputProductUnit(source) && source.itemId).toBe(
-      LIQUID_XIRANITE,
-    );
+    // catalyst slice rather than the bare aggregate.
+    for (const e of cat) {
+      expect(e.fromUnit.startsWith(`u:cat:${LIQUID_XIRANITE}`)).toBe(true);
+    }
   }, 60000);
 
   // liquid_xiranite is not raw and the plan builds it; the catalyst charge is
-  // still boundary supply, so it gets a `u:in:` node of its own justified by
-  // nothing but the draw.
-  it("imports a non-raw self-catalyst the plan also produces", () => {
+  // still boundary supply, and it is the ONLY draw, so the item has a catalyst
+  // node and no ordinary node at all.
+  it("gives a catalyst-only item a catalyst node and no ordinary node", () => {
     const targets: ItemTarget[] = [
       { itemId: LIQUID_XIRANITE, ratePerSec: { num: "1", denom: "1" } },
     ];
-    const { full, plan } = solveForRender({ targets });
-    assertClean(plan, full.rates, targets);
+    const out = solveForRender({ targets });
+    const { full, plan } = out;
+    assertClean(out);
 
     const producer = plan.units.find(
       (u) => isRecipeUnit(u) && u.recipeId === "phase_trans_1-liquid_xiranite",
@@ -129,19 +157,28 @@ describe("catalyst supply edges", () => {
       "premise: the plan runs the self-cycling producer",
     ).toBeDefined();
 
+    expect(inputsForItem(plan, LIQUID_XIRANITE).map((u) => u.id)).toEqual([
+      `u:cat:${LIQUID_XIRANITE}`,
+    ]);
+    const catNode = inputsForItem(plan, LIQUID_XIRANITE)[0]!;
+    expect(catNode.role).toBe("catalyst");
+
     const cat = catalystEdgesInto(plan, producer!.id);
-    expect(cat).toHaveLength(1);
-    expect(cat[0]!.item).toBe(LIQUID_XIRANITE);
-    expect(cat[0]!.fromUnit).toBe(`u:in:${LIQUID_XIRANITE}`);
-    expect(unitRate(plan, `u:in:${LIQUID_XIRANITE}`).equals(cat[0]!.rate)).toBe(
+    expect(cat.length).toBeGreaterThan(0);
+    expect(cat.every((e) => e.fromUnit === `u:cat:${LIQUID_XIRANITE}`)).toBe(
       true,
     );
+    expect(
+      unitRate(plan, `u:cat:${LIQUID_XIRANITE}`).equals(
+        full.catalystAccount.get(LIQUID_XIRANITE)!.need,
+      ),
+    ).toBe(true);
   }, 60000);
 
   // phase_trans_2-xiranite_powder lists gas_xiranite as both a consumed input
-  // and a cycled catalyst: two edges from the same boundary node, one per port
-  // kind.
-  it("draws two edges for a card carrying one item as in and catalyst", () => {
+  // and a cycled catalyst: one ordinary bucket and one catalyst bucket, which
+  // emit two single-bucket nodes rather than an aggregate with slices.
+  it("emits two single-bucket nodes for one item carried as in and catalyst", () => {
     const targets: ItemTarget[] = [
       { itemId: "xiranite_powder", ratePerSec: { num: "1", denom: "1" } },
     ];
@@ -156,8 +193,9 @@ describe("catalyst supply edges", () => {
         )
         .map((r) => [r.id, 1000]),
     );
-    const { full, plan } = solveForRender({ targets, recipeCosts });
-    assertClean(plan, full.rates, targets);
+    const out = solveForRender({ targets, recipeCosts });
+    const { full, plan } = out;
+    assertClean(out);
 
     const unit = plan.units.find(
       (u) => isRecipeUnit(u) && u.recipeId === "phase_trans_2-xiranite_powder",
@@ -167,22 +205,122 @@ describe("catalyst supply edges", () => {
       "premise: the steer picked the transmuter route",
     ).toBeDefined();
 
+    const nodes = inputsForItem(plan, GAS_XIRANITE);
+    expect(nodes.map((u) => u.id).sort()).toEqual([
+      `u:cat:${GAS_XIRANITE}`,
+      `u:in:${GAS_XIRANITE}`,
+    ]);
+    for (const n of nodes) {
+      expect(n.isAggregate, n.id).toBeUndefined();
+      expect(n.isFanout, n.id).toBeUndefined();
+    }
+
     const inbound = plan.edges.filter(
       (e) => e.toUnit === unit!.id && e.item === GAS_XIRANITE,
     );
     expect(inbound).toHaveLength(2);
-    expect(inbound.every((e) => e.fromUnit === `u:in:${GAS_XIRANITE}`)).toBe(
-      true,
-    );
-    expect(inbound.filter((e) => e.toPortKind === "catalyst")).toHaveLength(1);
-    expect(inbound.filter((e) => e.toPortKind === undefined)).toHaveLength(1);
-    // The node rate is the whole of both: 1 execution/s draws 1 in and cycles
-    // 0.2 on top.
+    const ordinary = inbound.filter((e) => e.toPortKind === undefined);
+    const cycled = inbound.filter((e) => e.toPortKind === "catalyst");
+    expect(ordinary.map((e) => e.fromUnit)).toEqual([`u:in:${GAS_XIRANITE}`]);
+    expect(cycled.map((e) => e.fromUnit)).toEqual([`u:cat:${GAS_XIRANITE}`]);
+
+    // The ordinary node carries the consumed 1 per execution and nothing else;
+    // the catalyst node carries the whole account need.
     const rate = full.rates.get("phase_trans_2-xiranite_powder")!;
+    expect(unitRate(plan, `u:in:${GAS_XIRANITE}`).equals(rate)).toBe(true);
     expect(
-      unitRate(plan, `u:in:${GAS_XIRANITE}`).equals(
-        rate.mul(new Fraction(6, 5)),
+      unitRate(plan, `u:cat:${GAS_XIRANITE}`).equals(
+        full.catalystAccount.get(GAS_XIRANITE)!.need,
       ),
     ).toBe(true);
+  }, 60000);
+
+  // Two caps on one item, one per pool: each lands on its own node and neither
+  // node's rate carries the other pool's draw.
+  it("keeps the ordinary cap and the C-row cap on their own nodes", () => {
+    const targets: ItemTarget[] = [
+      { itemId: "xiranite_powder", ratePerSec: { num: "1", denom: "1" } },
+    ];
+    const recipeCosts = new Map<string, number>(
+      pack.recipes
+        .filter(
+          (r) =>
+            r.out[0]?.item === "xiranite_powder" &&
+            r.id !== "phase_trans_2-xiranite_powder",
+        )
+        .map((r) => [r.id, 1000]),
+    );
+    // The ordinary cap sits above the ordinary demand so the solve is
+    // untouched and the two rates stay readable.
+    const itemOverrides: ItemOverride[] = [
+      { itemId: GAS_XIRANITE, ratePerSec: { num: "10", denom: "1" } },
+      {
+        itemId: GAS_XIRANITE,
+        role: "catalyst",
+        ratePerSec: { num: "1", denom: "20" },
+      },
+    ];
+    const out = solveForRender({ targets, recipeCosts, itemOverrides });
+    const { full, plan } = out;
+    assertClean(out);
+
+    const ordinary = plan.units.find(
+      (u): u is RenderUnitInputProduct => u.id === `u:in:${GAS_XIRANITE}`,
+    )!;
+    const cycled = plan.units.find(
+      (u): u is RenderUnitInputProduct => u.id === `u:cat:${GAS_XIRANITE}`,
+    )!;
+    const rate = full.rates.get("phase_trans_2-xiranite_powder")!;
+    expect(rationalFromString(ordinary.rate).equals(rate)).toBe(true);
+    expect(ordinary.rateCap).toEqual({ num: "10", denom: "1" });
+    expect(ordinary.role).toBeUndefined();
+    expect(
+      rationalFromString(cycled.rate).equals(
+        full.catalystAccount.get(GAS_XIRANITE)!.need,
+      ),
+    ).toBe(true);
+    expect(cycled.rateCap).toEqual({ num: "1", denom: "20" });
+    expect(cycled.role).toBe("catalyst");
+  }, 60000);
+
+  // Catalyst consumers spread over more than one bucket follow the ordinary
+  // fanout rule: an aggregate carrying the item's whole need plus one slice per
+  // container, each slice carrying its own edges.
+  it("fans a multi-bucket catalyst item out to container slices", () => {
+    const targets: ItemTarget[] = [
+      { itemId: "proc_battery_5", ratePerSec: { num: "1", denom: "1" } },
+    ];
+    // Off the smelted-nugget route the copper chain closes a loop, and the
+    // transmuters inside that loop box are catalyst consumers while the rest of
+    // the plan's transmuters stay loose: two buckets on one catalyst item.
+    const recipeCosts = new Map<string, number>([["copper_nugget", 1000]]);
+    const out = solveForRender({ targets, recipeCosts });
+    const { full, plan } = out;
+    assertClean(out);
+
+    const nodes = inputsForItem(plan, LIQUID_XIRANITE).filter(
+      (u) => u.role === "catalyst",
+    );
+    const aggregate = nodes.find((u) => u.isAggregate);
+    expect(aggregate?.id).toBe(`u:cat:${LIQUID_XIRANITE}`);
+    expect(
+      rationalFromString(aggregate!.rate).equals(
+        full.catalystAccount.get(LIQUID_XIRANITE)!.need,
+      ),
+    ).toBe(true);
+
+    const slices = nodes.filter((u) => u.isFanout);
+    expect(slices.length).toBeGreaterThan(0);
+    for (const slice of slices) {
+      expect(slice.id.startsWith(`u:cat:${LIQUID_XIRANITE}:`)).toBe(true);
+      expect(slice.parentRate).toEqual(aggregate!.rate);
+      const own = plan.edges.filter(
+        (e) => e.fromUnit === slice.id && e.toPortKind === "catalyst",
+      );
+      expect(own.length).toBeGreaterThan(0);
+      expect(sumRates(own).equals(rationalFromString(slice.rate))).toBe(true);
+      const inbound = plan.edges.filter((e) => e.toUnit === slice.id);
+      expect(inbound.map((e) => e.fromUnit)).toEqual([aggregate!.id]);
+    }
   }, 60000);
 });

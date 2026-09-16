@@ -43,6 +43,7 @@ function solveAndRender(
     pack: fixturePack,
     targets,
     itemOverrides: overrides,
+    catalystAccount: full.catalystAccount,
   }).flatMap((r) => r.violations);
   expect(violations).toEqual([]);
   return {
@@ -227,18 +228,23 @@ describe("catalyst against a shipped-pack cap", () => {
     expect(account.fromCatalyst.equals(0)).toBe(true);
     expect(account.fromGeneral.equals(new Fraction(1, 10))).toBe(true);
     expect(account.unmet.equals(new Fraction(1, 10))).toBe(true);
-    // The cycled charge is boundary supply: one import card carrying the whole
-    // need beside its cap, and one catalyst edge into the transmuter.
+    // The cycled charge is boundary supply drawn from the item's own catalyst
+    // node: one card carrying the whole need beside its cap, and one catalyst
+    // edge into the transmuter. Nothing consumes gas_xiranite as a reagent
+    // here, so no ordinary card exists.
     const importCard = plan.units.find(
       (u) => isInputProductUnit(u) && u.itemId === "gas_xiranite",
     );
     expect(importCard).toBeDefined();
+    expect(importCard!.id).toBe("u:cat:gas_xiranite");
     expect((importCard as { rate: unknown }).rate).toEqual({
       num: "1",
       denom: "5",
     });
     const xiraniteEdges = plan.edges.filter((e) => e.item === "gas_xiranite");
-    expect(xiraniteEdges.map((e) => e.fromUnit)).toEqual(["u:in:gas_xiranite"]);
+    expect(xiraniteEdges.map((e) => e.fromUnit)).toEqual([
+      "u:cat:gas_xiranite",
+    ]);
     expect(xiraniteEdges.map((e) => e.toPortKind)).toEqual(["catalyst"]);
     expect(xiraniteEdges[0]!.rate.equals(new Fraction(1, 5))).toBe(true);
     expect(rates.has("phase_trans_2-gas_xiranite")).toBe(false);

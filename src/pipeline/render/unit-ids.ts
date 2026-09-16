@@ -24,11 +24,12 @@ import type {
 //     only ../types.
 //
 // The grammar is `u:`-prefixed and `:`-separated, and the families below are
-// distinguished by the word after `u:` (`scc`, `class`, `in`, `out`,
+// distinguished by the word after `u:` (`scc`, `class`, `in`, `cat`, `out`,
 // `surplus`) or, for a recipe unit, by the absence of one. Injectivity across
 // the families rests on exactly three clauses about the ids fed in:
 //   1. An item id contains no `:`. Otherwise `u:in:a:b` is ambiguous between
-//      the aggregate for item "a:b" and the container "b" of item "a".
+//      the aggregate for item "a:b" and the container "b" of item "a", and
+//      `u:cat:a:b` the same way for the catalyst family.
 //   2. A machine vertex id does not start with a family word followed by `:`.
 //      Otherwise a recipe unit collides with the family that word names.
 //   3. A container id is not literally "target", the one reserved container
@@ -54,6 +55,18 @@ export const unitIdForInputContainer = (
   item: ItemId,
   containerId: ContainerId,
 ): RenderUnitId => `u:in:${item}:${containerId}`;
+
+// The catalyst pool of an item: a boundary node feeding `cat:` ports only.
+// It is a family of its own rather than another `u:in:` node because an item
+// can be drawn as an ordinary reagent and cycled as a catalyst at once, and
+// the two draws are accounted separately.
+export const unitIdForCatalystAggregate = (item: ItemId): RenderUnitId =>
+  `u:cat:${item}`;
+
+export const unitIdForCatalystContainer = (
+  item: ItemId,
+  containerId: ContainerId,
+): RenderUnitId => `u:cat:${item}:${containerId}`;
 
 // Dedicated boundary import that feeds a free-supply target item's export
 // passthrough; distinct from the consumer-feeding input ids so consumer

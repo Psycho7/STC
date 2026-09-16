@@ -126,6 +126,7 @@ describe("render: deferred re-route keeps every producer's machine edge", () => 
       pack,
       targets,
       itemOverrides,
+      catalystAccount: full.catalystAccount,
     });
     const violations = results.flatMap((r) => (r.ok ? [] : r.violations));
     expect(violations).toEqual([]);

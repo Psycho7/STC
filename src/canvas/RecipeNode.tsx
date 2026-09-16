@@ -6,9 +6,8 @@ import { measureRecipe } from "./recipeGeometry";
 import { envBannerLayers } from "./envBanner";
 import { useI18n } from "../data/i18n-context";
 import { PortGlyph } from "./PortGlyph";
-import { CatalystGlyph } from "./CatalystGlyph";
-import { CATALYST_SUPPLY_EDGES } from "../flags";
 import { formatRationalPerMin } from "../data/rate-format";
+import { catalystChargeOf } from "../solver/catalyst";
 import type { PortTransportKinds } from "./layout";
 import type { ItemId } from "../pipeline/types";
 import { rationalFromString, type RationalString } from "../data/targets";
@@ -161,21 +160,30 @@ type RecipeNodeData = {
 };
 type RecipeNodeType = Node<RecipeNodeData, "recipe">;
 
+// One machine's worth, the scale a per-machine row rate is read at.
+const ONE = new Fraction(1);
+
 // Per-row rate label: items per cycle over cycle time, times the machine speed
 // (the solver runs a machine at speed/time executions per second, so the
 // per-machine port rate is qty * speed / time), times the `scale` factor. The
 // render-pipeline path passes the solved rational multiplicity so rows show
 // the aggregate flow across all machines (matching the edge chips); scale=1
 // yields the per-machine figure. Exact Fraction math keeps non-integer
-// speeds and multiplicities free of float junk; rates here are non-negative,
-// so serializing .n/.d is safe.
+// speeds and multiplicities free of float junk.
 function rowRateText(
   stoich: Stoich,
   recipeTime: number,
   speed: Fraction,
   scale: Fraction,
 ): string {
-  const perSec = new Fraction(stoich.qty).mul(speed).mul(scale).div(recipeTime);
+  return ratePerMinText(
+    new Fraction(stoich.qty).mul(speed).mul(scale).div(recipeTime),
+  );
+}
+
+// A per-second rational rate as the card's per-minute label. Rates here are
+// non-negative, so serializing .n/.d is safe.
+function ratePerMinText(perSec: Fraction): string {
   return formatRationalPerMin({
     num: perSec.n.toString(),
     denom: perSec.d.toString(),
@@ -365,45 +373,46 @@ export default function RecipeNode({
           {catalysts.map((p) => {
             const label = i18n.displayName(p.item);
             const handleId = `cat:${p.item}`;
+            // The charge is held per MACHINE, not per cycle: a machine at 40%
+            // still holds a whole charge, so the card's aggregate counts whole
+            // machines. The solver's catalystChargeOf owns that formula, and
+            // the row reads it there so the card, the account and the edge
+            // chip cannot drift apart.
+            const perMachine = rowRateText(p, recipe.time, speed, ONE);
+            const aggregate = ratePerMinText(
+              catalystChargeOf(scale, p, recipe, machine ?? { speed: 1 }),
+            );
             return (
               // A catalyst row: an input the machine cycles rather than
-              // consumes. With CATALYST_SUPPLY_EDGES on it is supplied from the
-              // item's boundary card like any raw draw, so it takes a target
-              // Handle of its own -- in the `cat:` namespace, because the same
-              // item can also sit on an input row above -- and wears that
-              // port's transport glyph. With the flag off nothing arrives here,
-              // so the row keeps the catalyst disc and no Handle. It carries no
-              // `input` class either way, since that class paints the accent
+              // consumes. It is supplied from the item's catalyst boundary card
+              // like any raw draw, so it takes a target Handle of its own -- in
+              // the `cat:` namespace, because the same item can also sit on an
+              // input row above -- and wears that port's transport glyph. It
+              // carries no `input` class, since that class paints the accent
               // tab. Appended after the port rows so no port's y moves;
               // recipeGeometry counts it toward the card height.
-              <div key={`catalyst-row:${p.item}`} className="rn-row catalyst">
-                {CATALYST_SUPPLY_EDGES ? (
-                  <>
-                    <Handle
-                      id={handleId}
-                      type="target"
-                      position={Position.Left}
-                    />
-                    <PortGlyph
-                      kind={portTransportKinds?.get(handleId)}
-                      side="left"
-                      item={p.item}
-                    />
-                  </>
-                ) : (
-                  <CatalystGlyph item={p.item} />
-                )}
+              <div
+                key={`catalyst-row:${p.item}`}
+                className="rn-row catalyst"
+                title={i18n.t("canvas.catalyst.perMachine", {
+                  rate: perMachine,
+                })}
+              >
+                <Handle id={handleId} type="target" position={Position.Left} />
+                <PortGlyph
+                  kind={portTransportKinds?.get(handleId)}
+                  side="left"
+                  item={p.item}
+                />
                 <Sprite iconId={iconIdForItem(p.item)} size={20} />
                 <span className="lbl" title={label}>
                   {label}
                 </span>
-                {/* The same slot, scale and bare-number form as an input row:
-                    the aggregate draw across every machine. canvas.css seats
-                    it from the .catalyst class, since the row carries no
-                    .input class. */}
-                <span className="rate">
-                  {rowRateText(p, recipe.time, speed, scale)}
-                </span>
+                {/* The same slot and bare-number form as an input row: the
+                    aggregate draw across every machine the card stands for.
+                    canvas.css seats it from the .catalyst class, since the row
+                    carries no .input class. */}
+                <span className="rate">{aggregate}</span>
               </div>
             );
           })}

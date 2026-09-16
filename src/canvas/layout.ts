@@ -33,16 +33,16 @@ import {
 } from "@xyflow/react";
 import Fraction from "fraction.js";
 
-import { CATALYST_SUPPLY_EDGES } from "../flags";
 import {
   BETWEEN_LAYERS_SPACING,
   CONTAINER_CAPTION_BAND,
-  ENV_FRAME_EXTENTS,
   NODE_NODE_SPACING,
   PORT_HEIGHT,
   PORT_WIDTH,
   PRODUCT_HEIGHT,
   PRODUCT_WIDTH,
+  type FrameExtents,
+  frameExtentsOf,
   loopBoxDimensions,
 } from "./dimensions";
 import { measureRecipe, type RecipeGeometry } from "./recipeGeometry";
@@ -77,6 +77,8 @@ import type {
   TransportKindId,
 } from "../pipeline/types";
 import type { RawRecipeMap } from "../solver/net-self";
+import type { CatalystAccount } from "../solver/catalyst";
+import { rationalToString } from "../pipeline/render/rational";
 import type { RationalString } from "../data/targets";
 
 // LogicalGraph types
@@ -148,6 +150,11 @@ export type LayoutInput = {
   // Run the gap-widening pre-pass? Defaults to true. False lays the plan out on
   // ELK's own gaps, which is the before side of the width census.
   widenGaps?: boolean;
+  // Which supply pool each item's catalyst charge was billed to, straight off
+  // the solve. Geometry never reads it: it rides onto the aggregate or
+  // single-bucket catalyst card as tooltip copy. Absent in the fixtures that
+  // lay a plan out without solving one.
+  catalystAccount?: CatalystAccount;
 };
 
 // An ELK port output with a transport kind tacked on. ELK happily carries
@@ -281,6 +288,17 @@ export type RFProductNode = RFNode<
     // tells them apart by `kind`.
     rate: RenderUnitOutputProduct["rate"];
     rateCap?: RenderUnitInputProduct["rateCap"];
+    // Marks the nodes of an item's catalyst pool; absent on every other
+    // product node, so it is spread in conditionally like the fanout fields.
+    role?: RenderUnitInputProduct["role"];
+    // Which pool covered the item's catalyst charge, for the card's name
+    // tooltip. Stamped from the solve's account on the aggregate or
+    // single-bucket catalyst card only.
+    catalystBreakdown?: {
+      fromCatalyst: RationalString;
+      fromGeneral: RationalString;
+      unmet: RationalString;
+    };
     flavor?: RenderUnitOutputProduct["flavor"];
     // Per-container fanout slices of an aggregate input card. `isFanout` draws
     // the tap chrome and the extra left handle the aggregate's edge arrives on;
@@ -465,22 +483,20 @@ function buildRecipePorts(
         at(0, geom.inHandleYs[i] ?? 0),
       ),
     ),
-    // Catalyst rows take a WEST port too when the flag is on: their edge comes
-    // from the item's boundary card, exactly like an input row's. The port id
-    // uses the `cat:` namespace because a card can carry one item on both an
-    // input row and a catalyst row.
-    ...(CATALYST_SUPPLY_EDGES
-      ? (recipe.catalyst ?? []).map((p, i) =>
-          makePort(
-            `${unitId}.cat:${p.item}`,
-            "WEST",
-            recipe.in.length + i,
-            p.item,
-            kindOf,
-            at(0, geom.catHandleYs[i] ?? 0),
-          ),
-        )
-      : []),
+    // Catalyst rows take a WEST port too: their edge comes from the item's
+    // catalyst boundary card, exactly like an input row's. The port id uses the
+    // `cat:` namespace because a card can carry one item on both an input row
+    // and a catalyst row.
+    ...(recipe.catalyst ?? []).map((p, i) =>
+      makePort(
+        `${unitId}.cat:${p.item}`,
+        "WEST",
+        recipe.in.length + i,
+        p.item,
+        kindOf,
+        at(0, geom.catHandleYs[i] ?? 0),
+      ),
+    ),
     ...recipe.out.map((p, i) =>
       makePort(
         `${unitId}.out:${p.item}`,
@@ -510,9 +526,16 @@ function buildRecipePorts(
 function envFrameOrigin(
   recipe: Recipe | undefined,
 ): { x: number; y: number } | undefined {
-  return recipe?.environment === undefined
-    ? undefined
-    : { x: ENV_FRAME_EXTENTS.left, y: ENV_FRAME_EXTENTS.top };
+  const { left, top } = recipeFrameExtents(recipe);
+  // A card that draws no frame must keep its ports unstamped (buildRecipePorts
+  // reads "no origin" that way), so zero extents map back to no origin.
+  if (left === 0 && top === 0) return undefined;
+  return { x: left, y: top };
+}
+
+// The frame extents of a recipe the adapter has not built a node for yet.
+function recipeFrameExtents(recipe: Recipe | undefined): FrameExtents {
+  return frameExtentsOf({ type: "recipe", data: { recipe } });
 }
 
 // An environment recipe's ELK box is the CARD box grown by the frame extents:
@@ -527,18 +550,11 @@ function recipeUnitToElk(
 ): ElkNode {
   const geom = measureRecipe(recipe);
   const origin = envFrameOrigin(recipe);
+  const frame = recipeFrameExtents(recipe);
   return {
     id: u.id,
-    width:
-      geom.width +
-      (origin === undefined
-        ? 0
-        : ENV_FRAME_EXTENTS.left + ENV_FRAME_EXTENTS.right),
-    height:
-      geom.height +
-      (origin === undefined
-        ? 0
-        : ENV_FRAME_EXTENTS.top + ENV_FRAME_EXTENTS.bottom),
+    width: geom.width + frame.left + frame.right,
+    height: geom.height + frame.top + frame.bottom,
     layoutOptions: { ...RECIPE_LAYOUT_OPTIONS },
     ports: buildRecipePorts(u.id, recipe, kindOf, geom, origin),
   };
@@ -653,9 +669,7 @@ function loopUnitToElk(
 // The item alone cannot decide it: one card can carry both rows for one item.
 function renderEdgeToElk(e: RenderEdge, index: number): ElkExtendedEdge {
   const targetPort =
-    CATALYST_SUPPLY_EDGES && e.toPortKind === "catalyst"
-      ? `cat:${e.item}`
-      : `in:${e.item}`;
+    e.toPortKind === "catalyst" ? `cat:${e.item}` : `in:${e.item}`;
   return {
     id: `e:${index}:${e.fromUnit}->${e.toUnit}:${e.item}`,
     sources: [`${e.fromUnit}.out:${e.item}`],
@@ -729,6 +743,7 @@ export function fromElkRenderLayout(
             container.id,
             recipeById,
             interiorByLoopId,
+            input.catalystAccount,
           ),
         );
       }
@@ -736,7 +751,14 @@ export function fromElkRenderLayout(
       const unit = unitById.get(top.id);
       if (!unit) continue;
       nodes.push(
-        unitToRFNode(top, unit, undefined, recipeById, interiorByLoopId),
+        unitToRFNode(
+          top,
+          unit,
+          undefined,
+          recipeById,
+          interiorByLoopId,
+          input.catalystAccount,
+        ),
       );
     }
   }
@@ -837,12 +859,36 @@ function portToItem(port: string): string {
   return port;
 }
 
+// The catalyst pool split for one input card, in the spread-in shape the
+// product data uses for its other optional fields.
+//
+// The account is item-level, and so is the split: only the card that carries
+// the item's whole charge (the aggregate, or the single bucket when there is
+// just one) gets it. A per-container slice holds a share of the charge that no
+// pool was ever assigned, so it takes nothing.
+function catalystBreakdownOf(
+  unit: RenderUnitInputProduct,
+  catalystAccount: CatalystAccount | undefined,
+): Pick<RFProductNode["data"], "catalystBreakdown"> {
+  if (unit.role !== "catalyst" || unit.isFanout) return {};
+  const entry = catalystAccount?.get(unit.itemId);
+  if (entry === undefined) return {};
+  return {
+    catalystBreakdown: {
+      fromCatalyst: rationalToString(entry.fromCatalyst),
+      fromGeneral: rationalToString(entry.fromGeneral),
+      unmet: rationalToString(entry.unmet),
+    },
+  };
+}
+
 function unitToRFNode(
   laidChild: ElkNode,
   unit: RenderUnit,
   parentId: ContainerId | undefined,
   recipeById: ReadonlyMap<RecipeId, Recipe>,
   interiorByLoopId: ReadonlyMap<SccId, LoopInteriorSize>,
+  catalystAccount: CatalystAccount | undefined,
 ): RFAnyNode {
   // An environment recipe's ELK box is the frame rectangle; ELK positions its
   // top-left, so shift by the inner-rectangle offset to land the CARD box
@@ -900,7 +946,9 @@ function unitToRFNode(
         rate: unit.rate,
         portTransportKinds,
         ...(unit.rateCap !== undefined ? { rateCap: unit.rateCap } : {}),
+        ...(unit.role !== undefined ? { role: unit.role } : {}),
         ...(unit.isFanout ? { isFanout: true } : {}),
+        ...catalystBreakdownOf(unit, catalystAccount),
         ...(unit.parentRate !== undefined
           ? { parentRate: unit.parentRate }
           : {}),

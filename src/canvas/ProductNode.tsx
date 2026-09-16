@@ -25,6 +25,17 @@ export type ProductNodeData =
       itemId: string;
       rate: RationalString;
       rateCap?: RationalString;
+      // Set on the nodes of the item's catalyst pool, whose rate is the cycled
+      // per-machine charge rather than ordinary consumption.
+      role?: "catalyst";
+      // Which supply pool the item's whole charge was billed to. Item-level
+      // accounting, so it is stamped on the aggregate or single-bucket
+      // catalyst card only, never on a per-container slice.
+      catalystBreakdown?: {
+        fromCatalyst: RationalString;
+        fromGeneral: RationalString;
+        unmet: RationalString;
+      };
       // Per-container fanout slices have an inbound edge from the item's
       // aggregate node, so they render an extra left target handle to receive
       // it.
@@ -54,10 +65,14 @@ export type ProductNodeType = Node<ProductNodeData, "product">;
 // casing (unit-casing-mix family).
 //
 // Direction is "In" for an inputProduct and "Out" for an outputProduct.
-// For an inputProduct, the classification is "tap" when the node is a fanout
-// slice of an aggregate input card, otherwise "raw" when item.raw is true and
-// "import" when it is not. For an outputProduct, it is data.flavor ("target"
-// or "surplus").
+// For an inputProduct, a card of the item's catalyst pool states the pool
+// rather than the item's provenance ("In · catalyst"): the charge is cycled,
+// not consumed, and the same item can carry an ordinary card beside it. Any
+// other card reads "tap" when it is a fanout slice of an aggregate, otherwise
+// "raw" when item.raw is true and "import" when it is not. A fanout slice OF a
+// catalyst card keeps both words ("In · catalyst · tap"), since a slice of the
+// pool is still catalyst supply. For an outputProduct, the classification is
+// data.flavor ("target" or "surplus").
 //
 // The NBSP after each middle dot keeps a wrapped caption from stranding the
 // dot at line end; a break lands before the dot instead.
@@ -67,14 +82,18 @@ export function buildPnKind(
   i18n: I18nIndex,
 ): string {
   if (data.kind === "inputProduct") {
-    const classification = i18n.t(
-      data.isFanout
-        ? "product.class.tap"
-        : item.raw
-          ? "product.class.raw"
-          : "product.class.import",
-    );
-    return `${i18n.t("product.dir.in")} ·\u00A0${classification}`;
+    const words = [i18n.t("product.dir.in")];
+    if (data.role === "catalyst") {
+      words.push(i18n.t("product.class.catalyst"));
+    }
+    if (data.isFanout) {
+      words.push(i18n.t("product.class.tap"));
+    } else if (data.role !== "catalyst") {
+      words.push(
+        i18n.t(item.raw ? "product.class.raw" : "product.class.import"),
+      );
+    }
+    return words.join(` ·\u00A0`);
   }
   const flavor = i18n.t(
     data.flavor === "surplus"
@@ -101,6 +120,37 @@ export function buildPnKindRate(
   return `${formatRationalPerMin(data.rate)}${i18n.t("canvas.rate.unit")}`;
 }
 
+// Name tooltip of a product card: the display name, plus the catalyst pool
+// breakdown on the card that owns the item's whole charge.
+//
+// The breakdown is item-level accounting (which pool the charge was billed to),
+// so a per-container fanout slice gets the plain name: its own share of the
+// split has no meaning. The shortage line only appears when a charge went
+// unmet, so a plan that covers its catalysts says nothing about shortage.
+function buildPnNameTitle(data: ProductNodeData, i18n: I18nIndex): string {
+  const name = i18n.displayName(data.itemId);
+  if (data.kind !== "inputProduct") return name;
+  const breakdown = data.catalystBreakdown;
+  if (breakdown === undefined || data.isFanout) return name;
+
+  const lines = [
+    i18n.t("product.catalyst.fromCatalyst", {
+      rate: formatRationalPerMin(breakdown.fromCatalyst),
+    }),
+    i18n.t("product.catalyst.fromGeneral", {
+      rate: formatRationalPerMin(breakdown.fromGeneral),
+    }),
+  ];
+  if (breakdown.unmet.num !== "0") {
+    lines.push(
+      i18n.t("product.catalyst.short", {
+        rate: formatRationalPerMin(breakdown.unmet),
+      }),
+    );
+  }
+  return [name, ...lines].join("\n");
+}
+
 function chromeClasses(data: ProductNodeData): string {
   if (data.kind === "inputProduct") {
     // A fanout slice is a derived view of the item's aggregate card, not an
@@ -124,6 +174,7 @@ export default function ProductNode({
   const { itemById } = useItemPack();
   const item = itemById.get(data.itemId);
   const displayName = i18n.displayName(data.itemId);
+  const nameTitle = buildPnNameTitle(data, i18n);
   const isInput = data.kind === "inputProduct";
   // Sprite key: the item's own icon id, falling back to the item id itself for
   // pack entries that declare none.
@@ -160,6 +211,9 @@ export default function ProductNode({
       data-testid="product-node"
       data-flavor={flavorMarker(data)}
       data-item-id={data.itemId}
+      {...(isInput && data.role !== undefined
+        ? { "data-role": data.role }
+        : {})}
       className={
         selected ? `${chromeClasses(data)} selected` : chromeClasses(data)
       }
@@ -212,7 +266,7 @@ export default function ProductNode({
           <div />
         )}
         <div>
-          <div className="pn-name" title={displayName}>
+          <div className="pn-name" title={nameTitle}>
             {displayName}
           </div>
           {pnKindText !== null ? (

@@ -278,7 +278,7 @@ export async function runCli(argv: string[]): Promise<string> {
       return `error: cannot run render checks on a non-feasible solve (status=${lpResult.status})\n\n${lines.join("\n")}`;
     }
 
-    const { plan } = solveForRender({
+    const { plan, full } = solveForRender({
       targets,
       pack,
       itemOverrides,
@@ -291,6 +291,7 @@ export async function runCli(argv: string[]): Promise<string> {
       pack,
       targets,
       itemOverrides,
+      catalystAccount: full.catalystAccount,
     });
 
     // # units block
