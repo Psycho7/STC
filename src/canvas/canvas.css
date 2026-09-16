@@ -484,7 +484,7 @@
 }
 
 .ak-app-shell .topbar select:hover,
-.ak-app-shell .topbar button:hover {
+.ak-app-shell .topbar button:hover:not(:disabled) {
   border-color: var(--ak-divider-strong);
   color: var(--ak-text-primary);
 }
@@ -1375,6 +1375,12 @@
 .ak-canvas-theme .react-flow__node,
 .ak-canvas-theme .react-flow__edge {
   transition: opacity 120ms ease-out;
+}
+/* The PNG capture walks the DOM over several frames; a fade still running
+   would be rasterized half way through. Nothing animates during an export. */
+.ak-canvas-theme.exporting .react-flow__node,
+.ak-canvas-theme.exporting .react-flow__edge {
+  transition: none;
 }
 .ak-canvas-theme .react-flow__node.dimmed {
   opacity: 0.4;

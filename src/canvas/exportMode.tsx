@@ -1,4 +1,5 @@
 import { createContext, useContext, type ReactNode } from "react";
+import { useStore } from "@xyflow/react";
 
 // True only for the render pass that the PNG capture rasterizes. Every
 // zoom-dependent level-of-detail gate reads it and pretends the zoom is 1, so
@@ -22,4 +23,11 @@ export function ExportModeProvider({
 
 export function useExportMode(): boolean {
   return useContext(ExportModeContext);
+}
+
+// The zoom every level-of-detail gate should read: the live camera zoom, or 1
+// while the PNG capture is rasterizing.
+export function useEffectiveZoom(): number {
+  const liveZoom = useStore((state) => state.transform[2]);
+  return useExportMode() ? 1 : liveZoom;
 }

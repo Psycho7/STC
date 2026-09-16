@@ -95,7 +95,22 @@ const NODES: Node[] = [
   },
 ];
 
+// The capture inlines each icon sprite from the sheet first, which needs an
+// image decode and a 2D context; jsdom has neither (test/setup.ts pins
+// getContext to null on purpose).
 beforeEach(() => {
+  Object.defineProperty(HTMLImageElement.prototype, "decode", {
+    configurable: true,
+    value: () => Promise.resolve(),
+  });
+  Object.defineProperty(HTMLCanvasElement.prototype, "getContext", {
+    configurable: true,
+    value: () => ({ drawImage: () => {} }),
+  });
+  Object.defineProperty(HTMLCanvasElement.prototype, "toDataURL", {
+    configurable: true,
+    value: () => "data:image/png;base64,CELL",
+  });
   fitViewSpy.mockClear();
   fitBoundsSpy.mockClear();
   toBlobSpy.mockClear();
@@ -549,11 +564,35 @@ test("the canvas handle rasterizes the viewport at the content frame", async () 
   expect(options.pixelRatio).toBe(frame.pixelRatio);
   expect(options.style.transform).toBe(frame.transform);
   expect(options.backgroundColor).not.toBe("");
+});
 
-  // Export mode is a single-pass override, released whether or not the capture
-  // succeeded: a stuck flag would freeze the live canvas at full detail.
+// Export mode is a single-pass override, released whether or not the capture
+// succeeded: a stuck flag would freeze the live canvas at full detail and
+// leave hovering inert. The container class is the observable side of it.
+test("export mode is on while the rasterizer runs and off afterwards", async () => {
+  let classDuringCapture = "";
+  toBlobSpy.mockImplementationOnce(async () => {
+    classDuringCapture =
+      document.querySelector(".ak-canvas-theme")?.className ?? "";
+    return new Blob(["png"], { type: "image/png" });
+  });
+
+  const ref = createRef<CanvasHandle>();
+  const { container } = render(
+    <LocaleProvider locale="en">
+      <ItemPackProvider value={PACK}>
+        <Canvas ref={ref} nodes={NODES} edges={[]} />
+      </ItemPackProvider>
+    </LocaleProvider>,
+  );
+
+  await act(async () => {
+    await ref.current!.exportPng();
+  });
+
+  expect(classDuringCapture).toContain("exporting");
   expect(container.querySelector(".ak-canvas-theme")!.className).not.toContain(
-    "zoom-",
+    "exporting",
   );
 });
 

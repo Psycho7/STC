@@ -16,7 +16,7 @@ import {
   portRowStampLive,
 } from "./dimensions";
 import { drawnEdge, parsePathPoints, type DrawnEdge } from "./edgePath";
-import { useExportMode } from "./exportMode";
+import { useEffectiveZoom } from "./exportMode";
 import {
   crossingCueRadius,
   crossingPartnerBits,
@@ -625,11 +625,9 @@ export default function ItemEdge({
   style,
 }: EdgeProps) {
   const edgeData = data as ItemEdgeData | undefined;
-  const liveZoom = useStore((state) => state.transform[2]);
   // The PNG export rasterizes at unit scale, so every zoom gate below reads 1
   // and the image keeps full detail whatever the camera was parked at.
-  const exporting = useExportMode();
-  const zoom = exporting ? 1 : liveZoom;
+  const zoom = useEffectiveZoom();
   const i18n = useI18n();
   const rateStr = useMemo(
     () => (edgeData ? formatRatePerMin(edgeData.rate) : ""),

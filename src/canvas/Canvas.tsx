@@ -36,7 +36,7 @@ import { isTrunkOwner, type BusAggregate } from "./busRouting";
 import type { RFAnyNode } from "./layout";
 import type { GapRecord } from "./layerModel";
 import { ExportModeProvider } from "./exportMode";
-import { capturePlanPng, exportFrame } from "./exportPng";
+import { capturePlanPng, exportFrame, withInlinedSprites } from "./exportPng";
 import { useI18n } from "../data/i18n-context";
 import { pack } from "../data/load";
 import type { CSSProperties } from "react";
@@ -220,6 +220,8 @@ function CanvasInner({
   // True for the single render pass the PNG capture rasterizes: every
   // zoom-dependent level-of-detail gate reads 1 instead of the live zoom.
   const [exporting, setExporting] = useState(false);
+  // The same flag, readable from the hover callbacks without re-creating them.
+  const exportingRef = useRef(false);
   const { fitView, fitBounds, setViewport, getNodes } = useReactFlow();
   // The store holds the dropped positions before the `nodes` prop does.
   const handleNodeDragStop = useCallback(() => {
@@ -381,6 +383,10 @@ function CanvasInner({
   }, []);
   const scheduleHover = useCallback(
     (next: Hovered) => {
+      // A pointer crossing the canvas while the rasterizer walks the DOM would
+      // bake `dimmed` classes into part of the image. Hovering is inert until
+      // the capture is done.
+      if (exportingRef.current) return;
       cancelPendingHover();
       hoverTimer.current = setTimeout(() => {
         hoverTimer.current = null;
@@ -398,9 +404,8 @@ function CanvasInner({
   // PNG export. The rect comes from the same refs and the same contentBounds
   // the fit path uses, so the image frames exactly what fitBounds would.
   // flushSync commits the full-detail pass and drops any hover dimming before
-  // the rasterizer walks the DOM; one animation frame after that lets React
-  // Flow's own zoom-derived styles settle. The flag is cleared in a finally, so
-  // a refused capture cannot strand the canvas in export mode.
+  // the rasterizer walks the DOM. The flag is cleared in a finally, so a
+  // refused capture cannot strand the canvas in export mode.
   useImperativeHandle(
     ref,
     () => ({
@@ -424,16 +429,17 @@ function CanvasInner({
         }
         const backgroundColor = getComputedStyle(container).backgroundColor;
         const frame = exportFrame(bounds);
+        exportingRef.current = true;
         flushSync(() => {
           setExporting(true);
           clearHover();
         });
         try {
-          await new Promise<void>((resolve) => {
-            requestAnimationFrame(() => resolve());
-          });
-          return await capturePlanPng(viewport, frame, backgroundColor);
+          return await withInlinedSprites(viewport, iconSheetUrl, () =>
+            capturePlanPng(viewport, frame, backgroundColor),
+          );
         } finally {
+          exportingRef.current = false;
           setExporting(false);
         }
       },
@@ -632,6 +638,7 @@ function CanvasInner({
       className={[
         "ak-canvas-theme",
         zoomBand(exporting ? 1 : zoom),
+        exporting ? "exporting" : "",
         focus ? "hover-active" : "",
       ]
         .filter(Boolean)
