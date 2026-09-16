@@ -13,6 +13,8 @@ import { pack as realPack } from "../data/load";
 import { TargetsPanel } from "./TargetsPanel";
 import { makePack } from "../solver/closed-form-fixtures";
 import { LocaleProvider } from "../data/i18n-context";
+import { loadI18n } from "../data/i18n";
+import { unavailableEventItems } from "../data/event-cohorts";
 import type { Target } from "../data/targets";
 import { controlledOwner, pickerTile, rateInputs } from "./panel.testkit";
 
@@ -629,4 +631,118 @@ test("a target whose icon id is not its item id still draws its sprite", () => {
   expect(slot).not.toBeNull();
   expect(slot!.classList.contains("empty")).toBe(false);
   expect(slot!.querySelector(".ico")).not.toBeNull();
+});
+
+// ---------------------------------------------------------------------------
+// Off-cohort event items in the picker (#144's T6).
+
+// The shipped pack's v1.5 cohort forced off through the real helper - the same
+// map App derives from its stored overrides, so what these tests dim is what a
+// flipped settings switch dims.
+const V15_OFF = unavailableEventItems(realPack, { "v1.5": false });
+
+function pickerHintText(): string | null {
+  return (
+    document.querySelector('[data-testid="picker-hint"]')?.textContent ?? null
+  );
+}
+
+// Open the add-target (draft) picker under the given locale: Add target, then
+// the draft's choose trigger. eventOffItems undefined models a caller with no
+// cohort model at all (the prop's default).
+function openDraftPicker(
+  locale: "en" | "zh",
+  eventOffItems?: ReadonlyMap<string, string>,
+) {
+  render(
+    <LocaleProvider locale={locale}>
+      <TargetsPanel
+        targets={[]}
+        onChange={() => {}}
+        pack={realPack}
+        eventOffItems={eventOffItems}
+      />
+    </LocaleProvider>,
+  );
+  fireEvent.click(
+    screen.getByRole("button", {
+      name: locale === "zh" ? "添加目标" : "Add target",
+    }),
+  );
+  fireEvent.click(
+    screen.getByLabelText(locale === "zh" ? "选择物品…" : "Choose an item..."),
+  );
+}
+
+// The cohort token the hint must carry is the same raw string the validation
+// error interpolates - that parity is the acceptance, so derive it from the map
+// rather than re-typing "v1.5" everywhere.
+const COHORT = V15_OFF.values().next().value!;
+
+test("off-cohort event items render as disabled tiles with the cohort hint (add-target picker)", () => {
+  openDraftPicker("en", V15_OFF);
+  // Every v1.5 item's tile is disabled...
+  for (const id of V15_OFF.keys()) {
+    expect(pickerTile(id)).not.toBeNull();
+    expect(pickerTile(id)!.disabled).toBe(true);
+  }
+  expect(pickerTile("activity_xiranite_lung")!.disabled).toBe(true);
+  // ...while an on-cohort producible item stays pickable.
+  expect(pickerTile("iron_powder")!.disabled).toBe(false);
+  // The hint is exactly the localized table entry, naming the raw cohort.
+  const hint = pickerHintText();
+  expect(hint).toBe(loadI18n("en").t("picker.event.off", { cohorts: COHORT }));
+  // Parity with the validation message: both carry the same cohort token.
+  const validation = loadI18n("en").t("app.error.producer-unavailable.event", {
+    itemId: "activity_xiranite_lung",
+    cohort: COHORT,
+  });
+  expect(validation).toContain(COHORT);
+  expect(hint).toContain(COHORT);
+});
+
+test("the cohort hint localizes under zh with the same token parity", () => {
+  openDraftPicker("zh", V15_OFF);
+  expect(pickerTile("activity_xiranite_lung")!.disabled).toBe(true);
+  const hint = pickerHintText();
+  expect(hint).toBe(loadI18n("zh").t("picker.event.off", { cohorts: COHORT }));
+  expect(hint).not.toBe(
+    loadI18n("en").t("picker.event.off", { cohorts: COHORT }),
+  );
+  const validation = loadI18n("zh").t("app.error.producer-unavailable.event", {
+    itemId: "activity_xiranite_lung",
+    cohort: COHORT,
+  });
+  expect(validation).toContain(COHORT);
+  expect(hint).toContain(COHORT);
+});
+
+// Without the map the panel has no cohort model: every tile is enabled and the
+// popup renders no hint line at all (the prop defaults empty).
+test("without eventOffItems every event tile stays enabled and no hint renders", () => {
+  openDraftPicker("en");
+  expect(pickerTile("activity_xiranite_lung")!.disabled).toBe(false);
+  expect(document.querySelector('[data-testid="picker-hint"]')).toBeNull();
+});
+
+// The row-swap call site unions the same keys, so editing an existing target's
+// item dims the off-cohort tiles there too (the row's own item stays enabled
+// and highlighted, as before).
+test("the row-swap picker also disables off-cohort event items", () => {
+  render(
+    <LocaleProvider locale="en">
+      <TargetsPanel
+        targets={[
+          { itemId: "copper_bottle", ratePerSec: { num: "1", denom: "1" } },
+        ]}
+        onChange={() => {}}
+        pack={realPack}
+        eventOffItems={V15_OFF}
+      />
+    </LocaleProvider>,
+  );
+  fireEvent.click(screen.getByLabelText(/^Item:/));
+  expect(pickerTile("activity_xiranite_lung")!.disabled).toBe(true);
+  expect(pickerTile("copper_bottle")!.disabled).toBe(false);
+  expect(pickerHintText()).toContain("v1.5");
 });

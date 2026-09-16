@@ -16,6 +16,11 @@ export type LpInput = {
   pack: RecipePack;
   itemOverrides?: ItemOverride[];
   recipeCosts?: Map<RecipeId, number>;
+  // App-level availability state (#144): recipe ids switched off for this
+  // solve. Treated mechanically like the extraction ban - no LP variable - but
+  // unlike the extraction ban it never renumbers lexRank (see below). Defaults
+  // empty, which is what a fresh browser runs with.
+  unavailableRecipeIds?: ReadonlySet<RecipeId>;
   // Test seam: called once per model built, with the pass label. The model is
   // the object handed to the engine; observing it is how a suite pins the model
   // itself rather than the solution it produces.
@@ -213,7 +218,7 @@ function capSlack(cap: number): number {
 
 export function solveLp(input: LpInput): LpResult {
   const t0 = performance.now();
-  const { targets, pack, itemOverrides = [] } = input;
+  const { targets, pack, itemOverrides = [], unavailableRecipeIds } = input;
 
   if (targets.length === 0) {
     return {
@@ -229,16 +234,19 @@ export function solveLp(input: LpInput): LpResult {
   }
 
   // Sort recipes and items by id for deterministic iteration / lex-rank.
-  // Miners, pumps and world nodes are dropped outright rather than priced at
-  // big-M: the model gets no x_ variable for them, so no solution can run one.
-  // A big-M cost would still let the LP recruit one whenever nothing else
-  // covers the demand, which is exactly the case that matters - a raw item
-  // capped below what the plan consumes must report the shortfall as a
-  // deficit, not grow its own mine.
+  // Miners, pumps, world nodes, and unavailable recipes are dropped outright
+  // rather than priced at big-M: the model gets no x_ variable for them, so no
+  // solution can run one. A big-M cost would still let the LP recruit one
+  // whenever nothing else covers the demand, which is exactly the case that
+  // matters - a raw item capped below what the plan consumes must report the
+  // shortfall as a deficit, not grow its own mine; and a switched-off event
+  // recipe must leave its item's demand unmet, not run anyway.
   const sortedRecipes = [...pack.recipes].sort((a, b) =>
     a.id < b.id ? -1 : a.id > b.id ? 1 : 0,
   );
-  const recipes = sortedRecipes.filter((r) => !isExtractionRecipe(r));
+  const recipes = sortedRecipes.filter(
+    (r) => !isExtractionRecipe(r) && !unavailableRecipeIds?.has(r.id),
+  );
   const items = [...pack.items].sort((a, b) =>
     a.id < b.id ? -1 : a.id > b.id ? 1 : 0,
   );
@@ -250,11 +258,12 @@ export function solveLp(input: LpInput): LpResult {
   const demand = demandByItem(targets);
 
   // Lex rank per recipe (sorted by id) for the pass-2 tie-break. Ranked over
-  // the FULL sorted list, gaps for the dropped miners included. The ranks are
-  // objective coefficients, not just an ordering, so compacting them would
-  // reweight the pass-2 objective and move which cost-equal solution wins;
-  // keeping every surviving recipe on its historical rank is what stops
-  // dropping a miner from silently reshuffling pinned plans.
+  // the FULL sorted list, gaps for the dropped miners AND the unavailable
+  // recipes included. The ranks are objective coefficients, not just an
+  // ordering, so compacting them would reweight the pass-2 objective and move
+  // which cost-equal solution wins; keeping every surviving recipe on its
+  // historical rank is what stops dropping a miner - or toggling an event
+  // cohort off - from silently reshuffling pinned plans.
   const lexRank = new Map<RecipeId, number>();
   sortedRecipes.forEach((r, i) => lexRank.set(r.id, i));
 

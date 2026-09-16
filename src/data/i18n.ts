@@ -21,6 +21,7 @@ export type UiKey =
   | "picker.group.unranked"
   | "picker.empty"
   | "picker.close.label"
+  | "picker.event.off"
   | "app.loading"
   | "app.error.load"
   | "app.error.edit"
@@ -29,6 +30,7 @@ export type UiKey =
   | "app.error.solver"
   | "app.error.infeasible"
   | "app.error.infeasible.generic"
+  | "app.error.producer-unavailable.event"
   | "app.error.dismiss"
   | "app.error.busy"
   | "app.error.crash"
@@ -72,6 +74,20 @@ export type UiKey =
   | "canvas.controls.fit_view"
   | "canvas.controls.interactive"
   | "rate.invalid"
+  | "settings.open.label"
+  | "settings.title"
+  | "settings.close.label"
+  | "settings.events.title"
+  | "settings.events.reset"
+  | "settings.events.current"
+  | "settings.events.past"
+  | "settings.events.default"
+  | "settings.events.switch.label"
+  | "settings.events.counts"
+  | "settings.events.showRecipes"
+  | "settings.events.hideRecipes"
+  | "settings.events.recipe.machine"
+  | "settings.events.recipe.inputs"
   | "stats.output"
   | "stats.output.unit"
   | "stats.input"
@@ -106,6 +122,11 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "picker.group.unranked": "循环 / 未分级",
     "picker.empty": "没有匹配的物品",
     "picker.close.label": "关闭",
+    // {cohorts} is the raw cohort tokens ("v1.2 · v1.5") the validation error
+    // app.error.producer-unavailable.event also interpolates: the two surfaces
+    // must name a cohort identically in every locale.
+    "picker.event.off":
+      "灰显的物品来自未开启的活动（{cohorts}）— 可在设置中开启",
     "app.loading": "正在加载布局...",
     "app.error.load": "加载方案失败: {message}",
     "app.error.edit": "无法应用此更改: {message}",
@@ -115,6 +136,8 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "app.error.infeasible":
       "无可行方案，涉及：{items}。请提高供给上限或降低目标产量。",
     "app.error.infeasible.generic": "当前目标与供给上限下无可行方案。",
+    "app.error.producer-unavailable.event":
+      "物品 {itemId} 仅由 {cohort} 活动配方生产，该活动当前未开启。",
     "app.error.dismiss": "关闭",
     "app.error.busy": "方案正在加载，请等加载完成后再修改。",
     "app.error.crash": "规划器遇到意外错误，无法绘制当前方案。",
@@ -158,6 +181,20 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "canvas.controls.fit_view": "适应视图",
     "canvas.controls.interactive": "切换交互",
     "rate.invalid": "请输入数字，例如 30 或 1/3",
+    "settings.open.label": "打开设置",
+    "settings.title": "设置",
+    "settings.close.label": "关闭",
+    "settings.events.title": "活动",
+    "settings.events.reset": "恢复默认",
+    "settings.events.current": "当前",
+    "settings.events.past": "往期",
+    "settings.events.default": "默认",
+    "settings.events.switch.label": "切换 {cohort} 活动",
+    "settings.events.counts": "{items} 个物品 · {recipes} 个配方",
+    "settings.events.showRecipes": "显示配方",
+    "settings.events.hideRecipes": "隐藏配方",
+    "settings.events.recipe.machine": "机器 {machine}",
+    "settings.events.recipe.inputs": "输入 {inputs}",
     "stats.output": "输出",
     "stats.output.unit": "目标",
     "stats.input": "输入",
@@ -183,6 +220,10 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "picker.group.unranked": "Cyclic / unranked",
     "picker.empty": "No items match your search",
     "picker.close.label": "Close",
+    // See the zh entry: {cohorts} carries the same raw tokens the
+    // producer-unavailable validation error interpolates.
+    "picker.event.off":
+      "Dimmed items belong to a switched-off event ({cohorts}) — switch it on in Settings",
     "app.loading": "Loading layout...",
     "app.error.load": "Failed to load plan: {message}",
     "app.error.edit": "Cannot apply this change: {message}",
@@ -194,6 +235,8 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
       "No feasible plan involving: {items}. Raise the supply caps or lower the targets.",
     "app.error.infeasible.generic":
       "No feasible plan for the current targets and supply caps.",
+    "app.error.producer-unavailable.event":
+      "Item {itemId} cannot be a target right now: every recipe producing it is unavailable (the {cohort} event is switched off).",
     "app.error.dismiss": "Dismiss",
     "app.error.busy":
       "A plan is still loading. Try that change again once it lands.",
@@ -240,6 +283,20 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "canvas.controls.fit_view": "Fit view",
     "canvas.controls.interactive": "Toggle interactivity",
     "rate.invalid": "Enter a number, e.g. 30 or 1/3",
+    "settings.open.label": "Open settings",
+    "settings.title": "Settings",
+    "settings.close.label": "Close",
+    "settings.events.title": "Events",
+    "settings.events.reset": "Reset to defaults",
+    "settings.events.current": "current",
+    "settings.events.past": "past",
+    "settings.events.default": "default",
+    "settings.events.switch.label": "Toggle the {cohort} event",
+    "settings.events.counts": "{items} items · {recipes} recipes",
+    "settings.events.showRecipes": "Show recipes",
+    "settings.events.hideRecipes": "Hide recipes",
+    "settings.events.recipe.machine": "machine {machine}",
+    "settings.events.recipe.inputs": "in {inputs}",
     "stats.output": "Output",
     "stats.output.unit": "targets",
     "stats.input": "Input",

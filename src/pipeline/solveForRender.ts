@@ -39,6 +39,12 @@ export type SolveForRenderRequest = {
   recipeCosts?: Map<RecipeId, number> | undefined;
   /** Defaults to the shipped pack. The RawPack brand rejects a netted one. */
   pack?: RawPack | undefined;
+  /**
+   * App-level availability state (#144): recipe ids switched off for this
+   * solve, threaded to the graph walk and the LP. Defaults to empty, like the
+   * other optionals - which is what a fresh browser solves with.
+   */
+  unavailableRecipeIds?: ReadonlySet<RecipeId> | undefined;
 };
 
 /**
@@ -62,6 +68,7 @@ export function solveForRender({
   itemOverrides = [],
   recipeCosts,
   pack = shippedPack,
+  unavailableRecipeIds,
 }: SolveForRenderRequest): SolveForRenderOutput {
   // solvePlanWithIntermediates still declares a mutable array and only reads
   // it; the cast keeps ONE overrides instance reaching both calls, which is
@@ -72,6 +79,7 @@ export function solveForRender({
     pack,
     overrides,
     recipeCosts,
+    unavailableRecipeIds,
   );
   return {
     full,
@@ -102,9 +110,16 @@ export type SolveFromPlanOutput = SolveForRenderOutput & {
 export function solveFromPlan(
   plan: Plan,
   pack?: RawPack | undefined,
+  unavailableRecipeIds?: ReadonlySet<RecipeId> | undefined,
 ): SolveFromPlanOutput {
   const { targets, itemOverrides, recipeCosts } = planToSolverArgs(plan);
-  const out = solveForRender({ targets, itemOverrides, recipeCosts, pack });
+  const out = solveForRender({
+    targets,
+    itemOverrides,
+    recipeCosts,
+    pack,
+    unavailableRecipeIds,
+  });
   return {
     ...out,
     underDelivered: targetOutputShortfalls(out.plan, out.targets).map(

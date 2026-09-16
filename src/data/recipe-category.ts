@@ -67,6 +67,16 @@ export function isSinkRecipe(recipe: Recipe): boolean {
   return recipe.out.length === 0;
 }
 
+// The producer predicate shared by producibleItemIds and producersOfItem: a
+// recipe counts as a producer only when it is neither `__internal` (synthetic
+// raw source) nor input-supply (`__domain_transfer`). Extraction recipes are
+// deliberately NOT excluded - what the plan loader counts as a producer stays
+// one notion, so its two target errors (target-not-producible vs
+// producer-unavailable) partition cleanly.
+function isSyntheticOrSupplyRecipe(recipe: Recipe): boolean {
+  return recipe.category === "__internal" || isInputSupplyRecipe(recipe);
+}
+
 // The set of items at least one recipe cycles as a catalyst. Only these items
 // can carry a catalyst-role override: every other item has no catalyst supply
 // pool to address.
@@ -87,10 +97,24 @@ export function catalystItemIds(recipes: readonly Recipe[]): Set<string> {
 export function producibleItemIds(recipes: readonly Recipe[]): Set<string> {
   const ids = new Set<string>();
   for (const r of recipes) {
-    if (r.category === "__internal" || isInputSupplyRecipe(r)) continue;
+    if (isSyntheticOrSupplyRecipe(r)) continue;
     for (const o of r.out) {
       if (o.qty > 0) ids.add(o.item);
     }
   }
   return ids;
+}
+
+// Every recipe the producible set above counts as a producer of itemId, in
+// pack order. The availability seam (#144) asks "does this item have producers,
+// and are they all switched off" against exactly that producer notion.
+export function producersOfItem(
+  recipes: readonly Recipe[],
+  itemId: string,
+): Recipe[] {
+  return recipes.filter(
+    (r) =>
+      !isSyntheticOrSupplyRecipe(r) &&
+      r.out.some((o) => o.item === itemId && o.qty > 0),
+  );
 }

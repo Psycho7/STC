@@ -308,6 +308,63 @@ describe("validatePlan - rational wire fields", () => {
   });
 });
 
+// The availability seam (#144): with a set of unavailable recipe ids, an item
+// whose producers all sit in the set stops being a valid target, with a cause
+// naming the cohort that switched them off.
+describe("validatePlan - unavailable producers", () => {
+  const v15 = new Set(
+    pack.recipes.filter((r) => r.event === "v1.5").map((r) => r.id),
+  );
+
+  function targeting(itemId: string): Plan {
+    const plan = basePlan();
+    plan.targets = [{ itemId, ratePerSec: { num: "1", denom: "1" } }];
+    return plan;
+  }
+
+  it("returns producer-unavailable naming the event cohort when every producer is switched off", () => {
+    // activity_xiranite_lung's only producer is the v1.5 event recipe of the
+    // same id.
+    expect(
+      validatePlan(targeting("activity_xiranite_lung"), pack, v15),
+    ).toEqual({
+      kind: "producer-unavailable",
+      itemId: "activity_xiranite_lung",
+      cause: { kind: "event", cohort: "v1.5" },
+    });
+  });
+
+  it("describes the error naming the item and the cohort", () => {
+    const error = validatePlan(targeting("activity_xiranite_lung"), pack, v15)!;
+    expect(error.kind).toBe("producer-unavailable");
+    const message = describePlanLoadError(error);
+    expect(message).toContain("activity_xiranite_lung");
+    expect(message).toContain("v1.5");
+  });
+
+  it("accepts the same target with an empty set (the default)", () => {
+    expect(validatePlan(targeting("activity_xiranite_lung"), pack)).toBeNull();
+    expect(
+      validatePlan(targeting("activity_xiranite_lung"), pack, new Set()),
+    ).toBeNull();
+  });
+
+  it("still returns target-not-producible for an item with no producers at all", () => {
+    // domain_key_tundra comes only from an input-supply recipe: no producers
+    // under the shared predicate, so the availability set must not redirect
+    // the error - the two kinds partition.
+    expect(validatePlan(targeting("domain_key_tundra"), pack, v15)?.kind).toBe(
+      "target-not-producible",
+    );
+  });
+
+  it("accepts an item with a partially available producer set", () => {
+    // jinlong_coupon has 12 always-on producers besides the two v1.5 event
+    // exchanges; switching the cohort off must not make it untargetable.
+    expect(validatePlan(targeting("jinlong_coupon"), pack, v15)).toBeNull();
+  });
+});
+
 // A catalyst-role override addresses the catalyst supply pool, which only
 // exists for an item some recipe cycles as a catalyst.
 describe("validatePlan - item override roles", () => {

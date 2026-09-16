@@ -1,6 +1,9 @@
 import { type Page } from "@playwright/test";
 
-import { LOCALE_STORAGE_KEY } from "../../src/data/storage-keys";
+import {
+  EVENT_COHORT_OVERRIDES_STORAGE_KEY,
+  LOCALE_STORAGE_KEY,
+} from "../../src/data/storage-keys";
 
 // The camera settles in two steps on a cold load: the fit that runs once the
 // nodes are measured, then a debounced re-fit from the canvas resize observer
@@ -88,9 +91,11 @@ export async function waitForCanvasReady(
 // The locale the page boots in. Omitting it writes NO key, which leaves the app
 // on its own default - the state the zh-asserting specs rely on.
 export type BootLocale = "en" | "zh";
-// "nodes" is a laid-out graph; "ready" additionally waits for the READY
-// annotation the exam CLIs judge a page examinable by.
-export type BootReadiness = "nodes" | "ready";
+// "none" waits for nothing - a boot expected to land on the error splash, where
+// no canvas node ever appears; "nodes" is a laid-out graph; "ready"
+// additionally waits for the READY annotation the exam CLIs judge a page
+// examinable by.
+export type BootReadiness = "none" | "nodes" | "ready";
 // Which post-load waits run before the boot resolves. A spec that only clicks
 // needs none; anything that MEASURES wants the webfonts in and the camera
 // parked, because both move text and rects after the nodes appear.
@@ -104,6 +109,10 @@ export type BootExamPageOptions = {
   readiness: BootReadiness;
   settle: BootSettle;
   nodeTimeoutMs?: number | undefined;
+  // Event-cohort overrides (#144) to seed before boot, cohort -> forced
+  // on/off. Omitting it writes NO key, which leaves every cohort on the
+  // version-rule default - same contract as `locale`.
+  eventOverrides?: Record<string, boolean> | undefined;
 };
 
 // `?exam=1` only installs window.__stcExam and changes nothing the app draws,
@@ -118,15 +127,16 @@ function withExamFlag(url: string): string {
   return `${head}${head.includes("?") ? "&" : "?"}exam=1${fragment}`;
 }
 
-// Seed the view locale, open the page, and hold until it is as settled as
-// the caller asked for. The page belongs to the caller: nothing here creates or
-// closes a page or a context, so a per-spec viewport keeps working untouched.
+// Seed the view locale and the event-cohort overrides, open the page, and
+// hold until it is as settled as the caller asked for. The page belongs to the
+// caller: nothing here creates or closes a page or a context, so a per-spec
+// viewport keeps working untouched.
 //
-// The storage key travels as an ARGUMENT, never as a captured module constant:
+// The storage keys travel as ARGUMENTS, never as captured module constants:
 // page.addInitScript serialises the callback source and evaluates it in the
 // page, so nothing from this module's scope reaches it and a captured import
 // would be a fresh ReferenceError inside the browser rather than a compile
-// error here. Passing it in is what makes a rename a compile error on both
+// error here. Passing them in is what makes a rename a compile error on both
 // sides of the browser boundary.
 //
 // No expect() anywhere below, so this module stays importable from a CLI that
@@ -138,21 +148,45 @@ export async function bootExamPage(
   const timeout = opts.nodeTimeoutMs ?? BOOT_TIMEOUT_MS;
 
   await page.addInitScript(
-    (seed: { localeKey: string; locale?: string | undefined }) => {
+    (seed: {
+      localeKey: string;
+      locale?: string | undefined;
+      eventOverridesKey: string;
+      eventOverridesJson?: string | undefined;
+    }) => {
       if (seed.locale !== undefined) {
         window.localStorage.setItem(seed.localeKey, seed.locale);
       }
+      if (seed.eventOverridesJson !== undefined) {
+        window.localStorage.setItem(
+          seed.eventOverridesKey,
+          seed.eventOverridesJson,
+        );
+      }
     },
-    { localeKey: LOCALE_STORAGE_KEY, locale: opts.locale },
+    {
+      localeKey: LOCALE_STORAGE_KEY,
+      locale: opts.locale,
+      eventOverridesKey: EVENT_COHORT_OVERRIDES_STORAGE_KEY,
+      // JSON-stringified here so the page-side callback stays a plain writer:
+      // the value under the key is exactly what readStoredEventOverrides
+      // parses, and undefined means "write nothing", matching `locale`.
+      eventOverridesJson:
+        opts.eventOverrides === undefined
+          ? undefined
+          : JSON.stringify(opts.eventOverrides),
+    },
   );
 
   await page.goto(withExamFlag(opts.url), { waitUntil: "load" });
 
-  await waitForCanvasReady(page, timeout);
-  if (opts.readiness === "ready") {
-    await page
-      .locator(".canvas-annot.bottom-right", { hasText: "READY" })
-      .waitFor({ state: "visible", timeout });
+  if (opts.readiness !== "none") {
+    await waitForCanvasReady(page, timeout);
+    if (opts.readiness === "ready") {
+      await page
+        .locator(".canvas-annot.bottom-right", { hasText: "READY" })
+        .waitFor({ state: "visible", timeout });
+    }
   }
 
   if (opts.settle === "webfonts" || opts.settle === "both") {

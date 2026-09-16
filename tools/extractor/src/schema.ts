@@ -71,6 +71,9 @@ export interface Item {
   // means belt, an unstackable gas_-prefixed id means gas, and any other
   // unstackable item means pipe.
   transportKind: TransportKindId;
+  // The event cohort this row belongs to: the v<major>.<minor> of the AKEData
+  // game version that first shipped the item. Absent = not event-bound.
+  event?: string;
 }
 
 export type PowerType = "electric" | "burner";
@@ -143,6 +146,10 @@ export interface Recipe {
   usage?: number;
   // Atmosphere this recipe has to run in. Absent means the recipe runs anywhere.
   environment?: EnvironmentId;
+  // The event cohort this row belongs to: the v<major>.<minor> of the AKEData
+  // game version that first shipped the event item that binds this recipe.
+  // Absent = not event-bound.
+  event?: string;
   // Upstream solver hint. cost === -1 marks recipes the default solver should
   // skip (e.g. waste-disposal sinks). Other values are priority weights.
   cost?: number;

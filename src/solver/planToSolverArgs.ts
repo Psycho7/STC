@@ -6,6 +6,11 @@ export type SolverArgs = {
   targets: Target[];
   itemOverrides: ItemOverride[];
   recipeCosts: Map<RecipeId, number> | undefined;
+  // App-level availability state (#144): recipe ids switched off for this
+  // solve, threaded to the solver seam. It is NOT plan data - it never rides
+  // the wire and never persists in a hash - so planToSolverArgs always leaves
+  // it unset; callers that hold it (the app) pass it alongside these args.
+  unavailableRecipeIds?: ReadonlySet<RecipeId>;
 };
 
 /**
