@@ -494,12 +494,14 @@
    baseline. The glyph shares the host's currentColor. Shell-wide rather
    than topbar-scoped: the SAME button element renders in the topbar and in
    the error splash's corner slot below, and both must draw it identically. */
-.ak-app-shell button.settings-open {
+.ak-app-shell button.settings-open,
+.ak-app-shell button.export-png {
   display: inline-flex;
   align-items: center;
   justify-content: center;
 }
-.ak-app-shell .settings-open-glyph {
+.ak-app-shell .settings-open-glyph,
+.ak-app-shell .export-png-glyph {
   display: block;
   width: 14px;
   height: 14px;

@@ -14,7 +14,8 @@ import {
   type Node,
   type Edge,
 } from "@xyflow/react";
-import Canvas, { type CanvasStatus } from "./canvas/Canvas";
+import Canvas, { type CanvasHandle, type CanvasStatus } from "./canvas/Canvas";
+import { downloadBlob, exportFilename } from "./canvas/exportPng";
 import { TargetsPanel } from "./components/TargetsPanel";
 import { InputsPanel } from "./components/InputsPanel";
 import type { RFAnyNode } from "./canvas/layout";
@@ -370,6 +371,31 @@ function AppInner() {
   // is mounted. Conditional mount rather than an open prop, matching how the
   // panels own the picker popup.
   const [settingsOpen, setSettingsOpen] = useState(false);
+  // Imperative seam to the canvas for the PNG export: Canvas owns the React
+  // Flow provider and the element the rasterizer walks.
+  const canvasRef = useRef<CanvasHandle>(null);
+  // True from the click until the blob is handed to the download, so a second
+  // click cannot start a capture on top of the first.
+  const [exportingPng, setExportingPng] = useState(false);
+  // A capture failure (unreachable webfont, a canvas the browser refuses) is
+  // not a plan error, so it stays off the banner - which only carries plan
+  // outcomes - and the button always comes back enabled.
+  const handleExportPng = useCallback(async (): Promise<void> => {
+    const handle = canvasRef.current;
+    if (handle === null) return;
+    setExportingPng(true);
+    try {
+      const blob = await handle.exportPng();
+      const targetItemIds = (planRef.current?.targets ?? []).map(
+        (t) => t.itemId,
+      );
+      downloadBlob(blob, exportFilename(targetItemIds, new Date()));
+    } catch (e) {
+      console.error("PNG export failed", e);
+    } finally {
+      setExportingPng(false);
+    }
+  }, []);
   // The recipes switched off under those overrides - the availability set the
   // load, mutation, and re-solve paths below all thread into the seam from
   // T3. `pack` is a module-stable import, so it stays out of the dependency
@@ -899,6 +925,28 @@ function AppInner() {
               {status}
             </span>
             <LocaleSwitcher />
+            <button
+              type="button"
+              className="export-png"
+              data-testid="export-png"
+              aria-label={i18n.t("export.png.label")}
+              title={i18n.t("export.png.label")}
+              disabled={
+                status !== "READY" || nodes.length === 0 || exportingPng
+              }
+              onClick={() => void handleExportPng()}
+            >
+              {/* Download glyph: an arrow dropping into a tray. */}
+              <svg
+                className="export-png-glyph"
+                viewBox="0 0 16 16"
+                aria-hidden="true"
+              >
+                <path d="M8 2 L8 10" />
+                <path d="M4.5 7 L8 10.5 L11.5 7" />
+                <path d="M2.5 13 L13.5 13" />
+              </svg>
+            </button>
             {settingsGear}
           </div>
         </div>
@@ -1049,6 +1097,7 @@ function AppInner() {
           </div>
           <div style={{ flex: 1, minHeight: 0, position: "relative" }}>
             <Canvas
+              ref={canvasRef}
               nodes={nodes}
               edges={edges}
               gaps={gaps}

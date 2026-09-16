@@ -14,7 +14,16 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import "./canvas.css";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useMemo,
+  useRef,
+  useState,
+  type Ref,
+} from "react";
+import { flushSync } from "react-dom";
 import RecipeNode from "./RecipeNode";
 import GroupNode from "./GroupNode";
 import LoopNode from "./LoopNode";
@@ -26,6 +35,8 @@ import { examChipReservations } from "./chipMetrics";
 import { isTrunkOwner, type BusAggregate } from "./busRouting";
 import type { RFAnyNode } from "./layout";
 import type { GapRecord } from "./layerModel";
+import { ExportModeProvider } from "./exportMode";
+import { capturePlanPng, exportFrame } from "./exportPng";
 import { useI18n } from "../data/i18n-context";
 import { pack } from "../data/load";
 import type { CSSProperties } from "react";
@@ -79,7 +90,15 @@ const RESIZE_REFIT_MS = 100;
 // last solve or load failed.
 export type CanvasStatus = "READY" | "SOLVING" | "ERROR";
 
+// What the header's export button drives. Canvas owns the ReactFlowProvider and
+// the container element, so App cannot reach the viewport node itself; this is
+// the one imperative seam across that boundary.
+export interface CanvasHandle {
+  exportPng(): Promise<Blob>;
+}
+
 interface CanvasProps {
+  ref?: Ref<CanvasHandle>;
   nodes: Node[];
   edges: Edge[];
   // The inter-layer gap reserves the layout produced, forwarded to the exam
@@ -186,6 +205,7 @@ export default function Canvas(props: CanvasProps) {
 }
 
 function CanvasInner({
+  ref,
   nodes,
   edges,
   gaps = [],
@@ -197,6 +217,9 @@ function CanvasInner({
 }: CanvasProps) {
   const i18n = useI18n();
   const [hovered, setHovered] = useState<Hovered>(null);
+  // True for the single render pass the PNG capture rasterizes: every
+  // zoom-dependent level-of-detail gate reads 1 instead of the live zoom.
+  const [exporting, setExporting] = useState(false);
   const { fitView, fitBounds, setViewport, getNodes } = useReactFlow();
   // The store holds the dropped positions before the `nodes` prop does.
   const handleNodeDragStop = useCallback(() => {
@@ -371,6 +394,52 @@ function CanvasInner({
     setHovered(null);
   }, [cancelPendingHover]);
   useEffect(() => cancelPendingHover, [cancelPendingHover]);
+
+  // PNG export. The rect comes from the same refs and the same contentBounds
+  // the fit path uses, so the image frames exactly what fitBounds would.
+  // flushSync commits the full-detail pass and drops any hover dimming before
+  // the rasterizer walks the DOM; one animation frame after that lets React
+  // Flow's own zoom-derived styles settle. The flag is cleared in a finally, so
+  // a refused capture cannot strand the canvas in export mode.
+  useImperativeHandle(
+    ref,
+    () => ({
+      async exportPng(): Promise<Blob> {
+        const container = containerRef.current;
+        if (container === null) {
+          throw new Error("Canvas is not mounted");
+        }
+        const bounds = contentBounds(
+          nodesRef.current as unknown as RFAnyNode[],
+          edgesRef.current,
+        );
+        if (bounds === null) {
+          throw new Error("Nothing to export: the plan has no content");
+        }
+        const viewport = container.querySelector<HTMLElement>(
+          ".react-flow__viewport",
+        );
+        if (viewport === null) {
+          throw new Error("Nothing to export: the canvas viewport is missing");
+        }
+        const backgroundColor = getComputedStyle(container).backgroundColor;
+        const frame = exportFrame(bounds);
+        flushSync(() => {
+          setExporting(true);
+          clearHover();
+        });
+        try {
+          await new Promise<void>((resolve) => {
+            requestAnimationFrame(() => resolve());
+          });
+          return await capturePlanPng(viewport, frame, backgroundColor);
+        } finally {
+          setExporting(false);
+        }
+      },
+    }),
+    [clearHover],
+  );
 
   // A plan can land with the pointer standing still (Enter in an already-focused
   // rate field, hash navigation), and no leave event fires
@@ -562,36 +631,38 @@ function CanvasInner({
       ref={containerRef}
       className={[
         "ak-canvas-theme",
-        zoomBand(zoom),
+        zoomBand(exporting ? 1 : zoom),
         focus ? "hover-active" : "",
       ]
         .filter(Boolean)
         .join(" ")}
       style={canvasThemeStyle}
     >
-      <ReactFlow
-        nodes={displayNodes}
-        edges={displayEdges}
-        {...(onNodesChange ? { onNodesChange } : {})}
-        {...(onEdgesChange ? { onEdgesChange } : {})}
-        onNodeDragStop={handleNodeDragStop}
-        nodeTypes={nodeTypes}
-        edgeTypes={edgeTypes}
-        onNodeMouseEnter={handleNodeMouseEnter}
-        onNodeMouseLeave={clearHover}
-        onEdgeMouseEnter={handleEdgeMouseEnter}
-        onEdgeMouseLeave={clearHover}
-        onPaneClick={clearHover}
-        minZoom={0.05}
-        ariaLabelConfig={ariaLabelConfig}
-        // Keep nodes mouse-draggable and Tab-focusable (tabIndex stays 0), but
-        // stop the arrow keys from nudging a selected node out of the ELK
-        // layout. React Flow gates the arrow-key move handler on this flag; it
-        // leaves keyboard focus traversal intact.
-        disableKeyboardA11y
-      >
-        <Controls aria-label={i18n.t("canvas.controls.panel")} />
-      </ReactFlow>
+      <ExportModeProvider exporting={exporting}>
+        <ReactFlow
+          nodes={displayNodes}
+          edges={displayEdges}
+          {...(onNodesChange ? { onNodesChange } : {})}
+          {...(onEdgesChange ? { onEdgesChange } : {})}
+          onNodeDragStop={handleNodeDragStop}
+          nodeTypes={nodeTypes}
+          edgeTypes={edgeTypes}
+          onNodeMouseEnter={handleNodeMouseEnter}
+          onNodeMouseLeave={clearHover}
+          onEdgeMouseEnter={handleEdgeMouseEnter}
+          onEdgeMouseLeave={clearHover}
+          onPaneClick={clearHover}
+          minZoom={0.05}
+          ariaLabelConfig={ariaLabelConfig}
+          // Keep nodes mouse-draggable and Tab-focusable (tabIndex stays 0), but
+          // stop the arrow keys from nudging a selected node out of the ELK
+          // layout. React Flow gates the arrow-key move handler on this flag; it
+          // leaves keyboard focus traversal intact.
+          disableKeyboardA11y
+        >
+          <Controls aria-label={i18n.t("canvas.controls.panel")} />
+        </ReactFlow>
+      </ExportModeProvider>
       <div className="canvas-frame" aria-hidden="true" />
       <div className="cb tl" aria-hidden="true" />
       <div className="cb tr" aria-hidden="true" />

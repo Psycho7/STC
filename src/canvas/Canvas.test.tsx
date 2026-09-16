@@ -6,10 +6,13 @@
 // units, so the chip is labeled UNITS rather than REPLICAS.
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { act, cleanup, fireEvent, render } from "@testing-library/react";
-import type { FC } from "react";
+import { createRef, type FC } from "react";
 import type { Edge, Node } from "@xyflow/react";
 import type { Recipe } from "@aef/schema";
-import Canvas, { zoomBand } from "./Canvas";
+import Canvas, { zoomBand, type CanvasHandle } from "./Canvas";
+import { contentBounds } from "./chipSeating";
+import type { RFAnyNode } from "./layout";
+import { exportFrame } from "./exportPng";
 import { ItemPackProvider, type ItemPackContextValue } from "./itemPackContext";
 import { LocaleProvider } from "../data/i18n-context";
 import { cssBlock } from "./cssContract.testkit";
@@ -42,6 +45,14 @@ vi.mock("@xyflow/react", async (importOriginal) => {
     useNodesInitialized: () => true,
   };
 });
+
+// test/setup.ts stubs getBoundingClientRect and canvas getContext, so real
+// rasterization cannot happen under jsdom; the capture contract is what the
+// library is handed, not the bytes it would return.
+const toBlobSpy = vi.hoisted(() =>
+  vi.fn(async () => new Blob(["png"], { type: "image/png" })),
+);
+vi.mock("html-to-image", () => ({ toBlob: toBlobSpy }));
 
 const PACK = {
   itemById: new Map(),
@@ -87,6 +98,7 @@ const NODES: Node[] = [
 beforeEach(() => {
   fitViewSpy.mockClear();
   fitBoundsSpy.mockClear();
+  toBlobSpy.mockClear();
   rfRenders.length = 0;
   vi.stubGlobal(
     "ResizeObserver",
@@ -482,6 +494,95 @@ test("a node array change does not drop a pending debounced re-fit", () => {
   act(() => vi.advanceTimersByTime(100));
   expect(fitBoundsSpy).toHaveBeenCalledTimes(1);
   expect(themeCallbacks).toHaveLength(1);
+});
+
+// The export seam: App owns the button, Canvas owns the React Flow provider
+// and the element the rasterizer walks, so the handle is the only way across.
+// What it hands the library - the framed rect, the unit-scale transform and an
+// opaque background - is the whole contract.
+test("the canvas handle rasterizes the viewport at the content frame", async () => {
+  const exportNodes: Node[] = [
+    {
+      id: "u1",
+      type: "recipe",
+      position: { x: 120, y: 60 },
+      data: { recipe: RECIPE, kind: "recipe" },
+    },
+    {
+      id: "u2",
+      type: "recipe",
+      position: { x: 640, y: 400 },
+      data: { recipe: RECIPE, kind: "recipe" },
+    },
+  ];
+  const ref = createRef<CanvasHandle>();
+  const { container } = render(
+    <LocaleProvider locale="en">
+      <ItemPackProvider value={PACK}>
+        <Canvas ref={ref} nodes={exportNodes} edges={[]} />
+      </ItemPackProvider>
+    </LocaleProvider>,
+  );
+
+  let blob: Blob | undefined;
+  await act(async () => {
+    blob = await ref.current!.exportPng();
+  });
+  expect(blob).toBeInstanceOf(Blob);
+
+  const bounds = contentBounds(exportNodes as unknown as RFAnyNode[], [])!;
+  const frame = exportFrame(bounds);
+  expect(toBlobSpy).toHaveBeenCalledTimes(1);
+  const [element, options] = toBlobSpy.mock.calls[0] as unknown as [
+    HTMLElement,
+    {
+      width: number;
+      height: number;
+      pixelRatio: number;
+      backgroundColor: string;
+      style: { transform: string };
+    },
+  ];
+  expect(element).toBe(container.querySelector(".react-flow__viewport"));
+  expect(options.width).toBe(frame.width);
+  expect(options.height).toBe(frame.height);
+  expect(options.pixelRatio).toBe(frame.pixelRatio);
+  expect(options.style.transform).toBe(frame.transform);
+  expect(options.backgroundColor).not.toBe("");
+
+  // Export mode is a single-pass override, released whether or not the capture
+  // succeeded: a stuck flag would freeze the live canvas at full detail.
+  expect(container.querySelector(".ak-canvas-theme")!.className).not.toContain(
+    "zoom-",
+  );
+});
+
+test("a capture failure still releases export mode", async () => {
+  toBlobSpy.mockRejectedValueOnce(new Error("canvas refused"));
+  const ref = createRef<CanvasHandle>();
+  render(
+    <LocaleProvider locale="en">
+      <ItemPackProvider value={PACK}>
+        <Canvas ref={ref} nodes={NODES} edges={[]} />
+      </ItemPackProvider>
+    </LocaleProvider>,
+  );
+  await act(async () => {
+    await expect(ref.current!.exportPng()).rejects.toThrow("canvas refused");
+  });
+});
+
+test("exporting an empty graph throws rather than capturing nothing", async () => {
+  const ref = createRef<CanvasHandle>();
+  render(
+    <LocaleProvider locale="en">
+      <ItemPackProvider value={PACK}>
+        <Canvas ref={ref} nodes={[]} edges={[]} />
+      </ItemPackProvider>
+    </LocaleProvider>,
+  );
+  await expect(ref.current!.exportPng()).rejects.toThrow(/no content/);
+  expect(toBlobSpy).not.toHaveBeenCalled();
 });
 
 test("HUD chip shows UNITS counting only recipe-type nodes", () => {

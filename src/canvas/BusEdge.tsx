@@ -12,6 +12,7 @@ import {
 } from "./ItemEdge";
 import { isTrunkOwner, type BusEdgeData } from "./busRouting";
 import { drawnEdge } from "./edgePath";
+import { useExportMode } from "./exportMode";
 import { useI18n } from "../data/i18n-context";
 import { formatRateExactPerMin, formatRatePerMin } from "../data/rate-format";
 
@@ -48,7 +49,11 @@ export default function BusEdge({
   style,
 }: EdgeProps) {
   const edgeData = data as (ItemEdgeData & BusEdgeData) | undefined;
-  const zoom = useStore((state) => state.transform[2]);
+  const liveZoom = useStore((state) => state.transform[2]);
+  // The PNG export rasterizes at unit scale, so every zoom gate below reads 1
+  // and the image keeps full detail whatever the camera was parked at.
+  const exporting = useExportMode();
+  const zoom = exporting ? 1 : liveZoom;
   const i18n = useI18n();
   // Either shape exposes one aggregate chip anchor (the shared stretch) and one
   // per-member chip anchor (the member's own stretch). drawnEdge resolves the

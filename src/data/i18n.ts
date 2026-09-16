@@ -74,6 +74,7 @@ export type UiKey =
   | "canvas.controls.fit_view"
   | "canvas.controls.interactive"
   | "rate.invalid"
+  | "export.png.label"
   | "settings.open.label"
   | "settings.title"
   | "settings.close.label"
@@ -181,6 +182,7 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "canvas.controls.fit_view": "适应视图",
     "canvas.controls.interactive": "切换交互",
     "rate.invalid": "请输入数字，例如 30 或 1/3",
+    "export.png.label": "导出 PNG",
     "settings.open.label": "打开设置",
     "settings.title": "设置",
     "settings.close.label": "关闭",
@@ -283,6 +285,7 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "canvas.controls.fit_view": "Fit view",
     "canvas.controls.interactive": "Toggle interactivity",
     "rate.invalid": "Enter a number, e.g. 30 or 1/3",
+    "export.png.label": "Export PNG",
     "settings.open.label": "Open settings",
     "settings.title": "Settings",
     "settings.close.label": "Close",
