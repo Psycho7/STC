@@ -140,6 +140,7 @@ test("the export button is disabled while the canvas has no nodes", async () => 
     nodes: [],
     edges: [],
     gaps: [],
+    baseEdges: [],
   }));
   const button = await renderReadyApp();
   expect(button.disabled).toBe(true);

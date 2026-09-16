@@ -16,10 +16,11 @@ import {
   formatRationalPerMin,
   ratePerSecToPerMin,
 } from "../data/rate-format";
-import { iconPosition } from "../canvas/iconSprite";
+import { iconPosition, iconSheetUrl } from "../canvas/iconSprite";
 import { Sprite } from "../canvas/RecipeNode";
 import { computeItemDepths } from "../data/recipe-depth";
 import { ItemPickerPopup } from "./ItemPickerPopup";
+import { RatePromptPopup } from "./RatePromptPopup";
 import { useRateEdit } from "./useRateEdit";
 
 // An item has two boundary supply pools - the general one and, when some
@@ -155,6 +156,11 @@ export function InputsPanel({
     { kind: "row"; key: RowKey } | { kind: "add" } | null
   >(null);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
+  // The override whose amount prompt (R5) is open. Picking in the add picker
+  // closes it and opens this, so only one popup is ever mounted. The carried
+  // override already names the resolved pool, so the prompt can badge the
+  // catalyst case.
+  const [prompt, setPrompt] = useState<{ override: ItemOverride } | null>(null);
   // Armed by a pick, consumed by the matching row's callback ref on the next
   // commit. A stale token (the commit was rejected, or the panel is rendered
   // with an onChange that never feeds the prop back) is simply overwritten by
@@ -194,6 +200,39 @@ export function InputsPanel({
     triggerRef.current = null;
     // The trigger may have been removed (a committed swap unmounts its row),
     // so guard the focus.
+    if (btn && document.contains(btn)) btn.focus();
+  }
+
+  // The add prompt confirmed an amount (R5). The row commits exactly as a
+  // direct pick used to: an empty field commits the bare override (uncapped),
+  // a number caps it, and the pool the pick resolved carries over. The
+  // pending-focus token hands focus to the new row's rate input - it is the
+  // only edit that makes the new row do anything.
+  function confirmPromptRate(rate: RationalString | undefined) {
+    const added = prompt?.override;
+    if (added === undefined) return;
+    pendingFocus.current = {
+      rowKey: encodeItemOverrideKey(added),
+      kind: "rate",
+    };
+    onChange((current) =>
+      current.some((o) => isRow(o, added))
+        ? current
+        : [
+            ...current,
+            rate === undefined ? added : { ...added, ratePerSec: rate },
+          ],
+    );
+    triggerRef.current = null;
+    setPrompt(null);
+  }
+
+  // R7: cancelling the prompt cancels the whole add - nothing committed, and
+  // focus returns to the Add button that started it.
+  function cancelPrompt() {
+    setPrompt(null);
+    const btn = triggerRef.current;
+    triggerRef.current = null;
     if (btn && document.contains(btn)) btn.focus();
   }
 
@@ -772,6 +811,24 @@ export function InputsPanel({
         {i18n.t("inputs.add")}
       </button>
       {pickerFor !== null ? renderPicker() : null}
+      {prompt !== null ? (
+        <RatePromptPopup
+          item={{
+            id: prompt.override.itemId,
+            name: i18n.displayName(prompt.override.itemId),
+          }}
+          badge={
+            prompt.override.role === "catalyst"
+              ? i18n.t("inputs.catalyst.badge")
+              : undefined
+          }
+          emptyMeans="uncap"
+          note={i18n.t("ratePrompt.noLimit")}
+          iconSheetUrl={iconSheetUrl}
+          onConfirm={confirmPromptRate}
+          onCancel={cancelPrompt}
+        />
+      ) : null}
     </div>
   );
 
@@ -855,21 +912,19 @@ export function InputsPanel({
             const added: ItemOverride = generalListed(newId)
               ? { itemId: newId, role: "catalyst" }
               : { itemId: newId };
-            // The row mounts on a later commit, so hand its rate input the
-            // focus: it is the only edit that makes the new row do anything.
-            pendingFocus.current = {
-              rowKey: encodeItemOverrideKey(added),
-              kind: "rate",
-            };
-            onChange((current) =>
-              current.some((o) => isRow(o, added))
-                ? current
-                : [...current, added],
-            );
-            // Re-picking the row's own (still-enabled, highlighted) item is a
-            // confirm, not a swap; without this guard the dup check would match
-            // the row against itself and raise a false duplicate alert.
-          } else if (newId !== row.itemId) {
+            // R5: the amount prompt asks for the rate before anything
+            // commits. The picker closes without refocusing - the prompt's
+            // input takes focus when it mounts - and the trigger stays
+            // stashed for the prompt's cancel path, so only one popup is
+            // ever mounted.
+            setPickerFor(null);
+            setPrompt({ override: added });
+            return;
+          }
+          // Re-picking the row's own (still-enabled, highlighted) item is a
+          // confirm, not a swap; without this guard the dup check would match
+          // the row against itself and raise a false duplicate alert.
+          if (newId !== row.itemId) {
             // The swap unmounts this row (rows are keyed by row key), so
             // closePicker's refocus lands on a button the next commit
             // removes. Hand focus to the swapped row's trigger instead.

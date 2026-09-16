@@ -92,8 +92,8 @@ test("pn-rate unit is localized in zh", () => {
 });
 
 // Surface-level gate: a fanout input lights up every fine-print line at once
-// (rate, cap chip, tap share), so scanning the whole card catches any rate unit
-// that skipped the i18n table. The output card covers the target/surplus arm.
+// (rate, tap share), so scanning the whole card catches any rate unit that
+// skipped the i18n table. The output card covers the target/surplus arm.
 test("zh product cards render no Latin min anywhere", () => {
   const { container } = wrap(<ProductNode {...fanoutInputProps()} />, "zh");
   expect(container.textContent).not.toMatch(/min/i);

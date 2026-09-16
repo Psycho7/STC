@@ -1838,21 +1838,6 @@
   margin-left: 3px;
 }
 
-.pn-rate__cap {
-  display: inline-flex;
-  align-items: center;
-  line-height: 1;
-  margin-left: 6px;
-  padding: 1px 5px;
-  border: 1px solid var(--ak-divider);
-  font-family: var(--ak-font-mono);
-  font-size: 9px;
-  font-weight: 500;
-  font-style: italic;
-  letter-spacing: 0.05em;
-  color: var(--ak-text-secondary);
-}
-
 /* Per-consumer / per-container tap slice of a bussed raw input: a derived view
    of the aggregate source card, not another source. Dashed accent and a muted
    name keep it from being counted as an independent input; the share chip
@@ -2382,6 +2367,150 @@
     0 100%,
     0 10px
   );
+}
+
+/* Amount prompt popup. Portaled to <body> like the picker above, so its rules
+   live outside the side-panel scope; the backdrop carries --icons-url inline so
+   the item sprite resolves the icon sheet. Same notched clip-path family so it
+   reads as the same UI. z-index 100 clears the canvas layers (max 6). */
+.rate-prompt-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(0, 0, 0, 0.62);
+  font-family: var(--font-ui);
+}
+.rate-prompt {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+  max-width: 320px;
+  padding: 16px 18px;
+  background: var(--ak-bg-primary);
+  border: 1px solid var(--ak-divider-strong);
+  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.55);
+  clip-path: polygon(
+    10px 0,
+    100% 0,
+    100% calc(100% - 10px),
+    calc(100% - 10px) 100%,
+    0 100%,
+    0 10px
+  );
+}
+.rate-prompt-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 28px;
+}
+.rate-prompt-item-name {
+  font-family: var(--font-display);
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--ak-text-primary);
+  letter-spacing: -0.01em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* The catalyst badge beside the item name (an inputs pick whose general side
+   is already listed, so the row lands in the catalyst pool). The rows'
+   .catalyst chip rule is scoped to the side panel, which this portaled dialog
+   sits outside, so the tag look is restated here. */
+.rate-prompt-item .catalyst {
+  flex: none;
+  padding: 2px 6px;
+  border: 1px solid var(--ak-divider);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.2em;
+  color: var(--ak-text-secondary);
+}
+.rate-prompt-rate {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.rate-prompt-rate input {
+  flex: 1;
+  min-width: 0;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--ak-divider-strong);
+  color: var(--ak-text-primary);
+  font-family: var(--font-mono);
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: -0.015em;
+  padding: 0 0 2px;
+  transition:
+    border-color 120ms ease-out,
+    color 120ms ease-out;
+}
+.rate-prompt-rate input::placeholder {
+  color: var(--ak-text-secondary);
+  font-style: italic;
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.rate-prompt-rate input:focus {
+  border-bottom-color: var(--ak-accent-lime);
+  color: var(--ak-accent-lime-bright);
+}
+.rate-prompt-rate input.invalid,
+.rate-prompt-rate input.invalid:focus {
+  border-bottom-color: var(--ak-accent-red);
+  color: var(--ak-accent-red);
+}
+.rate-prompt-unit {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: var(--ak-text-decoration);
+  letter-spacing: 0.18em;
+}
+.rate-prompt-error {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  line-height: 1.25;
+  color: var(--ak-accent-red);
+  letter-spacing: 0.02em;
+}
+.rate-prompt-note {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  line-height: 1.25;
+  color: var(--ak-text-decoration);
+  letter-spacing: 0.02em;
+}
+.rate-prompt-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.rate-prompt-button {
+  padding: 6px 14px;
+  background: transparent;
+  border: 1px solid var(--ak-divider-strong);
+  color: var(--ak-text-secondary);
+  font-family: var(--font-ui);
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+}
+.rate-prompt-button:hover {
+  border-color: var(--ak-accent-cyan);
+  color: var(--ak-text-primary);
+}
+.rate-prompt-button.primary {
+  border-color: var(--ak-accent-lime);
+  color: var(--ak-accent-lime-bright);
 }
 .recipe-picker-head {
   display: flex;

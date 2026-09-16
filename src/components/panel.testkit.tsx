@@ -8,7 +8,7 @@
 
 import { useState } from "react";
 import type { ReactElement, ReactNode } from "react";
-import { screen } from "@testing-library/react";
+import { within } from "@testing-library/react";
 
 /** What a panel hands its owner: the next list, derived from the current one. */
 export type PanelUpdater<T> = (current: T) => T;
@@ -64,9 +64,23 @@ export function controlledOwner<T>(initial: T): ControlledOwner<T> {
 
 /** Every rate field in the panel, in document order. */
 export function rateInputs(): HTMLInputElement[] {
-  return screen
+  // Scoped to the panel element: the panels' popups (item picker, rate prompt)
+  // portal to document.body, so an unscoped query would count the picker's
+  // search box or the prompt's rate input as a row field.
+  const panel = document.querySelector<HTMLElement>(
+    '[data-testid="targets-section"], [data-testid="inputs-section"]',
+  );
+  if (panel === null) return [];
+  return within(panel)
     .getAllByRole("textbox")
     .filter((el) => el instanceof HTMLInputElement) as HTMLInputElement[];
+}
+
+/** The add-flow rate prompt's input (portaled to document.body). */
+export function promptInput(): HTMLInputElement | null {
+  return document.querySelector<HTMLInputElement>(
+    '[data-testid="rate-prompt-input"]',
+  );
 }
 
 // data-item-id appears on picker tiles, on auto-rows and on override rows, and

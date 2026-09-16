@@ -125,12 +125,14 @@ async function clickAddInput(page: Page): Promise<void> {
   await page.getByRole("button", { name: TEXT.addInput }).click();
 }
 
-// Add now opens the picker instead of committing a row, so every "add a row"
-// preamble is two steps: click Add, then click the item's tile. The locator is
-// scoped to the dialog because data-item-id is also on canvas nodes and rows.
+// Add goes picker-then-amount (R5), so every "add a row" preamble is three
+// steps: click Add, click the item's tile, then confirm the empty prompt with
+// Enter (an uncapped row). The tile locator is scoped to the dialog because
+// data-item-id is also on canvas nodes and rows.
 async function addInputRow(page: Page, itemId: string): Promise<void> {
   await clickAddInput(page);
   await page.locator(`.recipe-picker [data-item-id="${itemId}"]`).click();
+  await page.getByTestId("rate-prompt-input").press("Enter");
 }
 
 async function expectNoConsoleErrors(log: ConsoleLog): Promise<void> {
@@ -148,7 +150,7 @@ async function expectNoConsoleErrors(log: ConsoleLog): Promise<void> {
 }
 
 test.describe("InputsPanel golden-path coverage", () => {
-  test("Test 1: Add opens the picker and a pick appends an uncapped override", async ({
+  test("Test 1: Add opens the picker; the pick's amount prompt commits an uncapped override on Enter", async ({
     page,
   }) => {
     const log = attachConsoleListener(page);
@@ -163,6 +165,15 @@ test.describe("InputsPanel golden-path coverage", () => {
     const urlBefore = page.url();
 
     await page.locator('.recipe-picker [data-item-id="copper_powder"]').click();
+    // The amount prompt sits between the pick and the row (R5): it names the
+    // picked item and the pick alone still commits nothing.
+    const promptInput = page.getByTestId("rate-prompt-input");
+    await expect(promptInput).toBeVisible();
+    await expect(page.locator(".rate-prompt")).toContainText("赤铜粉末");
+    await expect(inputRows(page)).toHaveCount(initialCount);
+
+    // Confirming empty commits the uncapped override.
+    await promptInput.press("Enter");
     await expect(inputRows(page)).toHaveCount(initialCount + 1);
     // Pin the identity of the committed row, not merely that some row appeared.
     await expect(

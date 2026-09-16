@@ -7,7 +7,6 @@ import {
   fireEvent,
   render,
   screen,
-  within,
 } from "@testing-library/react";
 import { pack as realPack } from "../data/load";
 import { TargetsPanel } from "./TargetsPanel";
@@ -16,7 +15,12 @@ import { LocaleProvider } from "../data/i18n-context";
 import { loadI18n } from "../data/i18n";
 import { unavailableEventItems } from "../data/event-cohorts";
 import type { Target } from "../data/targets";
-import { controlledOwner, pickerTile, rateInputs } from "./panel.testkit";
+import {
+  controlledOwner,
+  pickerTile,
+  promptInput,
+  rateInputs,
+} from "./panel.testkit";
 
 afterEach(cleanup);
 beforeEach(() => vi.useFakeTimers());
@@ -287,7 +291,9 @@ test("an item swap hands focus to the swapped row's trigger", () => {
   expect(document.activeElement).toBe(trigger);
 });
 
-test("a promoted draft hands focus to the new row's rate input", () => {
+// Confirming the add prompt hands focus to the new row's rate input, so the
+// user can keep working on the just-added target without leaving the keyboard.
+test("a confirmed add hands focus to the new row's rate input", () => {
   const owner = controlledOwner<Target[]>([]);
   render(
     owner.element((targets, onChange) => (
@@ -296,13 +302,12 @@ test("a promoted draft hands focus to the new row's rate input", () => {
       </LocaleProvider>
     )),
   );
-  fireEvent.click(screen.getByText(/add/i));
-  fireEvent.click(screen.getByLabelText(/choose/i));
+  fireEvent.click(screen.getByRole("button", { name: "Add target" }));
   pickTile("widget");
-  const draftRate = rateInputs()[0]!;
-  fireEvent.change(draftRate, { target: { value: "60" } });
-  fireEvent.keyDown(draftRate, { key: "Enter" });
-  // The draft promoted into a real row; its rate input carries the focus on.
+  const rate = promptInput()!;
+  fireEvent.change(rate, { target: { value: "60" } });
+  fireEvent.keyDown(rate, { key: "Enter" });
+  // 60/min = 1/1 per sec.
   expect(owner.latest).toEqual([
     { itemId: "widget", ratePerSec: { num: "1", denom: "1" } },
   ]);
@@ -378,8 +383,8 @@ test("item picker excludes non-producible items in the real pack", () => {
   expect(pickerTile("iron_powder")).not.toBeNull();
 });
 
-// D4: clicking Add creates a local draft row and does not touch the plan.
-test("clicking Add creates a draft row without committing", () => {
+// R4: clicking Add opens the item picker directly and does not touch the plan.
+test("clicking Add opens the picker and commits nothing", () => {
   const onChange = vi.fn();
   render(
     <LocaleProvider locale="en">
@@ -387,18 +392,15 @@ test("clicking Add creates a draft row without committing", () => {
     </LocaleProvider>,
   );
   fireEvent.click(screen.getByRole("button", { name: "Add target" }));
-  expect(screen.getAllByTestId("target-draft-row").length).toBe(1);
+  expect(screen.queryByRole("dialog")).not.toBeNull();
+  expect(pickerTile("widget")).not.toBeNull();
   expect(screen.queryAllByTestId("target-row").length).toBe(0);
   expect(onChange).not.toHaveBeenCalled();
-  // The draft item trigger shows the "choose an item" placeholder.
-  const draftRow = screen.getByTestId("target-draft-row");
-  const trigger = within(draftRow).getByLabelText(/item/i);
-  expect(trigger.textContent).toBe("Choose an item...");
 });
 
-// D4: a draft commits exactly once, when it has both an item and a nonzero
-// rate, and the draft row is then replaced by a committed target row.
-test("a draft commits once an item and a nonzero rate are set", () => {
+// R4/R6: a pick opens the amount prompt naming the picked item; nothing
+// commits until a positive rate confirms there.
+test("a pick opens the prompt showing the item; confirming commits once", () => {
   const owner = controlledOwner<Target[]>([]);
   render(
     owner.element((targets, onChange) => (
@@ -408,50 +410,24 @@ test("a draft commits once an item and a nonzero rate are set", () => {
     )),
   );
   fireEvent.click(screen.getByRole("button", { name: "Add target" }));
-  fireEvent.click(
-    within(screen.getByTestId("target-draft-row")).getByLabelText(/item/i),
-  );
   pickTile("widget");
-  // An item alone does not commit.
-  expect(owner.latest.length).toBe(0);
-  const rate = within(screen.getByTestId("target-draft-row")).getByLabelText(
-    /rate/i,
-  );
-  fireEvent.change(rate, { target: { value: "60" } });
-  fireEvent.blur(rate);
-  // 60/min = 1/1 per sec.
+  // The prompt shows the picked item's name and the plan is still untouched.
+  expect(screen.getByRole("dialog").textContent).toContain("widget");
+  expect(owner.latest).toEqual([]);
+  const rate = promptInput()!;
+  fireEvent.change(rate, { target: { value: "30" } });
+  fireEvent.keyDown(rate, { key: "Enter" });
+  // 30/min = 1/2 per sec.
   expect(owner.latest).toEqual([
-    { itemId: "widget", ratePerSec: { num: "1", denom: "1" } },
+    { itemId: "widget", ratePerSec: { num: "1", denom: "2" } },
   ]);
-  expect(screen.queryAllByTestId("target-draft-row").length).toBe(0);
+  expect(screen.queryByRole("dialog")).toBeNull();
   expect(screen.getAllByTestId("target-row").length).toBe(1);
 });
 
-// A draft with an item but a zero rate contributes nothing, so it must not
-// commit or churn a re-solve.
-test("a draft with an item but a zero rate does not commit", () => {
-  const onChange = vi.fn();
-  render(
-    <LocaleProvider locale="en">
-      <TargetsPanel targets={[]} onChange={onChange} pack={PACK} />
-    </LocaleProvider>,
-  );
-  fireEvent.click(screen.getByRole("button", { name: "Add target" }));
-  fireEvent.click(
-    within(screen.getByTestId("target-draft-row")).getByLabelText(/item/i),
-  );
-  pickTile("widget");
-  const rate = within(screen.getByTestId("target-draft-row")).getByLabelText(
-    /rate/i,
-  );
-  fireEvent.change(rate, { target: { value: "0" } });
-  fireEvent.blur(rate);
-  expect(onChange).not.toHaveBeenCalled();
-  expect(screen.getAllByTestId("target-draft-row").length).toBe(1);
-});
-
-// Removing a draft is a purely local action: the plan is never touched.
-test("a draft's unparseable rate shows the invalid cue; zero stays quiet", () => {
+// R6: empty, zero and unparseable all show the rate.invalid cue inline and
+// keep the dialog open; nothing commits until a positive rate is entered.
+test("the prompt refuses empty, zero and unparseable rates with the cue", () => {
   const owner = controlledOwner<Target[]>([]);
   render(
     owner.element((targets, onChange) => (
@@ -460,34 +436,52 @@ test("a draft's unparseable rate shows the invalid cue; zero stays quiet", () =>
       </LocaleProvider>
     )),
   );
-  fireEvent.click(screen.getByText(/add/i));
-  const draftRate = rateInputs()[0]!;
-  fireEvent.change(draftRate, { target: { value: "abc" } });
-  fireEvent.keyDown(draftRate, { key: "Enter" });
+  fireEvent.click(screen.getByRole("button", { name: "Add target" }));
+  pickTile("widget");
+  const rate = promptInput()!;
+  // Empty refuses.
+  fireEvent.keyDown(rate, { key: "Enter" });
   expect(owner.latest).toEqual([]);
-  expect(draftRate.getAttribute("aria-invalid")).toBe("true");
-  expect(screen.getByTestId("rate-invalid")).toBeTruthy();
-  // Typing clears the cue.
-  fireEvent.change(draftRate, { target: { value: "ab" } });
-  expect(draftRate.getAttribute("aria-invalid")).toBeNull();
-  // The pinned zero-rate refusal stays quiet (its cue needs a ruling).
-  fireEvent.change(draftRate, { target: { value: "0" } });
-  fireEvent.keyDown(draftRate, { key: "Enter" });
+  expect(rate.getAttribute("aria-invalid")).toBe("true");
+  expect(
+    screen.getByTestId("rate-prompt-invalid").textContent!.length,
+  ).toBeGreaterThan(0);
+  // Zero refuses too (typing clears the cue first).
+  fireEvent.change(rate, { target: { value: "0" } });
+  expect(rate.getAttribute("aria-invalid")).toBeNull();
+  fireEvent.keyDown(rate, { key: "Enter" });
   expect(owner.latest).toEqual([]);
-  expect(draftRate.getAttribute("aria-invalid")).toBeNull();
+  expect(rate.getAttribute("aria-invalid")).toBe("true");
+  // Unparseable refuses the same way.
+  fireEvent.change(rate, { target: { value: "abc" } });
+  expect(rate.getAttribute("aria-invalid")).toBeNull();
+  fireEvent.keyDown(rate, { key: "Enter" });
+  expect(owner.latest).toEqual([]);
+  expect(rate.getAttribute("aria-invalid")).toBe("true");
+  // The dialog never closed and nothing ever reached the plan.
+  expect(screen.queryByRole("dialog")).not.toBeNull();
+  expect(owner.emissions.length).toBe(0);
 });
 
-test("removing a draft never touches the plan", () => {
-  const onChange = vi.fn();
+// R7: Escape at the prompt cancels the whole add - nothing committed, and
+// focus returns to the Add button that opened the picker.
+test("Escape at the prompt commits nothing and refocuses the Add button", () => {
+  const owner = controlledOwner<Target[]>([]);
   render(
-    <LocaleProvider locale="en">
-      <TargetsPanel targets={[]} onChange={onChange} pack={PACK} />
-    </LocaleProvider>,
+    owner.element((targets, onChange) => (
+      <LocaleProvider locale="en">
+        <TargetsPanel targets={targets} onChange={onChange} pack={PACK} />
+      </LocaleProvider>
+    )),
   );
-  fireEvent.click(screen.getByRole("button", { name: "Add target" }));
-  fireEvent.click(screen.getByTestId("remove-draft"));
-  expect(onChange).not.toHaveBeenCalled();
-  expect(screen.queryAllByTestId("target-draft-row").length).toBe(0);
+  const add = screen.getByRole("button", { name: "Add target" });
+  fireEvent.click(add);
+  pickTile("widget");
+  expect(screen.queryByRole("dialog")).not.toBeNull();
+  fireEvent.keyDown(document, { key: "Escape" });
+  expect(owner.latest).toEqual([]);
+  expect(screen.queryByRole("dialog")).toBeNull();
+  expect(document.activeElement).toBe(add);
 });
 
 // An item another row already uses is offered as a disabled tile in the popup,
@@ -585,8 +579,7 @@ test("empty-target placeholder localizes under zh", () => {
 
 // aria-label overrides a button's content, so a bare "item" made every row's
 // trigger announce identically and a screen-reader user could not tell which
-// row they were about to open the picker for. Each trigger names its own item;
-// an empty draft keeps the call to action, since it has no item to name.
+// row they were about to open the picker for. Each trigger names its own item.
 test("each item trigger is named by its own item", () => {
   render(
     <LocaleProvider locale="en">
@@ -602,11 +595,6 @@ test("each item trigger is named by its own item", () => {
       .getAllByLabelText(/^Item:/)
       .map((el) => el.getAttribute("aria-label")),
   ).toEqual(["Item: widget", "Item: gadget"]);
-  fireEvent.click(screen.getByRole("button", { name: "Add target" }));
-  const draftRow = screen.getByTestId("target-draft-row");
-  expect(within(draftRow).getByLabelText("Choose an item...").tagName).toBe(
-    "BUTTON",
-  );
 });
 
 // Upstream renames some item icons to opaque hashes, so a row cannot assume the
@@ -647,10 +635,10 @@ function pickerHintText(): string | null {
   );
 }
 
-// Open the add-target (draft) picker under the given locale: Add target, then
-// the draft's choose trigger. eventOffItems undefined models a caller with no
-// cohort model at all (the prop's default).
-function openDraftPicker(
+// Open the add-target picker under the given locale: one click on Add target
+// opens the picker directly (R4). eventOffItems undefined models a caller with
+// no cohort model at all (the prop's default).
+function openAddPicker(
   locale: "en" | "zh",
   eventOffItems?: ReadonlyMap<string, string>,
 ) {
@@ -669,9 +657,6 @@ function openDraftPicker(
       name: locale === "zh" ? "添加目标" : "Add target",
     }),
   );
-  fireEvent.click(
-    screen.getByLabelText(locale === "zh" ? "选择物品…" : "Choose an item..."),
-  );
 }
 
 // The cohort token the hint must carry is the same raw string the validation
@@ -680,7 +665,7 @@ function openDraftPicker(
 const COHORT = V15_OFF.values().next().value!;
 
 test("off-cohort event items render as disabled tiles with the cohort hint (add-target picker)", () => {
-  openDraftPicker("en", V15_OFF);
+  openAddPicker("en", V15_OFF);
   // Every v1.5 item's tile is disabled...
   for (const id of V15_OFF.keys()) {
     expect(pickerTile(id)).not.toBeNull();
@@ -702,7 +687,7 @@ test("off-cohort event items render as disabled tiles with the cohort hint (add-
 });
 
 test("the cohort hint localizes under zh with the same token parity", () => {
-  openDraftPicker("zh", V15_OFF);
+  openAddPicker("zh", V15_OFF);
   expect(pickerTile("activity_xiranite_lung")!.disabled).toBe(true);
   const hint = pickerHintText();
   expect(hint).toBe(loadI18n("zh").t("picker.event.off", { cohorts: COHORT }));
@@ -720,7 +705,7 @@ test("the cohort hint localizes under zh with the same token parity", () => {
 // Without the map the panel has no cohort model: every tile is enabled and the
 // popup renders no hint line at all (the prop defaults empty).
 test("without eventOffItems every event tile stays enabled and no hint renders", () => {
-  openDraftPicker("en");
+  openAddPicker("en");
   expect(pickerTile("activity_xiranite_lung")!.disabled).toBe(false);
   expect(document.querySelector('[data-testid="picker-hint"]')).toBeNull();
 });

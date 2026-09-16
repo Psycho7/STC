@@ -29,6 +29,9 @@ export async function layoutSolved(
   nodes: RFAnyNode[];
   edges: Edge[];
   gaps: ReadonlyArray<GapRecord>;
+  // The post-ELK, pre-pass edges the render was routed from: App keeps them
+  // beside `gaps` to replay the routing passes at drag-stop (rerouteEdges).
+  baseEdges: Edge[];
 }> {
   const { plan, pack, full } = solved;
   return layoutRenderPlan({
