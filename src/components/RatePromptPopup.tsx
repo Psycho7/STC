@@ -15,6 +15,11 @@ type Props = {
   // The item that was just picked. The caller resolves the display name (the
   // panels show localized names) so this stays presentational.
   item: { id: string; name: string };
+  // Optional tag beside the item name. The inputs panel passes the catalyst
+  // badge when the picked row will land in the item's catalyst pool (its
+  // general side is already listed), so the user sees which pool the row is
+  // about to join before confirming.
+  badge?: string | undefined;
   // Optional one-line hint under the input; the inputs panel passes
   // ratePrompt.noLimit ("empty = no limit") in uncap mode.
   note?: string | undefined;
@@ -32,6 +37,7 @@ type Props = {
 
 export function RatePromptPopup({
   item,
+  badge,
   note,
   emptyMeans,
   iconSheetUrl,
@@ -129,6 +135,11 @@ export function RatePromptPopup({
           <span className="rate-prompt-item-name" title={item.name}>
             {item.name}
           </span>
+          {badge !== undefined ? (
+            <span className="catalyst" data-testid="rate-prompt-catalyst">
+              {badge}
+            </span>
+          ) : null}
         </div>
         <div className="rate-prompt-rate">
           <input

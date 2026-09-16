@@ -2411,6 +2411,19 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* The catalyst badge beside the item name (an inputs pick whose general side
+   is already listed, so the row lands in the catalyst pool). The rows'
+   .catalyst chip rule is scoped to the side panel, which this portaled dialog
+   sits outside, so the tag look is restated here. */
+.rate-prompt-item .catalyst {
+  flex: none;
+  padding: 2px 6px;
+  border: 1px solid var(--ak-divider);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.2em;
+  color: var(--ak-text-secondary);
+}
 .rate-prompt-rate {
   display: flex;
   align-items: baseline;
