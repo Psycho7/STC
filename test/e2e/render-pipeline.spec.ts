@@ -51,14 +51,13 @@ test.describe("render pipeline e2e gate", () => {
     const addBtn = page.getByRole("button", { name: "添加目标" });
     await expect(addBtn).toBeVisible();
     await addBtn.click();
-    // Add creates a local draft row; choosing an item and a rate promotes it.
-    const draftRow = page.locator('[data-testid="target-draft-row"]');
-    await expect(draftRow).toHaveCount(1);
-    await draftRow.getByLabel("物品").click();
+    // Add opens the item picker directly (R4); picking opens the amount prompt
+    // (R4/R6), and only a positive rate there commits the target row.
     const tile = page.locator(".recipe-picker-tile:not([disabled])").first();
     await expect(tile).toBeVisible();
     await tile.click();
-    const rate = draftRow.getByLabel("速率");
+    const rate = page.getByTestId("rate-prompt-input");
+    await expect(rate).toBeVisible();
     await rate.fill("60");
     await rate.press("Enter");
     await expect(page.locator('[data-testid="target-row"]')).toHaveCount(

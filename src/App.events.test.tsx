@@ -256,9 +256,8 @@ test("a stored off override dims the cohort's items in both pickers with the hin
   render(<App />);
   await screen.findByTestId("side-panel");
 
-  // Targets picker: the add-target draft's choose trigger.
+  // Targets picker: one click on Add target opens the picker directly (R4).
   fireEvent.click(screen.getByRole("button", { name: "添加目标" }));
-  fireEvent.click(screen.getByLabelText("选择物品…"));
   const lungTile = pickerTile("activity_xiranite_lung")!;
   expect(lungTile).not.toBeNull();
   expect(lungTile.disabled).toBe(true);

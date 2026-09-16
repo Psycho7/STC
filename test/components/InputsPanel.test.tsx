@@ -16,6 +16,8 @@ import type { ItemOverride } from "../../src/data/plan";
 import {
   controlledOwner,
   pickerTile,
+  promptInput,
+  rateInputs,
 } from "../../src/components/panel.testkit";
 
 afterEach(() => cleanup());
@@ -110,7 +112,7 @@ describe("InputsPanel", () => {
     expect(screen.getAllByTestId("input-row").length).toBe(2);
   });
 
-  it("Add opens the picker and commits nothing until a pick", async () => {
+  it("Add opens the picker and commits nothing until the amount is confirmed", async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();
     render(
@@ -128,9 +130,15 @@ describe("InputsPanel", () => {
     );
     // The auto-row item already has a row, so its tile is dimmed here.
     expect((pickerTile("copper_ore") as HTMLButtonElement).disabled).toBe(true);
+    // A pick alone still commits nothing and mounts no row: the amount prompt
+    // is the next step (R5).
+    await user.click(pickerTile("iron_ore")!);
+    expect(onChange).not.toHaveBeenCalled();
+    expect(screen.queryAllByTestId("input-row").length).toBe(0);
+    expect(promptInput()).not.toBeNull();
   });
 
-  it("a pick from the Add picker appends an uncapped override", async () => {
+  it("a pick opens the prompt; confirming empty appends an uncapped override", async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();
     render(
@@ -138,6 +146,15 @@ describe("InputsPanel", () => {
     );
     await user.click(screen.getByText(TEXT_ADD));
     await user.click(pickerTile("iron_ore")!);
+    // The prompt names the picked item and carries the uncapped placeholder
+    // plus the empty-means-no-limit note.
+    expect(screen.getByRole("dialog").textContent).toContain("蓝铁矿");
+    const rate = promptInput()!;
+    expect(rate.placeholder).toBe("无限");
+    expect(screen.getByTestId("rate-prompt-note").textContent).toBe(
+      "留空 = 无限",
+    );
+    await user.click(screen.getByTestId("rate-prompt-confirm"));
     expect(onChange).toHaveBeenCalledTimes(1);
     const updater = firstUpdater(onChange);
     expect(updater([])).toEqual([{ itemId: "iron_ore" }]);
@@ -145,7 +162,60 @@ describe("InputsPanel", () => {
     expect(updater([{ itemId: "iron_ore" }])).toEqual([{ itemId: "iron_ore" }]);
   });
 
-  it("a pick from the Add picker focuses the new row's rate input", async () => {
+  it("confirming 12 in the prompt appends { itemId, ratePerSec: 12 }", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(
+      <InputsPanel itemOverrides={[]} onChange={onChange} pack={fixturePack} />,
+    );
+    await user.click(screen.getByText(TEXT_ADD));
+    await user.click(pickerTile("iron_ore")!);
+    const rate = promptInput()!;
+    fireEvent.change(rate, { target: { value: "12" } });
+    fireEvent.keyDown(rate, { key: "Enter" });
+    expect(onChange).toHaveBeenCalledTimes(1);
+    // 12/min = 1/5 per second.
+    expect(firstUpdater(onChange)([])).toEqual([
+      { itemId: "iron_ore", ratePerSec: { num: "1", denom: "5" } },
+    ]);
+  });
+
+  it("confirming 0 in the prompt appends a zero cap", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(
+      <InputsPanel itemOverrides={[]} onChange={onChange} pack={fixturePack} />,
+    );
+    await user.click(screen.getByText(TEXT_ADD));
+    await user.click(pickerTile("iron_ore")!);
+    const rate = promptInput()!;
+    fireEvent.change(rate, { target: { value: "0" } });
+    fireEvent.keyDown(rate, { key: "Enter" });
+    expect(onChange).toHaveBeenCalledTimes(1);
+    // A zero cap, not an uncapped row: the solver reads it as "nothing can be
+    // drawn from the boundary for this item".
+    expect(firstUpdater(onChange)([])).toEqual([
+      { itemId: "iron_ore", ratePerSec: { num: "0", denom: "1" } },
+    ]);
+  });
+
+  it("Escape at the prompt appends nothing and refocuses Add", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(
+      <InputsPanel itemOverrides={[]} onChange={onChange} pack={fixturePack} />,
+    );
+    const add = screen.getByText(TEXT_ADD);
+    await user.click(add);
+    await user.click(pickerTile("iron_ore")!);
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(onChange).not.toHaveBeenCalled();
+    expect(screen.queryAllByTestId("input-row").length).toBe(0);
+    expect(document.activeElement).toBe(add);
+  });
+
+  it("the new row's rate input has focus after the prompt confirms", async () => {
     const user = userEvent.setup();
     const owner = controlledOwner<ItemOverride[]>([]);
     render(
@@ -159,8 +229,11 @@ describe("InputsPanel", () => {
     );
     await user.click(screen.getByText(TEXT_ADD));
     await user.click(pickerTile("iron_ore")!);
-    const rateInput = screen.getAllByLabelText("速率")[0]!;
-    expect(document.activeElement).toBe(rateInput);
+    // Confirm empty (an uncapped override) from the prompt; the committed
+    // row's rate input takes the focus, not the prompt's own input.
+    fireEvent.keyDown(promptInput()!, { key: "Enter" });
+    expect(owner.latest).toEqual([{ itemId: "iron_ore" }]);
+    expect(document.activeElement).toBe(rateInputs()[0]);
   });
 
   it("the Add button is aria-disabled and inert when every item is claimed", async () => {
@@ -970,7 +1043,7 @@ describe("InputsPanel", () => {
     expect(pickerTile("liquid_xiranite")!.disabled).toBe(false);
   });
 
-  it("Add gives a listed catalyst item the role it is missing", async () => {
+  it("Add gives a listed catalyst item the role it is missing, badged in the prompt", async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();
     render(
@@ -983,8 +1056,13 @@ describe("InputsPanel", () => {
     );
     await user.click(screen.getByText(TEXT_ADD));
     await user.click(pickerTile("gas_xiranite")!);
-    // The general side already has its auto-row, so the pick adds the catalyst
-    // row rather than a duplicate of what is on screen.
+    // The general side already has its auto-row, so the pick is bound for the
+    // catalyst pool, and the prompt badges it before anything commits.
+    expect(screen.getByTestId("rate-prompt-catalyst").textContent).toBe("催化");
+    expect(onChange).not.toHaveBeenCalled();
+    // Confirming empty commits the catalyst-pool override.
+    await user.click(screen.getByTestId("rate-prompt-confirm"));
+    expect(onChange).toHaveBeenCalledTimes(1);
     expect(firstUpdater(onChange)([])).toEqual([
       { itemId: "gas_xiranite", role: "catalyst" },
     ]);

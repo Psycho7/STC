@@ -8,7 +8,6 @@ export type UiKey =
   | "targets.remove"
   | "targets.rate.unit"
   | "targets.rate.label"
-  | "targets.item.choose"
   | "item.selected"
   | "targets.remove.label"
   | "targets.duplicate"
@@ -41,7 +40,6 @@ export type UiKey =
   | "canvas.rate.unit"
   | "canvas.catalyst.perMachine"
   | "inputs.rate.placeholder"
-  | "inputs.rate.cap"
   | "inputs.remove"
   | "inputs.remove.label"
   | "inputs.add"
@@ -74,6 +72,10 @@ export type UiKey =
   | "canvas.controls.fit_view"
   | "canvas.controls.interactive"
   | "rate.invalid"
+  | "ratePrompt.title"
+  | "ratePrompt.confirm"
+  | "ratePrompt.cancel"
+  | "ratePrompt.noLimit"
   | "settings.open.label"
   | "settings.title"
   | "settings.close.label"
@@ -109,7 +111,6 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "targets.remove": "删除",
     "targets.rate.unit": "件 / 分钟",
     "targets.rate.label": "速率",
-    "targets.item.choose": "选择物品…",
     "item.selected": "物品：{name}",
     "targets.remove.label": "删除目标",
     "targets.duplicate": "物品 ID 重复: {itemId}",
@@ -148,7 +149,6 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "canvas.rate.unit": "/分",
     "canvas.catalyst.perMachine": "每台 {rate}/分",
     "inputs.rate.placeholder": "上限 / 分",
-    "inputs.rate.cap": "上限 {rate}/分",
     "inputs.remove": "移除",
     "inputs.remove.label": "移除输入行",
     "inputs.add": "添加输入",
@@ -181,6 +181,10 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "canvas.controls.fit_view": "适应视图",
     "canvas.controls.interactive": "切换交互",
     "rate.invalid": "请输入数字，例如 30 或 1/3",
+    "ratePrompt.title": "数量",
+    "ratePrompt.confirm": "添加",
+    "ratePrompt.cancel": "取消",
+    "ratePrompt.noLimit": "留空 = 无限",
     "settings.open.label": "打开设置",
     "settings.title": "设置",
     "settings.close.label": "关闭",
@@ -207,7 +211,6 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "targets.remove": "Remove",
     "targets.rate.unit": "items / minute",
     "targets.rate.label": "rate",
-    "targets.item.choose": "Choose an item...",
     "item.selected": "Item: {name}",
     "targets.remove.label": "remove target",
     "targets.duplicate": "Duplicate item id: {itemId}",
@@ -249,7 +252,6 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "canvas.rate.unit": "/min",
     "canvas.catalyst.perMachine": "{rate}/min per machine",
     "inputs.rate.placeholder": "cap /min",
-    "inputs.rate.cap": "cap {rate}/min",
     "inputs.remove": "Remove",
     "inputs.remove.label": "Remove input row",
     "inputs.add": "Add input",
@@ -283,6 +285,10 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "canvas.controls.fit_view": "Fit view",
     "canvas.controls.interactive": "Toggle interactivity",
     "rate.invalid": "Enter a number, e.g. 30 or 1/3",
+    "ratePrompt.title": "Amount",
+    "ratePrompt.confirm": "Add",
+    "ratePrompt.cancel": "Cancel",
+    "ratePrompt.noLimit": "empty = no limit",
     "settings.open.label": "Open settings",
     "settings.title": "Settings",
     "settings.close.label": "Close",
