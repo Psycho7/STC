@@ -484,7 +484,7 @@
 }
 
 .ak-app-shell .topbar select:hover,
-.ak-app-shell .topbar button:hover {
+.ak-app-shell .topbar button:hover:not(:disabled) {
   border-color: var(--ak-divider-strong);
   color: var(--ak-text-primary);
 }
@@ -494,12 +494,14 @@
    baseline. The glyph shares the host's currentColor. Shell-wide rather
    than topbar-scoped: the SAME button element renders in the topbar and in
    the error splash's corner slot below, and both must draw it identically. */
-.ak-app-shell button.settings-open {
+.ak-app-shell button.settings-open,
+.ak-app-shell button.export-png {
   display: inline-flex;
   align-items: center;
   justify-content: center;
 }
-.ak-app-shell .settings-open-glyph {
+.ak-app-shell .settings-open-glyph,
+.ak-app-shell .export-png-glyph {
   display: block;
   width: 14px;
   height: 14px;
@@ -1373,6 +1375,12 @@
 .ak-canvas-theme .react-flow__node,
 .ak-canvas-theme .react-flow__edge {
   transition: opacity 120ms ease-out;
+}
+/* The PNG capture walks the DOM over several frames; a fade still running
+   would be rasterized half way through. Nothing animates during an export. */
+.ak-canvas-theme.exporting .react-flow__node,
+.ak-canvas-theme.exporting .react-flow__edge {
+  transition: none;
 }
 .ak-canvas-theme .react-flow__node.dimmed {
   opacity: 0.4;
