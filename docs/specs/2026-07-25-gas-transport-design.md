@@ -3,6 +3,13 @@
 Status: approved 2026-07-25
 Branch: `feat/gas-transport` (off `develop`)
 
+> **Superseded in part, 2026-09-15, on `feat/catalyst-exam-fixes`.** The stroke
+> decisions below (D5, D6: per-kind dash patterns, the gas dim floor, the lit
+> dash stretch) no longer hold. Line style now says role -- solid for material
+> flow of every kind, dashed only for catalyst supply -- and transport kind is
+> carried by the port glyph alone. The kind plumbing, the `gas_pipe` carrier and
+> the glyph decisions stand unchanged. See `docs/render-conventions.md`, Edges.
+
 ## Problem
 
 Game v1.4 introduced gaseous products and a gas pipe that carries them. The

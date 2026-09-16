@@ -698,6 +698,7 @@ export function deriveBoundaryProducts(
         rate,
         transportKind: item.transportKind,
         ...(c.catalyst ? { toPortKind: "catalyst" as const } : {}),
+        ...(role === "catalyst" ? { fromPool: "catalyst" as const } : {}),
       });
     }
   }
@@ -725,6 +726,7 @@ export function deriveBoundaryProducts(
         item: itemId,
         rate: realizedRate,
         transportKind: item.transportKind,
+        ...(role === "catalyst" ? { fromPool: "catalyst" as const } : {}),
       });
     }
   }

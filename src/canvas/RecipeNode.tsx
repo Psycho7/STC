@@ -28,12 +28,17 @@ import { RECIPE_HEAD_TITLE_COL, RECIPE_HEAD_BLOCK_PAD_X } from "./dimensions";
 // Row-label elision budget, from the constants that shape the row (see
 // .rn-row in canvas.css): half of the card body, minus the row's horizontal
 // padding (6px per side plus the extra 2px on the port edge), minus the
-// 20px item sprite and one flex gap when the sprite renders (Sprite returns
-// null without an icon position, which drops both). The rate is an
-// out-of-flow overlay over the label tail, so the label budget is the
-// row's own width minus its padding and the sprite line -- nothing is
-// reserved for digits. Port glyphs and handles are absolutely positioned
-// and cost no flex width.
+// 20px item sprite when it renders (Sprite returns null without an icon
+// position, which collapses the column to zero), minus the two grid gaps
+// (charged whether or not the sprite column has content), minus the MEASURED
+// width of this row's rate text. The rate is a grid cell of its own now and
+// is never clipped (ruling I1), so the name is what gives way. Port glyphs
+// and handles are absolutely positioned and cost no column.
+//
+//   |<- pad ->|sprite|gap|      name      |gap| rate |<- pad ->|
+//
+// The rate is measured in the chip number face without its -0.01em tracking,
+// which overstates it slightly -- the safe direction, as for the title.
 const ROW_PAD_X = 14;
 const ROW_GAP = 5;
 const ROW_SPRITE = 20;
@@ -41,6 +46,11 @@ const ROW_LABEL_FONT: MeasuredFont = {
   fontSize: 12,
   weight: 400,
   family: "--font-ui",
+};
+const ROW_RATE_FONT: MeasuredFont = {
+  fontSize: 12,
+  weight: 700,
+  family: "--font-num",
 };
 
 // Header budgets from the pinned columns (dimensions.ts, ruling R3): the
@@ -67,20 +77,20 @@ function headerContentWidth(): number {
   return RECIPE_HEAD_TITLE_COL - 2 * RECIPE_HEAD_BLOCK_PAD_X;
 }
 
-// The gas-environment frame around an environment card: the plate SVGs bake
-// the plate colour into their data URIs (an SVG fill cannot resolve a CSS
-// var), so the token VALUE is read from the stylesheet at runtime. The tokens
-// never change at runtime, so the whole six-property style is memoised per
+// The gas-environment plate, the card's first row: the plate SVGs bake the
+// plate colour into their data URIs (an SVG fill cannot resolve a CSS var), so
+// the token VALUE is read from the stylesheet at runtime. The tokens never
+// change at runtime, so the whole four-property style is memoised per
 // environment on first render.
 const ENV_PLATE_TOKEN: Record<EnvironmentId, string> = {
   stable: "--ak-env-stable",
   acidic: "--ak-env-acidic",
 };
 
-const envFrameStyles = new Map<EnvironmentId, CSSProperties>();
+const envPlateStyles = new Map<EnvironmentId, CSSProperties>();
 
-function envFrameStyle(environment: EnvironmentId): CSSProperties {
-  const cached = envFrameStyles.get(environment);
+function envPlateStyle(environment: EnvironmentId): CSSProperties {
+  const cached = envPlateStyles.get(environment);
   if (cached !== undefined) {
     return cached;
   }
@@ -91,13 +101,11 @@ function envFrameStyle(environment: EnvironmentId): CSSProperties {
   const layers = envBannerLayers(environment, plate);
   const style: CSSProperties = {
     ["--rn-env-plate" as string]: plate,
-    ["--rn-env-glyph" as string]: layers.top.glyph.uri,
-    ["--rn-env-top-left" as string]: layers.top.leftCap.uri,
-    ["--rn-env-top-right" as string]: layers.top.rightCap.uri,
-    ["--rn-env-bottom-left" as string]: layers.bottom.leftCap.uri,
-    ["--rn-env-bottom-right" as string]: layers.bottom.rightCap.uri,
+    ["--rn-env-glyph" as string]: layers.glyph.uri,
+    ["--rn-env-cap-left" as string]: layers.leftCap.uri,
+    ["--rn-env-cap-right" as string]: layers.rightCap.uri,
   };
-  envFrameStyles.set(environment, style);
+  envPlateStyles.set(environment, style);
   return style;
 }
 
@@ -105,9 +113,14 @@ function elideRowLabel(
   name: string,
   bodyWidth: number,
   hasSprite: boolean,
+  rate: string,
 ): string {
   const budget =
-    bodyWidth / 2 - ROW_PAD_X - (hasSprite ? ROW_SPRITE + ROW_GAP : 0);
+    bodyWidth / 2 -
+    ROW_PAD_X -
+    (hasSprite ? ROW_SPRITE : 0) -
+    2 * ROW_GAP -
+    measureTextWidth(rate, ROW_RATE_FONT);
   return elideName(name, budget, widthFnFor(ROW_LABEL_FONT), "row-12");
 }
 
@@ -293,15 +306,16 @@ export default function RecipeNode({
         minHeight: geom.height,
       }}
     >
-      {/* The environment frame: canvas.css paints the plates and the haze
-          from the custom properties. Absolutely positioned at negative
-          insets, so it takes no part in the card's layout -- the box,
-          border, header height and every port y-slot are unchanged. */}
+      {/* The environment plate: the card's first row, above the header, one
+          ENV_ROW_HEIGHT tall and the card's content width. canvas.css paints
+          the caps and the glyph from the custom properties, and the haze
+          behind the whole card from its ::before. In flow, so measureRecipe's
+          height and every port y-slot below it already count it. */}
       {environment !== undefined ? (
         <div
           className="rn-env"
           aria-hidden="true"
-          style={envFrameStyle(environment)}
+          style={envPlateStyle(environment)}
         />
       ) : null}
       {/* Header: the 40px machine icon block plus the machine title line. */}
@@ -339,10 +353,11 @@ export default function RecipeNode({
               // Through iconIdForItem, exactly as the Sprite below resolves
               // it: upstream renamed four item icons, and asking iconPosition
               // for the raw item id misses those four. The budget then hands
-              // the label the sprite's 20px and its gap while the sprite is on
-              // screen taking them, and the label overflows into the CSS
-              // ellipsis the helper exists to keep it out of.
+              // the label the sprite's 20px while the sprite is on screen
+              // taking it, and the label overflows into the CSS ellipsis the
+              // helper exists to keep it out of.
               iconPosition(iconIdForItem(p.item)) !== undefined,
+              rate,
             );
             return (
               // The Handle and PortGlyph live inside the row so the DOM row
@@ -370,7 +385,7 @@ export default function RecipeNode({
               </div>
             );
           })}
-          {catalysts.map((p) => {
+          {catalysts.map((p, i) => {
             const label = i18n.displayName(p.item);
             const handleId = `cat:${p.item}`;
             // The charge is held per MACHINE, not per cycle: a machine at 40%
@@ -382,18 +397,29 @@ export default function RecipeNode({
             const aggregate = ratePerMinText(
               catalystChargeOf(scale, p, recipe, machine ?? { speed: 1 }),
             );
+            const visible = elideRowLabel(
+              label,
+              geom.width,
+              iconPosition(iconIdForItem(p.item)) !== undefined,
+              aggregate,
+            );
             return (
               // A catalyst row: an input the machine cycles rather than
               // consumes. It is supplied from the item's catalyst boundary card
               // like any raw draw, so it takes a target Handle of its own -- in
               // the `cat:` namespace, because the same item can also sit on an
               // input row above -- and wears that port's transport glyph. It
-              // carries no `input` class, since that class paints the accent
-              // tab. Appended after the port rows so no port's y moves;
-              // recipeGeometry counts it toward the card height.
+              // carries no `input` class: the two differ by their accent tab,
+              // solid there and ticked here (canvas.css), both tinted from
+              // --row-accent. The rows form their own block below the port
+              // rows, opened by the first row's gap and divider (cat-first), so
+              // no port's y moves; recipeGeometry counts the block's height.
               <div
                 key={`catalyst-row:${p.item}`}
-                className="rn-row catalyst"
+                className={
+                  i === 0 ? "rn-row catalyst cat-first" : "rn-row catalyst"
+                }
+                style={{ ["--row-accent" as string]: itemColor(p.item) }}
                 title={i18n.t("canvas.catalyst.perMachine", {
                   rate: perMachine,
                 })}
@@ -406,12 +432,12 @@ export default function RecipeNode({
                 />
                 <Sprite iconId={iconIdForItem(p.item)} size={20} />
                 <span className="lbl" title={label}>
-                  {label}
+                  {visible}
                 </span>
-                {/* The same slot and bare-number form as an input row: the
+                {/* The same column and bare-number form as an input row: the
                     aggregate draw across every machine the card stands for.
-                    canvas.css seats it from the .catalyst class, since the row
-                    carries no .input class. */}
+                    canvas.css colours it from the .catalyst class, since the
+                    row carries no .input class. */}
                 <span className="rate">{aggregate}</span>
               </div>
             );
@@ -426,12 +452,9 @@ export default function RecipeNode({
               label,
               geom.width,
               // Through iconIdForItem, exactly as the Sprite below resolves
-              // it: upstream renamed four item icons, and asking iconPosition
-              // for the raw item id misses those four. The budget then hands
-              // the label the sprite's 20px and its gap while the sprite is on
-              // screen taking them, and the label overflows into the CSS
-              // ellipsis the helper exists to keep it out of.
+              // it (see the input side above).
               iconPosition(iconIdForItem(p.item)) !== undefined,
+              rate,
             );
             return (
               // Handle and PortGlyph nested in the row (see input side above).

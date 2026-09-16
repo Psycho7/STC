@@ -164,7 +164,7 @@ test("assumed-raw items without an override stay visible alongside an override",
 });
 
 // 40/27 per sec * 60 = 800/9 = 88.888.../min. The realized-demand readout now
-// shares the canvas chip's decimal formatter, so it shows "88.89" -- never a
+// shares the canvas chip's decimal formatter, so it shows "88.9" -- never a
 // vulgar fraction next to decimals, never the raw 88.8888888888889 float.
 test("realized input demand renders as the shared decimal, not a fraction", () => {
   render(
@@ -180,7 +180,7 @@ test("realized input demand renders as the shared decimal, not a fraction", () =
   );
 
   const readout = screen.getByTestId("input-realized-rate");
-  expect(readout.textContent).toContain("88.89");
+  expect(readout.textContent).toContain("88.9");
   expect(readout.textContent).not.toMatch(/\d\.\d{3,}/);
 });
 
@@ -199,7 +199,7 @@ test("realized demand on an uncapped override row renders as the shared decimal"
   );
 
   const readout = screen.getByTestId("input-realized-rate");
-  expect(readout.textContent).toContain("88.89");
+  expect(readout.textContent).toContain("88.9");
   expect(readout.textContent).not.toMatch(/\d\.\d{3,}/);
 });
 
@@ -428,7 +428,7 @@ test("realized demand on a capped override row renders as the shared decimal", (
   );
 
   const readout = screen.getByTestId("input-realized-rate");
-  expect(readout.textContent).toContain("88.89");
+  expect(readout.textContent).toContain("88.9");
   expect(readout.textContent).not.toMatch(/\d\.\d{3,}/);
 });
 

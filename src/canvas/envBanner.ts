@@ -18,8 +18,10 @@ import type { EnvironmentId } from "@aef/schema";
 export const ENV_ROW_HEIGHT = 18;
 export const ENV_CAP_WIDTH = 72;
 
-const TOP_PLATE_ROWS = 2;
-const BOTTOM_PLATE_ROWS = 1;
+// The plate is ONE row: it is a row of the card itself (ruling I9), drawn
+// above the header at the card's content width, so the game's two-row top
+// plate and its single-row bottom plate both collapse into this one.
+const PLATE_ROWS = 1;
 
 // The only colour the module owns: everything drawn in ink.
 const INK = "#0f1216";
@@ -36,19 +38,12 @@ export interface EnvBannerLayer {
   uri: string;
 }
 
-// The frame's two plates. The top plate is two rows tall and carries the
-// environment glyph between the caps; the bottom plate is a single row
-// without a glyph.
+// The plate's three layers: the environment glyph at its centre and a cap at
+// each end.
 export interface EnvBannerLayers {
-  top: {
-    glyph: EnvBannerLayer;
-    leftCap: EnvBannerLayer;
-    rightCap: EnvBannerLayer;
-  };
-  bottom: {
-    leftCap: EnvBannerLayer;
-    rightCap: EnvBannerLayer;
-  };
+  glyph: EnvBannerLayer;
+  leftCap: EnvBannerLayer;
+  rightCap: EnvBannerLayer;
 }
 
 const svgUri = (svg: string): string =>
@@ -137,29 +132,14 @@ function capGeometry(side: "left" | "right", rows: number): CapGeometry {
 }
 
 // All colour-free geometry is built once at module load; the plate colour
-// only enters the wrapping <g fill> when a layer set is requested. The
-// bottom-plate cap is the top-plate cap with the viewBox truncated to one
-// row.
-const CAP_GEOMETRY: Record<
-  "top" | "bottom",
-  Record<"left" | "right", CapGeometry>
-> = {
-  top: {
-    left: capGeometry("left", TOP_PLATE_ROWS),
-    right: capGeometry("right", TOP_PLATE_ROWS),
-  },
-  bottom: {
-    left: capGeometry("left", BOTTOM_PLATE_ROWS),
-    right: capGeometry("right", BOTTOM_PLATE_ROWS),
-  },
+// only enters the wrapping <g fill> when a layer set is requested.
+const CAP_GEOMETRY: Record<"left" | "right", CapGeometry> = {
+  left: capGeometry("left", PLATE_ROWS),
+  right: capGeometry("right", PLATE_ROWS),
 };
 
-function capLayer(
-  plate: "top" | "bottom",
-  side: "left" | "right",
-  plateColor: string,
-): EnvBannerLayer {
-  const geo = CAP_GEOMETRY[plate][side];
+function capLayer(side: "left" | "right", plateColor: string): EnvBannerLayer {
+  const geo = CAP_GEOMETRY[side];
   const svg =
     `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${ENV_CAP_WIDTH} ${geo.height}"` +
     ` width="${ENV_CAP_WIDTH}" height="${geo.height}">` +
@@ -206,14 +186,8 @@ export function envBannerLayers(
   plateColor: string,
 ): EnvBannerLayers {
   return {
-    top: {
-      glyph: GLYPHS[environment],
-      leftCap: capLayer("top", "left", plateColor),
-      rightCap: capLayer("top", "right", plateColor),
-    },
-    bottom: {
-      leftCap: capLayer("bottom", "left", plateColor),
-      rightCap: capLayer("bottom", "right", plateColor),
-    },
+    glyph: GLYPHS[environment],
+    leftCap: capLayer("left", plateColor),
+    rightCap: capLayer("right", plateColor),
   };
 }

@@ -18,17 +18,11 @@ const PLATE_COLORS: Record<EnvironmentId, string> = {
 
 const ENVIRONMENTS = ["stable", "acidic"] as const;
 
-// Every layer the interface emits for one environment: three top-plate
-// layers (glyph plus two caps) and two bottom-plate caps.
+// Every layer the interface emits for one environment: the single plate's
+// glyph and its two caps.
 function allLayers(environment: EnvironmentId): EnvBannerLayer[] {
   const layers = envBannerLayers(environment, PLATE_COLORS[environment]);
-  return [
-    layers.top.glyph,
-    layers.top.leftCap,
-    layers.top.rightCap,
-    layers.bottom.leftCap,
-    layers.bottom.rightCap,
-  ];
+  return [layers.glyph, layers.leftCap, layers.rightCap];
 }
 
 // Parse an SVG string as XML and return its root, failing the test on any
@@ -49,7 +43,7 @@ describe("envBanner", () => {
   test("every emitted SVG is well-formed XML rooted at svg, per environment", () => {
     for (const environment of ENVIRONMENTS) {
       const layers = allLayers(environment);
-      expect(layers).toHaveLength(5);
+      expect(layers).toHaveLength(3);
       for (const layer of layers) {
         const root = svgRoot(layer.svg);
         expect(root.namespaceURI).toBe("http://www.w3.org/2000/svg");
@@ -58,8 +52,8 @@ describe("envBanner", () => {
   });
 
   test("the stable glyph path carries fill-rule evenodd", () => {
-    const { top } = envBannerLayers("stable", PLATE_COLORS.stable);
-    const paths = [...svgRoot(top.glyph.svg).getElementsByTagName("path")];
+    const plate = envBannerLayers("stable", PLATE_COLORS.stable);
+    const paths = [...svgRoot(plate.glyph.svg).getElementsByTagName("path")];
     // Two paths: triangles plus notches under evenodd, then the square dots.
     expect(paths).toHaveLength(2);
     const evenodd = paths.filter(
@@ -70,8 +64,8 @@ describe("envBanner", () => {
   });
 
   test("the acidic glyph contains four teardrop subpaths", () => {
-    const { top } = envBannerLayers("acidic", PLATE_COLORS.acidic);
-    const paths = [...svgRoot(top.glyph.svg).getElementsByTagName("path")];
+    const plate = envBannerLayers("acidic", PLATE_COLORS.acidic);
+    const paths = [...svgRoot(plate.glyph.svg).getElementsByTagName("path")];
     // The measured teardrop: a radius-12 circle plus two tangents, tip
     // up-right. Each drop is its own path, translated onto a 30-unit grid.
     const TEARDROP_D = "M29 0L23.5 19.3A12 12 0 1 1 9.5 4.3Z";
@@ -88,28 +82,18 @@ describe("envBanner", () => {
   test("cap and glyph viewBoxes are pinned", () => {
     for (const environment of ENVIRONMENTS) {
       const layers = envBannerLayers(environment, PLATE_COLORS[environment]);
-      // Two-row caps on the top plate, single-row on the bottom.
-      expect(svgRoot(layers.top.leftCap.svg).getAttribute("viewBox")).toBe(
-        "0 0 72 36",
+      // One row per cap: the plate is a single card row tall.
+      expect(svgRoot(layers.leftCap.svg).getAttribute("viewBox")).toBe(
+        `0 0 ${ENV_CAP_WIDTH} ${ENV_ROW_HEIGHT}`,
       );
-      expect(svgRoot(layers.top.rightCap.svg).getAttribute("viewBox")).toBe(
-        "0 0 72 36",
-      );
-      expect(svgRoot(layers.bottom.leftCap.svg).getAttribute("viewBox")).toBe(
-        "0 0 72 18",
-      );
-      expect(svgRoot(layers.bottom.rightCap.svg).getAttribute("viewBox")).toBe(
-        "0 0 72 18",
+      expect(svgRoot(layers.rightCap.svg).getAttribute("viewBox")).toBe(
+        `0 0 ${ENV_CAP_WIDTH} ${ENV_ROW_HEIGHT}`,
       );
     }
     const stable = envBannerLayers("stable", PLATE_COLORS.stable);
     const acidic = envBannerLayers("acidic", PLATE_COLORS.acidic);
-    expect(svgRoot(stable.top.glyph.svg).getAttribute("viewBox")).toBe(
-      "0 0 58 51",
-    );
-    expect(svgRoot(acidic.top.glyph.svg).getAttribute("viewBox")).toBe(
-      "0 0 59 59",
-    );
+    expect(svgRoot(stable.glyph.svg).getAttribute("viewBox")).toBe("0 0 58 51");
+    expect(svgRoot(acidic.glyph.svg).getAttribute("viewBox")).toBe("0 0 59 59");
   });
 
   test("every layer also ships as a single-quoted CSS url data URI of its svg", () => {
@@ -128,13 +112,13 @@ describe("envBanner", () => {
     const warm = envBannerLayers("stable", "#123456");
     const cool = envBannerLayers("stable", "#00aa00");
     // Caps carry the caller's colour; different colours give different SVGs.
-    expect(warm.top.leftCap.svg).toContain('<g fill="#123456">');
-    expect(cool.top.leftCap.svg).toContain('<g fill="#00aa00">');
-    expect(warm.bottom.rightCap.svg).not.toBe(cool.bottom.rightCap.svg);
+    expect(warm.leftCap.svg).toContain('<g fill="#123456">');
+    expect(cool.leftCap.svg).toContain('<g fill="#00aa00">');
+    expect(warm.rightCap.svg).not.toBe(cool.rightCap.svg);
     // Glyphs are ink-only, so they do not vary with the plate colour.
-    expect(warm.top.glyph.svg).toBe(cool.top.glyph.svg);
-    expect(warm.top.glyph.svg).toContain("#0f1216");
-    expect(warm.top.glyph.svg).not.toContain("#123456");
+    expect(warm.glyph.svg).toBe(cool.glyph.svg);
+    expect(warm.glyph.svg).toContain("#0f1216");
+    expect(warm.glyph.svg).not.toContain("#123456");
   });
 
   test("the only colour literal in the module is the ink constant", () => {

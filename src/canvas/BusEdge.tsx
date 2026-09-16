@@ -32,7 +32,7 @@ export { junctionRadius };
 // overlaps into one line and the trunk draws once without any cross-edge
 // coordination, and every member draws the trunk's junction dot at the point
 // they all coincide (the split for a fan-out, the merge for a fan-in).
-// Stroke reuses ItemEdge's strokeForKind; the markerEnd arrow stays at the
+// Stroke reuses ItemEdge's edgeStrokeStyle; the markerEnd arrow stays at the
 // target. Two chips: the trunk's ONE aggregate, drawn by the elected owner on
 // the shared stretch, and each member's own rate on the stretch that is its
 // alone -- which for a fan-out member is its branch leg into the target and for
@@ -178,6 +178,7 @@ export default function BusEdge({
         zoom={zoom}
         ariaLabel={riseLabel}
         transportKind={edgeData?.transportKind}
+        fromPool={edgeData?.fromPool}
         markerEnd={markerEnd}
       />
       {/* Junction dot where the trunk's members coincide -- the split for a

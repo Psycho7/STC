@@ -19,6 +19,7 @@ import {
   portKeepOutRect,
 } from "../../src/canvas/chipSeating";
 import {
+  CATALYST_BLOCK_GAP,
   CHIP_BOX_HEIGHT,
   CHIP_BOX_WIDTH,
   CONTAINER_CAPTION_BAND,
@@ -31,7 +32,7 @@ import {
   RECIPE_WIDTH,
 } from "../../src/canvas/dimensions";
 import { CANVAS_BG_HEX } from "../../src/canvas/itemColor";
-import { nodeHeight } from "../../src/canvas/nodeGeometry";
+import { nodeHeight, portOffsetY } from "../../src/canvas/nodeGeometry";
 import type { RFAnyNode } from "../../src/canvas/layout";
 import { mkRecipe, productNode, recipeNode } from "./busRouting.testkit";
 import {
@@ -125,7 +126,7 @@ describe("cardRectsFor grows the model box into the drawn frame", () => {
     // Absolute, like the recipe case above: the model box IS the drawn box for
     // a product, so a growth applied here would show up as a moved edge.
     expect(cardRectsFor(nodes, byId)).toEqual([
-      { id: "p", left: 200, top: 60, right: 348, bottom: 138, border: 0 },
+      { id: "p", left: 200, top: 60, right: 348, bottom: 60 + 71, border: 0 },
     ]);
   });
 });
@@ -147,7 +148,7 @@ describe("portKeepOutRect covers the drawn port furniture", () => {
     left: 200,
     top: 60,
     right: 348,
-    bottom: 138,
+    bottom: 60 + PRODUCT_HEIGHT,
     border: 0,
   };
 
@@ -221,9 +222,29 @@ describe("the recipe card's box is declared the same in TS and in CSS", () => {
   });
 });
 
-describe("the row rate is an overlay drawn at rest on every row", () => {
-  it("takes the rate out of the row flow", () => {
-    expect(cssValue(".rn-row .rate", "position")).toBe("absolute");
+describe("the row rate is a grid cell drawn at rest on every row", () => {
+  it("keeps the rate in the row flow, with no backdrop to hide a name under", () => {
+    // I1: the rate used to be an absolute overlay with an opaque backdrop, so
+    // it painted over the label tail. It is a column of the row grid now, and
+    // the label budget pays for it instead.
+    expect(cssValue(".rn-row .rate", "position")).toBe("static");
+    expect(cssBlock(".rn-row .rate")).not.toMatch(/background/);
+  });
+
+  it("lays the row out as sprite, name, rate with the name the only flexible column", () => {
+    expect(cssValue(".rn-row", "display")).toBe("grid");
+    expect(cssValue(".rn-row", "grid-template-columns")).toBe(
+      "auto minmax(0, 1fr) auto",
+    );
+    expect(cssValue(".rn-row .ico", "grid-column")).toBe("1");
+    expect(cssValue(".rn-row .lbl", "grid-column")).toBe("2");
+    expect(cssValue(".rn-row .rate", "grid-column")).toBe("3");
+    // The output side mirrors the same three tracks, so its rate sits at the
+    // card's inner end and its sprite on the card edge.
+    expect(cssValue(".rn-row.output .ico", "grid-column")).toBe("3");
+    expect(cssValue(".rn-row.output .rate", "grid-column")).toBe("1");
+    // Digits never wrap or ellipsize: the rate is drawn whole.
+    expect(cssValue(".rn-row .rate", "white-space")).toBe("nowrap");
   });
 
   it("shows the rate at rest", () => {
@@ -248,12 +269,49 @@ describe("the row rate is an overlay drawn at rest on every row", () => {
     ).toBe("none");
   });
 
-  it("seats the overlay at the row's inner-end padding", () => {
-    expect(cssValue(".rn-row.input .rate", "right")).toBe("6px");
-    expect(cssValue(".rn-row.output .rate", "left")).toBe("6px");
-    // The catalyst row carries no .input class, so it needs its own seat or
-    // the overlay falls to the flex content start and covers the sprite.
-    expect(cssValue(".rn-row.catalyst .rate", "right")).toBe("6px");
+  it("keeps each side's rate colour", () => {
+    expect(cssValue(".rn-row.input .rate", "color")).toBe(
+      "var(--ak-text-secondary)",
+    );
+    expect(cssValue(".rn-row.output .rate", "color")).toBe(
+      "var(--ak-accent-cyan-soft)",
+    );
+  });
+});
+
+// I3 / A2: catalyst rows are their own block on the card -- full ink, a ticked
+// accent tab in the item hue, and a hairline divider above the block. The tab
+// is a pattern, not a new colour.
+describe("the catalyst block reads apart from the input rows", () => {
+  it("gives the catalyst tab the input tab's box", () => {
+    for (const property of ["top", "transform", "width", "height", "left"]) {
+      expect(cssValue(".rn-row.catalyst::before", property)).toBe(
+        cssValue(".rn-row.input::before", property),
+      );
+    }
+  });
+
+  it("ticks the catalyst tab where the input tab is a solid bar", () => {
+    const catalyst = cssValue(".rn-row.catalyst::before", "background");
+    expect(catalyst).toContain("repeating-linear-gradient");
+    expect(catalyst).toContain("--row-accent");
+    expect(catalyst).not.toBe(cssValue(".rn-row.input::before", "background"));
+  });
+
+  it("draws the block divider in the body divider's colour", () => {
+    expect(cssValue(".rn-row.catalyst.cat-first::after", "background")).toBe(
+      cssValue(".rn-body::before", "background"),
+    );
+  });
+
+  it("opens the block with a half-row gap", () => {
+    expect(cssPx(".rn-row.catalyst.cat-first", "margin-top")).toBe(
+      CATALYST_BLOCK_GAP,
+    );
+  });
+
+  it("leaves the catalyst label at full ink", () => {
+    expect(cssSelectorsMatching(/^\.rn-row\.catalyst \.lbl$/)).toEqual([]);
   });
 });
 
@@ -271,6 +329,36 @@ describe("the product card's drawn width is what the layout assigns", () => {
 
     expect(cssBlock(".product-node")).not.toMatch(/box-sizing:/);
     expect(content + 2 * padX + border + accent).toBe(PRODUCT_WIDTH);
+  });
+
+  it("sums the drawn chrome to PRODUCT_HEIGHT", () => {
+    // The card is a column of two rows. Every term is declared in canvas.css --
+    // the line boxes in pixels rather than as ratios -- so the sum is the
+    // browser's drawn height and not an estimate of it. The head is the taller
+    // of the item sprite and the name's line.
+    const border = cssPx(".product-node", "border");
+    const padTop = cssPx(".product-node", "padding");
+    const padBottom = cssPx(".product-node", "padding", 2);
+    const gap = cssPx(".product-node", "gap");
+    const head = Math.max(
+      cssPx(".ico-28", "height"),
+      cssPx(".pn-name", "line-height"),
+    );
+    const rate =
+      cssPx(".pn-rate", "margin-top") + cssPx(".pn-rate", "line-height");
+
+    expect(2 * border + padTop + padBottom + head + gap + rate).toBe(
+      PRODUCT_HEIGHT,
+    );
+  });
+
+  it("puts React Flow's top:50% handle on the port y the model assigns", () => {
+    // A product resolves no row, so portOffsetY falls back to the node's
+    // vertical centre; the drawn handle sits at 50% of the same drawn box only
+    // while PRODUCT_HEIGHT is that box's height.
+    const node = productNode("p", 200, 60, PRODUCT_WIDTH, PRODUCT_HEIGHT);
+
+    expect(portOffsetY(node, "ore", "in")).toBe(PRODUCT_HEIGHT / 2);
   });
 
   it("gives every direction modifier the same accent width", () => {

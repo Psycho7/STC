@@ -69,14 +69,16 @@ test("an unselected product node carries no selected class", () => {
   );
 });
 
-// UX-20: the "In / raw" caption is a node internal that must localize. In zh
-// the direction and classification words come from the i18n table.
-test("input caption localizes the direction and classification in zh", () => {
+// UX-20: the "In / raw" words are a node internal that must localize. The card
+// no longer draws them (ruling I5/I10), so they are read off the spoken label,
+// which comes from the same i18n table.
+test("the spoken label localizes the direction and classification in zh", () => {
   const { container } = wrap(<ProductNode {...inputProps()} />, "zh");
-  const kind = container.querySelector(".pn-kind")?.textContent ?? "";
-  expect(kind).toContain("输入");
-  expect(kind).toContain("原料");
-  expect(kind).not.toMatch(/In|raw/);
+  const label =
+    container.querySelector(".product-node")?.getAttribute("aria-label") ?? "";
+  expect(label).toContain("输入");
+  expect(label).toContain("原料");
+  expect(label).not.toMatch(/In|raw/);
 });
 
 // The rate unit on the boundary card is canvas chrome, so it must come from the
@@ -89,17 +91,9 @@ test("pn-rate unit is localized in zh", () => {
   expect(rate!.textContent).not.toMatch(/min/i);
 });
 
-test("pn-kind caption unit is localized in zh", () => {
-  const { container } = wrap(<ProductNode {...outputProps()} />, "zh");
-  const kind = container.querySelector(".pn-kind");
-  expect(kind).not.toBeNull();
-  expect(kind!.textContent).toContain("/分");
-  expect(kind!.textContent).not.toMatch(/min/i);
-});
-
 // Surface-level gate: a fanout input lights up every fine-print line at once
 // (rate, cap chip, tap share), so scanning the whole card catches any rate unit
-// that skipped the i18n table. The output card covers the pn-kind branch.
+// that skipped the i18n table. The output card covers the target/surplus arm.
 test("zh product cards render no Latin min anywhere", () => {
   const { container } = wrap(<ProductNode {...fanoutInputProps()} />, "zh");
   expect(container.textContent).not.toMatch(/min/i);

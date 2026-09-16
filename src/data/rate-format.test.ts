@@ -10,7 +10,7 @@ import {
 
 test("formatRateExactPerMin reveals the un-rounded value the display rounds", () => {
   // 1/7 per sec * 60 = 60/7 = 8.571428..., which formatRatePerMin rounds to
-  // "8.57"; the exact tooltip shows the full-precision decimal instead.
+  // "8.6"; the exact tooltip shows the full-precision decimal instead.
   expect(formatRateExactPerMin(new Fraction(1, 7))).toBe(String(60 / 7));
   // A tiny rate the display would show as a fraction still reads exactly.
   expect(formatRateExactPerMin(new Fraction("1").div("12000"))).toBe(
@@ -31,9 +31,10 @@ test("formatRateExactPerMin never returns exponential text", () => {
 });
 
 test("formatRationalPerMin rounds a non-terminating rate to the shared decimal", () => {
-  // 40/27 per sec * 60 = 800/9 = 88.888.../min. The rational readout now uses
-  // the same decimal core as the canvas chips instead of a vulgar fraction.
-  expect(formatRationalPerMin({ num: "40", denom: "27" })).toBe("88.89");
+  // 40/27 per sec * 60 = 800/9 = 88.888.../min. The rational readout uses the
+  // same decimal core as the canvas chips instead of a vulgar fraction, and
+  // that core caps a displayed rate at one fractional digit.
+  expect(formatRationalPerMin({ num: "40", denom: "27" })).toBe("88.9");
   // Whole per-minute values collapse to a plain integer.
   expect(formatRationalPerMin({ num: "2", denom: "1" })).toBe("120");
 });
@@ -71,9 +72,20 @@ test("formatRatePerMin keeps a normal sub-unit rate unchanged", () => {
   expect(formatRatePerMin(new Fraction("1").div("600"))).toBe("0.1");
 });
 
-test("formatRatePerMin rounds a >1 non-whole per-minute value to two decimals", () => {
-  // 1/7 per sec * 60 = 60/7 = 8.5714..., toFixed(2) then trailing-zero trim.
-  expect(formatRatePerMin(new Fraction(1, 7))).toBe("8.57");
+// The one-digit cap stops where one digit would BE the value: a 0.06/min plan
+// rate must not read as 0.1/min, so the significant-digit ladder owns
+// everything below 0.1.
+test("formatRatePerMin keeps two significant figures below 0.1", () => {
+  expect(formatRatePerMin(new Fraction("1").div("1000"))).toBe("0.06");
+  expect(formatRationalPerMin({ num: "1", denom: "1000" })).toBe("0.06");
+});
+
+test("formatRatePerMin rounds a >1 non-whole per-minute value to one decimal", () => {
+  // 1/7 per sec * 60 = 60/7 = 8.5714..., toFixed(1) then trailing-zero trim.
+  expect(formatRatePerMin(new Fraction(1, 7))).toBe("8.6");
+  // The trim still collapses a rounded-away digit to a bare integer.
+  expect(formatRatePerMin(new Fraction("599").div("600"))).toBe("59.9");
+  expect(formatRatePerMin(new Fraction("5999").div("6000"))).toBe("60");
 });
 
 test("formatRationalPerMin does not suppress an exact-zero rational", () => {
