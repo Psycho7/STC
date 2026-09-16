@@ -397,7 +397,13 @@ const CROSSING_BASELINE: Record<string, number> = {
   // every stroke that steps clear of another crosses the few corridors there
   // are; the taller cards move the rows those runs land on as well. UP move,
   // listed for ruling.
-  "coupon-web": 7,
+  // EVENT RECIPE COHORTS 2026-09-16 (develop merged into the cohort branch):
+  // 7 -> 21. The coupon target is an event item, so the plan now solves through
+  // the event chain instead of stopping short of it -- 15 recipes where the old
+  // cell was measured on a graph that could not reach them. The two counts
+  // describe different graphs, and all 21 crossings carry a drawn cue. UP move,
+  // ruled by the user.
+  "coupon-web": 21,
   "gas-web": 18,
   "rot-bottled_food_3": 2,
   "rot-bottled_food_4": 3,
