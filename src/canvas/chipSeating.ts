@@ -272,40 +272,20 @@ type EdgeSegments = {
 
 // Every edge-data field this pass stamps. Picking them off the types that
 // declare them makes a rename at the declaration a build error here.
-const STAMP_KEYS = [
-  "fanoutJunctionX",
-  "fanoutJunctionY",
-  "faninJunctionX",
-  "faninJunctionY",
-  "chipX",
-  "chipY",
-  "crossingCues",
-] as const;
-type StampKey = (typeof STAMP_KEYS)[number];
+type StampKey =
+  | "fanoutJunctionX"
+  | "fanoutJunctionY"
+  | "faninJunctionX"
+  | "faninJunctionY"
+  | "chipX"
+  | "chipY"
+  | "crossingCues";
 type PickStampKeys<T> = Pick<T, Extract<StampKey, keyof T>>;
 type StampPatch = Partial<
   PickStampKeys<ItemEdgeData> &
     PickStampKeys<FanoutBusEdgeData> &
     PickStampKeys<FaninBusEdgeData>
 >;
-
-// The drag-end re-run: strip every stamp the pass owns and run it again on the
-// moved nodes. The routing hints earlier passes wrote stay, as the live edge
-// paths keep reading them. An untouched edge comes back by reference.
-export function reseatChips(
-  nodes: ReadonlyArray<RFAnyNode>,
-  edges: ReadonlyArray<Edge>,
-): Edge[] {
-  const clean = edges.map((edge) => {
-    if (edge.data === undefined) return edge;
-    const data: Record<string, unknown> = edge.data;
-    if (!STAMP_KEYS.some((key) => key in data)) return edge;
-    const stripped = { ...data };
-    for (const key of STAMP_KEYS) delete stripped[key];
-    return { ...edge, data: stripped };
-  });
-  return deconflictChipAnchors(nodes, clean);
-}
 
 export function deconflictChipAnchors(
   nodes: ReadonlyArray<RFAnyNode>,
