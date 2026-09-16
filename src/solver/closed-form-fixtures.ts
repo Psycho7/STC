@@ -129,9 +129,16 @@ export interface ClosedFormFixture {
     // the map must hold exactly these items: a listed empty array pins "no
     // draw at all".
     draws?: { itemId: string; num: number; den: number }[];
-    // Catalyst draw per item (items/sec), closed-form. When present the map
-    // must hold exactly these items.
-    catalystDraw?: { itemId: string; num: number; den: number }[];
+    // Catalyst account per item (items/sec), closed-form: the per-machine
+    // need and which pool pays it. When present the map must hold exactly
+    // these items.
+    catalystAccount?: {
+      itemId: string;
+      need: [num: number, den: number];
+      fromCatalyst: [num: number, den: number];
+      fromGeneral: [num: number, den: number];
+      unmet: [num: number, den: number];
+    }[];
   };
 }
 
@@ -257,16 +264,19 @@ const noProducer: ClosedFormFixture = {
 };
 
 // ---------------------------------------------------------------------------
-// Catalyst axes. A catalyst is cycled, not consumed: it never enters mass
-// balance, but it is drawn from the boundary and shares its item's supply cap.
-// Kept out of CLOSED_FORM_FIXTURES so the render corpora keep their pinned
-// fixture set; the solver suite iterates this list on its own.
+// Catalyst axes. A catalyst is cycled, not consumed, and it is charged per
+// machine rather than per cycle, so the LP never sees it: the solve is the
+// plain one and the account is post-solve arithmetic over the machine counts
+// and the supply pools. Every machine here has speed 1, so a replica running
+// at rate x holds ceil(x * time) machines. Kept out of CLOSED_FORM_FIXTURES so
+// the render corpora keep their pinned fixture set; the solver suite iterates
+// this list on its own.
 // ---------------------------------------------------------------------------
 
 // Catalyst axis 1: uncapped catalyst item. a: 1 M -> 1 F, cycling 1/5 C per
-// execution. C is raw with no override, so effectiveSupply is Infinity: no cap
-// row exists and nothing throttles the draw. Target 2 F/sec => x_a = 2, and the
-// catalyst draw is 2 * 1/5 = 2/5 C/sec.
+// cycle over a 1 s cycle. C is raw with no override, so pool G is free and
+// there is no C row. Target 2 F/sec => x_a = 2 => 2 machines => the need is
+// 2 * 1/5 = 2/5 C/sec, all of it billed to G.
 const catalystUncapped: ClosedFormFixture = {
   name: "catalyst-uncapped",
   pack: makePack(
@@ -290,17 +300,25 @@ const catalystUncapped: ClosedFormFixture = {
     softFeasible: true,
     rates: [{ recipeId: "a", num: 2, den: 1 }],
     draws: [],
-    catalystDraw: [{ itemId: "C", num: 2, den: 5 }],
+    catalystAccount: [
+      {
+        itemId: "C",
+        need: [2, 5],
+        fromCatalyst: [0, 1],
+        fromGeneral: [2, 5],
+        unmet: [0, 1],
+      },
+    ],
   },
 };
 
-// Catalyst axis 2: finite cap above the catalyst need, saturated exactly.
+// Catalyst axis 2: finite cap the ordinary draw saturates on its own.
 // a: 1 C -> 1 F cycling 1/5 C (cost 1); b: 1 R -> 1 F (cost 5, C-free).
-// C is capped at 3/sec, so a's cap row reads draw_C + 1/5 x_a <= 3 while its
-// mass balance still consumes 1 C per execution: x_a + 1/5 x_a <= 3 =>
-// x_a <= 5/2. Target 3 F/sec: the cheap route runs at its ceiling 5/2 and the
-// costly route covers the remaining 1/2. The cap saturates, so the balanced
-// draw is cap minus catalyst use = 3 - 1/2 = 5/2, exactly.
+// C is capped at 3/sec and a consumes 1 C per execution, so x_a <= 3 and the
+// cheap route covers the whole 3 F/sec target with draw_C = 3 - the catalyst
+// no longer shares the cap. The account then finds pool G spent: 3 machines
+// need 3/5 C/sec, there is no C row, and the typed cap has 3 - 3 = 0
+// headroom, so the whole need is unmet.
 const catalystCapSaturated: ClosedFormFixture = {
   name: "catalyst-cap-saturated",
   pack: makePack(
@@ -324,20 +342,27 @@ const catalystCapSaturated: ClosedFormFixture = {
   targets: [{ itemId: "F", ratePerSec: { num: "3", denom: "1" } }],
   expected: {
     softFeasible: true,
-    rates: [
-      { recipeId: "a", num: 5, den: 2 },
-      { recipeId: "b", num: 1, den: 2 },
+    rates: [{ recipeId: "a", num: 3, den: 1 }],
+    draws: [{ itemId: "C", num: 3, den: 1 }],
+    catalystAccount: [
+      {
+        itemId: "C",
+        need: [3, 5],
+        fromCatalyst: [0, 1],
+        fromGeneral: [0, 1],
+        unmet: [3, 5],
+      },
     ],
-    draws: [{ itemId: "C", num: 5, den: 2 }],
-    catalystDraw: [{ itemId: "C", num: 1, den: 2 }],
   },
 };
 
 // Catalyst axis 3: cap below the catalyst need. a: 1 M -> 1 F cycling 1 C, and
-// C is capped at 1/2 C/sec with no producer. The cap row draw_C + x_a <= 1/2
-// throttles a to 1/2 exec/sec; C never enters a's mass balance, so the whole
-// cap goes to the catalyst and no balanced draw is reported. Target 1 F/sec
-// leaves 1/2 F/sec unmet, reported honestly as a deficit on F.
+// C is capped at 1/2 C/sec with no producer. C never enters a's mass balance
+// and no longer enters its cap row either, so nothing throttles a: the 1 F/sec
+// target is met at x_a = 1 with no balanced draw at all. One machine needs
+// 1 C/sec against a typed cap of 1/2 that the ordinary draw left untouched, so
+// G covers half and the other half is reported unmet - a report, not a
+// deficit: the target is still delivered.
 const catalystCapShort: ClosedFormFixture = {
   name: "catalyst-cap-short",
   pack: makePack(
@@ -359,21 +384,26 @@ const catalystCapShort: ClosedFormFixture = {
   itemOverrides: [{ itemId: "C", ratePerSec: { num: "1", denom: "2" } }],
   targets: [{ itemId: "F", ratePerSec: { num: "1", denom: "1" } }],
   expected: {
-    softFeasible: false,
-    deficitItems: ["F"],
-    // 1 F/sec asked, 1/2 produced: the shortfall is exactly the half the
-    // throttled catalyst could not fund.
-    deficits: [{ itemId: "F", num: 1, den: 2 }],
-    rates: [{ recipeId: "a", num: 1, den: 2 }],
+    softFeasible: true,
+    rates: [{ recipeId: "a", num: 1, den: 1 }],
     draws: [],
-    catalystDraw: [{ itemId: "C", num: 1, den: 2 }],
+    catalystAccount: [
+      {
+        itemId: "C",
+        need: [1, 1],
+        fromCatalyst: [0, 1],
+        fromGeneral: [1, 2],
+        unmet: [1, 2],
+      },
+    ],
   },
 };
 
-// Catalyst axis 4: cap 0 through `plan: true` on a raw item. effectiveSupply is
-// Fraction(0), so the model emits no draw variable and no cap row: only a
-// finite POSITIVE cap constrains a catalyst. The catalyst is still drawn and
-// nothing is throttled. Target 2 F/sec => x_a = 2 and 2 C/sec cycled.
+// Catalyst axis 4: `plan: true` on a raw item. effectiveSupply is Fraction(0),
+// so the model emits no draw variable, but nobody typed a cap and there is no
+// C row, so pool G's headroom for the catalyst is unlimited (ruling 6) and the
+// whole need is billed to it. Target 2 F/sec => x_a = 2 => 2 machines cycling
+// 1 C each per 1 s cycle => 2 C/sec.
 const catalystPlanned: ClosedFormFixture = {
   name: "catalyst-plan-true",
   pack: makePack(
@@ -398,7 +428,15 @@ const catalystPlanned: ClosedFormFixture = {
     softFeasible: true,
     rates: [{ recipeId: "a", num: 2, den: 1 }],
     draws: [],
-    catalystDraw: [{ itemId: "C", num: 2, den: 1 }],
+    catalystAccount: [
+      {
+        itemId: "C",
+        need: [2, 1],
+        fromCatalyst: [0, 1],
+        fromGeneral: [2, 1],
+        unmet: [0, 1],
+      },
+    ],
   },
 };
 

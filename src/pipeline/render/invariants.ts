@@ -236,7 +236,7 @@ export function checkBoundaryProductsJustified(
   // A cycled charge is drawn from the boundary like any other consumption, and
   // it is the whole justification for a boundary node on an item the plan
   // produces itself (or does not surface as raw at all).
-  const catalystDraw = catalystDrawByItem(rates, pack);
+  const catalystByItem = catalystDrawByItem(rates, pack);
   const demandOf = demandByItem(targets);
   const scaleFloor = planScaleFloor(targets);
 
@@ -246,7 +246,7 @@ export function checkBoundaryProductsJustified(
       const supply = supplyTable.supplyOf(x);
       // Justified only with real external supply and net consumption (consumption
       // exceeds internal production).
-      const catDraw = catalystDraw.get(x) ?? FRAC_ZERO;
+      const catDraw = catalystByItem.get(x) ?? FRAC_ZERO;
       const isCatalystImport = catDraw.compare(FRAC_ZERO) > 0;
       const hasExternalSupply =
         supply === Infinity ||

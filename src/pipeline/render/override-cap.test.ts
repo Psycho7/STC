@@ -9,6 +9,7 @@ import { describe, it, expect } from "vitest";
 import Fraction from "fraction.js";
 import { pack } from "../../data/load";
 import { solvePlanWithIntermediates } from "../../solver/index";
+import type { SolvePlanFull } from "../../solver/index";
 import { solveForRender } from "../solveForRender";
 import { checkRenderPlan } from "./invariants";
 import { makePack } from "../../solver/closed-form-fixtures";
@@ -28,7 +29,7 @@ function solveAndRender(
 ): {
   plan: RenderPlan;
   rates: ReadonlyMap<string, Fraction>;
-  catalystDraw: ReadonlyMap<string, Fraction>;
+  catalystAccount: SolvePlanFull["catalystAccount"];
   softFeasible: boolean;
 } {
   const { full, plan } = solveForRender({
@@ -47,7 +48,7 @@ function solveAndRender(
   return {
     plan,
     rates: full.rates,
-    catalystDraw: full.catalystDraw,
+    catalystAccount: full.catalystAccount,
     softFeasible: full.feasibility.softFeasible,
   };
 }
@@ -201,46 +202,45 @@ describe("residual split on a capped raw item with a real producer", () => {
   });
 });
 
-// The shipped pack no longer splits a gas_xiranite cap the way the synthetic
-// pack above splits m. The xiranite a phase transmuter cycles is a catalyst:
-// it stays out of mass balance, so nothing consumes it and no boundary draw
-// stands for it. A finite positive cap still binds it - the cap row charges
-// the cycled quantity - so the cap throttles the recipe that cycles it and
-// the demand routes around that recipe instead of splitting.
-describe("catalyst charged against a shipped-pack cap", () => {
-  it("spends the whole cap on the cycled charge and routes the rest around it", () => {
-    const { plan, rates, catalystDraw, softFeasible } = solveAndRender(
+// The xiranite a phase transmuter cycles is a catalyst: it stays out of mass
+// balance, and since the charge is per machine rather than per cycle the LP
+// does not see it either. A cap on the item therefore throttles nothing, and
+// the account reports what the cap cannot hold instead.
+describe("catalyst against a shipped-pack cap", () => {
+  it("does not throttle the transmuter and bills the overshoot to the account", () => {
+    const { plan, rates, catalystAccount, softFeasible } = solveAndRender(
       [{ itemId: "gas_copper", ratePerSec: { num: "1", denom: "1" } }],
       [{ itemId: "gas_xiranite", ratePerSec: { num: "1", denom: "10" } }],
     );
     expect(softFeasible).toBe(true);
-    // 0.2 gas_xiranite cycled per cycle against a 1/10 cap holds
-    // phase_trans_2-gas_copper to 1/2 cycles/sec, and it makes 1 gas_copper
-    // per cycle. phase_trans_1-gas_copper cycles liquid_xiranite, which
-    // carries no cap, and covers the other half of the 1/s target.
-    expect(
-      rates.get("phase_trans_2-gas_copper")?.equals(new Fraction(1, 2)),
-    ).toBe(true);
-    expect(
-      rates.get("phase_trans_1-gas_copper")?.equals(new Fraction(1, 2)),
-    ).toBe(true);
-    expect(catalystDraw.get("gas_xiranite")?.equals(new Fraction(1, 10))).toBe(
-      true,
-    );
+    // Nothing consumes gas_xiranite here, so the 1/10 cap leaves the solve
+    // untouched: phase_trans_2-gas_copper covers the whole 1/s target on its
+    // own and the liquid route it used to share with is never funded.
+    expect(rates.get("phase_trans_2-gas_copper")?.equals(1)).toBe(true);
+    expect(rates.has("phase_trans_1-gas_copper")).toBe(false);
+    // Rate 1 on a 2 s cycle is 2 machines, each holding 0.2/2 = 1/10 per
+    // second. No catalyst row exists, so pool G pays out of its typed cap -
+    // untouched by any ordinary draw, hence the full 1/10 - and the other
+    // 1/10 is reported unmet without disturbing the plan.
+    const account = catalystAccount.get("gas_xiranite")!;
+    expect(account.need.equals(new Fraction(1, 5))).toBe(true);
+    expect(account.fromCatalyst.equals(0)).toBe(true);
+    expect(account.fromGeneral.equals(new Fraction(1, 10))).toBe(true);
+    expect(account.unmet.equals(new Fraction(1, 10))).toBe(true);
     // The cycled charge is boundary supply: one import card carrying the whole
-    // 1/10 draw, one catalyst edge into the transmuter that cycles it, and the
-    // internal producer the old split funded to cover the rest is not funded.
+    // need beside its cap, and one catalyst edge into the transmuter.
     const importCard = plan.units.find(
       (u) => isInputProductUnit(u) && u.itemId === "gas_xiranite",
     );
     expect(importCard).toBeDefined();
     expect((importCard as { rate: unknown }).rate).toEqual({
       num: "1",
-      denom: "10",
+      denom: "5",
     });
     const xiraniteEdges = plan.edges.filter((e) => e.item === "gas_xiranite");
+    expect(xiraniteEdges.map((e) => e.fromUnit)).toEqual(["u:in:gas_xiranite"]);
     expect(xiraniteEdges.map((e) => e.toPortKind)).toEqual(["catalyst"]);
-    expect(xiraniteEdges[0]!.rate.equals(new Fraction(1, 10))).toBe(true);
+    expect(xiraniteEdges[0]!.rate.equals(new Fraction(1, 5))).toBe(true);
     expect(rates.has("phase_trans_2-gas_xiranite")).toBe(false);
   });
 });

@@ -5,6 +5,7 @@ import {
   checkMassBalance,
   checkTargetsMet,
   checkRawOnlyBoundary,
+  checkCatalystAccount,
   checkRepresentable,
   checkNoOrphanLogicalNodes,
   assertInvariants,
@@ -348,10 +349,10 @@ describe("checkRawOnlyBoundary - detection power", () => {
   });
 
   // A catalyst is cycled rather than consumed, so it never shows up in
-  // production or consumption - but the boundary still has to hold it, and it
-  // is charged against the same cap. Consumption alone fits under the cap here;
-  // consumption plus the cycled draw does not.
-  it("flags a capped item whose catalyst use pushes it over the cap", () => {
+  // production or consumption - and since the LP charges it against no cap,
+  // this checker must not either. Consumption alone fits under the cap here;
+  // consumption plus the cycled draw would not, and that is not a violation.
+  it("does NOT flag a capped item whose catalyst use would exceed the cap", () => {
     const p = {
       recipes: [
         {
@@ -383,14 +384,14 @@ describe("checkRawOnlyBoundary - detection power", () => {
       softFeasible: true,
     };
     const r = checkRawOnlyBoundary(corrupted, p, overrides);
-    expect(r.ok).toBe(false);
-    expect(r.violations.some((v) => v.includes("prod"))).toBe(true);
+    expect(r.ok, r.violations.join("\n")).toBe(true);
+    expect(r.violations).toEqual([]);
   });
 
-  // Only a finite POSITIVE cap charges a catalyst. A plain non-raw item has
-  // effectiveSupply 0 and gets no cap row in the model, so the LP never
-  // throttles a catalyst on it and this checker must not flag one either -
-  // liquid_xiranite on the real pack is exactly that item.
+  // The same rule on the other side of the cap: a plain non-raw item has
+  // effectiveSupply 0, and a catalyst cycled on it is still not a boundary
+  // draw this checker knows about - liquid_xiranite on the real pack is
+  // exactly that item.
   it("does NOT flag a catalyst cycled on a zero-supply item", () => {
     const p = {
       recipes: [
@@ -498,6 +499,113 @@ describe("checkRawOnlyBoundary - detection power", () => {
   });
 });
 
+// The account has no LP row behind it, so this checker is the only thing that
+// would notice it drifting from the machine counts and pools it is derived
+// from. Driven on a transmuter plan, the one shape that cycles anything.
+describe("checkCatalystAccount", () => {
+  const catalystTargets: ItemTarget[] = [
+    { itemId: "gas_copper", ratePerSec: { num: "1", denom: "1" } },
+  ];
+  const nettedPack = netSelfConsumption(pack);
+
+  function solveCatalystPlan(): {
+    full: SolvePlanFull;
+    result: LpResult;
+  } {
+    return {
+      full: solvePlanWithIntermediates(catalystTargets, pack, noOverrides),
+      result: solveLp({ targets: catalystTargets, pack: nettedPack }),
+    };
+  }
+
+  it("returns ok:true on a solved transmuter plan", () => {
+    const { full, result } = solveCatalystPlan();
+    expect(full.catalystAccount.size).toBeGreaterThan(0);
+    const r = checkCatalystAccount(full, result, nettedPack, noOverrides);
+    expect(r.ok, r.violations.join("\n")).toBe(true);
+    expect(r.violations).toEqual([]);
+  });
+
+  it("returns ok:true on the catalyst-free headline plan", () => {
+    const r = checkCatalystAccount(
+      makeFull(),
+      solveLp({ targets: headlineTargets, pack: nettedPack }),
+      nettedPack,
+      noOverrides,
+    );
+    expect(r.ok, r.violations.join("\n")).toBe(true);
+    expect(r.violations).toEqual([]);
+  });
+
+  it("flags an account whose need was tampered with", () => {
+    const { full, result } = solveCatalystPlan();
+    const reported = full.catalystAccount.get("gas_xiranite")!;
+    const corrupted: SolvePlanFull = {
+      ...full,
+      catalystAccount: new Map([
+        [
+          "gas_xiranite",
+          { ...reported, need: reported.need.add(new Fraction(1, 3)) },
+        ],
+      ]),
+    };
+    const r = checkCatalystAccount(corrupted, result, nettedPack, noOverrides);
+    expect(r.ok).toBe(false);
+    expect(r.violations.some((v) => v.includes("need"))).toBe(true);
+  });
+
+  it("flags an account that bills the need to the wrong pool", () => {
+    const { full, result } = solveCatalystPlan();
+    const reported = full.catalystAccount.get("gas_xiranite")!;
+    const corrupted: SolvePlanFull = {
+      ...full,
+      catalystAccount: new Map([
+        [
+          "gas_xiranite",
+          {
+            ...reported,
+            fromCatalyst: reported.need,
+            fromGeneral: new Fraction(0),
+          },
+        ],
+      ]),
+    };
+    const r = checkCatalystAccount(corrupted, result, nettedPack, noOverrides);
+    expect(r.ok).toBe(false);
+    expect(r.violations.some((v) => v.includes("fromCatalyst"))).toBe(true);
+    expect(r.violations.some((v) => v.includes("fromGeneral"))).toBe(true);
+  });
+
+  it("flags an omitted entry and an invented one", () => {
+    const { full, result } = solveCatalystPlan();
+    const omitted: SolvePlanFull = { ...full, catalystAccount: new Map() };
+    expect(
+      checkCatalystAccount(omitted, result, nettedPack, noOverrides).violations,
+    ).toEqual([expect.stringContaining("omits gas_xiranite")]);
+
+    const zero = new Fraction(0);
+    const invented: SolvePlanFull = {
+      ...full,
+      catalystAccount: new Map([
+        ...full.catalystAccount,
+        [
+          "copper_ore",
+          {
+            need: new Fraction(1),
+            fromCatalyst: zero,
+            fromGeneral: new Fraction(1),
+            unmet: zero,
+          },
+        ],
+      ]),
+    };
+    expect(
+      checkCatalystAccount(invented, result, nettedPack, noOverrides)
+        .violations,
+    ).toEqual([expect.stringContaining("reports copper_ore")]);
+  });
+});
+
 describe("checkRepresentable - detection power", () => {
   it("flags a positive-rate recipe missing from the logical graph", () => {
     const full = makeFull();
@@ -589,16 +697,18 @@ describe("solver invariant table", () => {
     };
   }
 
-  it("registers the six rows in order, asserting only the first four", () => {
+  it("registers the seven rows in order, asserting only the first five", () => {
     expect(SOLVER_INVARIANT_CHECKERS.map((c) => c.name)).toEqual([
       "massBalance",
       "targetsMet",
       "rawOnlyBoundary",
+      "catalystAccount",
       "representable",
       "noOrphanLogicalNodes",
       "optimal",
     ]);
     expect(SOLVER_INVARIANT_CHECKERS.map((c) => c.asserted)).toEqual([
+      true,
       true,
       true,
       true,

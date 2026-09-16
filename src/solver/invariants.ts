@@ -3,14 +3,10 @@ import type { RecipePack } from "@aef/schema";
 import type { ItemTarget } from "../data/targets";
 import type { ItemOverride } from "../data/plan";
 import type { LpResult } from "./lp";
-import {
-  REL_TOL,
-  catalystDrawFromRates,
-  demandByItem,
-  toleranceScaleFloor,
-} from "./lp";
+import { REL_TOL, demandByItem, toleranceScaleFloor } from "./lp";
 import type { SolvePlanFull } from "./index";
 import { buildSupplyTable } from "./effectiveSupply";
+import { buildCatalystAccount } from "./catalyst";
 import { isSanctionedAbsentProducer } from "../data/recipe-category";
 import { assertOptimal } from "./optimality";
 import type { RecipeId } from "./types";
@@ -133,13 +129,11 @@ export function checkTargetsMet(
  * For each item:
  *   external_supply(item)
  *     = consumption(item) - production(item) + surplus(item) - deficit(item)
- *       + catalyst(item)
  * i.e. what the solution must have pulled from outside the system: consumed
  * beyond internal production, plus any leftover surplus the boundary pushed in,
- * less the demand the solve openly left unmet, plus every catalyst the running
- * recipes cycle. A catalyst comes back out, so it is absent from production and
- * consumption above, but the boundary still has to hold it and it is charged
- * against the same cap. Assert:
+ * less the demand the solve openly left unmet. A catalyst is not in it: the LP
+ * charges no catalyst against a cap, and what the catalyst pools hold is
+ * checked by checkCatalystAccount instead. Assert:
  *   external_supply(item) <= effectiveSupply(item) + tol
  *     - effectiveSupply === Infinity  -> always passes (raw/uncapped boundary).
  *     - finite override cap            -> external_supply <= cap + tol.
@@ -160,7 +154,6 @@ export function checkRawOnlyBoundary(
 ): InvariantResult {
   const violations: string[] = [];
   const supply = buildSupplyTable(pack, overrides);
-  const catalyst = catalystDrawFromRates(pack.recipes, result.rates);
 
   for (const it of pack.items) {
     let production = new Fraction(0);
@@ -186,17 +179,10 @@ export function checkRawOnlyBoundary(
     // Scale the slack by cap magnitude, like checkMassBalance and checkTargetsMet;
     // a flat absolute REL_TOL is too tight on large caps.
     const capValue = cap.valueOf();
-    // Only a finite POSITIVE cap charges a catalyst. A cap of 0 - a plain
-    // non-raw item, or `plan: true` on a raw one - gets no cap row in the
-    // model and leaves the catalyst unconstrained, so charging the cycled draw
-    // here would flag a solution the model deliberately permits.
-    const cycled =
-      capValue > 0 ? (catalyst.get(it.id) ?? new Fraction(0)) : new Fraction(0);
     const externalSupply = consumption
       .sub(production)
       .add(surplus)
-      .sub(deficit)
-      .add(cycled);
+      .sub(deficit);
     const slack = Math.max(1, Math.abs(capValue)) * REL_TOL;
     if (externalSupply.valueOf() > capValue + slack) {
       violations.push(
@@ -279,6 +265,69 @@ export function checkNoOrphanLogicalNodes(
 }
 
 /**
+ * Catalyst account: the reported per-item need and its three allocations must
+ * be exactly what the account's own inputs produce.
+ *
+ * Double entry against `SolvePlanFull.catalystAccount`. The account is
+ * post-solve accounting with no LP row behind it, so nothing else would notice
+ * if it drifted from the machine counts, the supply pools or the realized
+ * draws it is derived from. Recomputed exactly, in Fractions: the account is
+ * rational arithmetic end to end, so any difference at all is a defect.
+ *
+ * What this does NOT check is that the rendered catalyst edges carry the
+ * reported need; that tie is a render invariant.
+ */
+export function checkCatalystAccount(
+  full: SolvePlanFull,
+  result: LpResult,
+  pack: RecipePack,
+  overrides: ReadonlyArray<ItemOverride>,
+): InvariantResult {
+  const violations: string[] = [];
+  const expected = buildCatalystAccount({
+    replicas: full.replicas,
+    idealCount: full.idealCount,
+    recipeById: full.nettedRecipeById,
+    machineById: new Map(pack.machines.map((m) => [m.id, m])),
+    supply: buildSupplyTable(pack, overrides),
+    draws: result.draws,
+  });
+
+  for (const itemId of new Set([
+    ...expected.keys(),
+    ...full.catalystAccount.keys(),
+  ])) {
+    const want = expected.get(itemId);
+    const got = full.catalystAccount.get(itemId);
+    if (want === undefined) {
+      violations.push(`catalyst account reports ${itemId}, which cycles none`);
+      continue;
+    }
+    if (got === undefined) {
+      violations.push(
+        `catalyst account omits ${itemId}, which cycles ${want.need.valueOf()}`,
+      );
+      continue;
+    }
+    for (const field of CATALYST_ACCOUNT_FIELDS) {
+      if (got[field].equals(want[field])) continue;
+      violations.push(
+        `catalyst account ${field} for ${itemId}: ${got[field].valueOf()}, expected ${want[field].valueOf()}`,
+      );
+    }
+  }
+
+  return { ok: violations.length === 0, violations };
+}
+
+const CATALYST_ACCOUNT_FIELDS = [
+  "need",
+  "fromCatalyst",
+  "fromGeneral",
+  "unmet",
+] as const;
+
+/**
  * Shared args record for the invariant table. Every row adapts it to the
  * checker signature it wraps, so the checkers stay callable positionally.
  *
@@ -322,7 +371,7 @@ export function assertInvariants(args: SolverInvariantArgs): void {
 }
 
 /**
- * The six invariants paired with the names a debug surface prints them under
+ * The seven invariants paired with the names a debug surface prints them under
  * and whether the dev assert path runs them. This table IS the order both
  * consumers run and return them in, so a checker registered here needs no
  * second entry anywhere: a consumer zips its labels against the table and
@@ -350,6 +399,12 @@ export const SOLVER_INVARIANT_CHECKERS: ReadonlyArray<{
   {
     name: "rawOnlyBoundary",
     check: (a) => checkRawOnlyBoundary(a.result, a.pack, a.itemOverrides),
+    asserted: true,
+  },
+  {
+    name: "catalystAccount",
+    check: (a) =>
+      checkCatalystAccount(a.full, a.result, a.pack, a.itemOverrides),
     asserted: true,
   },
   {

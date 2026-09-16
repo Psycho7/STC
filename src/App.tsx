@@ -42,6 +42,7 @@ import { pack } from "./data/load";
 import { CATALYST_SUPPLY_EDGES } from "./flags";
 import type { LogicalGraph } from "./canvas/layout";
 import { LpInfeasibleError } from "./solver";
+import type { CatalystAccount } from "./solver/catalyst";
 import { solveFromPlan } from "./pipeline/solveForRender";
 import { LocaleProvider, useI18n } from "./data/i18n-context";
 import { LocaleSwitcher } from "./components/LocaleSwitcher";
@@ -133,6 +134,8 @@ type SideSection = "targets" | "inputs";
 // highlight from an equally-visible earlier one.
 const SIDE_SECTION_ORDER: SideSection[] = ["targets", "inputs"];
 
+const EMPTY_CATALYST_ACCOUNT: CatalystAccount = new Map();
+
 function toSideSection(elementId: string): SideSection | null {
   if (elementId === "side-inputs") return "inputs";
   if (elementId === "side-targets") return "targets";
@@ -222,15 +225,15 @@ function AppInner() {
   // on a stale snapshot while a solve is still in flight.
   const planRef = useRef<Plan | null>(null);
   const [recipeCount, setRecipeCount] = useState<number | null>(null);
-  // Per-item catalyst draw from the latest solve, items per second. It is the
-  // one piece of solver output the panel needs that no render node carries:
-  // the solver expands no producer for a catalyst and the pipeline draws no
-  // edge for it. Empty until the first solve lands, and written only behind
-  // the same generation guard as the nodes it is folded with, so a superseded
-  // solve can never leave its draw on screen.
-  const [catalystDraw, setCatalystDraw] = useState<
-    ReadonlyMap<string, import("fraction.js").default>
-  >(() => new Map());
+  // Per-item catalyst account from the latest solve, items per second. It is
+  // the one piece of solver output the panel needs that no render node
+  // carries: the solver expands no producer for a catalyst. Empty until the
+  // first solve lands, and written only behind the same generation guard as
+  // the nodes it is folded with, so a superseded solve can never leave its
+  // numbers on screen.
+  const [catalystAccount, setCatalystAccount] = useState<CatalystAccount>(
+    EMPTY_CATALYST_ACCOUNT,
+  );
   // Which section anchor is in view inside the side rail. Drives the skewed-tab
   // highlight so it reads as a "you-are-here" pill, not a toggle. Computed by an
   // IntersectionObserver watching the two section anchors.
@@ -389,7 +392,7 @@ function AppInner() {
         planRef.current = nextPlan;
         setPlan(nextPlan);
         setRecipeCount(countDistinctRecipes(solved.full.logical));
-        setCatalystDraw(solved.full.catalystDraw);
+        setCatalystAccount(solved.full.catalystAccount);
         setNodes(laid.nodes as Node[]);
         setEdges(laid.edges);
         setGaps(laid.gaps);
@@ -472,7 +475,7 @@ function AppInner() {
       const laid = await layoutSolved(solved);
       if (myGen !== solveGen.current) return;
       setRecipeCount(countDistinctRecipes(solved.full.logical));
-      setCatalystDraw(solved.full.catalystDraw);
+      setCatalystAccount(solved.full.catalystAccount);
       setNodes(laid.nodes as Node[]);
       setEdges(laid.edges);
       setGaps(laid.gaps);
@@ -529,8 +532,8 @@ function AppInner() {
   //
   // A catalyst is external supply the same way a raw draw is. With
   // CATALYST_SUPPLY_EDGES on the render pipeline already counts the cycled
-  // draw into the input product node's rate, so adding the solve's
-  // catalystDraw here would double-bill it. With the flag off no node carries
+  // draw into the input product node's rate, so adding the solve's own
+  // catalyst need here would double-bill it. With the flag off no node carries
   // the draw at all, and the panel is the only place it can surface, so the
   // two ADD: a raw item can have a balanced product node and a catalyst draw
   // at once, and showing only one of them would understate what the plan
@@ -541,19 +544,19 @@ function AppInner() {
   >(() => {
     const map = new Map(buildRealizedRateByItem(nodes));
     if (CATALYST_SUPPLY_EDGES) return map;
-    for (const [itemId, draw] of catalystDraw) {
+    for (const [itemId, entry] of catalystAccount) {
       const balanced = map.get(itemId);
       map.set(
         itemId,
         rationalToString(
           balanced === undefined
-            ? draw
-            : rationalFromString(balanced).add(draw),
+            ? entry.need
+            : rationalFromString(balanced).add(entry.need),
         ),
       );
     }
     return map;
-  }, [nodes, catalystDraw]);
+  }, [nodes, catalystAccount]);
 
   // Items the current plan pulls across the boundary as assumed-infinite
   // supply: raw items with a realized draw, plus every item the plan cycles as
@@ -565,7 +568,7 @@ function AppInner() {
   const assumedRawItemIds = useMemo<ReadonlyArray<string>>(() => {
     const ids: string[] = [];
     for (const item of pack.items) {
-      const isCatalyst = catalystDraw.has(item.id);
+      const isCatalyst = catalystAccount.has(item.id);
       if (!isCatalyst && !item.raw) continue;
       if (!supplyRateByItem.has(item.id)) continue;
       ids.push(item.id);
@@ -573,7 +576,7 @@ function AppInner() {
     ids.sort();
     return ids;
     // `pack` is a module-stable import, so it stays out of the dependency list.
-  }, [supplyRateByItem, catalystDraw]);
+  }, [supplyRateByItem, catalystAccount]);
 
   if (initialError) {
     return (

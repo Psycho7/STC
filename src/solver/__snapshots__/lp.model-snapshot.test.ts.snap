@@ -1,0 +1,26 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`LP model snapshot over the solver corpus > matches the recorded model digests 1`] = `
+{
+  "acyclicSingleProducer": "c1a8af0322688b0a62a79363a3c5666be2fb3afdce926dde0808fee2edd58957",
+  "byproductOnlyTarget": "1acaabd003650fd94ca4fc5fa8eebd2fd3c1523f50d7e79541b7c5ab7be82ed5",
+  "byproductSurplus": "956f2abb4cdd75b4ed4012811907f2ebf5717ddb6c5f1d66ab9681eb81f68361",
+  "coProductTarget": "da587c7be62adf1354efb0e4f4bb815979790654dbe7559556d5ff6a0d99552b",
+  "costMinusOneSinkExclusion": "44b2a4dad5f7c8f3ed25995f32505b5dcec211e5fb3af32b72734e6451ebbf66",
+  "deficitUnmetDemand": "61378c6b4eaa47a05e09b198f7739043caa3eb78b8481ff6a91bcf727880ff2a",
+  "domainTransferExclusion": "0fd414a585fc89056b474f72a35940ba131470a0ed69d2f932dcfcf1f8cef43e",
+  "domainTransferScc": "c6a28acf2e61d1174a33f061cf425fe229c8c1a50054e731f087e2a52546808e",
+  "dualTargetItemsOneRecipe": "74717a584a2e11dc8ad856d99485413c5f4b74821939bc96970981d1ad417199",
+  "equalCostTieBreak": "eb125e058632e703ac302be47fa1f28eb9478f5828596ff114a2f58b98e99506",
+  "feasibleEmpty": "06c1519237d0cf183915849e484bf8b27f8d34b5da73f160d8bba6e708a8773f",
+  "finiteCapForcingFallback": "e1e5630bb27aca2727ebb8846acadc322e06618e30d942f438d9530b2985f056",
+  "freeBoundaryTarget": "4ea39eb8b0374489ab8f73c3997c4c61f7902c2a3f3df96e766d3e7751be38ab",
+  "freeBoundaryTargetWithMiner": "4ea39eb8b0374489ab8f73c3997c4c61f7902c2a3f3df96e766d3e7751be38ab",
+  "multiProducerCostChoice": "4a22d746fdaa74a885d735e2277e9957f7768c0b0743e3c28f5ac07f611a7ae9",
+  "multiProducerCostChoiceWithOverride": "260dbe92607fc4cb954c48eb7c20b2c9f10e6ed0a91ed5db1d6224a920c78644",
+  "planPassthrough": "2baa5f331415a32aa4a2470e0cc1a6bfca4182d96a4096a69a38ab111aabd339",
+  "producerChoiceByCost": "b97de2d6805f6ce9cdd3d099c43b422700f8b769091da6c1cf29ce9790860de4",
+  "rawItemTargetViaMiner": "0d31261a6f0b41ca86c31a24b324b6fe9b843d2faa4d5367f6866115a31def05",
+  "targetOnlyFlagExclusion": "913d0f20e729065028b3c4847a6734f1e4674d9ff4864090a81fc9ada448a3f2",
+}
+`;

@@ -70,6 +70,13 @@ export type MachineRecipeVertex = {
   // unit whose badge comes from idealCount. The exam coverage tool counts
   // partial stamps straight off the machine graph.
   partial?: boolean;
+  // Catalyst draw of this stamp, in items per second, one entry per catalyst
+  // item of the recipe. A catalyst is held per machine rather than consumed
+  // per cycle, so the rate comes from the stamp's machine count ceiled to a
+  // whole machine, not from executionRate. Absent - never an empty array - on
+  // a recipe without a catalyst and on the legacy materialisation path, which
+  // has no machine speed to compute it from.
+  catalystCharge?: ReadonlyArray<{ item: ItemId; rate: Fraction }>;
 };
 
 export type MachineSccVertex = {

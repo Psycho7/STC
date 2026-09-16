@@ -6,6 +6,7 @@ import {
   validatePlan,
   loadPlan,
   encodePlan,
+  type ItemOverride,
   type Plan,
 } from "./plan";
 import { gzipBytes } from "./encoding/gzip";
@@ -278,6 +279,19 @@ describe("validatePlan - rational wire fields", () => {
     }
   });
 
+  it("rejects a duplicate item override on the same item and role", () => {
+    const plan = basePlan();
+    plan.itemOverrides = [
+      { itemId: "gas_xiranite", role: "catalyst" },
+      {
+        itemId: "gas_xiranite",
+        role: "catalyst",
+        ratePerSec: { num: "1", denom: "1" },
+      },
+    ];
+    expect(validatePlan(plan, pack)?.kind).toBe("duplicate-item-override");
+  });
+
   it("rejects a malformed rational end-to-end through loadPlan", async () => {
     const plan = basePlan();
     plan.targets = [
@@ -288,6 +302,70 @@ describe("validatePlan - rational wire fields", () => {
     expect(outcome.kind).toBe("error");
     if (outcome.kind === "error") {
       expect(outcome.error.kind).toBe("invalid-rational");
+    }
+  });
+});
+
+// A catalyst-role override addresses the catalyst supply pool, which only
+// exists for an item some recipe cycles as a catalyst.
+describe("validatePlan - item override roles", () => {
+  it("accepts a catalyst role on a pack catalyst item", () => {
+    const plan = basePlan();
+    plan.itemOverrides = [{ itemId: "liquid_xiranite", role: "catalyst" }];
+    expect(validatePlan(plan, pack)).toBeNull();
+  });
+
+  it("accepts one item carrying a role-less row and a catalyst row", () => {
+    const plan = basePlan();
+    plan.itemOverrides = [
+      { itemId: "gas_xiranite", ratePerSec: { num: "1", denom: "2" } },
+      {
+        itemId: "gas_xiranite",
+        role: "catalyst",
+        ratePerSec: { num: "1", denom: "10" },
+      },
+    ];
+    expect(validatePlan(plan, pack)).toBeNull();
+  });
+
+  it("rejects a catalyst role on an item no recipe cycles", () => {
+    const plan = basePlan();
+    plan.itemOverrides = [{ itemId: "copper_powder", role: "catalyst" }];
+    const error = validatePlan(plan, pack);
+    expect(error?.kind).toBe("invalid-item-override-role");
+    expect(error && describePlanLoadError(error)).toContain("copper_powder");
+  });
+
+  // "catalyst" is the only role there is. An unrecognised one addresses
+  // nothing: pool G skips the row because it carries a role and pool C skips
+  // it because the role is not the one it answers for.
+  it("rejects a role value other than catalyst", () => {
+    const plan = basePlan();
+    plan.itemOverrides = [
+      { itemId: "gas_xiranite", role: "bogus" } as unknown as ItemOverride,
+    ];
+    const error = validatePlan(plan, pack);
+    expect(error?.kind).toBe("invalid-item-override-role");
+    expect(error && describePlanLoadError(error)).toContain("gas_xiranite");
+  });
+
+  it("rejects a catalyst role combined with plan: true", () => {
+    const plan = basePlan();
+    plan.itemOverrides = [
+      { itemId: "gas_xiranite", role: "catalyst", plan: true },
+    ];
+    const error = validatePlan(plan, pack);
+    expect(error?.kind).toBe("invalid-item-override-role");
+    expect(error && describePlanLoadError(error)).toContain("gas_xiranite");
+  });
+
+  it("rejects a role a pack catalyst item cannot carry, end-to-end", async () => {
+    const plan = basePlan();
+    plan.itemOverrides = [{ itemId: "copper_powder", role: "catalyst" }];
+    const outcome = await loadPlan(await encodePlan(plan), pack);
+    expect(outcome.kind).toBe("error");
+    if (outcome.kind === "error") {
+      expect(outcome.error.kind).toBe("invalid-item-override-role");
     }
   });
 });
