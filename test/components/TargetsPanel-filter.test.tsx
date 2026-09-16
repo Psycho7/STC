@@ -1,11 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import {
-  cleanup,
-  fireEvent,
-  render,
-  screen,
-  within,
-} from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import type { ReactElement } from "react";
 import type { RecipePack } from "@aef/schema";
 import { TargetsPanel } from "../../src/components/TargetsPanel";
@@ -83,10 +77,10 @@ describe("TargetsPanel / synthetic-category filter", () => {
     expect(pickerHas("transfer_tundra_a_out")).toBe(false);
   });
 
-  it("Add opens a draft whose item picker excludes '__domain_transfer' items", () => {
+  it("Add opens the item picker, which excludes '__domain_transfer' items", () => {
     const onChange = vi.fn();
     // Pack where the only recipes are a transfer recipe and a real one; the
-    // draft picker must offer only the real one's output, and Add alone must not
+    // add picker must offer only the real one's output, and Add alone must not
     // commit anything.
     const pack: RecipePack = makePack(
       [
@@ -100,11 +94,8 @@ describe("TargetsPanel / synthetic-category filter", () => {
     );
     const addButton = screen.getByRole("button", { name: /add/i });
     fireEvent.click(addButton);
-    // Clicking Add creates a local draft only; no commit.
+    // Add opens the picker directly; nothing commits.
     expect(onChange).not.toHaveBeenCalled();
-    fireEvent.click(
-      within(screen.getByTestId("target-draft-row")).getByLabelText(/item/i),
-    );
     expect(pickerHas("transfer_tundra_a_out")).toBe(false);
     expect(pickerHas("real_recipe_out")).toBe(true);
   });

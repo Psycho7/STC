@@ -8,7 +8,6 @@ export type UiKey =
   | "targets.remove"
   | "targets.rate.unit"
   | "targets.rate.label"
-  | "targets.item.choose"
   | "item.selected"
   | "targets.remove.label"
   | "targets.duplicate"
@@ -112,7 +111,6 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "targets.remove": "删除",
     "targets.rate.unit": "件 / 分钟",
     "targets.rate.label": "速率",
-    "targets.item.choose": "选择物品…",
     "item.selected": "物品：{name}",
     "targets.remove.label": "删除目标",
     "targets.duplicate": "物品 ID 重复: {itemId}",
@@ -213,7 +211,6 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "targets.remove": "Remove",
     "targets.rate.unit": "items / minute",
     "targets.rate.label": "rate",
-    "targets.item.choose": "Choose an item...",
     "item.selected": "Item: {name}",
     "targets.remove.label": "remove target",
     "targets.duplicate": "Duplicate item id: {itemId}",

@@ -5,7 +5,6 @@ import {
   render,
   screen,
   waitFor,
-  within,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
@@ -54,10 +53,10 @@ describe("canvas-targets: no-hash boot", () => {
 });
 
 describe("canvas-targets: add target", () => {
-  // Add now creates a local draft row; the plan is only touched once the draft
-  // has both a chosen recipe and a committed nonzero rate. Pre-seed safe
-  // precursors so the first draft-pickable recipe is solver-safe.
-  it("opens a draft, then commits and updates the URL once recipe+rate are set", async () => {
+  // Add opens the item picker directly (R4); picking opens the amount prompt
+  // (R4/R6) and only a positive rate there commits a target row and re-solves.
+  // Pre-seed safe precursors so the first pickable recipe is solver-safe.
+  it("opens the picker, then commits and updates the URL once the rate confirms", async () => {
     // The rate-0 precursor seed renders a mass-balance-imperfect plan under the
     // current solver (a known small-rate producer-drop residual). The DEV-only
     // render-invariant hook would hard-fail on it, but production tree-shakes
@@ -89,21 +88,19 @@ describe("canvas-targets: add target", () => {
 
     await user.click(screen.getByRole("button", { name: /添加目标/ }));
 
-    // A draft row appears; the committed target rows are unchanged.
-    const draftRow = await screen.findByTestId("target-draft-row");
+    // The picker opens directly; the committed target rows are unchanged.
+    await screen.findByRole("dialog");
     expect(screen.getAllByTestId("target-row").length).toBe(rowsBefore);
     expect(window.location.hash).toBe(hashBefore);
 
-    // Open the picker, choose the first enabled item tile, and commit a rate:
-    // the draft promotes to a target and the URL re-solves.
-    await user.click(within(draftRow).getByLabelText(/物品/));
-    const tile = document.querySelector(
+    // Pick the first enabled item tile: the amount prompt opens in its place.
+    const enabled = document.querySelector(
       ".recipe-picker-tile:not([disabled])",
     ) as HTMLButtonElement;
-    await user.click(tile);
-    const rate = within(draftRow).getByLabelText(/速率/);
+    await user.click(enabled);
+    const rate = await screen.findByTestId("rate-prompt-input");
     fireEvent.change(rate, { target: { value: "60" } });
-    fireEvent.blur(rate);
+    fireEvent.keyDown(rate, { key: "Enter" });
 
     await waitFor(
       () => {
