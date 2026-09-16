@@ -53,6 +53,28 @@ function rowTrigger(n = 0): HTMLElement {
   return screen.getAllByLabelText(/^物品/)[n]!;
 }
 
+// gas_xiranite and liquid_xiranite are cycled as catalysts; copper_ore is
+// not, so it can only ever hold a general row.
+const catalystPack: RecipePack = makePack(
+  [
+    {
+      id: "transmute",
+      time: 1,
+      in: {},
+      out: { copper_plate: 1 },
+      catalyst: [
+        { item: "gas_xiranite", qty: 1 },
+        { item: "liquid_xiranite", qty: 1 },
+      ],
+    },
+  ],
+  [
+    { id: "gas_xiranite", raw: true },
+    { id: "liquid_xiranite" },
+    { id: "copper_ore", raw: true },
+  ],
+);
+
 const fixturePack: RecipePack = makePack(
   [
     {
@@ -905,5 +927,87 @@ describe("InputsPanel", () => {
       .map((el) => el.getAttribute("aria-label"));
     expect(names).toEqual(["物品：赤铜矿", "物品：蓝铁矿"]);
     expect(new Set(names).size).toBe(names.length);
+  });
+
+  // A catalyst row addresses the item's catalyst pool, and only an item some
+  // recipe cycles has one, so its picker cannot offer anything else.
+  it("a catalyst row's picker offers catalyst-capable items only", async () => {
+    const user = userEvent.setup();
+    render(
+      <InputsPanel
+        itemOverrides={[{ itemId: "gas_xiranite", role: "catalyst" }]}
+        onChange={() => {}}
+        pack={catalystPack}
+      />,
+    );
+    await user.click(rowTrigger());
+    expect(pickerTile("liquid_xiranite")!.disabled).toBe(false);
+    expect(pickerTile("copper_ore")!.disabled).toBe(true);
+    expect(screen.getByTestId("picker-hint").textContent).toBe(
+      TEXT_PICKER_HINT,
+    );
+  });
+
+  // The Add grid dims an item only once it has nowhere left to go: a catalyst
+  // item with a general auto-row still has its catalyst pool free.
+  it("Add dims a catalyst item only when both its roles are listed", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(
+      <InputsPanel
+        itemOverrides={[{ itemId: "liquid_xiranite", role: "catalyst" }]}
+        onChange={onChange}
+        pack={catalystPack}
+        assumedRawItemIds={["gas_xiranite"]}
+      />,
+    );
+    await user.click(screen.getByText(TEXT_ADD));
+    // gas_xiranite: auto-row on the general side, catalyst side still free.
+    expect(pickerTile("gas_xiranite")!.disabled).toBe(false);
+    // copper_ore cycles nowhere, so its one role is its only role.
+    expect(pickerTile("copper_ore")!.disabled).toBe(false);
+    // liquid_xiranite: catalyst row declared, general side still free.
+    expect(pickerTile("liquid_xiranite")!.disabled).toBe(false);
+  });
+
+  it("Add gives a listed catalyst item the role it is missing", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(
+      <InputsPanel
+        itemOverrides={[]}
+        onChange={onChange}
+        pack={catalystPack}
+        assumedRawItemIds={["gas_xiranite"]}
+      />,
+    );
+    await user.click(screen.getByText(TEXT_ADD));
+    await user.click(pickerTile("gas_xiranite")!);
+    // The general side already has its auto-row, so the pick adds the catalyst
+    // row rather than a duplicate of what is on screen.
+    expect(firstUpdater(onChange)([])).toEqual([
+      { itemId: "gas_xiranite", role: "catalyst" },
+    ]);
+  });
+
+  it("Add is exhausted only once every role of every item is listed", async () => {
+    const user = userEvent.setup();
+    render(
+      <InputsPanel
+        itemOverrides={[
+          { itemId: "gas_xiranite", role: "catalyst" },
+          { itemId: "liquid_xiranite" },
+          { itemId: "liquid_xiranite", role: "catalyst" },
+          { itemId: "copper_ore" },
+        ]}
+        onChange={() => {}}
+        pack={catalystPack}
+        assumedRawItemIds={["gas_xiranite"]}
+      />,
+    );
+    const add = screen.getByText(TEXT_ADD);
+    expect(add.getAttribute("aria-disabled")).toBe("true");
+    await user.click(add);
+    expect(screen.queryByTestId("picker-tile")).toBeNull();
   });
 });

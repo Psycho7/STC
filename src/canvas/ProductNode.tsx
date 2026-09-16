@@ -6,7 +6,7 @@ import { formatRationalPerMin } from "../data/rate-format";
 import type { RationalString } from "../pipeline/types";
 import { PortGlyph } from "./PortGlyph";
 import { useItemPack } from "./itemPackContext";
-import type { PortTransportKinds } from "./layout";
+import type { CatalystBreakdown, PortTransportKinds } from "./layout";
 import { iconPosition } from "./iconSprite";
 import { Sprite } from "./RecipeNode";
 
@@ -28,14 +28,8 @@ export type ProductNodeData =
       // Set on the nodes of the item's catalyst pool, whose rate is the cycled
       // per-machine charge rather than ordinary consumption.
       role?: "catalyst";
-      // Which supply pool the item's whole charge was billed to. Item-level
-      // accounting, so it is stamped on the aggregate or single-bucket
-      // catalyst card only, never on a per-container slice.
-      catalystBreakdown?: {
-        fromCatalyst: RationalString;
-        fromGeneral: RationalString;
-        unmet: RationalString;
-      };
+      // Which supply pool the item's whole charge was billed to.
+      catalystBreakdown?: CatalystBreakdown;
       // Per-container fanout slices have an inbound edge from the item's
       // aggregate node, so they render an extra left target handle to receive
       // it.

@@ -48,20 +48,35 @@ short enough not to clip at card width.
 Below the input rows a card may carry catalyst rows: inputs the machine cycles
 rather than consumes, drawn from the plan boundary and handed straight back
 every cycle. No producer is ever built for a catalyst, so the charge arrives
-from the item's boundary supply card over an edge of its own, landing on a
-`cat:<item>` handle at the row's left -- the same x as the input handles, at the
-row's centre -- and the row shows the item's transport glyph like a port row
-does. The boundary card's rate counts that draw alongside ordinary consumption,
-so the card and the inputs panel read the same number. One card can carry the
-same item on an input row and a catalyst row; the two take separate handles and
-separate edges. A catalyst row keeps no accent tab and its label is muted a step
-below the supplied rows, but its rate reads exactly like an input row's: the
-aggregate draw across every machine, a bare number in the same trailing slot.
+over an edge of its own, landing on a `cat:<item>` handle at the row's left --
+the same x as the input handles, at the row's centre -- and the row shows the
+item's transport glyph like a port row does. One card can carry the same item on
+an input row and a catalyst row; the two take separate handles and separate
+edges. A catalyst row keeps no accent tab and its label is muted a step below
+the supplied rows, but its rate reads like an input row's: a bare number in the
+same trailing slot. The number is whole machines' worth of charge --
+`ceil(machines)` times the per-machine charge, because a machine cycles its
+whole charge whether or not its last cycle is a full one -- so a card running
+2.5 machines reads three machines of catalyst beside port rows sized for 2.5.
+Naming the row states the per-machine figure ("6/min per machine").
 
-The behaviour is behind the `CATALYST_SUPPLY_EDGES` code flag (`src/flags.ts`),
-on by default; with it off a catalyst row carries no handle and no edge, wears a
-small filled disc in the glyph slot, and the inputs panel adds the cycled draw
-onto the supply row itself.
+Catalyst supply leaves the boundary on cards of its own, the `u:cat:<item>`
+family, never on the item's ordinary supply card: an item feeding both an input
+row somewhere and a catalyst row elsewhere draws two boundary cards, and each
+card's rate counts only its own side. The catalyst family follows the ordinary
+one's shape -- a single card when one bucket cycles the item, otherwise an
+aggregate card plus a tap slice per container -- and its caption reads
+"catalyst" in place of the raw or import word. A cap typed on the catalyst
+supply draws its chip in the ordinary cap slot.
+
+The plan's catalyst need is held by two pools: the dedicated catalyst supply and
+whatever headroom the ordinary supply has left after its own consumers. So an
+item's catalyst account reads as the need, how much of it came from catalyst
+supply, how much from general supply, and how much neither pool could hold.
+Naming an aggregate or single catalyst card states that breakdown under the item
+name, with the unmet line drawn only when there is a shortage; the inputs panel
+states the same account across the item's two rows, and flags the shortage there
+as well.
 
 Some recipes only run inside a gas environment, which the player builds a
 disperser for. Such a card states its requirement as a frame around the card
