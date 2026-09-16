@@ -183,11 +183,9 @@ describe("canvas/BusEdge crossing cues", () => {
 });
 
 describe("canvas/BusEdge transport kind", () => {
-  // A bus member draws the same phase hook a plain item edge does: the
-  // per-kind dim floor and hover-dash rules in canvas.css select on
-  // data-transport-kind, and a gas member that omitted it kept the belt
-  // treatment on a dash-dot stroke.
-  it("stamps data-transport-kind on a gas member", async () => {
+  // A bus member draws the same phase hook a plain item edge does, and the same
+  // solid line: the carrier is told by the port glyph, not the stroke.
+  it("stamps data-transport-kind on a gas member and draws it solid", async () => {
     renderEdge({
       item: "gas_water",
       rate: new Fraction(2, 1),
@@ -197,9 +195,7 @@ describe("canvas/BusEdge transport kind", () => {
     } as BusData);
     const path = await findEdgePath();
     expect(path.getAttribute("data-transport-kind")).toBe("gas");
-    // The dash pattern comes from the same kind, so the attribute and the
-    // stroke can never disagree.
-    expect(path.style.strokeDasharray.replace(/,\s*/g, " ")).toBe("6 2 1 2");
+    expect(path.style.strokeDasharray).toBe("");
   });
 
   it("omits the attribute on a member with no transport kind", async () => {
@@ -573,5 +569,34 @@ describe("canvas/BusEdge fan-in members", () => {
     expect(
       document.querySelector('[data-testid="bus-edge-label-e1-rise"]'),
     ).not.toBeNull();
+  });
+
+  // A trunk stretch of a catalyst pool is still a catalyst draw, so a retyped
+  // member carries the same dashed stroke a plain item edge would.
+  it("dashes a trunk member of the pool", async () => {
+    renderEdge({
+      item: "gas_xiranite",
+      rate: new Fraction(2, 1),
+      fanout: true,
+      trunkKey: "gas_xiranite|src",
+      busMemberCount: 2,
+      fromPool: "catalyst",
+    });
+    const path = await findEdgePath();
+    expect(path.getAttribute("data-pool")).toBe("catalyst");
+    expect(path.style.strokeDasharray.replace(/,\s*/g, " ")).toBe("5 3");
+  });
+
+  it("leaves a raw trunk member solid and unstamped", async () => {
+    renderEdge({
+      item: "gas_xiranite",
+      rate: new Fraction(2, 1),
+      fanout: true,
+      trunkKey: "gas_xiranite|src",
+      busMemberCount: 2,
+    });
+    const path = await findEdgePath();
+    expect(path.hasAttribute("data-pool")).toBe(false);
+    expect(path.style.strokeDasharray).toBe("");
   });
 });

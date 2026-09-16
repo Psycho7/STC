@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import Fraction from "fraction.js";
 import type { Item, Recipe, Stoich, TransportKindId } from "@aef/schema";
 import { expandMultipliers } from "../../../src/pipeline/expand";
+import { catalystChargeOf } from "../../../src/solver/catalyst";
 import type {
   LogicalEdge,
   LogicalGraph,
@@ -819,5 +820,141 @@ describe("expandMultipliers / determinism property", () => {
       itemById: DEFAULT_ITEM_BY_ID,
     });
     expect(snapshot(a)).toBe(snapshot(b));
+  });
+});
+
+describe("expandMultipliers / catalyst charge stamping", () => {
+  const CATALYST_ITEM = "i:cat";
+  const CYCLE_SECONDS = 2;
+  const CHARGE_QTY = 0.2;
+  const MACHINE_SPEED = 1;
+  // Past the private STAMP_CAP (64) the full stamps collapse into one
+  // aggregate stamp carrying every full machine's charge.
+  const PAST_STAMP_CAP = new Fraction(141, 2); // 70.5
+
+  const catalystStoich: Stoich = { item: CATALYST_ITEM, qty: CHARGE_QTY };
+
+  function transmuterRecipe(catalyst: boolean): Recipe {
+    return {
+      ...makeRecipe("r:T", ["i:in"], ["i:out"]),
+      time: CYCLE_SECONDS,
+      producers: ["m:transmuter"],
+      ...(catalyst ? { catalyst: [catalystStoich] } : {}),
+    };
+  }
+
+  const machineById = new Map<string, { speed: number }>([
+    ["m:transmuter", { speed: MACHINE_SPEED }],
+  ]);
+
+  function expandReplica(opts: {
+    ideal: Fraction;
+    catalyst: boolean;
+    legacy?: boolean;
+  }) {
+    const recipe = transmuterRecipe(opts.catalyst);
+    const node = makeNode({ id: "rT0", recipe, multiplier: 1 });
+    const logical: LogicalGraph = { nodes: [node], edges: [] };
+    // executionRate = machines * speed / time, the inverse of the machine
+    // count expandMultipliers recovers per stamp.
+    const executionRate = opts.ideal
+      .mul(new Fraction(MACHINE_SPEED))
+      .div(new Fraction(CYCLE_SECONDS));
+    const replicas = [
+      makeReplica({ id: "rT0", recipeId: recipe.id, executionRate }),
+    ];
+    const out = expandMultipliers({
+      logical,
+      replicas,
+      edgeRatesByLogicalEdgeId: new Map(),
+      itemById: DEFAULT_ITEM_BY_ID,
+      ...(opts.legacy
+        ? {}
+        : {
+            idealCount: new Map([["rT0", opts.ideal]]),
+            machineById,
+          }),
+    });
+    return out.vertices.filter(isMachineRecipeVertex);
+  }
+
+  function chargeSum(stamps: ReadonlyArray<MachineRecipeVertex>): Fraction {
+    return stamps.reduce((acc, v) => {
+      const entry = v.catalystCharge?.find((c) => c.item === CATALYST_ITEM);
+      return entry ? acc.add(entry.rate) : acc;
+    }, new Fraction(0));
+  }
+
+  function expectedCharge(machines: Fraction): Fraction {
+    return catalystChargeOf(
+      machines,
+      catalystStoich,
+      { time: CYCLE_SECONDS },
+      { speed: MACHINE_SPEED },
+    );
+  }
+
+  it("fractional replica: stamp charges sum to catalystChargeOf(idealCount)", () => {
+    const ideal = new Fraction(33, 10); // 3.3 machines -> 4 machines of charge
+    const stamps = expandReplica({ ideal, catalyst: true });
+
+    expect(stamps).toHaveLength(4);
+    expect(stamps.every((v) => v.catalystCharge !== undefined)).toBe(true);
+    // Every stamp is one machine: three full plus a partial that ceils to one.
+    for (const v of stamps) {
+      expect(v.catalystCharge![0]!.item).toBe(CATALYST_ITEM);
+      expect(
+        v.catalystCharge![0]!.rate.equals(expectedCharge(new Fraction(1))),
+      ).toBe(true);
+    }
+    expect(chargeSum(stamps).equals(expectedCharge(ideal))).toBe(true);
+  });
+
+  it("replica past STAMP_CAP: aggregate stamp charges every full machine", () => {
+    const stamps = expandReplica({ ideal: PAST_STAMP_CAP, catalyst: true });
+
+    expect(stamps).toHaveLength(2); // one aggregate + one partial
+    const aggregate = stamps.find((v) => !v.partial)!;
+    expect(
+      aggregate.catalystCharge![0]!.rate.equals(
+        expectedCharge(new Fraction(70)),
+      ),
+    ).toBe(true);
+    expect(chargeSum(stamps).equals(expectedCharge(PAST_STAMP_CAP))).toBe(true);
+  });
+
+  it("integer replica: every full stamp carries one machine's charge", () => {
+    const stamps = expandReplica({ ideal: new Fraction(3), catalyst: true });
+
+    expect(stamps).toHaveLength(3);
+    expect(chargeSum(stamps).equals(expectedCharge(new Fraction(3)))).toBe(
+      true,
+    );
+  });
+
+  it("catalyst-free recipe: stamps carry no catalystCharge field", () => {
+    const stamps = expandReplica({ ideal: new Fraction(2), catalyst: false });
+
+    expect(stamps).toHaveLength(2);
+    expect(stamps.every((v) => !("catalystCharge" in v))).toBe(true);
+  });
+
+  it("legacy path: stamps carry no catalystCharge field", () => {
+    const stamps = expandReplica({
+      ideal: new Fraction(2),
+      catalyst: true,
+      legacy: true,
+    });
+
+    expect(stamps.length).toBeGreaterThan(0);
+    expect(stamps.every((v) => !("catalystCharge" in v))).toBe(true);
+  });
+
+  it("defensive zero-rate stamp carries no catalystCharge field", () => {
+    const stamps = expandReplica({ ideal: new Fraction(0), catalyst: true });
+
+    expect(stamps).toHaveLength(1);
+    expect(stamps[0]!.executionRate.equals(0)).toBe(true);
+    expect("catalystCharge" in stamps[0]!).toBe(false);
   });
 });

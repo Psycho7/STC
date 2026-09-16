@@ -301,10 +301,17 @@ function idList(...values: Array<string | undefined>): string[] {
 // is why a long edge measured at one end must not carry the whole edge's rect.
 //
 // The counts here are NOT comparable to those baselines, and a difference is not
-// a regression: the baselines are taken at the app's fit camera, these at the
+// a regression: those baselines are taken at the app's fit camera, these at the
 // exam's target zoom, where the chip LOD gates mount a different set of chips.
 // Comparing the two numbers can only mislead - compare a capture against another
 // capture at the same target zoom.
+//
+// The one exception is the reading-zoom census in that same spec, which reads at
+// READING_ZOOM (test/e2e/viewport.ts) - the capture CLI's DEFAULT target zoom,
+// which is why it is that constant and not a literal there. A capture shot at
+// the default and that census see one picture, so a finding an image shows can
+// be confirmed or refuted against those cells. A capture given --target-zoom
+// gives that up along with everything else the LOD gates decide.
 //
 // `geom` and `scene` must come from the SAME camera: chip identity is recovered
 // by matching world rects between the two collectors, and that join only holds

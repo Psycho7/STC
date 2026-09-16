@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import Fraction from "fraction.js";
-import { catalystDrawFromRates, snapDraw, solveLp, type LpResult } from "./lp";
+import { snapDraw, solveLp, type LpModel, type LpResult } from "./lp";
 import { makePack, withoutGasMachines } from "./closed-form-fixtures";
 import { effectiveSupply } from "./effectiveSupply";
 import { pack } from "../data/load";
@@ -983,29 +983,51 @@ describe("solveLp - extraction recipes", () => {
       [...result.rates.keys()].filter((id) => worldNodes.includes(id)),
     ).toEqual([]);
     expect(result.softFeasible).toBe(true);
-    // gas_xiranite is both the phase feed and the transmuter's catalyst, so
-    // the 1/2 cap covers both draws. The gas reactor eats 2 gas_xiranite per
-    // execution at rate 1, and phase_trans_2-gas_xiranite is its only in-plan
-    // producer, so x + draw = 2 while the saturated cap row reads
-    // draw + x/5 = 1/2: x = 15/8, draw = 1/8, catalyst = 15/8 * 1/5 = 3/8.
-    // The balanced draw is the cap less the catalyst (1/2 - 3/8 = 1/8), and
-    // the chain above scales up to make the 3/8 the boundary no longer covers.
+    // gas_xiranite is both the phase feed and the transmuter's catalyst, but
+    // the catalyst is no longer charged against the cap, so the whole 1/2 is
+    // the balanced draw. The gas reactor eats 2 gas_xiranite per execution at
+    // rate 1, and phase_trans_2-gas_xiranite is its only in-plan producer, so
+    // x + draw = 2 with draw at the saturated cap 1/2: x = 3/2.
     expect(
       result.rates
         .get("phase_trans_2-gas_xiranite")!
-        .equals(new Fraction(15, 8)),
+        .equals(new Fraction(3, 2)),
     ).toBe(true);
-    expect(result.draws.get("gas_xiranite")!.equals(new Fraction(1, 8))).toBe(
+    expect(result.draws.get("gas_xiranite")!.equals(new Fraction(1, 2))).toBe(
       true,
     );
-    const cycled = catalystDrawFromRates(pack.recipes, result.rates);
-    expect(cycled.get("gas_xiranite")!.equals(new Fraction(3, 8))).toBe(true);
-    expect(
-      result.draws
-        .get("gas_xiranite")!
-        .add(cycled.get("gas_xiranite")!)
-        .equals(new Fraction(1, 2)),
-    ).toBe(true);
+  });
+});
+
+// A catalyst is charged per machine, which no linear program can express, so
+// the model carries no catalyst term at all. A finite positive cap still
+// builds its drawcap row - that is where the ordinary draw is bounded - and
+// this pins that the row holds nothing else.
+describe("catalysts are absent from the model", () => {
+  it("puts no catalyst coefficient on a capped catalyst item's drawcap row", () => {
+    const models: LpModel[] = [];
+    solveLp({
+      targets: [
+        { itemId: "gas_xiranite_enr", ratePerSec: { num: "1", denom: "1" } },
+      ],
+      pack,
+      // gas_xiranite is the catalyst of all ten solid-gas transmuter recipes
+      // and carries a finite positive cap here, so this is the one shape that
+      // used to build catalyst coefficients.
+      itemOverrides: [
+        { itemId: "gas_xiranite", ratePerSec: { num: "1", denom: "2" } },
+      ],
+      onModel: (_mode, model) => models.push(model),
+    });
+
+    expect(models.length).toBeGreaterThan(0);
+    for (const model of models) {
+      expect(model.constraints["drawcap_gas_xiranite"]).toEqual({ max: 0.5 });
+      const onCapRow = Object.entries(model.variables)
+        .filter(([, coefficients]) => "drawcap_gas_xiranite" in coefficients)
+        .map(([name]) => name);
+      expect(onCapRow).toEqual(["draw_gas_xiranite"]);
+    }
   });
 });
 
@@ -1166,55 +1188,29 @@ describe("solveLp - boundary-consumption tie-break", () => {
   });
 });
 
-// The draw snap saturates against the cap MINUS the catalyst use. No live plan
-// separates that window from the plain cap (plainSnap happens to recover the
-// same rational in every one of them), so it is pinned directly here: the
-// primal sits just inside the shifted window and well outside the unshifted
-// one, and the plain snap cannot reach the answer on its own.
+// The draw snap saturates against the cap. The window is wider than
+// plainSnap's own radius, so a primal that sits just inside it lands exactly
+// on the cap where the plain snap cannot reach it.
 describe("snapDraw", () => {
-  // Fixture (b)'s numbers: cap 3, catalyst 1/2, headroom 5/2. The offset is
-  // half the relative snap radius of the headroom, so the primal is inside the
-  // window (tolerance 3e-6, distance 1.25e-6) but 1.25e-6 away from 5/2 -
-  // further than plainSnap's own 1e-6 radius, which therefore cannot land on
-  // it. Snapping against the unshifted cap would miss by 1/2 and fall through.
   const SNAP_REL = 1e-6;
 
-  it("snaps a saturated draw onto the cap less the catalyst use", () => {
-    const cap = new Fraction(3);
-    const catalystUse = new Fraction(1, 2);
-    const headroom = cap.sub(catalystUse);
-    const primal = headroom.valueOf() * (1 + SNAP_REL / 2);
+  it("snaps a saturated draw onto the cap", () => {
+    const cap = new Fraction(5, 2);
+    // Half the relative snap radius of the cap: inside snapDraw's window
+    // (tolerance 1e-6, distance 1.25e-6 against a floor of 1e-6) but further
+    // than plainSnap's own radius, which therefore cannot land on 5/2.
+    const primal = cap.valueOf() * (1 + SNAP_REL / 2);
 
-    expect(snapDraw(primal, cap, catalystUse).equals(headroom)).toBe(true);
-
-    // The window really is the discriminator: the unshifted window rejects
-    // this primal, and the fallback it would take cannot produce 5/2.
-    expect(
-      Math.abs(primal - cap.valueOf()) <=
-        Math.max(SNAP_REL, SNAP_REL * cap.valueOf()),
-    ).toBe(false);
-    expect(snapDraw(primal, headroom, new Fraction(0)).equals(headroom)).toBe(
-      true,
-    );
+    expect(snapDraw(primal, cap).equals(cap)).toBe(true);
     expect(
       new Fraction(primal)
         .simplify(Math.min(SNAP_REL, Math.abs(primal) * SNAP_REL))
-        .equals(headroom),
+        .equals(cap),
     ).toBe(false);
   });
 
-  it("leaves a non-catalyst item on the plain cap", () => {
-    const cap = new Fraction(3);
-    const primal = cap.valueOf() * (1 + SNAP_REL / 2);
-    expect(snapDraw(primal, cap, new Fraction(0)).equals(cap)).toBe(true);
-  });
-
-  it("falls back to the relative snap away from the bound", () => {
-    const cap = new Fraction(3);
-    expect(
-      snapDraw(1.5, cap, new Fraction(1, 2)).equals(new Fraction(3, 2)),
-    ).toBe(true);
-    expect(snapDraw(1.5, cap, new Fraction(0)).equals(new Fraction(3, 2))).toBe(
+  it("falls back to the relative snap away from the cap", () => {
+    expect(snapDraw(1.5, new Fraction(3)).equals(new Fraction(3, 2))).toBe(
       true,
     );
   });

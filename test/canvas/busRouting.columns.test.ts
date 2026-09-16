@@ -15,6 +15,7 @@ import {
   jogForwardLegs,
   entryGutterRects,
   paddedObstacles,
+  rawCardRects,
   gutterWidth,
   ENTRY_SLOT_PITCH,
   CONTAINER_COLUMN_GAP,
@@ -26,6 +27,8 @@ import {
   ENTRY_GUTTER_OVERHANG,
   RECIPE_WIDTH,
 } from "../../src/canvas/dimensions";
+import { ENV_ROW_HEIGHT } from "../../src/canvas/envBanner";
+import { cardRectsFor } from "../../src/canvas/chipSeating";
 import { widenLayerGaps } from "../../src/canvas/layerModel";
 import { nodeIndexOf } from "../../src/canvas/nodeGeometry";
 import {
@@ -462,6 +465,62 @@ describe("paddedObstacles", () => {
     expect(leftPad).toBeGreaterThan(PORT_STUB);
     // Each card carries the id of the node it was built from.
     expect(card!.nodeId).toBe("n");
+  });
+
+  it("adds no frame term to an environment recipe's card obstacle: the plate is a row of the card", () => {
+    // An environment recipe draws its plate as the card's first row (ruling
+    // I9), so the obstacle is the plain card box, one ENV_ROW_HEIGHT taller
+    // than the same recipe without an environment. Nothing reaches outside it,
+    // and the pierce rect model (cardRectsFor) says the same.
+    const plain = recipeNode("p", 0, 0, mkRecipe("p", ["a"], ["b"]));
+    const env: RFAnyNode = {
+      ...plain,
+      id: "e",
+      data: {
+        ...plain.data,
+        recipe: { ...plain.data.recipe, environment: "acidic" },
+      },
+    };
+    const cardOf = (node: RFAnyNode) => {
+      const card = paddedObstacles([node], []).find((r) => r.kind === "card");
+      expect(card).toBeDefined();
+      return card!;
+    };
+    const bare = cardOf(plain);
+    const plated = cardOf(env);
+    expect(plated.left).toBe(bare.left);
+    expect(plated.right).toBe(bare.right);
+    expect(plated.top).toBe(bare.top);
+    expect(plated.bottom - bare.bottom).toBe(ENV_ROW_HEIGHT);
+    // The pierce audit's rect model grows by the same row and no more, so the
+    // two models cannot disagree about where the plate is.
+    const drawnOf = (node: RFAnyNode) =>
+      cardRectsFor([node], nodeIndexOf([node]))[0]!;
+    const drawnBare = drawnOf(plain);
+    const drawnPlated = drawnOf(env);
+    expect(drawnPlated.top).toBe(drawnBare.top);
+    expect(drawnPlated.bottom - drawnBare.bottom).toBe(ENV_ROW_HEIGHT);
+  });
+
+  it("adds no frame term to an environment recipe's RAW rect either", () => {
+    // The raw-fallback tiers (clearColumnKeepingLeg's tier 2, its leg check and
+    // desiredPierces) resolve against rawCardRects, so they have to see the
+    // same box: the card box, plate row included.
+    const plain = recipeNode("p", 0, 0, mkRecipe("p", ["a"], ["b"]));
+    const env: RFAnyNode = {
+      ...plain,
+      id: "e",
+      data: {
+        ...plain.data,
+        recipe: { ...plain.data.recipe, environment: "acidic" },
+      },
+    };
+    const bare = rawCardRects([plain])[0]!;
+    const plated = rawCardRects([env])[0]!;
+    expect(plated.left).toBe(bare.left);
+    expect(plated.right).toBe(bare.right);
+    expect(plated.top).toBe(bare.top);
+    expect(plated.bottom - bare.bottom).toBe(ENV_ROW_HEIGHT);
   });
 
   it("includes each node's entry-gutter rect as a first-class obstacle tagged with its node id", () => {
@@ -1066,6 +1125,108 @@ describe("jogForwardLegs", () => {
       expect(srcColX).toBeGreaterThan(gap.sourceZone.right - 1e-6);
     });
   });
+
+  // The horizontal level floor: two forward runs of different edges sharing an
+  // x-corridor keep ENTRY_SLOT_PITCH apart in y, the y-axis twin of the column
+  // pitch floor the rail cases above pin. The fixture is the shape the exam
+  // found on gas-web: one edge's long final leg runs at the level another
+  // edge's source stub already holds, for hundreds of units.
+  describe("the forward level floor", () => {
+    // e0's final leg runs at ty 139 from the bend column out to t. e1 leaves
+    // its own source at that same row and holds it to ITS bend column at 400,
+    // so the two share 200 units of corridor. No card stands in either leg:
+    // the first test below proves it by running e0 alone.
+    const fixture = (
+      secondSourceTop: number,
+    ): { nodes: RFAnyNode[]; edges: Edge[] } => ({
+      nodes: [
+        inputProductNode("s1", "ore", 0, 0, 148, 78), // right 148, port y 39
+        inputProductNode("s2", "ore", 0, secondSourceTop, 148, 78),
+        inputProductNode("t1", "ore", 760, 100, 148, 78), // left 760, port y 139
+        inputProductNode("t2", "ore", 1000, 300, 148, 78), // left 1000, port y 339
+      ],
+      edges: [
+        {
+          ...mkEdge("e0", "s1", "t1", "ore"),
+          data: { item: "ore", rate: new Fraction(1), bendX: 200 },
+        },
+        {
+          ...mkEdge("e1", "s2", "t2", "ore"),
+          data: { item: "ore", rate: new Fraction(1), bendX: 400 },
+        },
+      ],
+    });
+
+    // s2 top 100 puts its port row at 139, exactly where e0's final leg runs.
+    const COINCIDENT_TOP = 100;
+
+    it("leaves a lone leg alone, so the fixture blames no card", () => {
+      const { nodes, edges } = fixture(COINCIDENT_TOP);
+      const out = jogForwardLegs(nodes, [edges[0]!]);
+      expect(legYOf(out, "e0")).toBeUndefined();
+      expect(out[0]).toBe(edges[0]);
+    });
+
+    it("moves one of two legs that would draw on the same row", () => {
+      const { nodes, edges } = fixture(COINCIDENT_TOP);
+      const byId = nodeIndexOf(nodes);
+      // Premise: the two runs really do want the same level over a corridor
+      // longer than a port stub -- e0's leg at ty, e1's stub at its own sy.
+      expect(edgePortsModel(edges[0]!, byId)!.ty).toBe(
+        edgePortsModel(edges[1]!, byId)!.sy,
+      );
+
+      const out = jogForwardLegs(nodes, edges);
+      const legY = legYOf(out, "e0")!;
+      expect(typeof legY).toBe("number");
+      expect(Math.abs(legY - 139)).toBeGreaterThanOrEqual(ENTRY_SLOT_PITCH);
+      // e1 has nothing to move: its stub is the run between its port and its
+      // bend column, which no legY relocates.
+      expect(legYOf(out, "e1")).toBeUndefined();
+    });
+
+    it("leaves a pair already clear of the floor alone", () => {
+      // s2 one row band lower: the two runs are 100 apart, so neither owes the
+      // other anything and both edges pass through by reference.
+      const { nodes, edges } = fixture(200);
+      const out = jogForwardLegs(nodes, edges);
+      expect(legYOf(out, "e0")).toBeUndefined();
+      expect(out[0]).toBe(edges[0]);
+      expect(out[1]).toBe(edges[1]);
+    });
+
+    it("exempts two members of one fan-in trunk from each other's level", () => {
+      // Both edges land on the same target port, so their final legs share one
+      // row for the whole approach -- which is what a trunk IS. Forcing them
+      // apart would split the trunk into two lines.
+      const nodes: RFAnyNode[] = [
+        inputProductNode("s1", "ore", 0, 0, 148, 78), // port y 39
+        inputProductNode("s2", "ore", 0, 300, 148, 78), // port y 339
+        inputProductNode("t", "ore", 760, 100, 148, 78), // port y 139
+      ];
+      const edges: Edge[] = [
+        {
+          ...mkEdge("e0", "s1", "t", "ore"),
+          data: { item: "ore", rate: new Fraction(1), bendX: 200 },
+        },
+        {
+          ...mkEdge("e1", "s2", "t", "ore"),
+          data: { item: "ore", rate: new Fraction(1), bendX: 200 },
+        },
+      ];
+      const byId = nodeIndexOf(nodes);
+      // Premise: both final legs really do run at the same y.
+      expect(edgePortsModel(edges[0]!, byId)!.ty).toBe(
+        edgePortsModel(edges[1]!, byId)!.ty,
+      );
+
+      const out = jogForwardLegs(nodes, edges);
+      expect(legYOf(out, "e0")).toBeUndefined();
+      expect(legYOf(out, "e1")).toBeUndefined();
+      expect(out[0]).toBe(edges[0]);
+      expect(out[1]).toBe(edges[1]);
+    });
+  });
 });
 
 describe("clampBackwardRails column clamp", () => {
@@ -1107,5 +1268,169 @@ describe("edgePortsModel", () => {
   it("yields no port coordinates when an endpoint is missing from the node index", () => {
     const byId = nodeIndexOf([productNode("s", 0, 0, 148, 60)]);
     expect(edgePortsModel(mkEdge("e0", "s", "t", "w"), byId)).toBeNull();
+  });
+});
+
+// Column families that no single pass owns: a trunk's pre-stamped rail column,
+// an arrival slot, a jog descent and another rail's column are placed by four
+// different passes, and two of them a few units apart draw as one thick line.
+// The rule is that the rail yields (it is the last column resolved) except
+// where routeTrunkEdges pinned it, where the stagger yields instead.
+describe("column families keep the pitch floor off each other", () => {
+  const railOf = (edges: Edge[], id: string) =>
+    routingHintsFromData(edges.find((e) => e.id === id)?.data);
+
+  it("stakes no arrival slot on a trunk's pre-stamped backward rail column", () => {
+    // A backward member of a trunk carries its rail on the trunk's junction
+    // column and cannot move, so the arrival stagger is what keeps the floor.
+    // The two flows enter different port rows, so they own separate slots.
+    const feed = mkRecipe("feed", [], ["b"]);
+    const sink = mkRecipe("sink", ["b", "d"], ["c"]);
+    const back = mkRecipe("back", ["c"], ["d"]);
+    const nodes: RFAnyNode[] = [
+      recipeNode("t", 500, 0, sink),
+      recipeNode("s", 0, 200, feed),
+      recipeNode("r", 1000, 400, back),
+    ];
+    const forward = mkEdge("eF", "s", "t", "b");
+    const returning = mkEdge("eR", "r", "t", "d");
+    const widened = widenLayerGaps(nodes, [forward, returning]);
+    const ctx = { gaps: widened.gaps };
+
+    // Where the stagger seats the forward arrival with nothing pinned.
+    const free = assignEntryColumns(widened.nodes, [forward, returning], ctx);
+    const natural = railOf(free, "eF").entryX;
+    expect(natural).toBeDefined();
+
+    // Pin the return's rail half a floor off that column, the shape the trunk
+    // pass produces when its junction lands beside an arrival.
+    const pin = natural! - ENTRY_SLOT_PITCH / 2;
+    const pinned = {
+      ...returning,
+      data: { ...returning.data, railXLeft: pin },
+    };
+    const out = assignEntryColumns(widened.nodes, [forward, pinned], ctx);
+    const moved = railOf(out, "eF").entryX;
+    expect(moved).toBeDefined();
+    expect(Math.abs(moved! - pin)).toBeGreaterThanOrEqual(ENTRY_SLOT_PITCH);
+    // The rail itself is untouched: assignEntryColumns stamps no rail column.
+    expect(railOf(out, "eR").railXLeft).toBe(pin);
+  });
+
+  it("moves a backward rail's column off a jog descent column", () => {
+    // The jog runs before the rail clamp, so its descent column is fixed and
+    // the rail is the one that steps aside.
+    const feed = mkRecipe("feed", [], ["b"]);
+    const sink = mkRecipe("sink", ["b"], ["c"]);
+    const back = mkRecipe("back", ["c"], ["b"]);
+    const nodes: RFAnyNode[] = [
+      recipeNode("t", 600, 0, sink),
+      recipeNode("s", 0, 0, feed),
+      recipeNode("r", 1200, 400, back),
+    ];
+    const returning = mkEdge("eR", "r", "t", "b");
+    // Where the rail's left column lands with nothing else in the corridor.
+    const alone = clampBackwardRails(nodes, [returning]);
+    const bare = railOf(alone, "eR").railXLeft ?? 600 - PORT_STUB;
+
+    // A forward edge whose jog descends on that exact column.
+    const plain = mkEdge("eF", "s", "t", "b");
+    const jogged: Edge = {
+      ...plain,
+      data: { ...plain.data, legY: 260, jogDescentX: bare },
+    };
+    const out = clampBackwardRails(nodes, [jogged, returning]);
+    const railX = railOf(out, "eR").railXLeft ?? bare;
+    expect(Math.abs(railX - bare)).toBeGreaterThanOrEqual(ENTRY_SLOT_PITCH);
+    // The jog keeps its column: only the rail moved.
+    expect(railOf(out, "eF").jogDescentX).toBe(bare);
+  });
+
+  it("gives two backward rails sharing a corridor distinct columns", () => {
+    // Two returns whose sources share a layer take the same default column.
+    // Their right-hand verticals overlap in y here, so the two would draw as
+    // one line for the length of that overlap.
+    const sink = mkRecipe("sink", ["b"], ["c"]);
+    const back = mkRecipe("back", ["c"], ["b"]);
+    const nodes: RFAnyNode[] = [
+      recipeNode("t1", 0, 500, sink),
+      recipeNode("t2", 0, 900, sink),
+      recipeNode("s1", 900, 0, back),
+      recipeNode("s2", 900, 200, back),
+    ];
+    const edges = [
+      mkEdge("e0", "s1", "t1", "b"),
+      mkEdge("e1", "s2", "t2", "b"),
+    ];
+    const out = clampBackwardRails(nodes, edges);
+    const defaultRight = 900 + RECIPE_WIDTH + PORT_STUB;
+    const rightA = railOf(out, "e0").railXRight ?? defaultRight;
+    const rightB = railOf(out, "e1").railXRight ?? defaultRight;
+    expect(Math.abs(rightA - rightB)).toBeGreaterThanOrEqual(ENTRY_SLOT_PITCH);
+  });
+
+  it("gives two backward rails preferring one level distinct levels", () => {
+    // Mirrored returns: each rail's preferred level is the midpoint of its own
+    // two ports, and the mirror makes both midpoints the same. Their
+    // horizontal runs span the same corridor, so one has to move.
+    const sink = mkRecipe("sink", ["b"], ["c"]);
+    const back = mkRecipe("back", ["c"], ["b"]);
+    const nodes: RFAnyNode[] = [
+      recipeNode("t1", 0, 0, sink),
+      recipeNode("t2", 0, 400, sink),
+      recipeNode("s1", 900, 0, back),
+      recipeNode("s2", 900, 400, back),
+    ];
+    const edges = [
+      mkEdge("e0", "s1", "t2", "b"),
+      mkEdge("e1", "s2", "t1", "b"),
+    ];
+    const byId = nodeIndexOf(nodes);
+    const preferredOf = (edge: Edge): number => {
+      const ports = edgePortsModel(edge, byId)!;
+      return (ports.sy + ports.ty) / 2;
+    };
+    // Premise: the two rails really do want the same level, so the assertion
+    // below is about the deconfliction and not about the fixture.
+    expect(preferredOf(edges[0]!)).toBe(preferredOf(edges[1]!));
+
+    const out = clampBackwardRails(nodes, edges);
+    // One rail keeps its preferred level (unstamped) and the other steps off
+    // it, so read each level through its own default.
+    const levelA = railOf(out, "e0").railY ?? preferredOf(edges[0]!);
+    const levelB = railOf(out, "e1").railY ?? preferredOf(edges[1]!);
+    expect(Math.abs(levelA - levelB)).toBeGreaterThanOrEqual(CHAMFER);
+  });
+
+  it("separates two backward rails whose preferred levels are 2px apart", () => {
+    // The near-miss case: two rails in one corridor that want levels a couple
+    // of pixels apart still draw as one line, so the level a placed rail
+    // occupies has to block its whole clearance band, not just the exact y.
+    const sink = mkRecipe("sink", ["b"], ["c"]);
+    const back = mkRecipe("back", ["c"], ["b"]);
+    // t2 sits 4 units below the mirrored position, which moves e0's midpoint
+    // level by 2.
+    const nodes: RFAnyNode[] = [
+      recipeNode("t1", 0, 0, sink),
+      recipeNode("t2", 0, 404, sink),
+      recipeNode("s1", 900, 0, back),
+      recipeNode("s2", 900, 400, back),
+    ];
+    const edges = [
+      mkEdge("e0", "s1", "t2", "b"),
+      mkEdge("e1", "s2", "t1", "b"),
+    ];
+    const byId = nodeIndexOf(nodes);
+    const preferredOf = (edge: Edge): number => {
+      const ports = edgePortsModel(edge, byId)!;
+      return (ports.sy + ports.ty) / 2;
+    };
+    // Premise: the two preferred levels are a hair apart, not equal.
+    expect(preferredOf(edges[0]!) - preferredOf(edges[1]!)).toBe(2);
+
+    const out = clampBackwardRails(nodes, edges);
+    const levelA = railOf(out, "e0").railY ?? preferredOf(edges[0]!);
+    const levelB = railOf(out, "e1").railY ?? preferredOf(edges[1]!);
+    expect(Math.abs(levelA - levelB)).toBeGreaterThanOrEqual(CHAMFER);
   });
 });

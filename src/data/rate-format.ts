@@ -11,13 +11,18 @@ function trimZeros(s: string): string {
 
 // One shared decimal formatter for every displayed per-minute rate, so chips,
 // nodes, and the sidebar never disagree (a fraction next to a decimal) or
-// overstate a tiny rate. At or above 0.01 two decimals suffice; below it the
-// rounding used to double the value ("0.01" for 0.005) or flip to a vulgar
-// fraction ("3/625"), so pick enough decimals to keep roughly two significant
-// figures instead -- never exponential, never a slash.
+// overstate a tiny rate. At or above 0.1 ONE fractional digit is the cap
+// (ruling A1): a card row draws its rate whole beside the name, and a second
+// decimal buys precision nobody reads at the cost of the name's budget. Below
+// that the one digit would be the whole number and the rounding would restate
+// the rate ("0.1" for 0.06, "0.01" for 0.005) or, before this formatter
+// existed, flip to a vulgar fraction ("3/625"), so pick enough decimals to
+// keep roughly two significant figures instead -- never exponential, never a
+// slash. The cap and the ladder meet at 0.1 for that reason: the ladder owns
+// exactly the range where one digit cannot carry the value.
 function formatDecimal(value: number): string {
   const abs = Math.abs(value);
-  if (abs >= 0.01) return trimZeros(value.toFixed(2));
+  if (abs >= 0.1) return trimZeros(value.toFixed(1));
   const decimals = Math.floor(-Math.log10(abs)) + 2;
   return trimZeros(value.toFixed(Math.min(decimals, 100)));
 }
@@ -42,7 +47,7 @@ export function formatRatePerMin(itemsPerSec: Fraction): string {
 }
 
 // Full-precision per-minute rate for hover tooltips: the un-rounded value the
-// 2-decimal display formatter hides. Uses the plain decimal when stringifying it
+// 1-decimal display formatter hides. Uses the plain decimal when stringifying it
 // does not go exponential (the common case, a clean single value with no "/min"
 // double-slash), else the exact reduced fraction. Returns "" for zero so the
 // caller can drop the tooltip rate entirely.

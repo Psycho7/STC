@@ -9,7 +9,7 @@ import { itemColor } from "../../src/canvas/itemColor";
 import { iconPosition } from "../../src/canvas/iconSprite";
 import { pack } from "../../src/data/load";
 import { measureRecipe } from "../../src/canvas/recipeGeometry";
-import { cssBlock } from "../../src/canvas/cssContract.testkit";
+import { cssBlock, cssValue } from "../../src/canvas/cssContract.testkit";
 import {
   ItemPackProvider,
   type ItemPackContextValue,
@@ -410,9 +410,9 @@ describe("RecipeNode", () => {
 
   // A catalyst is an input the machine cycles rather than consumes: it is drawn
   // from the plan boundary and handed back every cycle. The card declares the
-  // draw as an extra input-column row below every port row, and with
-  // CATALYST_SUPPLY_EDGES on that row takes a `cat:` port of its own so the
-  // edge from the boundary card can land on it.
+  // draw as an extra input-column row below every port row, and that row takes
+  // a `cat:` port of its own so the edge from the catalyst boundary card can
+  // land on it.
   describe("catalyst rows", () => {
     // qty 1 over a 10s cycle at speed 1 is the pack's 6/min catalyst draw.
     const catalystRecipe: Recipe = {
@@ -446,9 +446,10 @@ describe("RecipeNode", () => {
         "rn-row input",
         "rn-row input",
       ]);
-      // Last, and not an input row: the .input class draws the accent tab that
-      // promises an entering edge.
-      expect(rows[2]!.className).toBe("rn-row catalyst");
+      // Last, and not an input row: the .input class draws the SOLID accent
+      // tab; a catalyst row draws the ticked one off its own class. The first
+      // row of the block also opens it (gap + divider).
+      expect(rows[2]!.className).toBe("rn-row catalyst cat-first");
       expect(container.querySelectorAll(".rn-row.catalyst")).toHaveLength(1);
     });
 
@@ -505,18 +506,77 @@ describe("RecipeNode", () => {
       ).toBe("18");
     });
 
-    it("sizes the card for the catalyst row", () => {
+    // A transmuter holds its charge per MACHINE: a card running 2.5 machines
+    // holds three machines' worth whether or not the third runs flat out.
+    // The port rows keep the fractional scale; only the catalyst row ceils.
+    it("counts whole machines in the catalyst rate while the port rows stay fractional", () => {
+      const { container } = renderRecipe({
+        recipe: catalystRecipe,
+        kind: "recipe",
+        multiplicity: { num: "5", denom: "2" },
+        portTransportKinds: catalystPortKinds,
+      });
+      const inputRates = Array.from(
+        container.querySelectorAll(".rn-side.in .rn-row.input .rate"),
+      ).map((el) => el.textContent);
+      expect(inputRates).toEqual(["15", "30"]);
+      expect(
+        container.querySelector(".rn-row.catalyst .rate")?.textContent,
+      ).toBe("18");
+    });
+
+    // The aggregate answers "how much does this card hold"; the per-machine
+    // figure the player builds against rides the row's tooltip.
+    it("names the per-machine charge in the catalyst row's tooltip", () => {
+      const { container } = renderCatalyst(3);
+      const row = container.querySelector(".rn-row.catalyst");
+      expect(row?.getAttribute("title")).toBe("每台 6/分");
+    });
+
+    it("sizes the card for the catalyst row and its block gap", () => {
       const { container } = renderCatalyst();
       const wrapper = container.firstElementChild as HTMLElement;
       expect(wrapper.style.minHeight).toBe(
         `${measureRecipe(catalystRecipe).height}px`,
       );
-      // 2 port rows + 1 catalyst row against 1 output row.
-      expect(measureRecipe(catalystRecipe).height).toBe(134);
+      // 2 port rows + 1 catalyst row against 1 output row, plus the half-row
+      // gap that opens the block.
+      expect(measureRecipe(catalystRecipe).height).toBe(145);
     });
 
     it("styles the catalyst row in canvas.css", () => {
       expect(cssBlock(".rn-row.catalyst")).toContain("padding-left");
+    });
+
+    // I3: the block carries no word for what it is -- the ticked tab, the
+    // divider and the gap are the whole statement -- so the row's text is the
+    // item name and its figure, nothing else.
+    it("renders no word label in the catalyst block", () => {
+      const { container } = renderCatalyst();
+      const row = container.querySelector(".rn-row.catalyst")!;
+      const label = row.querySelector(".lbl")!.textContent ?? "";
+      const rate = row.querySelector(".rate")!.textContent ?? "";
+      expect((row.textContent ?? "").replace(label, "").replace(rate, "")).toBe(
+        "",
+      );
+    });
+
+    // I1: a catalyst row is elided like an input row. The label here is short
+    // enough to survive whole, so the pin is on a long one.
+    it("elides a long catalyst label at its tail", () => {
+      const longCatalyst: Recipe = {
+        ...catalystRecipe,
+        catalyst: [{ item: "copper_bottle-liquid_plant_grass_1", qty: 1 }],
+      } as unknown as Recipe;
+      const { container } = renderRecipe({
+        recipe: longCatalyst,
+        kind: "recipe",
+        multiplier: 1,
+      });
+      const label = container.querySelector(".rn-row.catalyst .lbl")!;
+      const visible = label.textContent ?? "";
+      expect(visible.endsWith("…"), visible).toBe(true);
+      expect(label.getAttribute("title")).not.toBe(visible);
     });
   });
 
@@ -559,13 +619,11 @@ describe("RecipeNode", () => {
     });
   });
 
-  // Tail-preserving row-label elision (issue #84): the four solution-bottle
-  // recipes and the bracket-family syringes render under the en locale, where
-  // their long shared prefixes are exactly the collision the helper exists to
-  // break. The bottles' parenthesis tails cannot fit the row budget whole,
-  // so those rows keep a PARTIAL tail window (ruling R5) and must read
-  // distinctly; the syringes' "[A]"/"[C]" tails fit whole, so those rows
-  // elide head-first and end in their distinguishing tail.
+  // Head-first row-label elision (ruling I8): a row label that does not fit
+  // keeps its head and drops everything after the cut, tail marks included.
+  // The bracket-family "[A]"/"[C]" distinctness battery is retired with the
+  // tail tiers (docs/plans/2026-09-15-catalyst-exam-fixes.md); what the rows
+  // still owe the reader is the full name on the `title` attribute.
   describe("row label elision", () => {
     function renderEn(data: RecipeNodeData) {
       return render(
@@ -600,13 +658,7 @@ describe("RecipeNode", () => {
       } as unknown as Recipe;
     }
 
-    function outputLabels(container: HTMLElement): string[] {
-      return Array.from(
-        container.querySelectorAll(".rn-side.out .rn-row.output .lbl"),
-      ).map((el) => el.textContent ?? "");
-    }
-
-    it("keeps the four solution-bottle rows distinct with the full name on title", () => {
+    it("elides the four solution-bottle rows head-first with the full name on title", () => {
       const recipes = [
         bottleRecipe("copper_bottle", "liquid_plant_grass_1"),
         bottleRecipe("copper_bottle", "liquid_plant_grass_2"),
@@ -627,13 +679,84 @@ describe("RecipeNode", () => {
         titles.push(el.getAttribute("title") ?? "");
         visible.push(el.textContent ?? "");
       }
-      // No two of the four names render the same visible string, and every
-      // tooltip carries its own full name.
-      expect(new Set(visible).size).toBe(4);
+      // Every row is cut to its head, so the four names read as two (the
+      // solutions differ only past the cut); every tooltip still carries
+      // its own full name.
+      for (const v of visible) {
+        expect(v.endsWith("\u2026"), v).toBe(true);
+        expect(v, v).not.toContain("Solution");
+      }
+      expect(new Set(visible).size).toBe(2);
       expect(new Set(titles).size).toBe(4);
     });
 
-    it("elides a bracket-family row to its distinguishing tail", () => {
+    // I1: the rate is a grid cell now, so it is always drawn whole and the
+    // label budget pays for its measured width instead of being painted over.
+    it("draws a four-digit rate whole and takes the width out of the label", () => {
+      const wide = (qty: number): Recipe =>
+        ({
+          ...bottleRecipe("copper_bottle", "liquid_plant_grass_1"),
+          time: 1,
+          out: [{ item: "copper_bottle-liquid_plant_grass_1", qty }],
+        }) as unknown as Recipe;
+      // qty 20 over a 1s cycle at speed 1 is 1200/min; qty 1 is 60/min.
+      const labelOf = (qty: number) => {
+        const { container } = renderEn({ recipe: wide(qty), kind: "recipe" });
+        const row = container.querySelector(".rn-side.out .rn-row.output")!;
+        return {
+          rate: row.querySelector(".rate")!.textContent ?? "",
+          visible: row.querySelector(".lbl")!.textContent ?? "",
+        };
+      };
+      const wide1200 = labelOf(20);
+      const narrow60 = labelOf(1);
+      expect(wide1200.rate).toBe("1200");
+      expect(narrow60.rate).toBe("60");
+      expect(wide1200.visible.endsWith("…"), wide1200.visible).toBe(true);
+      // Same name, wider rate: the label gets less room, so it is cut shorter.
+      expect(wide1200.visible.length).toBeLessThan(narrow60.visible.length);
+    });
+
+    // The DOM order is the reading order on the input side and mirrored on the
+    // output side through the grid columns (canvas.css pins those).
+    it("orders every row sprite, name, rate in the DOM", () => {
+      const { container } = renderEn({
+        recipe: bottleRecipe("copper_bottle", "liquid_plant_grass_1"),
+        kind: "recipe",
+      });
+      for (const row of container.querySelectorAll(".rn-row")) {
+        const classes = [...row.children]
+          .filter((el) => !el.hasAttribute("data-handleid"))
+          .map((el) => el.className)
+          .filter((c) => typeof c === "string" && c !== "");
+        expect(classes).toEqual(["ico ico-20", "lbl", "rate"]);
+      }
+    });
+
+    // The mirror is column placement over a DOM order that runs 1, 2, 3, so the
+    // output rate asks for column 1 after the cursor has passed it. Without an
+    // explicit row every cell must carry, auto-placement opens a second
+    // implicit row and drops the rate under its own name.
+    it("pins every row cell to grid row 1 in canvas.css", () => {
+      for (const selector of [
+        ".rn-row .ico",
+        ".rn-row .lbl",
+        ".rn-row .rate",
+      ]) {
+        expect(cssValue(selector, "grid-row"), selector).toBe("1");
+      }
+      // The output rules move the column only; a grid-row there would shadow
+      // the pin above.
+      for (const selector of [
+        ".rn-row.output .ico",
+        ".rn-row.output .lbl",
+        ".rn-row.output .rate",
+      ]) {
+        expect(cssBlock(selector), selector).not.toContain("grid-row");
+      }
+    });
+
+    it("elides a bracket-family row past its bracket mark", () => {
       const syringe = (item: string): Recipe =>
         ({
           ...bottleRecipe("copper_cmpt", "liquid_plant_grass_1"),
@@ -648,21 +771,28 @@ describe("RecipeNode", () => {
         recipe: syringe("bottled_rec_hp_5"),
         kind: "recipe",
       });
-      const [visA, visC] = [
-        outputLabels(first.container)[0]!,
-        outputLabels(second.container)[0]!,
-      ];
-      // Both elide head-first and end in their own bracket tail.
-      expect(visA).toContain("\u2026");
-      expect(visA.endsWith("[C]")).toBe(true);
-      expect(visC.endsWith("[A]")).toBe(true);
-      expect(visA).not.toBe(visC);
+      const labelOf = (c: HTMLElement) =>
+        c.querySelector(".rn-side.out .rn-row.output .lbl")!;
+      for (const c of [first.container, second.container] as HTMLElement[]) {
+        const el = labelOf(c);
+        const visible = el.textContent ?? "";
+        // The mark is past the cut, so the row keeps the head only and the
+        // full name lives on the tooltip.
+        expect(visible.endsWith("\u2026"), visible).toBe(true);
+        expect(visible, visible).not.toContain("[");
+        expect(el.getAttribute("title"), visible).toContain("[");
+      }
+      expect(
+        labelOf(first.container as HTMLElement).getAttribute("title"),
+      ).not.toBe(
+        labelOf(second.container as HTMLElement).getAttribute("title"),
+      );
     });
 
-    it("keeps a colliding machine-title pair distinct with tails intact (zh gates)", () => {
+    it("elides a machine-title pair head-first, full names on title (zh gates)", () => {
       // The two Purification Node machines differ only in their parenthesis
-      // tail; under the pinned title budget the visible titles elide
-      // head-first and keep it.
+      // tail, which sits past the cut: the visible titles drop it and the
+      // `title` attributes carry the full names.
       const gate = (id: string): RecipeNodeData => ({
         recipe: {
           ...bottleRecipe("copper_bottle", "liquid_plant_grass_1"),
@@ -693,15 +823,22 @@ describe("RecipeNode", () => {
         c.querySelector(".machine-title .cn")?.textContent ?? "";
       const a = t(first.container as HTMLElement);
       const b = t(second.container as HTMLElement);
+      for (const visible of [a, b]) {
+        // Cut mid-tail: the group never closes on screen.
+        expect(visible.endsWith("\u2026"), visible).toBe(true);
+        expect(visible, visible).not.toContain(")");
+      }
+      // These two diverge before the cut, so the rows still read apart.
       expect(a).not.toBe(b);
-      expect(a.endsWith("(\u6c61\u6c34\u63a5\u5165\u53e3)")).toBe(true);
-      expect(b.endsWith("(\u4ea7\u7269\u6392\u51fa\u53e3)")).toBe(true);
       // The full machine names stay on the title attributes.
-      expect(
-        first.container
-          .querySelector(".machine-title .cn")
-          ?.getAttribute("title"),
-      ).toBe("\u51c0\u6c34\u8282\u70b9(\u6c61\u6c34\u63a5\u5165\u53e3)");
+      const titleAttr = (c: HTMLElement) =>
+        c.querySelector(".machine-title .cn")?.getAttribute("title");
+      expect(titleAttr(first.container as HTMLElement)).toBe(
+        "\u51c0\u6c34\u8282\u70b9(\u6c61\u6c34\u63a5\u5165\u53e3)",
+      );
+      expect(titleAttr(second.container as HTMLElement)).not.toBe(
+        titleAttr(first.container as HTMLElement),
+      );
     });
   });
 

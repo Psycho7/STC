@@ -218,6 +218,45 @@ describe("buildSupplyTable", () => {
     expect((unknown as Fraction).equals(new Fraction(0))).toBe(true);
   });
 
+  it("keeps pool G untouched when a catalyst row joins the general one", () => {
+    const general: ItemOverride[] = [
+      { itemId: "raw_item", ratePerSec: { num: "3", denom: "2" } },
+    ];
+    const both: ItemOverride[] = [
+      ...general,
+      {
+        itemId: "raw_item",
+        role: "catalyst",
+        ratePerSec: { num: "9", denom: "1" },
+      },
+    ];
+    const withoutC = buildSupplyTable(PACK, general);
+    const withC = buildSupplyTable(PACK, both);
+
+    expect(
+      (withC.supplyOf("raw_item") as Fraction).equals(
+        withoutC.supplyOf("raw_item") as Fraction,
+      ),
+    ).toBe(true);
+    expect(withC.isFree("raw_item")).toBe(withoutC.isFree("raw_item"));
+    expect([...withC.entries()]).toEqual([...withoutC.entries()]);
+  });
+
+  it("resolves pool G from the role-less row when only a catalyst row exists", () => {
+    const overrides: ItemOverride[] = [
+      { itemId: "built_item", role: "catalyst" },
+      { itemId: "cat_ghost", role: "catalyst" },
+    ];
+    const table = buildSupplyTable(PACK, overrides);
+
+    // The catalyst row is invisible to G: built_item stays at its no-override
+    // non-raw zero, and the ghost never becomes an entry.
+    const built = table.supplyOf("built_item");
+    expect(built).not.toBe(Infinity);
+    expect((built as Fraction).equals(new Fraction(0))).toBe(true);
+    expect([...table.entries()].map(([id]) => id)).not.toContain("cat_ghost");
+  });
+
   it("rejects a malformed ratePerSec at construction, not at query", () => {
     // The rule parses lazily, so the zero denominator only bites the item that
     // carries the override. The table parses every row up front, which moves
@@ -232,5 +271,98 @@ describe("buildSupplyTable", () => {
     expect(() => buildSupplyTable(PACK, overrides)).toThrow(
       /division by zero/i,
     );
+  });
+});
+
+// Pool C is addressed by the catalyst-role rows alone; pool G by the role-less
+// ones. The two queries below are the only way to read C.
+describe("buildSupplyTable catalyst pool", () => {
+  const catalystRow = (o: Partial<ItemOverride>): ItemOverride[] => [
+    { itemId: "raw_item", role: "catalyst", ...o },
+  ];
+
+  it("answers undefined with no catalyst row", () => {
+    const table = buildSupplyTable(PACK, [
+      { itemId: "raw_item", ratePerSec: { num: "1", denom: "1" } },
+    ]);
+    expect(table.catalystSupplyOf("raw_item")).toBeUndefined();
+    expect(table.catalystSupplyOf("built_item")).toBeUndefined();
+  });
+
+  it("answers Infinity for an uncapped catalyst row", () => {
+    const table = buildSupplyTable(PACK, catalystRow({}));
+    expect(table.catalystSupplyOf("raw_item")).toBe(Infinity);
+  });
+
+  it("answers the cap for a capped catalyst row", () => {
+    const table = buildSupplyTable(
+      PACK,
+      catalystRow({ ratePerSec: { num: "1", denom: "10" } }),
+    );
+    const cap = table.catalystSupplyOf("raw_item");
+    expect(cap).not.toBe(Infinity);
+    expect((cap as Fraction).equals(new Fraction(1, 10))).toBe(true);
+  });
+
+  it("answers zero for a catalyst row capped at zero", () => {
+    const table = buildSupplyTable(
+      PACK,
+      catalystRow({ ratePerSec: { num: "0", denom: "1" } }),
+    );
+    const cap = table.catalystSupplyOf("raw_item");
+    expect(cap).not.toBe(Infinity);
+    expect((cap as Fraction).equals(new Fraction(0))).toBe(true);
+  });
+
+  it("ignores plan on a catalyst row: uncapped is uncapped", () => {
+    // A catalyst pool has no walk-through meaning, so plan says nothing about
+    // its size; only ratePerSec caps it.
+    const table = buildSupplyTable(PACK, catalystRow({ plan: true }));
+    expect(table.catalystSupplyOf("raw_item")).toBe(Infinity);
+  });
+
+  it("answers for a catalyst row on an item absent from the pack", () => {
+    const table = buildSupplyTable(PACK, [
+      {
+        itemId: "cat_ghost",
+        role: "catalyst",
+        ratePerSec: { num: "2", denom: "1" },
+      },
+    ]);
+    const cap = table.catalystSupplyOf("cat_ghost");
+    expect((cap as Fraction).equals(new Fraction(2))).toBe(true);
+  });
+});
+
+describe("buildSupplyTable hasTypedCap", () => {
+  it("is false with no override and with an uncapped or plan row", () => {
+    const table = buildSupplyTable(PACK, [
+      { itemId: "built_item", plan: true },
+    ]);
+    expect(table.hasTypedCap("raw_item")).toBe(false);
+    expect(table.hasTypedCap("built_item")).toBe(false);
+  });
+
+  it("is true for a role-less row carrying a rate, zero included", () => {
+    const capped = buildSupplyTable(PACK, [
+      { itemId: "raw_item", ratePerSec: { num: "3", denom: "2" } },
+    ]);
+    expect(capped.hasTypedCap("raw_item")).toBe(true);
+
+    const zeroed = buildSupplyTable(PACK, [
+      { itemId: "built_item", ratePerSec: { num: "0", denom: "1" } },
+    ]);
+    expect(zeroed.hasTypedCap("built_item")).toBe(true);
+  });
+
+  it("ignores a catalyst row: only pool G can be typed", () => {
+    const table = buildSupplyTable(PACK, [
+      {
+        itemId: "raw_item",
+        role: "catalyst",
+        ratePerSec: { num: "3", denom: "2" },
+      },
+    ]);
+    expect(table.hasTypedCap("raw_item")).toBe(false);
   });
 });

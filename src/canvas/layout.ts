@@ -33,11 +33,9 @@ import {
 } from "@xyflow/react";
 import Fraction from "fraction.js";
 
-import { CATALYST_SUPPLY_EDGES } from "../flags";
 import {
   BETWEEN_LAYERS_SPACING,
   CONTAINER_CAPTION_BAND,
-  ENV_FRAME_EXTENTS,
   NODE_NODE_SPACING,
   PORT_HEIGHT,
   PORT_WIDTH,
@@ -45,7 +43,7 @@ import {
   PRODUCT_WIDTH,
   loopBoxDimensions,
 } from "./dimensions";
-import { measureRecipe, type RecipeGeometry } from "./recipeGeometry";
+import { measureRecipe } from "./recipeGeometry";
 import {
   assignBendColumns,
   assignEntryColumns,
@@ -77,6 +75,8 @@ import type {
   TransportKindId,
 } from "../pipeline/types";
 import type { RawRecipeMap } from "../solver/net-self";
+import type { CatalystAccount } from "../solver/catalyst";
+import { rationalToString } from "../pipeline/render/rational";
 import type { RationalString } from "../data/targets";
 
 // LogicalGraph types
@@ -148,6 +148,11 @@ export type LayoutInput = {
   // Run the gap-widening pre-pass? Defaults to true. False lays the plan out on
   // ELK's own gaps, which is the before side of the width census.
   widenGaps?: boolean;
+  // Which supply pool each item's catalyst charge was billed to, straight off
+  // the solve. Geometry never reads it: it rides onto the aggregate or
+  // single-bucket catalyst card as tooltip copy. Absent in the fixtures that
+  // lay a plan out without solving one.
+  catalystAccount?: CatalystAccount;
 };
 
 // An ELK port output with a transport kind tacked on. ELK happily carries
@@ -272,6 +277,15 @@ export type RFContainerNode = RFNode<
   },
   "group"
 >;
+// Which pool covered an item's catalyst charge, for the card's name tooltip.
+// Item-level accounting, so a card carries it only when it is the aggregate or
+// single-bucket catalyst card of its item, never on a per-container slice.
+export type CatalystBreakdown = {
+  fromCatalyst: RationalString;
+  fromGeneral: RationalString;
+  unmet: RationalString;
+};
+
 export type RFProductNode = RFNode<
   {
     kind: "inputProduct" | "outputProduct";
@@ -281,6 +295,11 @@ export type RFProductNode = RFNode<
     // tells them apart by `kind`.
     rate: RenderUnitOutputProduct["rate"];
     rateCap?: RenderUnitInputProduct["rateCap"];
+    // Marks the nodes of an item's catalyst pool; absent on every other
+    // product node, so it is spread in conditionally like the fanout fields.
+    role?: RenderUnitInputProduct["role"];
+    // Stamped from the solve's account; see CatalystBreakdown.
+    catalystBreakdown?: CatalystBreakdown;
     flavor?: RenderUnitOutputProduct["flavor"];
     // Per-container fanout slices of an aggregate input card. `isFanout` draws
     // the tap chrome and the extra left handle the aggregate's edge arrives on;
@@ -410,17 +429,11 @@ function makePort(
   index: number,
   itemId: ItemId,
   kindOf: KindOf,
-  // The port-box CENTRE in node-local coordinates, stamped only where the node
-  // box is not the card box (see recipeUnitToElk).
-  at?: { x: number; y: number },
 ): ElkPortWithKind {
   const port: ElkPortWithKind = {
     id,
     width: PORT_WIDTH,
     height: PORT_HEIGHT,
-    ...(at !== undefined
-      ? { x: at.x - PORT_WIDTH / 2, y: at.y - PORT_HEIGHT / 2 }
-      : {}),
     layoutOptions: {
       "org.eclipse.elk.port.side": side,
       "org.eclipse.elk.port.index": String(index),
@@ -433,10 +446,9 @@ function makePort(
 
 // Ports are emitted in recipe.in / recipe.out declaration order here; under
 // FIXED_SIDE ELK is free to reorder them within each side to minimize crossings,
-// so declaration order is only the starting point. We set port coordinates only
-// on the grown environment box (they state where the DOM handles sit); on plain
-// cards we set none, and elkjs recomputes whatever we hand it anyway. On the
-// React side the Handle takes its visual top offset from
+// so declaration order is only the starting point. No port carries coordinates:
+// every node box IS the card box, and elkjs recomputes whatever we hand it
+// anyway. On the React side the Handle takes its visual top offset from
 // `measureRecipe(recipe).inHandleYs[i] / outHandleYs[i]`, indexed by the
 // resolved slot i. An input slot comes from the ELK-resolved inputOrder; an
 // output slot is the declaration index (ruling R4: output rows read in the
@@ -447,100 +459,45 @@ function buildRecipePorts(
   unitId: string,
   recipe: Recipe,
   kindOf: KindOf,
-  geom: RecipeGeometry,
-  // Where the card box sits inside the ELK node box (the environment frame's
-  // inner rectangle); absent when the node box IS the card box.
-  origin?: { x: number; y: number },
 ): ElkPortWithKind[] {
-  const at = (x: number, y: number) =>
-    origin === undefined ? undefined : { x: origin.x + x, y: origin.y + y };
   return [
     ...recipe.in.map((p, i) =>
+      makePort(`${unitId}.in:${p.item}`, "WEST", i, p.item, kindOf),
+    ),
+    // Catalyst rows take a WEST port too: their edge comes from the item's
+    // catalyst boundary card, exactly like an input row's. The port id uses the
+    // `cat:` namespace because a card can carry one item on both an input row
+    // and a catalyst row.
+    ...(recipe.catalyst ?? []).map((p, i) =>
       makePort(
-        `${unitId}.in:${p.item}`,
+        `${unitId}.cat:${p.item}`,
         "WEST",
-        i,
+        recipe.in.length + i,
         p.item,
         kindOf,
-        at(0, geom.inHandleYs[i] ?? 0),
       ),
     ),
-    // Catalyst rows take a WEST port too when the flag is on: their edge comes
-    // from the item's boundary card, exactly like an input row's. The port id
-    // uses the `cat:` namespace because a card can carry one item on both an
-    // input row and a catalyst row.
-    ...(CATALYST_SUPPLY_EDGES
-      ? (recipe.catalyst ?? []).map((p, i) =>
-          makePort(
-            `${unitId}.cat:${p.item}`,
-            "WEST",
-            recipe.in.length + i,
-            p.item,
-            kindOf,
-            at(0, geom.catHandleYs[i] ?? 0),
-          ),
-        )
-      : []),
     ...recipe.out.map((p, i) =>
-      makePort(
-        `${unitId}.out:${p.item}`,
-        "EAST",
-        i,
-        p.item,
-        kindOf,
-        at(geom.width, geom.outHandleYs[i] ?? 0),
-      ),
+      makePort(`${unitId}.out:${p.item}`, "EAST", i, p.item, kindOf),
     ),
   ];
 }
 
-// Where an environment recipe's card box sits inside the box handed to ELK:
-// the frame's inner rectangle. The offset contract runs one direction in each
-// adapter half -- recipeUnitToElk ADDS it (grown box, ports stamped at the
-// card-box handle coordinates plus the offset) and unitToRFNode adds it back
-// (card box at the inner rectangle) -- so the DOM card and every handle
-// relative to it are byte-identical to a plain card's.
-//
-// The port stamps state where the DOM handles will be. elkjs under FIXED_SIDE
-// recomputes port positions itself (probed 2026-09-12: explicit port x/y come
-// back redistributed along the side) and this module discards ELK's routed
-// edge geometry, so what the stamps actually buy is a truthful description of
-// the grown box on the input graph; the drawn endpoints follow from the
-// position mapping and the row slots, as on every plain card.
-function envFrameOrigin(
-  recipe: Recipe | undefined,
-): { x: number; y: number } | undefined {
-  return recipe?.environment === undefined
-    ? undefined
-    : { x: ENV_FRAME_EXTENTS.left, y: ENV_FRAME_EXTENTS.top };
-}
-
-// An environment recipe's ELK box is the CARD box grown by the frame extents:
-// the default nodeNode spacing (30) between two grown boxes then leaves
-// 30 + 22 + 36 = 88px between two stacked environment cards and 30 + 36 /
-// 30 + 22 between an environment card and a plain neighbour, all past the
-// extents the plates need, with no spacing change.
+// Every recipe's ELK box is its CARD box. An environment recipe draws its
+// plate as the card's first row (ruling I9), so measureRecipe already counts
+// it and no box anywhere grows past what the DOM paints.
 function recipeUnitToElk(
   u: RenderUnitRecipe,
   recipe: Recipe,
   kindOf: KindOf,
 ): ElkNode {
   const geom = measureRecipe(recipe);
-  const origin = envFrameOrigin(recipe);
   return {
     id: u.id,
-    width:
-      geom.width +
-      (origin === undefined
-        ? 0
-        : ENV_FRAME_EXTENTS.left + ENV_FRAME_EXTENTS.right),
-    height:
-      geom.height +
-      (origin === undefined
-        ? 0
-        : ENV_FRAME_EXTENTS.top + ENV_FRAME_EXTENTS.bottom),
+    width: geom.width,
+    height: geom.height,
     layoutOptions: { ...RECIPE_LAYOUT_OPTIONS },
-    ports: buildRecipePorts(u.id, recipe, kindOf, geom, origin),
+    ports: buildRecipePorts(u.id, recipe, kindOf),
   };
 }
 
@@ -653,9 +610,7 @@ function loopUnitToElk(
 // The item alone cannot decide it: one card can carry both rows for one item.
 function renderEdgeToElk(e: RenderEdge, index: number): ElkExtendedEdge {
   const targetPort =
-    CATALYST_SUPPLY_EDGES && e.toPortKind === "catalyst"
-      ? `cat:${e.item}`
-      : `in:${e.item}`;
+    e.toPortKind === "catalyst" ? `cat:${e.item}` : `in:${e.item}`;
   return {
     id: `e:${index}:${e.fromUnit}->${e.toUnit}:${e.item}`,
     sources: [`${e.fromUnit}.out:${e.item}`],
@@ -729,6 +684,7 @@ export function fromElkRenderLayout(
             container.id,
             recipeById,
             interiorByLoopId,
+            input.catalystAccount,
           ),
         );
       }
@@ -736,7 +692,14 @@ export function fromElkRenderLayout(
       const unit = unitById.get(top.id);
       if (!unit) continue;
       nodes.push(
-        unitToRFNode(top, unit, undefined, recipeById, interiorByLoopId),
+        unitToRFNode(
+          top,
+          unit,
+          undefined,
+          recipeById,
+          interiorByLoopId,
+          input.catalystAccount,
+        ),
       );
     }
   }
@@ -764,6 +727,10 @@ export function fromElkRenderLayout(
     // thing telling them the edge lands on a catalyst row.
     if (renderEdge?.toPortKind !== undefined) {
       edgeData.toPortKind = renderEdge.toPortKind;
+    }
+    // The pool the edge leaves, which is what the ticked catalyst stroke reads.
+    if (renderEdge?.fromPool !== undefined) {
+      edgeData.fromPool = renderEdge.fromPool;
     }
     return {
       id: e.id,
@@ -837,25 +804,39 @@ function portToItem(port: string): string {
   return port;
 }
 
+// The catalyst pool split for one input card, in the spread-in shape the
+// product data uses for its other optional fields.
+//
+// The account is item-level, and so is the split: only the card that carries
+// the item's whole charge (the aggregate, or the single bucket when there is
+// just one) gets it. A per-container slice holds a share of the charge that no
+// pool was ever assigned, so it takes nothing.
+function catalystBreakdownOf(
+  unit: RenderUnitInputProduct,
+  catalystAccount: CatalystAccount | undefined,
+): Pick<RFProductNode["data"], "catalystBreakdown"> {
+  if (unit.role !== "catalyst" || unit.isFanout) return {};
+  const entry = catalystAccount?.get(unit.itemId);
+  if (entry === undefined) return {};
+  return {
+    catalystBreakdown: {
+      fromCatalyst: rationalToString(entry.fromCatalyst),
+      fromGeneral: rationalToString(entry.fromGeneral),
+      unmet: rationalToString(entry.unmet),
+    },
+  };
+}
+
 function unitToRFNode(
   laidChild: ElkNode,
   unit: RenderUnit,
   parentId: ContainerId | undefined,
   recipeById: ReadonlyMap<RecipeId, Recipe>,
   interiorByLoopId: ReadonlyMap<SccId, LoopInteriorSize>,
+  catalystAccount: CatalystAccount | undefined,
 ): RFAnyNode {
-  // An environment recipe's ELK box is the frame rectangle; ELK positions its
-  // top-left, so shift by the inner-rectangle offset to land the CARD box
-  // where the frame's inner rectangle is (the counterpart of the growth in
-  // recipeUnitToElk).
-  const origin =
-    unit.kind === "recipe"
-      ? envFrameOrigin(recipeById.get(unit.recipeId))
-      : undefined;
-  const position = {
-    x: (laidChild.x ?? 0) + (origin?.x ?? 0),
-    y: (laidChild.y ?? 0) + (origin?.y ?? 0),
-  };
+  // Every ELK box is the card box, so ELK's top-left IS the card's.
+  const position = { x: laidChild.x ?? 0, y: laidChild.y ?? 0 };
   const base = parentId !== undefined ? { position, parentId } : { position };
   const portTransportKinds = portKindsFromElkNode(laidChild);
 
@@ -900,7 +881,9 @@ function unitToRFNode(
         rate: unit.rate,
         portTransportKinds,
         ...(unit.rateCap !== undefined ? { rateCap: unit.rateCap } : {}),
+        ...(unit.role !== undefined ? { role: unit.role } : {}),
         ...(unit.isFanout ? { isFanout: true } : {}),
+        ...catalystBreakdownOf(unit, catalystAccount),
         ...(unit.parentRate !== undefined
           ? { parentRate: unit.parentRate }
           : {}),
@@ -959,9 +942,10 @@ export type RoutingPass = (
 export type RoutingCtx = { readonly gaps: ReadonlyArray<GapRecord> };
 
 // The one pre-pass: it runs BEFORE every routing pass and is the only step that
-// moves a node after ELK. It widens each inter-layer gap to the chip reserves the
-// gap owes, so every pass below routes through corridors that already have room
-// for the chips they will carry. Pinned ahead of ROUTING_PASSES by
+// moves a node after ELK. It widens each inter-layer gap -- of the root and of
+// every container interior -- to the chip reserves that gap owes, so every pass
+// below routes through corridors that already have room for the chips they will
+// carry. Pinned ahead of ROUTING_PASSES by
 // test/canvas/layout-pass-order.test.ts.
 export const LAYOUT_PREPASS: {
   readonly name: string;
@@ -1024,7 +1008,8 @@ export const ROUTING_PASSES: ReadonlyArray<{
       "corridor it fans across. Writes bendX for everything else.",
   },
   // Bend a blocked forward final leg to a clear y so it does not cross an
-  // intervening card (reads bendX).
+  // intervening card, and hold the horizontal level floor between two forward
+  // runs that share an x-corridor (reads bendX).
   {
     name: "jogForwardLegs",
     run: jogForwardLegs,
@@ -1032,7 +1017,10 @@ export const ROUTING_PASSES: ReadonlyArray<{
       "Reads each edge's FINAL bendX from assignBendColumns, because the leg " +
       "it jogs starts at that column, and the entry columns assignEntryColumns " +
       "already staked at the target, because a jog descent takes the next free " +
-      "slot left of them.",
+      "slot left of them. The level floor it also holds needs every forward " +
+      "edge's drawn geometry, so it is the last pass that moves a forward run: " +
+      "the bands it measures against are seeded from the three passes above " +
+      "and refreshed as it goes.",
   },
   // Move the backward detour rails clear of the cards they span.
   {

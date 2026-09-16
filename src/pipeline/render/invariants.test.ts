@@ -10,6 +10,7 @@ import {
   checkNoOrphanUnits,
   checkUnitOutflowVsProduction,
   checkProductUnitRates,
+  checkCatalystNodesMatchAccount,
   checkRenderPlan,
   assertRenderInvariants,
 } from "./invariants";
@@ -28,6 +29,7 @@ import {
 import type { RecipePack } from "@aef/schema";
 import type { RationalString, ItemTarget } from "../../data/targets";
 import type { ItemOverride } from "../../data/plan";
+import type { CatalystAccount } from "../../solver/catalyst";
 
 const RATE_ONE: RationalString = { num: "1", denom: "1" };
 
@@ -135,6 +137,7 @@ describe("checkEdgeEndpointIntegrity", () => {
       pack: makePack(["iron-ore"]),
       targets: [],
       itemOverrides: [],
+      catalystAccount: new Map(),
     });
     expect(result.ok).toBe(false);
     expect(result.violations).toHaveLength(1);
@@ -169,6 +172,7 @@ describe("checkEdgeEndpointIntegrity", () => {
       pack: makePack(["iron-ore"]),
       targets: [],
       itemOverrides: [],
+      catalystAccount: new Map(),
     });
     expect(result.ok).toBe(false);
     expect(result.violations).toHaveLength(1);
@@ -210,6 +214,7 @@ describe("checkEdgeEndpointIntegrity", () => {
       pack: makePack(["iron-ore"]),
       targets: [],
       itemOverrides: [],
+      catalystAccount: new Map(),
     });
     expect(result.ok).toBe(false);
     expect(result.violations).toHaveLength(1);
@@ -251,6 +256,7 @@ describe("checkEdgeEndpointIntegrity", () => {
       pack: makePack([]),
       targets: [],
       itemOverrides: [],
+      catalystAccount: new Map(),
     });
     expect(result.ok).toBe(false);
     expect(result.violations).toHaveLength(1);
@@ -294,6 +300,7 @@ describe("checkBoundaryProductsJustified", () => {
       pack,
       targets,
       itemOverrides,
+      catalystAccount: new Map(),
     });
     expect(result.ok).toBe(true);
     expect(result.violations).toHaveLength(0);
@@ -333,6 +340,7 @@ describe("checkBoundaryProductsJustified", () => {
       pack,
       targets,
       itemOverrides,
+      catalystAccount: new Map(),
     });
     expect(result.ok).toBe(true);
     expect(result.violations).toHaveLength(0);
@@ -382,6 +390,7 @@ describe("checkBoundaryProductsJustified", () => {
       pack,
       targets,
       itemOverrides,
+      catalystAccount: new Map(),
     });
     expect(result.ok).toBe(true);
     expect(result.violations).toHaveLength(0);
@@ -437,6 +446,7 @@ describe("checkBoundaryProductsJustified", () => {
       pack,
       targets,
       itemOverrides,
+      catalystAccount: new Map(),
     });
     expect(result.ok).toBe(false);
     expect(result.violations).toHaveLength(1);
@@ -481,6 +491,7 @@ describe("checkBoundaryProductsJustified", () => {
       pack,
       targets: [{ itemId: "W", ratePerSec: RATE_ONE }],
       itemOverrides: [],
+      catalystAccount: new Map(),
     });
     expect(result.ok).toBe(true);
     expect(result.violations).toHaveLength(0);
@@ -524,6 +535,7 @@ describe("checkBoundaryProductsJustified", () => {
       pack,
       targets: [{ itemId: "W", ratePerSec: RATE_ONE }],
       itemOverrides: [],
+      catalystAccount: new Map(),
     });
     expect(result.ok).toBe(false);
     expect(result.violations).toHaveLength(1);
@@ -586,6 +598,7 @@ describe("checkInternalFlowConservation", () => {
       pack,
       targets: [],
       itemOverrides: [],
+      catalystAccount: new Map(),
     });
     expect(result.ok).toBe(false);
     expect(result.violations).toHaveLength(1);
@@ -638,6 +651,7 @@ describe("checkInternalFlowConservation", () => {
       pack,
       targets: [],
       itemOverrides: [],
+      catalystAccount: new Map(),
     });
     expect(result.ok).toBe(true);
     expect(result.violations).toHaveLength(0);
@@ -688,6 +702,7 @@ describe("checkInternalFlowConservation", () => {
       pack,
       targets: [{ itemId: "W", ratePerSec: RATE_ONE }],
       itemOverrides: [],
+      catalystAccount: new Map(),
     });
     expect(result.ok).toBe(true);
     expect(result.violations).toHaveLength(0);
@@ -737,6 +752,7 @@ describe("checkInternalFlowConservation", () => {
       pack,
       targets: [{ itemId: "W", ratePerSec: RATE_ONE }],
       itemOverrides: [],
+      catalystAccount: new Map(),
     });
     expect(result.ok).toBe(false);
     expect(result.violations).toHaveLength(1);
@@ -856,7 +872,14 @@ describe("SCC/loop unit: no false positive on loop-internal flow", () => {
       containers: [],
     };
 
-    return { plan, rates, pack, targets: [], itemOverrides: [] };
+    return {
+      plan,
+      rates,
+      pack,
+      targets: [],
+      itemOverrides: [],
+      catalystAccount: new Map(),
+    };
   }
 
   // Loop-internal item C must not be flagged despite rates showing it produced
@@ -914,6 +937,7 @@ describe("checkConsumerInputsSatisfied", () => {
       pack,
       targets: [],
       itemOverrides: [],
+      catalystAccount: new Map(),
     });
     expect(result.ok).toBe(false);
     expect(result.violations).toHaveLength(1);
@@ -975,6 +999,7 @@ describe("checkConsumerInputsSatisfied", () => {
       pack,
       targets: [],
       itemOverrides: [],
+      catalystAccount: new Map(),
     });
     expect(result.ok).toBe(true);
     expect(result.violations).toHaveLength(0);
@@ -1045,6 +1070,7 @@ describe("checkConsumerInputsNotOverfed", () => {
       pack,
       targets: [],
       itemOverrides: [],
+      catalystAccount: new Map(),
     });
     expect(result.ok).toBe(false);
     expect(result.violations).toHaveLength(1);
@@ -1093,6 +1119,7 @@ describe("checkNoOrphanUnits", () => {
       pack,
       targets: [],
       itemOverrides: [],
+      catalystAccount: new Map(),
     });
     expect(result.ok).toBe(false);
     expect(result.violations).toHaveLength(1);
@@ -1128,6 +1155,7 @@ describe("checkNoOrphanUnits", () => {
       pack,
       targets: [],
       itemOverrides: [],
+      catalystAccount: new Map(),
     });
     expect(result.ok).toBe(false);
     expect(result.violations[0]).toContain("recipe-A");
@@ -1156,6 +1184,7 @@ describe("checkNoOrphanUnits", () => {
       pack,
       targets: [],
       itemOverrides: [],
+      catalystAccount: new Map(),
     });
     expect(result.ok).toBe(true);
     expect(result.violations).toHaveLength(0);
@@ -1222,6 +1251,7 @@ describe("checkTargetOutputsSatisfied", () => {
       pack,
       targets,
       itemOverrides: [],
+      catalystAccount: new Map(),
     });
     expect(result.ok).toBe(false);
     expect(result.violations).toHaveLength(1);
@@ -1235,6 +1265,7 @@ describe("checkTargetOutputsSatisfied", () => {
       pack,
       targets,
       itemOverrides: [],
+      catalystAccount: new Map(),
     });
     expect(result.ok).toBe(false);
     expect(result.violations).toHaveLength(1);
@@ -1291,6 +1322,7 @@ describe("checkTargetOutputsSatisfied", () => {
       pack,
       targets,
       itemOverrides: [],
+      catalystAccount: new Map(),
     });
     expect(result.ok).toBe(true);
   });
@@ -1309,6 +1341,7 @@ function cleanPlanArgs(): {
   pack: RecipePack;
   targets: ReadonlyArray<ItemTarget>;
   itemOverrides: ReadonlyArray<ItemOverride>;
+  catalystAccount: CatalystAccount;
 } {
   const pack = makeFullPack(
     [{ id: "R", raw: true }, { id: "F" }],
@@ -1369,15 +1402,22 @@ function cleanPlanArgs(): {
   const targets: ReadonlyArray<ItemTarget> = [
     { itemId: "F", ratePerSec: { num: "1", denom: "1" } },
   ];
-  return { plan, rates, pack, targets, itemOverrides: [] };
+  return {
+    plan,
+    rates,
+    pack,
+    targets,
+    itemOverrides: [],
+    catalystAccount: new Map(),
+  };
 }
 
 describe("checkRenderPlan", () => {
-  // Case (b): a well-formed minimal plan gives all nine results ok.
-  it("(b) returns nine ok results for a fully clean minimal plan", () => {
+  // Case (b): a well-formed minimal plan gives all ten results ok.
+  it("(b) returns ten ok results for a fully clean minimal plan", () => {
     const args = cleanPlanArgs();
     const results = checkRenderPlan(args);
-    expect(results).toHaveLength(9);
+    expect(results).toHaveLength(10);
     for (const r of results) {
       expect(r.ok).toBe(true);
       expect(r.violations).toHaveLength(0);
@@ -1432,6 +1472,7 @@ describe("assertRenderInvariants", () => {
       pack,
       targets: [] as ReadonlyArray<ItemTarget>,
       itemOverrides: [] as ReadonlyArray<ItemOverride>,
+      catalystAccount: new Map(),
     };
     expect(() => assertRenderInvariants(args)).toThrow(/recipe-A/);
   });
@@ -1468,6 +1509,7 @@ describe("assertRenderInvariants", () => {
       pack,
       targets: [] as ReadonlyArray<ItemTarget>,
       itemOverrides: [] as ReadonlyArray<ItemOverride>,
+      catalystAccount: new Map(),
     };
     expect(() => assertRenderInvariants(args)).toThrow(/u-missing/);
   });
@@ -1520,6 +1562,7 @@ describe("assertRenderInvariants", () => {
       pack,
       targets: [],
       itemOverrides: [],
+      catalystAccount: new Map(),
     };
     let thrown: unknown;
     try {
@@ -1576,6 +1619,7 @@ describe("checkUnitOutflowVsProduction", () => {
         pack: fixture.pack,
         targets: fixture.targets,
         itemOverrides: fixture.itemOverrides ?? [],
+        catalystAccount: full.catalystAccount,
       });
       expect(result.violations).toEqual([]);
       expect(result.ok).toBe(true);
@@ -1589,6 +1633,7 @@ describe("checkUnitOutflowVsProduction", () => {
     pack: RecipePack;
     targets: ReadonlyArray<ItemTarget>;
     itemOverrides: ReadonlyArray<ItemOverride>;
+    catalystAccount: CatalystAccount;
   } {
     const targets: ItemTarget[] = recipeIds.map((recipeId) => ({
       itemId: fullPack.recipes.find((r) => r.id === recipeId)!.out[0]!.item,
@@ -1601,6 +1646,7 @@ describe("checkUnitOutflowVsProduction", () => {
       pack: fullPack,
       targets,
       itemOverrides: [],
+      catalystAccount: full.catalystAccount,
     };
   }
 
@@ -1676,6 +1722,7 @@ function mutableArgs(
   pack: RecipePack;
   targets: ReadonlyArray<ItemTarget>;
   itemOverrides: ReadonlyArray<ItemOverride>;
+  catalystAccount: CatalystAccount;
 } {
   const targets: ItemTarget[] = recipeIds.map((recipeId) => ({
     itemId: fullPack.recipes.find((r) => r.id === recipeId)!.out[0]!.item,
@@ -1693,6 +1740,7 @@ function mutableArgs(
     pack: packArg,
     targets,
     itemOverrides: [],
+    catalystAccount: full.catalystAccount,
   };
 }
 
@@ -1843,4 +1891,209 @@ describe("checkProductUnitRates: boundary-unit chips and inputProduct edges", ()
       true,
     );
   });
+});
+
+// ---------------------------------------------------------------------------
+// The catalyst pool: node justification and the tie to the solve's account
+// ---------------------------------------------------------------------------
+
+// A recipe carrying a catalyst row, which makeFullPack has no shape for.
+function packWithCatalyst(): RecipePack {
+  const base = makeFullPack(
+    [{ id: "X", raw: true }, { id: "F" }],
+    [{ id: "recipe-A", in: [], out: [{ item: "F", qty: 1 }] }],
+  );
+  return {
+    ...base,
+    recipes: base.recipes.map((r) => ({
+      ...r,
+      catalyst: [{ item: "X", qty: 1 }],
+    })),
+  };
+}
+
+// One recipe unit fed a cycled charge of X from `sourceId`, which is an input
+// product carrying `role`.
+function catalystOnlyPlanArgs(
+  sourceId: string,
+  role?: "catalyst",
+): Parameters<typeof checkBoundaryProductsJustified>[0] {
+  const plan: RenderPlan = {
+    units: [
+      {
+        id: sourceId,
+        kind: "inputProduct",
+        itemId: "X",
+        count: 1,
+        rate: RATE_ONE,
+        ...(role !== undefined ? { role } : {}),
+      },
+      {
+        id: "u-A",
+        kind: "recipe",
+        recipeId: "recipe-A",
+        count: 1,
+        multiplicity: RATE_ONE,
+      },
+      {
+        id: "u:out:F",
+        kind: "outputProduct",
+        itemId: "F",
+        count: 1,
+        rate: RATE_ONE,
+        flavor: "target",
+      },
+    ],
+    edges: [
+      {
+        fromUnit: sourceId,
+        toUnit: "u-A",
+        item: "X",
+        rate: new Fraction(1),
+        transportKind: "belt",
+        toPortKind: "catalyst",
+      },
+      {
+        fromUnit: "u-A",
+        toUnit: "u:out:F",
+        item: "F",
+        rate: new Fraction(1),
+        transportKind: "belt",
+      },
+    ],
+    containers: [],
+  };
+  return {
+    plan,
+    rates: new Map([["recipe-A", new Fraction(1)]]),
+    pack: packWithCatalyst(),
+    targets: [{ itemId: "F", ratePerSec: RATE_ONE }],
+    itemOverrides: [],
+    catalystAccount: new Map([
+      [
+        "X",
+        {
+          need: new Fraction(1),
+          fromCatalyst: new Fraction(0),
+          fromGeneral: new Fraction(1),
+          unmet: new Fraction(0),
+        },
+      ],
+    ]),
+  };
+}
+
+describe("checkBoundaryProductsJustified on catalyst nodes", () => {
+  // A transmuter running at 0.4 machines still holds a whole machine's charge,
+  // so the catalyst node carries 6/min against an almost idle plan. Nothing
+  // about mass balance justifies that node; its outgoing catalyst edges do.
+  it("accepts a low-utilisation transmuter whose charge is one full machine", () => {
+    const targets: ItemTarget[] = [
+      { itemId: "gas_xiranite_enr", ratePerSec: { num: "2", denom: "5" } },
+    ];
+    const { full, plan } = solveForRender({ targets, pack: fullPack });
+
+    // Premise: a fractional machine count below one machine.
+    const counts = [...full.idealCount.values()].map((c) => c.valueOf());
+    expect(Math.max(...counts)).toBeLessThan(1);
+    // One machine's charge on a 10 s, qty 1 recipe is 1/10 per second.
+    const need = full.catalystAccount.get("gas_xiranite")!.need;
+    expect(need.equals(new Fraction(1, 10))).toBe(true);
+
+    const catNode = plan.units.find((u) => u.id === "u:cat:gas_xiranite");
+    expect(catNode).toBeDefined();
+    const result = checkBoundaryProductsJustified({
+      plan,
+      rates: full.rates,
+      pack: fullPack,
+      targets,
+      itemOverrides: [],
+      catalystAccount: full.catalystAccount,
+    });
+    expect(result.violations).toEqual([]);
+  }, 60000);
+
+  it("rejects an ordinary input node whose only outgoing edges are catalyst", () => {
+    const result = checkBoundaryProductsJustified(
+      catalystOnlyPlanArgs("u:in:X"),
+    );
+    expect(
+      result.violations.some((v) =>
+        v.includes("not net-consumed from outside"),
+      ),
+    ).toBe(true);
+  });
+
+  it("accepts the same node once it is the item's catalyst node", () => {
+    const result = checkBoundaryProductsJustified(
+      catalystOnlyPlanArgs("u:cat:X", "catalyst"),
+    );
+    expect(result.violations).toEqual([]);
+  });
+
+  it("rejects a catalyst node that feeds no charge", () => {
+    const args = catalystOnlyPlanArgs("u:cat:X", "catalyst");
+    (args.plan.edges as RenderEdge[]).splice(0, 1);
+    const result = checkBoundaryProductsJustified(args);
+    expect(
+      result.violations.some((v) => v.includes("feeds no catalyst charge")),
+    ).toBe(true);
+  });
+});
+
+describe("checkCatalystNodesMatchAccount", () => {
+  const targets: ItemTarget[] = [
+    { itemId: "gas_xiranite_enr", ratePerSec: { num: "2", denom: "5" } },
+  ];
+
+  it("passes when the node rate equals the account need", () => {
+    const { full, plan } = solveForRender({ targets, pack: fullPack });
+    const result = checkCatalystNodesMatchAccount({
+      plan,
+      rates: full.rates,
+      pack: fullPack,
+      targets,
+      itemOverrides: [],
+      catalystAccount: full.catalystAccount,
+    });
+    expect(result.violations).toEqual([]);
+  }, 60000);
+
+  it("fails when the passed account disagrees with the node rate", () => {
+    const { full, plan } = solveForRender({ targets, pack: fullPack });
+    const entry = full.catalystAccount.get("gas_xiranite")!;
+    const corrupted: CatalystAccount = new Map([
+      ["gas_xiranite", { ...entry, need: entry.need.mul(2) }],
+    ]);
+    const result = checkCatalystNodesMatchAccount({
+      plan,
+      rates: full.rates,
+      pack: fullPack,
+      targets,
+      itemOverrides: [],
+      catalystAccount: corrupted,
+    });
+    expect(result.violations.some((v) => v.includes("!= account need"))).toBe(
+      true,
+    );
+  }, 60000);
+
+  it("fails when an item the account bills has no catalyst node", () => {
+    const { full, plan } = solveForRender({ targets, pack: fullPack });
+    const stripped: RenderPlan = {
+      ...plan,
+      units: plan.units.filter((u) => u.id !== "u:cat:gas_xiranite"),
+    };
+    const result = checkCatalystNodesMatchAccount({
+      plan: stripped,
+      rates: full.rates,
+      pack: fullPack,
+      targets,
+      itemOverrides: [],
+      catalystAccount: full.catalystAccount,
+    });
+    expect(
+      result.violations.some((v) => v.includes("no catalyst boundary node")),
+    ).toBe(true);
+  }, 60000);
 });

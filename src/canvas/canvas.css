@@ -744,6 +744,37 @@
   border-color: var(--ak-divider);
   font-style: normal;
 }
+/* The catalyst badge on a catalyst-pool row and the "N/min catalyst" share on
+   a general row. Both name the same pool, so they share the muted violet the
+   card's catalyst rows use, and both sit as chips beside DUAL. */
+.ak-app-shell [data-testid="side-panel"] .b-row .b-tags .catalyst {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 6px;
+  border: 1px solid var(--ak-divider);
+  letter-spacing: 0.2em;
+  color: var(--ak-text-secondary);
+  font-style: normal;
+}
+
+/* The pool checkbox. Only rows for an item some recipe cycles have one, and it
+   sits under the tags so the row still reads name-first. */
+.ak-app-shell [data-testid="side-panel"] .b-row .b-role {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: var(--ak-text-decoration);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.ak-app-shell [data-testid="side-panel"] .b-row .b-role input {
+  margin: 0;
+  accent-color: var(--ak-accent-cyan-soft);
+}
+
 .ak-app-shell [data-testid="side-panel"] .b-row .b-tags .realized {
   display: inline-flex;
   align-items: center;
@@ -1350,15 +1381,6 @@
   opacity: 0.3;
 }
 
-/* Gas edges fade to a higher floor than the rest. Their stroke is dash-dot, and
-   at 0.3 the single-unit dot segments drop below visibility while the dashes
-   survive, so a dimmed gas line reads as broken geometry instead of a faded
-   edge. The :has() selector is needed because the opacity lives on the edge
-   wrapper while the kind is stamped on the path inside it. */
-.ak-canvas-theme .react-flow__edge.dimmed:has(path[data-transport-kind="gas"]) {
-  opacity: 0.45;
-}
-
 /* A container lit only because a child is focused: keep it visible with a lit
    border but a more translucent fill, so the box does not dominate its own
    dimmed members. */
@@ -1376,17 +1398,6 @@
 .ak-canvas-theme.hover-active .react-flow__edge:not(.dimmed) path {
   stroke-width: max(2.25px, calc(var(--edge-base-width, 1px) * 1.6)) !important;
   filter: brightness(1.35);
-}
-
-/* The rule above widens the stroke, but stroke-dasharray is in user units and
-   does not scale with it, so a lit gas edge renders its 1-unit dots as round
-   blobs wider than the gaps around them and stops reading as dash-dot. Stretch
-   the pattern in proportion for the lit state only. !important beats the inline
-   strokeDasharray the edge sets from strokeForKind. */
-.ak-canvas-theme.hover-active
-  .react-flow__edge:not(.dimmed)
-  path[data-transport-kind="gas"] {
-  stroke-dasharray: 8 3 1.5 3 !important;
 }
 
 /* React Flow's stock handle paints a white-bordered ring (its style.css
@@ -1776,29 +1787,17 @@
   gap: 8px;
 }
 
+/* The name and rate line boxes are declared in pixels, not as ratios or as the
+   font's own `normal`: PRODUCT_HEIGHT is the model box of every boundary card,
+   and it is summed from these two rows plus the card's padding, border and gap.
+   A line height the font metrics decide would make the drawn card disagree with
+   the model, and the port would leave the card's vertical centre. */
 .pn-name {
   font-size: 12px;
   font-weight: 700;
   letter-spacing: -0.01em;
-  line-height: 1.15;
+  line-height: 16px;
   color: var(--ak-text-primary);
-}
-
-.pn-kind {
-  font-family: var(--ak-font-mono);
-  font-size: 10px;
-  letter-spacing: 0.14em;
-  color: var(--ak-text-secondary);
-  text-transform: uppercase;
-  line-height: 1;
-  margin-top: 2px;
-}
-
-/* The caption's trailing rate segment. .pn-kind uppercases the label words;
-   this span opts the segment out so the localized unit renders "/min" (not
-   "/MIN") like the .pn-rate .unit span one row down (unit-casing-mix). */
-.pn-kind__rate {
-  text-transform: none;
 }
 
 .pn-rate {
@@ -1806,6 +1805,7 @@
   font-size: 14px;
   font-weight: 700;
   letter-spacing: -0.01em;
+  line-height: 18px;
   margin-top: 2px;
 }
 
@@ -1833,6 +1833,7 @@
 .pn-rate__cap {
   display: inline-flex;
   align-items: center;
+  line-height: 1;
   margin-left: 6px;
   padding: 1px 5px;
   border: 1px solid var(--ak-divider);
@@ -1860,6 +1861,7 @@
 .pn-rate__of {
   display: inline-flex;
   align-items: center;
+  line-height: 1;
   margin-left: 6px;
   padding: 1px 5px;
   border: 1px dashed var(--ak-divider);
@@ -1868,6 +1870,32 @@
   font-weight: 500;
   letter-spacing: 0.05em;
   color: var(--ak-text-secondary);
+}
+
+/* Boundary card of an item's catalyst pool. The catalyst mark on this canvas is
+   a ticked ladder, not a colour of its own, so the card keeps the plain input's
+   3px tab in the same boundary cyan and breaks it into ticks at a 4px pitch.
+   The border itself goes transparent and the ticks are painted as a border-box
+   background stripe, since a border edge cannot carry a gradient; the stripe's
+   width is the accent border width, so the drawn card stays PRODUCT_WIDTH.
+   Placed after the tap rules: a tap slice of the pool keeps its dashed border
+   and dimmer ground, and this pair wins the two ties (background-image, name
+   colour), because catalyst supply is not a second-class card (ruling I3). */
+.product-node.input[data-role="catalyst"] {
+  border-left-color: transparent;
+  background-image: repeating-linear-gradient(
+    to bottom,
+    var(--ak-accent-cyan) 0 2px,
+    transparent 2px 4px
+  );
+  background-repeat: no-repeat;
+  background-origin: border-box;
+  background-size: 3px 100%;
+  background-position: left top;
+}
+
+.product-node.input[data-role="catalyst"] .pn-name {
+  color: var(--ak-text-primary);
 }
 
 .canvas-strip {
@@ -1931,26 +1959,49 @@
   position: relative;
 }
 
-/* The gas-environment frame: one absolutely positioned child RecipeNode adds
-   to environment cards, carrying the six --rn-env-* custom properties (the
-   five banner layer data URIs plus the plate colour). It takes no part in
-   layout -- the card box, its border, the header height and every port
-   y-slot are unchanged -- and the sides stay open. The frame draws at every
-   zoom band (a build requirement, not a LOD ornament), so no zoom-low or
-   zoom-mid rule may touch it. */
+/* The gas-environment plate: one in-flow child RecipeNode puts FIRST on an
+   environment card, above the header, carrying the four --rn-env-* custom
+   properties (the three banner layer data URIs plus the plate colour). It is
+   a row of the card -- ENV_ROW_HEIGHT tall, the content width, no inset and
+   no margin -- so the card box, measureRecipe's height and every port y-slot
+   below it count it. The plate draws at every zoom band (a build requirement,
+   not a LOD ornament), so no zoom-low or zoom-mid rule may touch it.
+
+   Three layers in paint order: the glyph on top, then the left cap, the
+   stretched solid and the right cap. A one-row cap SVG is 72x18 natural and
+   draws at its natural size, so the two caps take 144px of the 240px row;
+   each cap's chevron gap is transparent, so the solid spans 2px more than the
+   bare subtraction (2 * 72 - 2 = 142) and peeks 1px into each cap instead of
+   underfilling the seam. The glyph is 29/36 of the row tall, 3.5/36 from its
+   top, centred -- the same proportions the game plate uses. */
 .rn-env {
-  position: absolute;
-  /* 8px gap every side: top 8 + 28 (two-row plate) = 36 above the card,
-     bottom 8 + 14 (single-row plate) = 22 below, 8 each side. */
-  inset: -36px -8px -22px;
+  /* ENV_ROW_HEIGHT in envBanner.ts, which recipeHeight charges the card; keep
+     the two in step. */
+  height: 18px;
   pointer-events: none;
+  background-image:
+    var(--rn-env-glyph), var(--rn-env-cap-left),
+    linear-gradient(var(--rn-env-plate), var(--rn-env-plate)),
+    var(--rn-env-cap-right);
+  background-size:
+    auto calc(18px * 29 / 36),
+    72px 18px,
+    calc(100% - 142px) 18px,
+    72px 18px;
+  background-position:
+    center calc(18px * 3.5 / 36),
+    left top,
+    center top,
+    right top;
+  background-repeat: no-repeat;
 }
 
-/* The haze fills the whole frame rectangle behind the card: the React Flow
-   node wrapper is a stacking context, so -1 paints under the card background
-   but above the canvas. .rn-env itself must stay z-index:auto -- a z-index
-   here would trap the pseudo's -1 inside the frame and lift the haze onto
-   the card. */
+/* The haze fills the whole CARD behind it: .rn-env is static, so this pseudo
+   resolves inset:0 against .recipe-node, the nearest positioned ancestor, and
+   the glow spreads past the card's edges. The React Flow node wrapper is a
+   stacking context, so -1 paints under the card background but above the
+   canvas; .rn-env itself must stay z-index:auto, or the pseudo's -1 would be
+   trapped inside the plate row and lift the haze onto the card. */
 .rn-env::before {
   content: "";
   position: absolute;
@@ -1959,44 +2010,6 @@
   background: color-mix(in srgb, var(--rn-env-plate) 12%, transparent);
   box-shadow: 0 0 18px 4px
     color-mix(in srgb, var(--rn-env-plate) 14%, transparent);
-}
-
-/* The two plates, stacked on one pseudo in paint order: glyph, top plate
-   (left cap, stretched solid, right cap), bottom plate the same. The caps
-   are the fixed-ratio SVGs scaled by height, so a cap's width is
-   72 * plateHeight / (18 * rows) -- 56px at both the 28px two-row top and
-   the 14px single-row bottom, every triangle the same size on the card.
-   Each cap's chevron gap is transparent, so each solid spans 2px less than
-   the full subtraction (2 * 56 - 2 = 110): it may peek 1px into a cap, it
-   must never underfill the seam. The glyph is 29/36 of the top plate tall,
-   3.5/36 from its top, centred. */
-.rn-env::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background-image:
-    var(--rn-env-glyph), var(--rn-env-top-left),
-    linear-gradient(var(--rn-env-plate), var(--rn-env-plate)),
-    var(--rn-env-top-right), var(--rn-env-bottom-left),
-    linear-gradient(var(--rn-env-plate), var(--rn-env-plate)),
-    var(--rn-env-bottom-right);
-  background-size:
-    auto calc(28px * 29 / 36),
-    calc(72px * 28 / 36) 28px,
-    calc(100% - 110px) 28px,
-    calc(72px * 28 / 36) 28px,
-    calc(72px * 14 / 18) 14px,
-    calc(100% - 110px) 14px,
-    calc(72px * 14 / 18) 14px;
-  background-position:
-    center calc(28px * 3.5 / 36),
-    left top,
-    center top,
-    right top,
-    left bottom,
-    center bottom,
-    right bottom;
-  background-repeat: no-repeat;
 }
 
 .rn-body {
@@ -2032,10 +2045,16 @@
   border-right: 0;
 }
 
-/* The label is the only flexible item against a hard 240px card, so row chrome
-   is kept to the minimum that still clears the 5px accent tab. */
+/* Three columns against a hard 240px card: the item sprite, the name, and the
+   rate. The name is the only flexible one, so it is what gives way when the
+   digits grow -- the rate is never clipped and never paints over the name
+   (ruling I1). RecipeNode elides the name against this same arithmetic (see
+   its row-budget comment), so the two gaps and the sprite column are shared
+   numbers. The port glyph and the React Flow handle are absolutely positioned
+   and take no column. */
 .rn-row {
-  display: flex;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
   gap: 5px;
   height: 22px;
@@ -2049,36 +2068,62 @@
   padding-left: 8px;
 }
 
+/* The output side reads mirrored -- rate, name, sprite -- off the same three
+   tracks, so its sprite stays on the card edge beside its port. */
 .rn-row.output {
   padding-right: 8px;
-  flex-direction: row-reverse;
+}
+
+.rn-row.output .ico {
+  grid-column: 3;
+}
+
+.rn-row.output .lbl {
+  grid-column: 2;
+  text-align: right;
 }
 
 /* A catalyst row: an input the machine cycles rather than consumes. It takes
-   the input rows' left padding so the column reads as one stack, but not their
-   accent tab (.rn-row.input::before). The muted label is what sets it apart
-   from the supplied rows above it. Its rate is seated and coloured with the
-   input rows' further down, since no `input` class inherits either here. */
+   the input rows' left padding so the column reads as one stack, and its own
+   TICKED accent tab (.rn-row.catalyst::before) in place of the input rows'
+   solid bar. The rows read at full ink: they are as important as the supplied
+   ones (ruling I3). Its rate is coloured with the input rows' further down. */
 .rn-row.catalyst {
   padding-left: 8px;
 }
 
-.rn-row.catalyst .lbl {
-  color: var(--ak-text-secondary);
+/* The first row of the catalyst block opens it: a half-row of air
+   (CATALYST_BLOCK_GAP in dimensions.ts, which recipeHeight charges the card)
+   with the body divider's hairline drawn across the middle of it. */
+.rn-row.catalyst.cat-first {
+  margin-top: 11px;
 }
 
-.rn-row.output .lbl {
-  text-align: right;
+.rn-row.catalyst.cat-first::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: -6px;
+  height: 1px;
+  background: var(--ak-divider);
+  opacity: 0.5;
 }
 
+/* Every cell names its row as well as its column. The output side mirrors by
+   column while the DOM order stays sprite, name, rate, so its rate asks for
+   column 1 after auto-placement has already passed it -- without the row pin
+   the grid opens a second implicit row and the rate lands under its name. */
 .rn-row .ico {
-  flex-shrink: 0;
+  grid-row: 1;
+  grid-column: 1;
   width: 20px;
   height: 20px;
 }
 
 .rn-row .lbl {
-  flex: 1;
+  grid-row: 1;
+  grid-column: 2;
   min-width: 0;
   white-space: nowrap;
   overflow: hidden;
@@ -2087,39 +2132,69 @@
   font-size: 12px;
 }
 
-/* The row rate is an overlay over the label tail, out of flow so the label
-   budget never pays for it, and drawn at rest on every row: the numbers are
-   the point of the card. The backdrop is the card body gradient's end colour,
-   which the rows sit on, so the digits read legibly over the tail. */
+/* The rate is a column of the row, in flow and drawn at rest on every row: the
+   numbers are the point of the card. `position: static` is declared rather
+   than left to the default because it is the contract the TS-side label budget
+   rests on -- an absolute rate would stop costing the name anything and start
+   painting over it again. Nothing wraps or ellipsizes here: the whole figure
+   is drawn or the card is wrong. */
 .rn-row .rate {
+  grid-row: 1;
+  grid-column: 3;
   font-family: var(--font-num);
   font-size: 12px;
   font-weight: 700;
   letter-spacing: -0.01em;
-  position: absolute;
-  top: 50%;
-  transform: translateY(-50%);
+  position: static;
   display: block;
-  background: #1f2125;
-  padding: 0 2px;
+  white-space: nowrap;
 }
 
-/* The overlay seats at the row's inner end (right for inputs and catalysts,
-   left for outputs), inset by the row's own horizontal padding on that side;
-   the row is position:relative already. The catalyst row needs its own seat
-   because it carries no .input class (that class paints the accent tab). */
+/* The catalyst row needs its own colour rule because it carries no .input
+   class (that class paints the solid accent tab). */
 .rn-row.input .rate,
 .rn-row.catalyst .rate {
   color: var(--ak-text-secondary);
-  right: 6px;
 }
 
 .rn-row.output .rate {
+  grid-column: 1;
   color: var(--ak-accent-cyan-soft);
-  left: 6px;
 }
 
-.rn-row.input::before,
+/* --row-accent (set inline by RecipeNode from itemColor) tints the accent tab
+   to the row's item so the row pairs by hue with its edge and port glyph; the
+   fixed defaults keep older render paths that omit it unchanged. The three
+   tabs share one box, spelled out per rule so each selector has exactly one
+   rule for the CSS-contract suites to read. */
+.rn-row.input::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 5px;
+  height: 14px;
+  left: -1px;
+  background: var(--row-accent, var(--ak-text-secondary));
+}
+
+/* Same box, ticked instead of solid: the catalyst motif across the canvas is a
+   ladder pattern in the item's own hue, not a colour of its own (A2). */
+.rn-row.catalyst::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 5px;
+  height: 14px;
+  left: -1px;
+  background: repeating-linear-gradient(
+    to bottom,
+    var(--row-accent, var(--ak-text-secondary)) 0 2px,
+    transparent 2px 4px
+  );
+}
+
 .rn-row.output::after {
   content: "";
   position: absolute;
@@ -2127,17 +2202,6 @@
   transform: translateY(-50%);
   width: 5px;
   height: 14px;
-}
-
-/* --row-accent (set inline by RecipeNode from itemColor) tints the accent tab
-   to the row's item so the row pairs by hue with its edge and port glyph; the
-   fixed defaults keep older render paths that omit it unchanged. */
-.rn-row.input::before {
-  left: -1px;
-  background: var(--row-accent, var(--ak-text-secondary));
-}
-
-.rn-row.output::after {
   right: -1px;
   background: var(--row-accent, var(--ak-accent-cyan));
   box-shadow: 0 0 8px rgba(35, 213, 252, 0.5);
@@ -2259,10 +2323,10 @@
 }
 
 /* An environment card suppresses the outer selection ring: at -6px it would
-   sit 1px inside the frame's plates (the frame extends 8px out). The card's
-   own lime border above still applies, and the plates and haze keep their
-   environment colour while selected -- selection and environment are
-   orthogonal and never share a colour. */
+   sit inside the band the haze's glow already fills, and the two read as one
+   smeared outline. The card's own lime border above still applies, and the
+   plate and haze keep their environment colour while selected -- selection
+   and environment are orthogonal and never share a colour. */
 .recipe-node.selected[data-environment]::before {
   content: none;
 }

@@ -44,7 +44,7 @@ function attachConsoleListener(page: Page): ConsoleLog {
   return { errors, warnings };
 }
 
-test.describe("raw-product boundaries and transport-kind styling", () => {
+test.describe("raw-product boundaries", () => {
   test("default plan with target copper_nugget: copper_ore input product visible, miner_4 recipe NOT visible", async ({
     page,
   }, testInfo) => {
@@ -128,11 +128,11 @@ test.describe("raw-product boundaries and transport-kind styling", () => {
     await expect(copperOreInput).toHaveCount(0);
 
     // The phase-transition route's only gas_xiranite use is the transmuter
-    // catalyst. It is charged against the item cap, and it is still boundary
-    // supply: the catalyst row draws it over an edge from the item's boundary
-    // node, so that node is on the canvas (CATALYST_SUPPLY_EDGES in
-    // src/flags.ts). The same draw surfaces in the inputs panel as an auto
-    // supply row on the item.
+    // catalyst. The charge is billed by the catalyst account rather than taken
+    // out of the route's own draw, and it is still boundary supply: the
+    // catalyst row draws it over an edge from the item's own catalyst boundary
+    // node, so that node is on the canvas. The same draw surfaces in the
+    // inputs panel as an auto supply row on the item.
     const gasXiraniteInput = page.locator(
       '[data-testid="product-node"][data-flavor="inputProduct"][data-item-id="gas_xiranite"]',
     );
@@ -157,45 +157,6 @@ test.describe("raw-product boundaries and transport-kind styling", () => {
       log.errors,
       `unexpected console errors:\n${log.errors.join("\n")}`,
     ).toEqual([]);
-  });
-
-  test("edge stroke differentiates belt vs pipe by data-transport-kind", async ({
-    page,
-  }) => {
-    // The default plan (copper_bottle + copper_powder + liquid_cleaner_1-sewage)
-    // produces both edge kinds: copper_nugget / copper_powder edges run on
-    // belts; liquid_sewage / liquid_water edges run on pipes. Using the
-    // default plan keeps this test independent of the override-walk path.
-    await bootExamPage(page, { url: "/", readiness: "nodes", settle: "none" });
-
-    // At least one belt edge and one pipe edge should be rendered. The
-    // data-transport-kind attribute sits on the inner <path> via BaseEdge
-    // prop-spread.
-    const beltEdge = page
-      .locator('.react-flow__edge-path[data-transport-kind="belt"]')
-      .first();
-    const pipeEdge = page
-      .locator('.react-flow__edge-path[data-transport-kind="pipe"]')
-      .first();
-
-    await expect(beltEdge).toBeAttached();
-    await expect(pipeEdge).toBeAttached();
-
-    // Computed-style sanity: pipe edges carry a dasharray; belt edges do not.
-    // The exact stroke color is encoded in ItemEdge.tsx and is intentionally
-    // asserted via attribute rather than hex value so the test stays robust
-    // to palette tweaks.
-    const beltDash = await beltEdge.evaluate(
-      (el) => getComputedStyle(el).strokeDasharray,
-    );
-    const pipeDash = await pipeEdge.evaluate(
-      (el) => getComputedStyle(el).strokeDasharray,
-    );
-    expect(pipeDash).not.toEqual(beltDash);
-    // Pipe dasharray must be a non-`none` value; belt is `none` or empty.
-    expect(
-      pipeDash === "none" || pipeDash === "" ? null : pipeDash,
-    ).not.toBeNull();
   });
 
   test("console clean: no errors or warnings (including 'Handle: No node id') after load", async ({

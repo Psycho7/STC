@@ -141,6 +141,32 @@ describe("solver status handling", () => {
       lpStatusOverride.status = undefined;
     }
   });
+
+  // A catalyst row never enters the LP, so it can never be the reason a solve
+  // came back infeasible; only the general caps are implicated.
+  it("infeasible error skips a catalyst-role capped override", () => {
+    lpStatusOverride.status = "infeasible";
+    const overrides = [
+      { itemId: "liquid_water", ratePerSec: { num: "0", denom: "1" } },
+      {
+        itemId: "gas_xiranite",
+        role: "catalyst" as const,
+        ratePerSec: { num: "0", denom: "1" },
+      },
+    ];
+    try {
+      let caught: unknown;
+      try {
+        solvePlanWithIntermediates(targets, pack, overrides);
+      } catch (e) {
+        caught = e;
+      }
+      const err = caught as LpInfeasibleError;
+      expect(err.cappedItemIds).toEqual(["liquid_water"]);
+    } finally {
+      lpStatusOverride.status = undefined;
+    }
+  });
 });
 
 describe("multi-producer input of a split SCC member (assemble re-route)", () => {
@@ -447,6 +473,7 @@ describe("LP-split target item through replicate and render", () => {
       pack: p,
       targets,
       itemOverrides,
+      catalystAccount: full.catalystAccount,
     }).flatMap((r) => r.violations);
     expect(violations).toEqual([]);
 
@@ -496,6 +523,7 @@ describe("co-product target items through replicate and render", () => {
       pack: p,
       targets,
       itemOverrides: [],
+      catalystAccount: full.catalystAccount,
     }).flatMap((r) => r.violations);
     expect(violations).toEqual([]);
 
@@ -533,6 +561,7 @@ describe("co-product target items through replicate and render", () => {
       pack: p,
       targets,
       itemOverrides: [],
+      catalystAccount: full.catalystAccount,
     }).flatMap((r) => r.violations);
     expect(violations).toEqual([]);
 
@@ -569,6 +598,7 @@ describe("co-product target items through replicate and render", () => {
       pack,
       targets,
       itemOverrides: [],
+      catalystAccount: full.catalystAccount,
     }).flatMap((r) => r.violations);
     expect(violations).toEqual([]);
     const zero = new Fraction(0);
@@ -600,6 +630,7 @@ describe("free-boundary target items through render", () => {
       pack,
       targets,
       itemOverrides: [],
+      catalystAccount: full.catalystAccount,
     }).flatMap((r) => r.violations);
     expect(violations).toEqual([]);
 
@@ -673,26 +704,29 @@ describe("event-cohort availability on the shipped pack", () => {
   });
 });
 
-// SolvePlanFull.catalystDraw is the only place the assembled plan reports what
-// the running recipes cycle. Pinned on the live pack so a deleted assignment
-// fails here rather than passing on a recomputed value.
-describe("SolvePlanFull.catalystDraw", () => {
+// SolvePlanFull.catalystAccount is the only place the assembled plan reports
+// what the running recipes cycle. Pinned on the live pack so a deleted
+// assignment fails here rather than passing on a recomputed value.
+describe("SolvePlanFull.catalystAccount", () => {
   it("reports the transmuter catalyst of a solved gas_copper plan", () => {
     // gas_copper has two phase_trans producers; the LP picks the solid-phase
     // one (phase_trans_2-gas_copper), whose catalyst is gas_xiranite at 0.2
-    // per cycle. Rate variables are cycles/sec and the recipe yields 1
-    // gas_copper per cycle, so a 1/s target runs it at rate 1 and cycles
-    // 1 * 1/5 = 1/5 gas_xiranite per second. Nothing else in the plan lists a
-    // catalyst, so the map holds exactly that one key.
+    // per 2 s cycle on a speed-1 machine. The recipe yields 1 gas_copper per
+    // cycle, so a 1/s target runs it at rate 1, which is exactly 2 machines,
+    // each holding 0.2/2 = 1/10 per second: the need is 1/5. gas_xiranite is
+    // raw with no override, so pool G is free and covers it whole. Nothing
+    // else in the plan lists a catalyst, so the map holds that one key.
     const full = solvePlanWithIntermediates(
       [{ itemId: "gas_copper", ratePerSec: { num: "1", denom: "1" } }],
       pack,
       [],
     );
     expect(full.rates.get("phase_trans_2-gas_copper")!.equals(1)).toBe(true);
-    expect([...full.catalystDraw.keys()]).toEqual(["gas_xiranite"]);
-    expect(
-      full.catalystDraw.get("gas_xiranite")!.equals(new Fraction(1, 5)),
-    ).toBe(true);
+    expect([...full.catalystAccount.keys()]).toEqual(["gas_xiranite"]);
+    const entry = full.catalystAccount.get("gas_xiranite")!;
+    expect(entry.need.equals(new Fraction(1, 5))).toBe(true);
+    expect(entry.fromCatalyst.equals(0)).toBe(true);
+    expect(entry.fromGeneral.equals(new Fraction(1, 5))).toBe(true);
+    expect(entry.unmet.equals(0)).toBe(true);
   });
 });

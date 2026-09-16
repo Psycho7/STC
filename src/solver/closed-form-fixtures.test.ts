@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import Fraction from "fraction.js";
-import { catalystDrawFromRates, solveLp } from "./lp";
+import { solveLp } from "./lp";
 import { solvePlanWithIntermediates } from "./index";
 import {
   CATALYST_FIXTURES,
@@ -49,8 +49,8 @@ function checkFixture(fx: ClosedFormFixture): void {
     expect(got!.equals(new Fraction(rate.num, rate.den))).toBe(true);
   }
 
-  // Draw and catalyst-draw maps are pinned exhaustively when declared: an
-  // extra entry is as wrong as a missing one, and zeros are never reported.
+  // The draw map is pinned exhaustively when declared: an extra entry is as
+  // wrong as a missing one, and zeros are never reported.
   const drawn = fx.expected.draws;
   if (drawn !== undefined) {
     expect([...r.draws.keys()].sort()).toEqual(
@@ -60,14 +60,6 @@ function checkFixture(fx: ClosedFormFixture): void {
       expect(r.draws.get(d.itemId)!.equals(new Fraction(d.num, d.den))).toBe(
         true,
       );
-    }
-  }
-  const cat = fx.expected.catalystDraw;
-  if (cat !== undefined) {
-    const got = catalystDrawFromRates(fx.pack.recipes, r.rates);
-    expect([...got.keys()].sort()).toEqual(cat.map((c) => c.itemId).sort());
-    for (const c of cat) {
-      expect(got.get(c.itemId)!.equals(new Fraction(c.num, c.den))).toBe(true);
     }
   }
 }
@@ -80,9 +72,9 @@ describe("closed-form fixtures - solveLp matches hand-derived truth", () => {
   }
 });
 
-// A catalyst is cycled, not consumed: it stays out of mass balance but is drawn
-// from the boundary and shares the item's supply cap. These four fixtures pin
-// the cap arithmetic on each side of that rule.
+// A catalyst is cycled, not consumed, and charged per machine: it stays out of
+// mass balance AND out of the LP entirely. These four fixtures pin the solve
+// on each side of that rule and the account the solve feeds.
 describe("closed-form fixtures - catalysts", () => {
   for (const fx of CATALYST_FIXTURES) {
     it(`${fx.name}: matches closed-form expected`, () => {
@@ -90,26 +82,35 @@ describe("closed-form fixtures - catalysts", () => {
     });
   }
 
-  // solveLp alone never runs the reference-free checkers. Take the same four
-  // through the pipeline entry that does (assertInvariants fires under DEV),
-  // so "no invariant assertion fires on a cycled catalyst" is asserted rather
-  // than assumed, and read catalystDraw off the assembled plan instead of
-  // recomputing it.
+  // solveLp alone never runs the reference-free checkers, and it does not
+  // build the account at all. Take the same four through the pipeline entry
+  // that does both (assertInvariants fires under DEV), so "no invariant
+  // assertion fires on a cycled catalyst" is asserted rather than assumed and
+  // the account is read off the assembled plan.
   for (const fx of CATALYST_FIXTURES) {
-    it(`${fx.name}: passes the solve-pipeline invariants`, () => {
+    it(`${fx.name}: passes the solve-pipeline invariants and pins the account`, () => {
       const full = solvePlanWithIntermediates(
         fx.targets,
         fx.pack,
         fx.itemOverrides ?? [],
       );
-      const cat = fx.expected.catalystDraw!;
-      expect([...full.catalystDraw.keys()].sort()).toEqual(
-        cat.map((c) => c.itemId).sort(),
+      const wanted = fx.expected.catalystAccount!;
+      expect([...full.catalystAccount.keys()].sort()).toEqual(
+        wanted.map((c) => c.itemId).sort(),
       );
-      for (const c of cat) {
-        expect(
-          full.catalystDraw.get(c.itemId)!.equals(new Fraction(c.num, c.den)),
-        ).toBe(true);
+      for (const want of wanted) {
+        const got = full.catalystAccount.get(want.itemId)!;
+        expect({
+          need: got.need.toFraction(),
+          fromCatalyst: got.fromCatalyst.toFraction(),
+          fromGeneral: got.fromGeneral.toFraction(),
+          unmet: got.unmet.toFraction(),
+        }).toEqual({
+          need: new Fraction(...want.need).toFraction(),
+          fromCatalyst: new Fraction(...want.fromCatalyst).toFraction(),
+          fromGeneral: new Fraction(...want.fromGeneral).toFraction(),
+          unmet: new Fraction(...want.unmet).toFraction(),
+        });
       }
     });
   }

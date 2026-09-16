@@ -1,7 +1,11 @@
 import type { RecipePack } from "@aef/schema";
 import type { RationalString, Target } from "./targets";
 import { defaultTargets } from "./targets";
-import { producersOfItem, producibleItemIds } from "./recipe-category";
+import {
+  catalystItemIds,
+  producersOfItem,
+  producibleItemIds,
+} from "./recipe-category";
 import type { PlanWireV1 } from "./plan-wire-v1";
 import {
   decodeWire,
@@ -11,16 +15,45 @@ import {
   toWire,
 } from "./plan-wire-v1";
 
-// A per-item override for the production walk, keyed by item id.
+// A per-item override for the production walk, keyed by (item id, role).
+//   role: "catalyst" -> addresses the item's catalyst supply pool instead of
+//                       the general one; valid only on a pack catalyst item
+//                       and never together with `plan`.
 //   plan: true    -> keep walking through this item.
 //   ratePerSec: X -> cap the input boundary at X during rendering.
-// Both fields are optional. There is no `plan: false`; `plan: true` being
-// present is the signal. If both are set, the rate wins.
+// All three fields are optional. There is no `plan: false`; `plan: true` being
+// present is the signal. If both plan and ratePerSec are set, the rate wins.
 export type ItemOverride = {
   itemId: string;
+  role?: "catalyst";
   plan?: true;
   ratePerSec?: RationalString;
 };
+
+// The identity of an override: which item, and which of its two supply pools.
+// Carried apart from ItemOverride because the UI addresses a pool that has no
+// override yet (an auto-row, a picked item), and because a Set or a Map keys on
+// the string form below.
+export type ItemOverrideKey = {
+  itemId: string;
+  role?: "catalyst" | undefined;
+};
+
+// No pack item id contains "#" (the loader rejects an unknown item before it
+// ever builds a key), so the general and catalyst namespaces cannot collide.
+const CATALYST_KEY_SUFFIX = "#cat";
+
+export function encodeItemOverrideKey(key: ItemOverrideKey): string {
+  return key.role === "catalyst"
+    ? `${key.itemId}${CATALYST_KEY_SUFFIX}`
+    : key.itemId;
+}
+
+export function decodeItemOverrideKey(text: string): ItemOverrideKey {
+  return text.endsWith(CATALYST_KEY_SUFFIX)
+    ? { itemId: text.slice(0, -CATALYST_KEY_SUFFIX.length), role: "catalyst" }
+    : { itemId: text };
+}
 
 export type Plan = {
   version: 1;
@@ -71,6 +104,7 @@ export type PlanLoadError =
   | { kind: "unknown-item-override"; itemId: string }
   | { kind: "duplicate-item-override"; itemId: string }
   | { kind: "invalid-item-override-plan-flag"; itemId: string; value: unknown }
+  | { kind: "invalid-item-override-role"; itemId: string; reason: string }
   // value is unknown, not RationalString: it comes straight off the wire and
   // may be null or any other JSON shape when the payload is hostile.
   | { kind: "invalid-rational"; field: string; value: unknown };
@@ -119,6 +153,8 @@ export function describePlanLoadError(error: PlanLoadError): string {
       return `Item override duplicated for ${error.itemId}.`;
     case "invalid-item-override-plan-flag":
       return `Item override ${error.itemId}: plan must be literal true.`;
+    case "invalid-item-override-role":
+      return `Item override ${error.itemId}: ${error.reason}.`;
     case "invalid-rational": {
       // The wire value may be null or mis-shaped; only render num/denom when
       // both are actually strings, otherwise show the raw JSON.
@@ -295,6 +331,9 @@ export function validatePlan(
   }
   if (plan.itemOverrides) {
     const itemIds = new Set(pack.items.map((i) => i.id));
+    const catalystIds = catalystItemIds(pack.recipes);
+    // Override identity is the (item, role) pair: the same item may carry one
+    // general row and one catalyst row.
     const seenOverrides = new Set<string>();
     for (const ov of plan.itemOverrides) {
       if (
@@ -310,10 +349,37 @@ export function validatePlan(
       if (!itemIds.has(ov.itemId)) {
         return { kind: "unknown-item-override", itemId: ov.itemId };
       }
-      if (seenOverrides.has(ov.itemId)) {
+      if (ov.role !== undefined) {
+        // The value is checked, not just its presence: a wire carrying an
+        // unknown role would otherwise load clean and then fall through both
+        // pools, since neither reads a role it does not recognise.
+        if (ov.role !== "catalyst") {
+          return {
+            kind: "invalid-item-override-role",
+            itemId: ov.itemId,
+            reason: `unknown role ${JSON.stringify(ov.role)}`,
+          };
+        }
+        if (!catalystIds.has(ov.itemId)) {
+          return {
+            kind: "invalid-item-override-role",
+            itemId: ov.itemId,
+            reason: `no recipe uses ${ov.itemId} as a catalyst`,
+          };
+        }
+        if (ov.plan === true) {
+          return {
+            kind: "invalid-item-override-role",
+            itemId: ov.itemId,
+            reason: "a catalyst row cannot carry plan",
+          };
+        }
+      }
+      const key = encodeItemOverrideKey(ov);
+      if (seenOverrides.has(key)) {
         return { kind: "duplicate-item-override", itemId: ov.itemId };
       }
-      seenOverrides.add(ov.itemId);
+      seenOverrides.add(key);
       if (ov.ratePerSec !== undefined && !isValidRational(ov.ratePerSec)) {
         return {
           kind: "invalid-rational",

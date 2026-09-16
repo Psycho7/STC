@@ -10,6 +10,7 @@ import type {
   RenderPlan,
   RenderUnitId,
   RenderUnit,
+  RenderUnitInputProduct,
   ItemId,
   RecipeId,
 } from "../types";
@@ -20,7 +21,7 @@ import {
   isLoopUnit,
 } from "../types";
 
-import { CATALYST_SUPPLY_EDGES } from "../../flags";
+import type { CatalystAccount } from "../../solver/catalyst";
 import { rationalFromString } from "./rational";
 import { unitIdForOutputProduct } from "./unit-ids";
 
@@ -48,6 +49,11 @@ export type RenderInvariantArgs = {
   pack: RecipePack;
   targets: ReadonlyArray<ItemTarget>;
   itemOverrides: ReadonlyArray<ItemOverride>;
+  // The solve's catalyst account. Required: it is the one number the render
+  // side cannot re-derive from the plan it is checking, so the cross-layer tie
+  // between the catalyst nodes and the solve only exists if every caller hands
+  // it over. A plan built by hand with no catalyst passes an empty map.
+  catalystAccount: CatalystAccount;
 };
 
 // ---------------------------------------------------------------------------
@@ -123,35 +129,33 @@ function consumptionByItem(
   return result;
 }
 
-// Sum of catalyst.qty * rate over recipes: the charge every running machine
-// cycles, drawn from the plan boundary rather than from an in-plan producer.
-function catalystDrawByItem(
-  rates: ReadonlyMap<RecipeId, Fraction>,
-  pack: RecipePack,
-): Map<ItemId, Fraction> {
-  const result = new Map<ItemId, Fraction>();
-  if (!CATALYST_SUPPLY_EDGES) return result;
-  for (const r of nettedPack(pack).recipes) {
-    const rate = rates.get(r.id);
-    if (!rate) continue;
-    for (const cat of r.catalyst ?? []) {
-      result.set(
-        cat.item,
-        (result.get(cat.item) ?? FRAC_ZERO).add(
-          new Fraction(cat.qty).mul(rate),
-        ),
-      );
-    }
-  }
-  return result;
-}
-
 // Catalyst edges land on a `cat:` port, not on the `in:` port the two consumer
 // inflow checkers below account for. A card can carry the same item on both
 // rows, so the two are told apart by the edge discriminator rather than by
 // item.
 function isCatalystEdge(edge: { toPortKind?: "catalyst" }): boolean {
   return edge.toPortKind === "catalyst";
+}
+
+// Catalyst flow leaving each catalyst boundary node. A slice ships its charge
+// straight onto the consumers' `cat:` ports; an aggregate ships it to its own
+// slices first, and those edges carry no port kind, so the feed of a catalyst
+// slice counts as catalyst flow too.
+function catalystOutflowByUnit(plan: RenderPlan): Map<RenderUnitId, Fraction> {
+  const catalystUnits = new Set<RenderUnitId>();
+  for (const u of plan.units) {
+    if (isInputProductUnit(u) && u.role === "catalyst") catalystUnits.add(u.id);
+  }
+  const outflow = new Map<RenderUnitId, Fraction>();
+  for (const edge of plan.edges) {
+    if (!catalystUnits.has(edge.fromUnit)) continue;
+    if (!isCatalystEdge(edge) && !catalystUnits.has(edge.toUnit)) continue;
+    outflow.set(
+      edge.fromUnit,
+      (outflow.get(edge.fromUnit) ?? FRAC_ZERO).add(edge.rate),
+    );
+  }
+  return outflow;
 }
 
 // ---------------------------------------------------------------------------
@@ -200,9 +204,17 @@ export function checkEdgeEndpointIntegrity(
  * Every inputProduct and outputProduct unit must match a real boundary
  * condition in the solve.
  *
+ * - catalyst inputProduct for X (role "catalyst"): justified iff the node
+ *   actually feeds a cycled charge, i.e. its outgoing catalyst flow is
+ *   positive. A charge is external supply by construction - no producer is
+ *   ever expanded for it - so the item's raw flag, cap and mass balance say
+ *   nothing about it.
+ *
  * - inputProduct for X: justified iff effectiveSupply(X) is Infinity or finite
  *   positive AND the plan draws X from outside, i.e. consumption(X) >
- *   production(X) - declaredTargetDemand(X) beyond tolerance. Production
+ *   production(X) - declaredTargetDemand(X) beyond tolerance. Catalyst flow is
+ *   NOT part of that consumption: it leaves the catalyst node, so an ordinary
+ *   node justified by nothing but a catalyst is a violation. Production
  *   claimed by a declared target draw never feeds internal consumers, so it is
  *   subtracted before the comparison. Or, for a free-supply target item, by
  *   its export shortfall: the declared rate beyond what net production covers
@@ -233,27 +245,28 @@ export function checkBoundaryProductsJustified(
 
   const production = productionByItem(rates, pack);
   const consumption = consumptionByItem(rates, pack);
-  // A cycled charge is drawn from the boundary like any other consumption, and
-  // it is the whole justification for a boundary node on an item the plan
-  // produces itself (or does not surface as raw at all).
-  const catalystDraw = catalystDrawByItem(rates, pack);
+  const catalystOutflow = catalystOutflowByUnit(plan);
   const demandOf = demandByItem(targets);
   const scaleFloor = planScaleFloor(targets);
 
   for (const unit of plan.units) {
     if (isInputProductUnit(unit)) {
       const x = unit.itemId;
+      if (unit.role === "catalyst") {
+        const drawn = catalystOutflow.get(unit.id) ?? FRAC_ZERO;
+        if (drawn.compare(FRAC_ZERO) <= 0) {
+          violations.push(
+            `catalyst inputProduct "${unit.id}": feeds no catalyst charge`,
+          );
+        }
+        continue;
+      }
       const supply = supplyTable.supplyOf(x);
       // Justified only with real external supply and net consumption (consumption
       // exceeds internal production).
-      const catDraw = catalystDraw.get(x) ?? FRAC_ZERO;
-      const isCatalystImport = catDraw.compare(FRAC_ZERO) > 0;
       const hasExternalSupply =
         supply === Infinity ||
-        (supply instanceof Fraction && supply.compare(FRAC_ZERO) > 0) ||
-        // A catalyst is external supply by construction: no producer is ever
-        // expanded for it, so the item's raw flag and cap say nothing about it.
-        isCatalystImport;
+        (supply instanceof Fraction && supply.compare(FRAC_ZERO) > 0);
       if (!hasExternalSupply) {
         violations.push(
           `inputProduct for "${x}": no external supply (effectiveSupply is zero or finite-zero)`,
@@ -265,7 +278,7 @@ export function checkBoundaryProductsJustified(
       // internal consumers, so a raw-also-target item with cons < prod can
       // still be a justified boundary input.
       const prod = production.get(x) ?? FRAC_ZERO;
-      const cons = (consumption.get(x) ?? FRAC_ZERO).add(catDraw);
+      const cons = consumption.get(x) ?? FRAC_ZERO;
       const targetDemand = new Fraction(demandOf.get(x) ?? 0);
       const availRaw = prod.sub(targetDemand);
       const availProd = availRaw.compare(FRAC_ZERO) > 0 ? availRaw : FRAC_ZERO;
@@ -931,10 +944,8 @@ export function checkProductUnitRates(
       new Set([
         ...recipe.in.map((s) => s.item),
         // A catalyst row is a landing site too: its edge carries the cycled
-        // charge from the item's boundary node.
-        ...(CATALYST_SUPPLY_EDGES
-          ? (recipe.catalyst ?? []).map((s) => s.item)
-          : []),
+        // charge from the item's catalyst node.
+        ...(recipe.catalyst ?? []).map((s) => s.item),
       ]),
     );
   }
@@ -1023,7 +1034,56 @@ export function checkProductUnitRates(
 }
 
 /**
- * Run all nine render invariant checkers in stable order. Mirrors the solver
+ * The one cross-layer tie between the drawn catalyst nodes and the solve: per
+ * item, the rate on the aggregate or single-bucket catalyst node must equal the
+ * account's `need`, and every item the account bills a positive need for must
+ * have such a node.
+ *
+ * Every other clause about a catalyst node is internal to the render plan (the
+ * node's chip against its own edges, the edges against the recipe rows they
+ * land on), so a charge computed from the wrong machine count, or a node
+ * emitted for an item the solve cycles nothing of, would be invisible without
+ * this. Fanout slices are skipped: they hold a per-container share, and their
+ * sum is already tied to the aggregate by checkProductUnitRates.
+ */
+export function checkCatalystNodesMatchAccount(
+  args: RenderInvariantArgs,
+): InvariantResult {
+  const { plan, targets, catalystAccount } = args;
+  const violations: string[] = [];
+  const scaleFloor = planScaleFloor(targets);
+
+  const nodeByItem = new Map<ItemId, RenderUnitInputProduct>();
+  for (const unit of plan.units) {
+    if (!isInputProductUnit(unit)) continue;
+    if (unit.role !== "catalyst" || unit.isFanout) continue;
+    nodeByItem.set(unit.itemId, unit);
+  }
+
+  for (const [item, node] of nodeByItem) {
+    const chip = rationalFromString(node.rate).valueOf();
+    const need = (catalystAccount.get(item)?.need ?? FRAC_ZERO).valueOf();
+    const slack = Math.max(scaleFloor, Math.abs(need)) * REL_TOL;
+    if (Math.abs(chip - need) > slack) {
+      violations.push(
+        `catalyst inputProduct "${node.id}": rate ${chip} != account need ${need}`,
+      );
+    }
+  }
+
+  for (const [item, entry] of catalystAccount) {
+    if (entry.need.compare(FRAC_ZERO) <= 0) continue;
+    if (nodeByItem.has(item)) continue;
+    violations.push(
+      `catalyst account for "${item}": need ${entry.need.valueOf()} but no catalyst boundary node`,
+    );
+  }
+
+  return { ok: violations.length === 0, violations };
+}
+
+/**
+ * Run all ten render invariant checkers in stable order. Mirrors the solver
  * debug surface that lists a verdict per checker. The order comes from
  * RENDER_INVARIANT_CHECKERS at the foot of this file, which is the one place
  * a checker is registered, so a result and its label cannot disagree.
@@ -1034,7 +1094,7 @@ export function checkRenderPlan(args: RenderInvariantArgs): InvariantResult[] {
 
 /**
  * Assert all render invariants. Throws one Error aggregating every violation
- * across the nine checkers. Mirrors assertInvariants in the solver invariants.
+ * across the ten checkers. Mirrors assertInvariants in the solver invariants.
  */
 export function assertRenderInvariants(args: RenderInvariantArgs): void {
   const violations = checkRenderPlan(args).flatMap((r) => r.violations);
@@ -1044,7 +1104,7 @@ export function assertRenderInvariants(args: RenderInvariantArgs): void {
 }
 
 /**
- * The nine checkers paired with the names a debug surface prints them under.
+ * The ten checkers paired with the names a debug surface prints them under.
  * This table IS the order checkRenderPlan runs and returns them in, so a
  * checker registered here needs no second entry anywhere: a consumer zips its
  * labels against the table and cannot mislabel a verdict.
@@ -1062,4 +1122,5 @@ export const RENDER_INVARIANT_CHECKERS: ReadonlyArray<{
   { name: "noOrphanUnits", check: checkNoOrphanUnits },
   { name: "unitOutflowVsProduction", check: checkUnitOutflowVsProduction },
   { name: "productUnitRates", check: checkProductUnitRates },
+  { name: "catalystNodesMatchAccount", check: checkCatalystNodesMatchAccount },
 ];

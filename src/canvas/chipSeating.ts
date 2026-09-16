@@ -36,7 +36,7 @@
 
 import type { Edge } from "@xyflow/react";
 
-import { ENV_FRAME_EXTENTS, GLYPH_SIDE_OFFSET } from "./dimensions";
+import { GLYPH_SIDE_OFFSET } from "./dimensions";
 import {
   CHAMFER,
   cardClearRunAnchor,
@@ -235,14 +235,9 @@ function cardBorder(type: string | undefined): number {
 // straight off the DOM, so measuring the model box here would leave the two
 // frames two units apart on every recipe.
 //
-// One kind grows further: an environment recipe's frame rectangle (plates and
-// haze beyond the card box, ENV_FRAME_EXTENTS) is an obstacle too, or a chip
-// seats on a plate. That growth is per-node, on top of the neutral
-// cardGrowth; the e2e card-frame criterion still compares the DRAWN card box
-// against the model box plus cardGrowth alone, which is what keeps proving
-// the DOM box did not grow. The rect's `border` absorbs the side extent so
-// the port-zone strip (measured border-inward from the rect edge) still
-// starts at the card's own row edge.
+// An environment recipe needs no extra term: its plate is a row of the card
+// (ruling I9), so measureRecipe's height already covers it and the box here is
+// the box the DOM paints, same as every other card's.
 //
 // Exported so a unit test can observe the growth actually being applied: the
 // e2e card-frame criterion rebuilds the same constants and so cannot see this
@@ -255,24 +250,13 @@ export function cardRectsFor(
     const left = absoluteLeft(n, byId);
     const top = absoluteTop(n, byId);
     const growth = cardGrowth(n.type);
-    const env = n.type === "recipe" && n.data.recipe.environment !== undefined;
-    if (!env) {
-      return {
-        id: n.id,
-        left,
-        top,
-        right: left + nodeWidth(n) + growth,
-        bottom: top + nodeHeight(n) + growth,
-        border: cardBorder(n.type),
-      };
-    }
     return {
       id: n.id,
-      left: left - ENV_FRAME_EXTENTS.left,
-      top: top - ENV_FRAME_EXTENTS.top,
-      right: left + nodeWidth(n) + growth + ENV_FRAME_EXTENTS.right,
-      bottom: top + nodeHeight(n) + growth + ENV_FRAME_EXTENTS.bottom,
-      border: cardBorder(n.type) + ENV_FRAME_EXTENTS.left,
+      left,
+      top,
+      right: left + nodeWidth(n) + growth,
+      bottom: top + nodeHeight(n) + growth,
+      border: cardBorder(n.type),
     };
   });
 }

@@ -1,5 +1,7 @@
 import { expect, test } from "vitest";
 import {
+  unitIdForCatalystAggregate,
+  unitIdForCatalystContainer,
   unitIdForClass,
   unitIdForInputAggregate,
   unitIdForInputContainer,
@@ -34,6 +36,14 @@ test("unitIdForInputAggregate pins the item-level input form", () => {
 
 test("unitIdForInputContainer pins the per-container slice form", () => {
   expect(unitIdForInputContainer("water", "c0")).toBe("u:in:water:c0");
+});
+
+test("unitIdForCatalystAggregate pins the item-level catalyst form", () => {
+  expect(unitIdForCatalystAggregate("water")).toBe("u:cat:water");
+});
+
+test("unitIdForCatalystContainer pins the per-container catalyst form", () => {
+  expect(unitIdForCatalystContainer("water", "c0")).toBe("u:cat:water:c0");
 });
 
 test("unitIdForInputTargetFeed pins the passthrough-feed form", () => {

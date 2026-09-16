@@ -43,7 +43,7 @@ function emitProducts(
   outputs: RenderUnitOutputProduct[];
   plan: ReturnType<typeof renderPlanFromSolve>["plan"];
   recipeById: ReadonlyMap<string, Recipe>;
-  catalystDraw: ReadonlyMap<string, Fraction>;
+  catalystNeed: ReadonlyMap<string, Fraction>;
 } {
   const solverTargets = targets;
   const { full, plan } = solveForRender({
@@ -58,7 +58,9 @@ function emitProducts(
     outputs,
     plan,
     recipeById: full.nettedRecipeById,
-    catalystDraw: full.catalystDraw,
+    catalystNeed: new Map(
+      [...full.catalystAccount].map(([itemId, e]) => [itemId, e.need]),
+    ),
   };
 }
 
@@ -122,7 +124,7 @@ describe("render policy / boundary product units", () => {
     } finally {
       vi.unstubAllEnvs();
     }
-    const { inputs, plan, catalystDraw } = result;
+    const { inputs, plan, catalystNeed } = result;
     // Asking for copper_ore to be built cannot pull a producer in: the hydro
     // miner is the only one and no plan may run it. Nor is the ore imported -
     // plan:true is a request to build it - so the ore leaves the plan entirely
@@ -132,10 +134,11 @@ describe("render policy / boundary product units", () => {
     const inputItems = new Set(inputs.map((u) => u.itemId));
     expect(inputItems.has("copper_ore")).toBe(false);
     expect(inputs.map((u) => u.itemId)).toEqual(["gas_xiranite"]);
-    // phase_trans_2-copper_nugget makes 2 per cycle, so 1 copper_nugget/s runs
-    // it at 1/2 cycles/s and cycles 0.2 * 1/2 = 1/10 gas_xiranite per second.
-    // The cycled charge is the import card's whole rate.
-    expect(catalystDraw.get("gas_xiranite")?.equals(new Fraction(1, 10))).toBe(
+    // phase_trans_2-copper_nugget makes 2 per cycle over 2 s, so 1
+    // copper_nugget/s runs it at 1/2 cycles/s, which is exactly 1 machine
+    // holding 0.2/2 = 1/10 gas_xiranite per second. The cycled charge is the
+    // import card's whole rate.
+    expect(catalystNeed.get("gas_xiranite")?.equals(new Fraction(1, 10))).toBe(
       true,
     );
     expect(inputs[0]!.rate).toEqual({ num: "1", denom: "10" });

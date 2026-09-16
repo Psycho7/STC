@@ -3,6 +3,11 @@
 // rendering both read these constants directly so they stay locked together,
 // with no CSS-in-JS or build step in between.
 
+// The environment plate's height. It is one banner row, so the number lives
+// with the banner geometry it is measured from; the card height below spends
+// it because the plate is a row of the card.
+import { ENV_ROW_HEIGHT } from "./envBanner";
+
 // Recipe-node geometry. .recipe-node is 240px wide. These constants are the
 // contract the rendered DOM is pinned to, not approximations of an auto-sized
 // layout: .rn-head carries an explicit height:56px (box-sizing:border-box),
@@ -26,14 +31,34 @@ export const RECIPE_HEAD_ICON_COL = 53;
 export const RECIPE_HEAD_TITLE_COL = RECIPE_WIDTH - RECIPE_HEAD_ICON_COL;
 export const RECIPE_HEAD_BLOCK_PAD_X = 8;
 
+// Half-row of air above the first catalyst row: the catalyst rows form their
+// own block on the card (ruling I3), and the gap plus the hairline divider
+// drawn in it is what separates the block from the supplied rows above. Only a
+// card that carries catalysts spends it. canvas.css repeats the number as the
+// first catalyst row's margin-top; keep them in step.
+export const CATALYST_BLOCK_GAP = RECIPE_ROW_HEIGHT / 2;
+
 // Card height from the two side columns' row counts. The left count is ROWS,
 // not ports: a catalyst row is drawn without a handle and still takes a row's
 // worth of height. The right side has only port rows, so its count is both.
-export function recipeHeight(inRows: number, outPorts: number): number {
+// `hasCatalystBlock` charges the left column the block gap on top of its rows,
+// and `hasEnvironmentPlate` charges the whole card the environment plate: it is
+// the card's first row, drawn above the header (ruling I9), so it grows the box
+// and pushes every row below it down by ENV_ROW_HEIGHT.
+export function recipeHeight(
+  inRows: number,
+  outPorts: number,
+  hasCatalystBlock = false,
+  hasEnvironmentPlate = false,
+): number {
+  const leftColumn =
+    inRows * RECIPE_ROW_HEIGHT + (hasCatalystBlock ? CATALYST_BLOCK_GAP : 0);
+  const rightColumn = outPorts * RECIPE_ROW_HEIGHT;
   return (
+    (hasEnvironmentPlate ? ENV_ROW_HEIGHT : 0) +
     RECIPE_HEADER_HEIGHT +
     RECIPE_ROWS_TOP_PAD * 2 +
-    Math.max(inRows, outPorts) * RECIPE_ROW_HEIGHT
+    Math.max(leftColumn, rightColumn)
   );
 }
 
@@ -114,29 +139,6 @@ export const ENTRY_GUTTER_OVERHANG = 34;
 
 export const NODE_NODE_SPACING = 30;
 
-// How far an environment recipe card's FRAME reaches beyond its card box, per
-// side: the banner plates and haze RecipeNode draws on .rn-env (inset
-// -36px -8px -22px). The card box itself never grows -- measureRecipe and the
-// DOM stay card-sized -- but two things have to reserve the frame rectangle:
-// the ELK adapter hands ELK the grown box (so the default nodeNode spacing
-// keeps neighbours off the plates) and maps positions back to the frame's
-// inner rectangle, and the chip-seating obstacles grow by the same extents so
-// no chip seats on a plate. Both read this one constant.
-//
-//   +--------------------------+   ^
-//   | 36 (top plate + glyph)   |   |
-//   |   +------------------+   |   | frame
-//   | 8 |    card box      | 8 |   |
-//   |   +------------------+   |   |
-//   | 22 (bottom plate)        |   v
-//   +--------------------------+
-export const ENV_FRAME_EXTENTS = {
-  top: 36,
-  bottom: 22,
-  left: 8,
-  right: 8,
-} as const;
-
 // A generous column gap so each ItemEdge label chip (item icon + name + rate)
 // has room to breathe and doesn't overlap the source or target node. The earlier
 // 40px gap left labels jammed against the neighboring nodes and hard to read.
@@ -190,11 +192,16 @@ export const HOVER_INTENT_MS = 150;
 // is a 124px content column plus 10px of padding per side, a 1px border and the
 // 3px accent border the direction modifier swaps in on one edge, which is why the
 // card-growth table treats a product's model box as already including its border.
-// PRODUCT_HEIGHT is kept tight to the actual ProductNode chrome (icon row + rate
-// row + padding) so that React Flow's default Handle position of top:50% falls
-// inside the visible card instead of below it.
+// PRODUCT_HEIGHT is the drawn height of that chrome, summed from canvas.css:
+// 2x1px border + 8px top and 9px bottom padding + the 28px head (the item
+// sprite, taller than the name's 16px line) + the 4px column gap + the rate
+// row's 2px margin and 18px line. The card lost its caption row with ruling
+// I5/I10, and the constant gave up the slack it used to carry over the drawn
+// box along with it (78 -> 71). Equality with the drawn box is what
+// puts React Flow's default top:50% handle on the port y the layout model
+// assigns; test/canvas/ProductNode.test.tsx re-derives it from the stylesheet.
 export const PRODUCT_WIDTH = 148;
-export const PRODUCT_HEIGHT = 78;
+export const PRODUCT_HEIGHT = 71;
 
 // Top padding ELK reserves inside a container so a member card flush against the
 // corner cannot cover the slab's caption strip. Must stay at or above the

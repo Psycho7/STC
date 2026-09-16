@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { toWire, fromWire } from "./plan-wire-v1";
+import { toWire, fromWire, encodeWire } from "./plan-wire-v1";
 import type { ItemOverride, Plan } from "./plan";
 import type { RationalString } from "./targets";
 import { pack } from "./load";
@@ -98,6 +98,44 @@ describe("plan-wire-v1 canonical order", () => {
       "ammonia",
       "water",
     ]);
+  });
+
+  it("round-trips an override carrying a catalyst role", () => {
+    const plan = basePlan();
+    plan.itemOverrides = [
+      {
+        itemId: "gas_xiranite",
+        role: "catalyst",
+        ratePerSec: { num: "1", denom: "10" },
+      },
+    ];
+    expect(fromWire(toWire(plan)).itemOverrides).toEqual(plan.itemOverrides);
+  });
+
+  it("encodes both roles of one item in the same order whatever the input order", async () => {
+    const general: ItemOverride = {
+      itemId: "gas_xiranite",
+      ratePerSec: { num: "1", denom: "2" },
+    };
+    const catalyst: ItemOverride = {
+      itemId: "gas_xiranite",
+      role: "catalyst",
+      ratePerSec: { num: "1", denom: "10" },
+    };
+    const asGiven = basePlan();
+    asGiven.itemOverrides = [general, catalyst];
+    const reversed = basePlan();
+    reversed.itemOverrides = [catalyst, general];
+
+    // Role-less first, then the catalyst row: identity is the pair, so the
+    // canonical order has to break the tie on the role too.
+    expect(fromWire(toWire(reversed)).itemOverrides).toEqual([
+      general,
+      catalyst,
+    ]);
+    expect(await encodeWire(toWire(reversed))).toBe(
+      await encodeWire(toWire(asGiven)),
+    );
   });
 });
 

@@ -1,11 +1,14 @@
 import { describe, expect, it } from "vitest";
 import { pack } from "./load";
 import {
+  decodeItemOverrideKey,
   defaultPlan,
   describePlanLoadError,
+  encodeItemOverrideKey,
   validatePlan,
   loadPlan,
   encodePlan,
+  type ItemOverride,
   type Plan,
 } from "./plan";
 import { gzipBytes } from "./encoding/gzip";
@@ -278,6 +281,19 @@ describe("validatePlan - rational wire fields", () => {
     }
   });
 
+  it("rejects a duplicate item override on the same item and role", () => {
+    const plan = basePlan();
+    plan.itemOverrides = [
+      { itemId: "gas_xiranite", role: "catalyst" },
+      {
+        itemId: "gas_xiranite",
+        role: "catalyst",
+        ratePerSec: { num: "1", denom: "1" },
+      },
+    ];
+    expect(validatePlan(plan, pack)?.kind).toBe("duplicate-item-override");
+  });
+
   it("rejects a malformed rational end-to-end through loadPlan", async () => {
     const plan = basePlan();
     plan.targets = [
@@ -346,5 +362,106 @@ describe("validatePlan - unavailable producers", () => {
     // jinlong_coupon has 12 always-on producers besides the two v1.5 event
     // exchanges; switching the cohort off must not make it untargetable.
     expect(validatePlan(targeting("jinlong_coupon"), pack, v15)).toBeNull();
+  });
+});
+
+// A catalyst-role override addresses the catalyst supply pool, which only
+// exists for an item some recipe cycles as a catalyst.
+describe("validatePlan - item override roles", () => {
+  it("accepts a catalyst role on a pack catalyst item", () => {
+    const plan = basePlan();
+    plan.itemOverrides = [{ itemId: "liquid_xiranite", role: "catalyst" }];
+    expect(validatePlan(plan, pack)).toBeNull();
+  });
+
+  it("accepts one item carrying a role-less row and a catalyst row", () => {
+    const plan = basePlan();
+    plan.itemOverrides = [
+      { itemId: "gas_xiranite", ratePerSec: { num: "1", denom: "2" } },
+      {
+        itemId: "gas_xiranite",
+        role: "catalyst",
+        ratePerSec: { num: "1", denom: "10" },
+      },
+    ];
+    expect(validatePlan(plan, pack)).toBeNull();
+  });
+
+  it("rejects a catalyst role on an item no recipe cycles", () => {
+    const plan = basePlan();
+    plan.itemOverrides = [{ itemId: "copper_powder", role: "catalyst" }];
+    const error = validatePlan(plan, pack);
+    expect(error?.kind).toBe("invalid-item-override-role");
+    expect(error && describePlanLoadError(error)).toContain("copper_powder");
+  });
+
+  // "catalyst" is the only role there is. An unrecognised one addresses
+  // nothing: pool G skips the row because it carries a role and pool C skips
+  // it because the role is not the one it answers for.
+  it("rejects a role value other than catalyst", () => {
+    const plan = basePlan();
+    plan.itemOverrides = [
+      { itemId: "gas_xiranite", role: "bogus" } as unknown as ItemOverride,
+    ];
+    const error = validatePlan(plan, pack);
+    expect(error?.kind).toBe("invalid-item-override-role");
+    expect(error && describePlanLoadError(error)).toContain("gas_xiranite");
+  });
+
+  it("rejects a catalyst role combined with plan: true", () => {
+    const plan = basePlan();
+    plan.itemOverrides = [
+      { itemId: "gas_xiranite", role: "catalyst", plan: true },
+    ];
+    const error = validatePlan(plan, pack);
+    expect(error?.kind).toBe("invalid-item-override-role");
+    expect(error && describePlanLoadError(error)).toContain("gas_xiranite");
+  });
+
+  it("rejects a role a pack catalyst item cannot carry, end-to-end", async () => {
+    const plan = basePlan();
+    plan.itemOverrides = [{ itemId: "copper_powder", role: "catalyst" }];
+    const outcome = await loadPlan(await encodePlan(plan), pack);
+    expect(outcome.kind).toBe("error");
+    if (outcome.kind === "error") {
+      expect(outcome.error.kind).toBe("invalid-item-override-role");
+    }
+  });
+});
+
+// The string form of an override's identity, shared by the loader's duplicate
+// check, the inputs panel's row keys and App's supply map.
+describe("item override key codec", () => {
+  it.each([
+    { name: "a role-less key", key: { itemId: "gas_xiranite" } },
+    {
+      name: "an explicitly undefined role",
+      key: { itemId: "gas_xiranite", role: undefined },
+    },
+    {
+      name: "a catalyst key",
+      key: { itemId: "gas_xiranite", role: "catalyst" as const },
+    },
+  ])("round-trips $name", ({ key }) => {
+    const decoded = decodeItemOverrideKey(encodeItemOverrideKey(key));
+    expect(decoded.itemId).toBe(key.itemId);
+    expect(decoded.role).toBe(key.role);
+  });
+
+  it("separates the two pools of one item", () => {
+    expect(encodeItemOverrideKey({ itemId: "gas_xiranite" })).not.toBe(
+      encodeItemOverrideKey({ itemId: "gas_xiranite", role: "catalyst" }),
+    );
+  });
+
+  // Every pack item id is free of the suffix character, which is what makes
+  // the two namespaces disjoint.
+  it("keys every pack item apart from every catalyst key", () => {
+    const keys = new Set<string>();
+    for (const item of pack.items) {
+      keys.add(encodeItemOverrideKey({ itemId: item.id }));
+      keys.add(encodeItemOverrideKey({ itemId: item.id, role: "catalyst" }));
+    }
+    expect(keys.size).toBe(pack.items.length * 2);
   });
 });

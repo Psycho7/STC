@@ -88,6 +88,39 @@ function inputRows(page: Page) {
   return page.locator('[data-testid="input-row"]');
 }
 
+// A plan whose transmuters cycle both xiranite catalysts (the battery5-xiranite
+// scenario). gas_xiranite is also consumed as an ordinary input here, so its
+// general side keeps a number of its own after a catalyst row is split off;
+// liquid_xiranite is cycled and nothing else, so its general side has nothing
+// left to show once the charge moves to the catalyst pool. Tests 8 and 9 need
+// one of each.
+async function makeTransmuterPlanHash(): Promise<string> {
+  return planHash({
+    targets: [
+      { itemId: "proc_battery_5", ratePerSec: { num: "1", denom: "2" } },
+      { itemId: "xiranite_enr_powder", ratePerSec: { num: "1", denom: "1" } },
+    ],
+  });
+}
+
+function autoRow(page: Page, itemId: string) {
+  return page.locator(
+    `[data-testid="input-auto-row"][data-item-id="${itemId}"]`,
+  );
+}
+
+function catalystRow(page: Page, itemId: string) {
+  return page.locator(
+    `[data-testid="input-row"][data-item-id="${itemId}"][data-role="catalyst"]`,
+  );
+}
+
+function generalRow(page: Page, itemId: string) {
+  return page.locator(
+    `[data-testid="input-row"][data-item-id="${itemId}"]:not([data-role])`,
+  );
+}
+
 async function clickAddInput(page: Page): Promise<void> {
   await page.getByRole("button", { name: TEXT.addInput }).click();
 }
@@ -462,6 +495,101 @@ test.describe("InputsPanel golden-path coverage", () => {
       ),
     ).toHaveCount(1);
 
+    await expectNoConsoleErrors(log);
+  });
+
+  test("Test 8: The catalyst checkbox splits an auto-row into a catalyst row", async ({
+    page,
+  }) => {
+    const log = attachConsoleListener(page);
+    await bootExamPage(page, {
+      url: `/#${await makeTransmuterPlanHash()}`,
+      readiness: "nodes",
+      settle: "none",
+    });
+    await waitForInputsPanel(page);
+
+    // gas_xiranite arrives on the general side as an auto-row: the plan both
+    // consumes it as an ordinary input and cycles it as a catalyst, and the
+    // charge is billed to the general pool while no catalyst row exists.
+    const row = autoRow(page, "gas_xiranite");
+    await expect(row).toHaveCount(1);
+    await expect(catalystRow(page, "gas_xiranite")).toHaveCount(0);
+    const urlBefore = page.url();
+
+    await row.getByTestId("input-catalyst-toggle").click();
+
+    // The catalyst row is a real override row, badged and addressable by role.
+    const cRow = catalystRow(page, "gas_xiranite");
+    await expect(cRow).toHaveCount(1);
+    await expect(cRow.getByTestId("input-catalyst-badge")).toBeVisible();
+    await expect(cRow.getByTestId("input-catalyst-toggle")).toBeChecked();
+
+    // The general side still has a number to show - its ordinary consumption -
+    // so it comes back as an auto-row rather than disappearing with the charge.
+    await expect(autoRow(page, "gas_xiranite")).toHaveCount(1);
+    await expect(
+      autoRow(page, "gas_xiranite").getByTestId("input-catalyst-toggle"),
+    ).not.toBeChecked();
+
+    await expect.poll(() => page.url(), { timeout: 5_000 }).not.toBe(urlBefore);
+    await waitForCanvasReady(page);
+
+    await expectNoConsoleErrors(log);
+  });
+
+  test("Test 9: A catalyst cap below the need reports the shortage, and unticking keeps it", async ({
+    page,
+  }) => {
+    const log = attachConsoleListener(page);
+    await bootExamPage(page, {
+      url: `/#${await makeTransmuterPlanHash()}`,
+      readiness: "nodes",
+      settle: "none",
+    });
+    await waitForInputsPanel(page);
+
+    // liquid_xiranite is cycled by the liquid-gas transmuters and consumed by
+    // nothing, so the whole 48/min charge is the row's number and the general
+    // pool is the only thing covering it until the catalyst row takes over.
+    await autoRow(page, "liquid_xiranite")
+      .getByTestId("input-catalyst-toggle")
+      .click();
+    const cRow = catalystRow(page, "liquid_xiranite");
+    await expect(cRow).toHaveCount(1);
+
+    // Uncapped, the catalyst pool holds the whole charge: nothing is short.
+    await expect(cRow.getByTestId("rate-catalyst-short")).toHaveCount(0);
+
+    const urlBeforeCap = page.url();
+    const rateInput = cRow.getByRole("textbox", { name: TEXT.rateLabel });
+    await rateInput.fill("6");
+    await rateInput.press("Enter");
+    await expect
+      .poll(() => page.url(), { timeout: 5_000 })
+      .not.toBe(urlBeforeCap);
+
+    // 6/min of a 48/min need, and the general pool has no headroom left for a
+    // non-raw item it does not otherwise import, so 42/min is unmet.
+    const shortage = catalystRow(page, "liquid_xiranite").getByTestId(
+      "rate-catalyst-short",
+    );
+    await expect(shortage).toBeVisible();
+    await expect(shortage).toContainText("42");
+
+    // Unticking converts the row back to the general pool and carries the cap.
+    await catalystRow(page, "liquid_xiranite")
+      .getByTestId("input-catalyst-toggle")
+      .click();
+    const gRow = generalRow(page, "liquid_xiranite");
+    await expect(gRow).toHaveCount(1);
+    await expect(catalystRow(page, "liquid_xiranite")).toHaveCount(0);
+    await expect(gRow.getByTestId("input-catalyst-badge")).toHaveCount(0);
+    await expect(
+      gRow.getByRole("textbox", { name: TEXT.rateLabel }),
+    ).toHaveValue("6");
+
+    await waitForCanvasReady(page);
     await expectNoConsoleErrors(log);
   });
 });

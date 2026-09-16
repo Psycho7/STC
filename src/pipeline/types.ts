@@ -70,6 +70,13 @@ export type MachineRecipeVertex = {
   // unit whose badge comes from idealCount. The exam coverage tool counts
   // partial stamps straight off the machine graph.
   partial?: boolean;
+  // Catalyst draw of this stamp, in items per second, one entry per catalyst
+  // item of the recipe. A catalyst is held per machine rather than consumed
+  // per cycle, so the rate comes from the stamp's machine count ceiled to a
+  // whole machine, not from executionRate. Absent - never an empty array - on
+  // a recipe without a catalyst and on the legacy materialisation path, which
+  // has no machine speed to compute it from.
+  catalystCharge?: ReadonlyArray<{ item: ItemId; rate: Fraction }>;
 };
 
 export type MachineSccVertex = {
@@ -151,6 +158,12 @@ export type RenderUnitInputProduct = {
   count: 1;
   rate: RationalString;
   rateCap?: RationalString;
+  // Set on the boundary nodes of the catalyst pool (`u:cat:<item>` and its
+  // container slices), which feed `cat:` ports only. Absent on an ordinary
+  // node, whose rate is ordinary consumption and never a cycled charge. The
+  // two pools of one item are accounted separately, so an item can carry a
+  // node of each.
+  role?: "catalyst";
   isFanout?: true;
   isAggregate?: true;
   // The parent aggregate's total realized rate, stamped on every fanout slice
@@ -199,6 +212,12 @@ export type RenderEdge = {
   // row, which a card can carry for an item it ALSO consumes as an input, so
   // the two edges are told apart by this discriminator rather than by item.
   toPortKind?: "catalyst";
+  // Which boundary pool the edge LEAVES. "catalyst" means `fromUnit` is a
+  // catalyst pool node (`u:cat:<item>`, single or aggregate, or one of its
+  // container slices), which the renderer draws with a dashed stroke. It
+  // is not the mirror of `toPortKind`: an aggregate-to-slice edge inside the
+  // pool lands on no catalyst row yet still leaves the pool.
+  fromPool?: "catalyst";
 };
 
 export type RenderPlan = {
