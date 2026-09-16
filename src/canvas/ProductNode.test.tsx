@@ -93,10 +93,26 @@ test("pn-rate unit is localized in zh", () => {
 
 // Surface-level gate: a fanout input lights up every fine-print line at once
 // (rate, tap share), so scanning the whole card catches any rate unit that
-// skipped the i18n table. The output card covers the target/surplus arm.
+// skipped the i18n table. The catalyst card joins it because it now draws a word
+// of its own (ruling R3): under zh that word must be the localized 催化, never
+// the Latin CATALYST. The output card covers the target/surplus arm.
 test("zh product cards render no Latin min anywhere", () => {
   const { container } = wrap(<ProductNode {...fanoutInputProps()} />, "zh");
   expect(container.textContent).not.toMatch(/min/i);
+  cleanup();
+  const catalyst = wrap(
+    <ProductNode
+      {...makeProductNodeProps({
+        kind: "inputProduct",
+        itemId: "ore",
+        rate: { num: "1", denom: "1" },
+        role: "catalyst",
+      })}
+    />,
+    "zh",
+  );
+  expect(catalyst.container.textContent).not.toMatch(/min/i);
+  expect(catalyst.container.textContent).not.toMatch(/catalyst/i);
   cleanup();
   const out = wrap(<ProductNode {...outputProps()} />, "zh");
   expect(out.container.textContent).not.toMatch(/min/i);

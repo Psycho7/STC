@@ -745,8 +745,8 @@
   font-style: normal;
 }
 /* The catalyst badge on a catalyst-pool row and the "N/min catalyst" share on
-   a general row. Both name the same pool, so they share the muted violet the
-   card's catalyst rows use, and both sit as chips beside DUAL. */
+   a general row. Both name the same pool, so they share the one secondary
+   ink, and both sit as chips beside DUAL. */
 .ak-app-shell [data-testid="side-panel"] .b-row .b-tags .catalyst {
   display: inline-flex;
   align-items: center;
@@ -1858,8 +1858,10 @@
 }
 
 /* Boundary card of an item's catalyst pool. The catalyst mark on this canvas is
-   a ticked ladder, not a colour of its own, so the card keeps the plain input's
-   3px tab in the same boundary cyan and breaks it into ticks at a 4px pitch.
+   a ticked ladder, so the card keeps the plain input's 3px tab, broken into
+   ticks at a 4px pitch, and recolours it to the catalyst yellow: this tab is
+   the one place --ak-accent-yellow is spent (ruling R2, 2026-09-16), while the
+   catalyst edges, recipe-card catalyst rows and flow chips keep the item hue.
    The border itself goes transparent and the ticks are painted as a border-box
    background stripe, since a border edge cannot carry a gradient; the stripe's
    width is the accent border width, so the drawn card stays PRODUCT_WIDTH.
@@ -1870,7 +1872,7 @@
   border-left-color: transparent;
   background-image: repeating-linear-gradient(
     to bottom,
-    var(--ak-accent-cyan) 0 2px,
+    var(--ak-accent-yellow) 0 2px,
     transparent 2px 4px
   );
   background-repeat: no-repeat;
@@ -1881,6 +1883,30 @@
 
 .product-node.input[data-role="catalyst"] .pn-name {
   color: var(--ak-text-primary);
+}
+
+/* The catalyst boundary card's one drawn word (ruling R3, 2026-09-16): a small
+   yellow boxed CATALYST riding the name's own line box, styled after the 9px
+   mono chips the rate row already uses. aria-hidden -- the card's spoken label
+   already names the pool -- and flex: none so the badge is the one thing on
+   the line that never shrinks; line-height 1 keeps its margin box (9px text +
+   2px padding + 2px border = 13px) inside the name's 16px line, so the head
+   row keeps the sprite's 28px and PRODUCT_HEIGHT does not move. The name gives
+   way instead: ProductNode subtracts this box's measured width from the name's
+   elision budget. */
+.pn-badge {
+  display: inline-block;
+  flex: none;
+  margin-left: 6px;
+  padding: 1px 4px;
+  border: 1px solid var(--ak-accent-yellow);
+  font-family: var(--ak-font-mono);
+  font-size: 9px;
+  font-weight: 500;
+  letter-spacing: 0.05em;
+  line-height: 1;
+  text-transform: uppercase;
+  color: var(--ak-accent-yellow);
 }
 
 .canvas-strip {

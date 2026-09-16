@@ -29,10 +29,11 @@ import { useSyncExternalStore } from "react";
 import { clearElisionCache } from "./elide";
 import { estimateTextWidth, type TextWidthFont } from "./textWidth";
 
-// The two CSS font stacks the elided surfaces render in. Named by their custom
-// property so the family is read from the stylesheet rather than restated here:
-// a stack edited in canvas.css must not need a matching edit in this module.
-export type FontFamilyVar = "--font-ui" | "--font-num";
+// The CSS font stacks the elided and measured surfaces render in. Named by
+// their custom property so the family is read from the stylesheet rather than
+// restated here: a stack edited in canvas.css must not need a matching edit in
+// this module.
+export type FontFamilyVar = "--font-ui" | "--font-mono" | "--font-num";
 
 export type MeasuredFont = TextWidthFont & {
   family: FontFamilyVar;

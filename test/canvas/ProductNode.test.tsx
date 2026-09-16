@@ -461,11 +461,14 @@ describe("ProductNode", () => {
       );
     });
 
-    it("draws the same box as an ordinary card: one element skeleton, one height constant", () => {
+    it("draws the ordinary box plus the one ruled word: element skeleton, one height constant", () => {
       // Height is the layout constant PRODUCT_HEIGHT, which has no role arm,
       // so the only way a catalyst card could grow is by adding chrome. Pin
       // the rendered element skeleton against the ordinary capped card: same
-      // elements, same classes, same order.
+      // elements, same classes, same order, with exactly one addition -- the
+      // CATALYST badge in the name row. That word is ruling R3's deliberate
+      // exception to ruling I5's no-words rule (2026-09-16); any other chrome
+      // the catalyst card grows is a defect.
       const skeleton = (root: Element): string[] =>
         Array.from(root.querySelectorAll("*")).map(
           (el) => `${el.tagName}.${el.className}`,
@@ -480,6 +483,13 @@ describe("ProductNode", () => {
         [makeItem("gas_xiranite", true)],
       );
       const ordinary = skeleton(plain.container);
+      const nameAt = ordinary.indexOf("DIV.pn-name");
+      expect(nameAt).toBeGreaterThanOrEqual(0);
+      const withBadge = [
+        ...ordinary.slice(0, nameAt + 1),
+        "SPAN.pn-badge",
+        ...ordinary.slice(nameAt + 1),
+      ];
       cleanup();
       const { container } = renderProduct(
         catalystData({
@@ -492,35 +502,75 @@ describe("ProductNode", () => {
         }),
         [makeItem("gas_xiranite", true)],
       );
-      expect(skeleton(container)).toEqual(ordinary);
+      expect(skeleton(container)).toEqual(withBadge);
       expect(PRODUCT_HEIGHT).toBe(71);
     });
 
     it("wears a ticked left tab of the plain input's width", () => {
       // The catalyst mark is a pattern, not a colour: the tab is the input
-      // accent's width, painted as a repeating stripe of the same boundary
-      // cyan. Both halves are read out of canvas.css, so a rule renamed or
-      // dropped in the stylesheet fails here.
+      // accent's width, painted as a repeating stripe, recoloured to the
+      // catalyst yellow -- the tab's alone, since the catalyst edges, rows and
+      // chips keep the item hue (ruling R2). Both halves are read out of
+      // canvas.css, so a rule renamed or dropped in the stylesheet fails here.
       const plain = cssBlock(".product-node.input");
       const catalyst = cssBlock('.product-node.input[data-role="catalyst"]');
       expect(catalyst).not.toBe(plain);
       expect(catalyst).toMatch(/repeating-linear-gradient/);
-      expect(
-        cssValue(
-          '.product-node.input[data-role="catalyst"]',
-          "background-image",
-        ),
-      ).toContain("--ak-accent-cyan");
-      // Width parity with the solid tab, and the 4px tick pitch.
-      expect(
-        cssPx('.product-node.input[data-role="catalyst"]', "background-size"),
-      ).toBe(cssPx(".product-node.input", "border-left"));
       const ticks = cssValue(
         '.product-node.input[data-role="catalyst"]',
         "background-image",
       );
+      expect(ticks).toContain("--ak-accent-yellow");
+      expect(ticks).not.toContain("--ak-accent-cyan");
+      // Width parity with the solid tab, and the 4px tick pitch.
+      expect(
+        cssPx('.product-node.input[data-role="catalyst"]', "background-size"),
+      ).toBe(cssPx(".product-node.input", "border-left"));
       expect(ticks).toContain("0 2px");
       expect(ticks).toContain("2px 4px");
+    });
+
+    it("carries the ruled CATALYST word as an aria-hidden badge in en and zh", () => {
+      // Ruling R3: the mark is the string inputs.catalyst.badge, drawn once on
+      // the boundary card and spoken once by its aria-label -- so the badge
+      // itself is hidden from the reader. No new i18n key: the word is the
+      // one the inputs panel already pins to the catalyst pool.
+      const en = renderProduct(catalystData(), [
+        makeItem("gas_xiranite", true),
+      ]);
+      const enBadge = en.container.querySelector(".pn-badge");
+      expect(enBadge).not.toBeNull();
+      expect(enBadge).toHaveAttribute("aria-hidden", "true");
+      expect(enBadge?.textContent).toBe("CATALYST");
+      // The badge rides the name row, after the name.
+      expect(en.container.querySelector(".pn-name")?.textContent).toContain(
+        "CATALYST",
+      );
+      cleanup();
+      const zh = renderProduct(
+        catalystData(),
+        [makeItem("gas_xiranite", true)],
+        "zh",
+      );
+      const zhBadge = zh.container.querySelector(".pn-badge");
+      expect(zhBadge).not.toBeNull();
+      expect(zhBadge).toHaveAttribute("aria-hidden", "true");
+      expect(zhBadge?.textContent).toBe("催化");
+    });
+
+    it("leaves an ordinary input card without the badge", () => {
+      const { container } = renderProduct(
+        {
+          kind: "inputProduct",
+          itemId: "gas_xiranite",
+          rate: { num: "1", denom: "10" },
+        },
+        [makeItem("gas_xiranite", true)],
+      );
+      expect(container.querySelector(".pn-badge")).toBeNull();
+      expect(
+        container.querySelector("[data-testid='pn-catalyst-badge']"),
+      ).toBeNull();
     });
 
     it("keeps the pool's name at full ink even on a tap slice", () => {
