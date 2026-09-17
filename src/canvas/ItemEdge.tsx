@@ -15,7 +15,12 @@ import {
   LABEL_MIN_ZOOM,
   portRowStampLive,
 } from "./dimensions";
-import { drawnEdge, parsePathPoints, type DrawnEdge } from "./edgePath";
+import {
+  drawnEdge,
+  parsePathPoints,
+  type DrawnEdge,
+  type RoutingHints,
+} from "./edgePath";
 import { useEffectiveZoom } from "./exportMode";
 import {
   crossingCueRadius,
@@ -29,7 +34,8 @@ import { itemColor } from "./itemColor";
 import { Sprite } from "./RecipeNode";
 import { BELT_COLOR, GAS_COLOR, PIPE_COLOR } from "./transportPalette";
 
-export type ItemEdgeData = {
+// The stamped routing hints (and their docs) live in edgePath's RoutingHints.
+export type ItemEdgeData = RoutingHints & {
   item: ItemId;
   rate: Fraction;
   // Per-edge transport phase (belt, pipe, or gas, with room to grow). Picks the
@@ -49,40 +55,6 @@ export type ItemEdgeData = {
   // Not the mirror of toPortKind: the pool's aggregate-to-slice edge lands on
   // no catalyst row and still carries it.
   fromPool?: "catalyst";
-  // Bend column x assigned by the stagger pass (assignBendColumns). Optional:
-  // when absent the path builder centers the bend at the corridor midpoint.
-  bendX?: number;
-  // Set beside bendX when that column is a fan-out trunk's SHARED junction
-  // column (routeTrunkEdges pinned every same-(item, source-port) member to
-  // it) rather than a stagger column of this edge's own. chamferStepPath then
-  // anchors this member's rate chip on its own final horizontal leg instead of
-  // the shared vertical, where every member's chip would stack.
-  fanoutColumn?: boolean;
-  // The mirror of fanoutColumn: this edge's bendX is a fan-in trunk's SHARED
-  // merge column (routeTrunkEdges pinned every far member of one (item,
-  // target-port) fan-in to it). chamferStepPath then anchors this member's rate
-  // chip on its own SOURCE horizontal, because here it is the final leg into
-  // the port that the members share.
-  faninColumn?: boolean;
-  // Per-bend corridor budget (half the stagger pitch) assigned alongside bendX by
-  // assignBendColumns. chamferStepPath grows the forward step's corner chamfers
-  // toward MAX_CHAMFER, capped by this budget so a fattened bevel never reaches a
-  // sibling column. Optional: when absent the base CHAMFER stands.
-  chamferBudget?: number;
-  // Entry-gutter column x assigned by the stagger pass (assignEntryColumns).
-  // chamferStepPath places a backward edge's left rail here. Optional: when
-  // absent the path builder falls back to its default column just before the
-  // target port.
-  entryX?: number;
-  // Backward-detour rail y staked out by clampBackwardRails so the rail clears
-  // the cards it spans. chamferStepPath reads it in its backward branch.
-  // Optional: absent for forward edges and un-clamped backward edges.
-  railY?: number;
-  // Clear horizontal y for a blocked forward final leg, stamped by
-  // jogForwardLegs. chamferStepPath reads it in its forward normal-step branch
-  // to bend the leg around an intervening card. Optional: absent for unblocked
-  // forward edges and every backward edge.
-  legY?: number;
   // Set by Canvas's hover focus on every non-focused edge. The chips read it
   // because EdgeLabelRenderer portals them outside the edge wrapper that carries
   // the `dimmed` class, so the wrapper's fade never reaches them; the chip's own
@@ -114,15 +86,6 @@ export type ItemEdgeData = {
   // nothing: one line merges with nothing.
   faninJunctionX?: number;
   faninJunctionY?: number;
-  // Card-clear chip seat (deconflictChipAnchors). The rule seat of a 1-to-1
-  // chip is the centre of its longest horizontal run, and that run can pass
-  // over a card, where the box reads as the card's own label. The pass -- the
-  // only reader that sees the card rects -- slides the box along its own run to
-  // the nearest card-clear position and stamps it here. drawnEdge uses it only
-  // while it still lies on a horizontal run of the live polyline, so a drag in
-  // flight falls back to the rule seat instead of floating the chip.
-  chipX?: number;
-  chipY?: number;
   // Crossing cues (deconflictChipAnchors). Where this edge's polyline
   // properly crosses a DIFFERENT flow's polyline (different item|source),
   // the seating pass stamps the crossing point on ONE edge of the pair --
@@ -137,10 +100,10 @@ export type ItemEdgeData = {
   // by default, and a drag auto-selects). A bare X of two continuous
   // strokes reads as a join; the gap is what says "crossing, not a merge".
   // Strict-interior crossing semantics (crossings.ts) mean a collinear
-  // fan-in run, a bus lane's overlapping member runs, and a shared fan-out
-  // trunk -- including the far members riding its junction column as plain
-  // item edges, whose verticals overlap collinearly on that column -- can
-  // never produce a stamp. Cues render only while the crossing
+  // fan-in run and a shared fan-out trunk -- including the far members
+  // riding its junction column as plain item edges, whose verticals overlap
+  // collinearly on that column -- can never produce a stamp. Cues render
+  // only while the crossing
   // still stands on BOTH sides: the stamp must sit on this edge's own live
   // polyline (the shared stale-stamp rule) AND at least one recorded
   // partner edge must still exist with both endpoints within the stale eps
@@ -148,13 +111,6 @@ export type ItemEdgeData = {
   // EITHER side of the pair drops the gap instead of floating it.
   crossingCues?: ReadonlyArray<CrossingCue>;
 };
-
-// The two zoom LOD gates are declared in ./dimensions, beside the rest of the
-// geometry contract, so a consumer that only needs a threshold does not have to
-// load this module and the React chain behind it. Re-exported here because
-// BusEdge, the canvas suites and the exam capture all name them through this
-// module; both comments live with the definitions.
-export { LABEL_MIN_ZOOM, CHIP_ICON_ONLY_MAX_ZOOM };
 
 // Physical stroke-width bounds. Edge strokes are drawn in graph units, so the
 // pane zoom scales them: at fit zoom a 1-unit stroke is a sub-pixel hairline. To
@@ -167,22 +123,21 @@ const MAX_EDGE_PX = 3;
 
 // Zoom-compensated stroke width in physical px, clamped to [MIN_EDGE_PX,
 // MAX_EDGE_PX]. At zoom 1 this is 1px (unchanged from the default).
-export function edgeStrokeWidth(zoom: number): number {
+function edgeStrokeWidth(zoom: number): number {
   return Math.min(MAX_EDGE_PX, Math.max(MIN_EDGE_PX, 1 / zoom));
 }
 
 // Inline style carrying the chip's accent color as the --chip-accent custom
 // property, or an empty object when there is no item to color by. Both edge
 // components spread this onto their flow-chip so the chip tints to the item.
-export function chipAccentStyle(item?: ItemId): React.CSSProperties {
+function chipAccentStyle(item?: ItemId): React.CSSProperties {
   return item !== undefined
     ? { ["--chip-accent" as string]: itemColor(item) }
     : {};
 }
 
 // FlowChip: the shared EdgeLabelRenderer chip every edge label uses -- the rate
-// chip at ItemEdge's bend column and BusEdge's drop / rise chips on the trunk
-// lane. One place owns the DOM contract: a nodrag/nopan .flow-chip div centered
+// chip at ItemEdge's bend column and BusEdge's drop / rise chips on the trunk. One place owns the DOM contract: a nodrag/nopan .flow-chip div centered
 // on (x, y) by the double translate, tinted to the item through
 // chipAccentStyle, carrying the full "Name x rate/min" string on aria-label and
 // title, with an optional 16px item sprite followed by the optional chip text.
@@ -306,7 +261,7 @@ export function junctionRadius(zoom: number): number {
 // edge and stable across renders.
 const CUE_MASK_EXTENT = 1_000_000;
 
-export function crossingCueMaskId(edgeId: string): string {
+function crossingCueMaskId(edgeId: string): string {
   return `cue-mask-${edgeId.replace(/[^A-Za-z0-9_-]/g, "_")}`;
 }
 
@@ -380,7 +335,7 @@ const partnerBitsEqual = (
 // record shape.
 const NO_BITS: ReadonlyArray<boolean> = [];
 
-export function useLiveCrossingCues(
+function useLiveCrossingCues(
   cues: ReadonlyArray<CrossingCue> | undefined,
   ownPts: ReadonlyArray<readonly [number, number]>,
 ): Array<{ x: number; y: number }> {
@@ -402,7 +357,7 @@ export function useLiveCrossingCues(
 // both edge components): a cue-less edge returns it instead of allocating, and
 // the consumer has already answered "no stamp" by then, so the shared identity
 // is all that matters.
-export const NO_CUE_PTS: ReadonlyArray<readonly [number, number]> = [];
+const NO_CUE_PTS: ReadonlyArray<readonly [number, number]> = [];
 
 // Which family of junction a dot marks. The testid alone cannot tell them
 // apart, so the geometry audit needs the family as its own hook. Same three
@@ -584,25 +539,6 @@ export function MaskedEdge({
         />
       </g>
     </>
-  );
-}
-
-// A chip that draws nothing still owes the reader its exact rate, so the edge
-// carries it itself: a transparent hover path over the same geometry with the
-// native SVG tooltip on it. Both components fall back to this wherever a hide
-// rule (a hidden bus branch, an off-line item seat) takes their only chip
-// away.
-export function HoverTitlePath({ d, title }: { d: string; title: string }) {
-  return (
-    <path
-      d={d}
-      fill="none"
-      stroke="transparent"
-      strokeWidth={12}
-      pointerEvents="stroke"
-    >
-      <title>{title}</title>
-    </path>
   );
 }
 

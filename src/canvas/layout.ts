@@ -58,6 +58,9 @@ import { widenLayerGaps, type GapRecord } from "./layerModel";
 // Erased at compile time, so it adds no runtime or bundler edge, and ItemEdge
 // imports none of layout / busRouting / chipSeating, so there is no cycle.
 import type { ItemEdgeData } from "./ItemEdge";
+import type { LoopNodeData } from "./LoopNode";
+import type { ProductNodeData } from "./ProductNode";
+import type { RecipeNodeData } from "./RecipeNode";
 import type {
   Container,
   ContainerId,
@@ -233,38 +236,12 @@ export const ELK_LAYER_LAST = "LAST";
 // draws no port glyphs.
 export type PortTransportKinds = ReadonlyMap<string, TransportKindId>;
 
-// React Flow node typings for the pipeline. `portTransportKinds` is required at
-// the layout-stage type level, and the production paths always provide it
-// through `unitToRFNode`. Tests that want the "no glyphs" path should pass
-// `new Map()` themselves.
-// `inputOrder` carries the ELK-resolved west port order (the item id of each
-// input port, top to bottom). The node components render their input rows,
-// Handles and glyphs in this order so the y-slot of each entering edge lines up
-// with its arrival, instead of the recipe's declaration order. There is no
-// output counterpart (ruling R4): output rows read in the recipe's own declared
-// order on every card. Optional: paths that build a node without a laid-out ELK
-// graph (older fixtures and tests) omit inputOrder, and the component falls
-// back to declaration order.
-export type RFRecipeNode = RFNode<
-  {
-    recipe: Recipe;
-    kind: "recipe";
-    portTransportKinds: PortTransportKinds;
-    multiplicity: RationalString;
-    inputOrder?: ItemId[];
-  },
-  "recipe"
->;
-export type RFLoopNode = RFNode<
-  {
-    sccId: SccId;
-    netIO: RenderUnitLoop["netIO"];
-    interior: LoopInteriorSize;
-    portTransportKinds: PortTransportKinds;
-    inputOrder?: ItemId[];
-  },
-  "loop"
->;
+// React Flow node typings for the pipeline. Each card's data shape is declared
+// once, beside the component that renders it, with the optionality older
+// fixtures and tests build against; the production paths always provide
+// `portTransportKinds` and `inputOrder` through `unitToRFNode`.
+export type RFRecipeNode = RFNode<RecipeNodeData, "recipe">;
+export type RFLoopNode = RFNode<LoopNodeData, "loop">;
 export type RFContainerNode = RFNode<
   {
     containerKind: Container["kind"];
@@ -286,33 +263,7 @@ export type CatalystBreakdown = {
   unmet: RationalString;
 };
 
-export type RFProductNode = RFNode<
-  {
-    kind: "inputProduct" | "outputProduct";
-    itemId: ItemId;
-    // `rate` holds the realized rate for inputs and the target or surplus rate
-    // for outputs. It is required on both kinds; the union in ProductNodeData
-    // tells them apart by `kind`.
-    rate: RenderUnitOutputProduct["rate"];
-    rateCap?: RenderUnitInputProduct["rateCap"];
-    // Marks the nodes of an item's catalyst pool; absent on every other
-    // product node, so it is spread in conditionally like the fanout fields.
-    role?: RenderUnitInputProduct["role"];
-    // Stamped from the solve's account; see CatalystBreakdown.
-    catalystBreakdown?: CatalystBreakdown;
-    flavor?: RenderUnitOutputProduct["flavor"];
-    // Per-container fanout slices of an aggregate input card. `isFanout` draws
-    // the tap chrome and the extra left handle the aggregate's edge arrives on;
-    // `parentRate` is the aggregate total the slice's share chip points back at.
-    // Both are absent on every other product node, and unitToRFNode spreads them
-    // in conditionally, so they are optional here rather than part of the kind
-    // union.
-    isFanout?: RenderUnitInputProduct["isFanout"];
-    parentRate?: RenderUnitInputProduct["parentRate"];
-    portTransportKinds: PortTransportKinds;
-  },
-  "product"
->;
+export type RFProductNode = RFNode<ProductNodeData, "product">;
 
 export type RFAnyNode =
   | RFRecipeNode
@@ -814,7 +765,10 @@ function portToItem(port: string): string {
 function catalystBreakdownOf(
   unit: RenderUnitInputProduct,
   catalystAccount: CatalystAccount | undefined,
-): Pick<RFProductNode["data"], "catalystBreakdown"> {
+): Pick<
+  Extract<RFProductNode["data"], { kind: "inputProduct" }>,
+  "catalystBreakdown"
+> {
   if (unit.role !== "catalyst" || unit.isFanout) return {};
   const entry = catalystAccount?.get(unit.itemId);
   if (entry === undefined) return {};

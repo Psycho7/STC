@@ -3,23 +3,17 @@ import { useMemo } from "react";
 import {
   FlowChip,
   JunctionDot,
-  LABEL_MIN_ZOOM,
   MaskedEdge,
   edgeStrokeStyle,
-  junctionRadius,
   rateLabel,
   type ItemEdgeData,
 } from "./ItemEdge";
 import { isTrunkOwner, type BusEdgeData } from "./busRouting";
+import { LABEL_MIN_ZOOM } from "./dimensions";
 import { drawnEdge } from "./edgePath";
 import { useEffectiveZoom } from "./exportMode";
 import { useI18n } from "../data/i18n-context";
 import { formatRateExactPerMin, formatRatePerMin } from "../data/rate-format";
-
-// The junction dot markup and its zoom-clamped radius are shared with ItemEdge
-// (the divergence dot reuses them); junctionRadius is re-exported so existing
-// importers that reach for it via BusEdge keep working.
-export { junctionRadius };
 
 // BusEdge renders a TRUNK member, fan-out or fan-in, through the matching path
 // builder:
@@ -82,10 +76,11 @@ export default function BusEdge({
   );
 
   const unit = i18n.t("canvas.rate.unit");
-  // The aggregate (drop) chip takes the same mount gate as every other chip --
-  // no family is exempt -- and a hover-lit edge is the one thing that lifts it,
-  // because the hover is the reader asking for that rate.
-  const showAggChip =
+  // Both chips, the aggregate (drop) and the per-member (branch) one, take the
+  // same mount gate as every other chip -- no family is exempt -- and a
+  // hover-lit edge is the one thing that lifts it, because the hover is the
+  // reader asking for that rate, so the zoom gate must not swallow the answer.
+  const showChips =
     edgeData !== undefined &&
     (zoom >= LABEL_MIN_ZOOM || edgeData.focused === true);
 
@@ -96,12 +91,6 @@ export default function BusEdge({
   // members' own chips.
   const isOwner = isTrunkOwner(edgeData);
   const totalRate = edgeData?.busTotalRate ?? edgeData?.rate;
-  // Per-member (branch) chip gate: zoom-gated, except that a hover-lit member is
-  // exempt -- the hover asks for this member's rate, so the zoom gate must not
-  // swallow the answer.
-  const showMemberChip =
-    edgeData !== undefined &&
-    (zoom >= LABEL_MIN_ZOOM || edgeData.focused === true);
   // Every rate string this member can show, formatted once per (member rate,
   // trunk total) instead of once per render: the chip formats the trunk's EXACT
   // total, rounded once, the same way the boundary cards format it, so a chip
@@ -122,11 +111,11 @@ export default function BusEdge({
   // Item name for every label and tooltip below; empty on a data-less edge, the
   // same case each string already guards.
   const itemName = edgeData ? i18n.displayName(edgeData.item) : "";
-  const dropText = showAggChip && dropRateStr ? `${dropRateStr}${unit}` : "";
+  const dropText = showChips && dropRateStr ? `${dropRateStr}${unit}` : "";
   const dropLabel =
     edgeData && dropRateStr ? rateLabel(itemName, `${dropRateStr}${unit}`) : "";
   const dropTitle =
-    edgeData && dropRateStr && totalRate
+    edgeData && dropRateStr
       ? rateLabel(itemName, `${totalExactStr}${unit}`)
       : "";
 
@@ -134,7 +123,7 @@ export default function BusEdge({
   // as the plain item edges beside it. The trunk total prints on the aggregate
   // chip alone.
   const plainRate = `${memberRateStr}${unit}`;
-  const riseText = showMemberChip && memberRateStr ? plainRate : "";
+  const riseText = showChips && memberRateStr ? plainRate : "";
   const riseLabel =
     edgeData && memberRateStr ? rateLabel(itemName, plainRate) : "";
   const riseTitle =

@@ -8,11 +8,10 @@
 //   1. one pack instance reaches both the solver and the render pipeline;
 //   2. one targets list and one itemOverrides list reach both;
 //   3. the pack that reaches the render pipeline is the RAW one -- netting is
-//      the solver's business and never crosses this seam;
-//   4. the transport config is supplied once, here.
+//      the solver's business and never crosses this seam.
 //
-// It deliberately does NOT validate the transport config: the app validates
-// once at import against the shipped pack, and validating per call would newly
+// No transport config crosses this seam, and it deliberately does NOT validate
+// one: the app validates the shipped config once at import against the shipped pack, and validating per call would newly
 // throw on synthetic packs carrying an unknown transport kind.
 //
 // Error modes are pass-through and unchanged: LpInfeasibleError from the

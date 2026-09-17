@@ -73,9 +73,9 @@ type LpRaw = Record<string, number> & {
 export const SURPLUS_WEIGHT = 1e-3;
 export const DEFICIT_WEIGHT = 1e9;
 
-// Big-M cost for target-only and excluded-producer recipes. Exported so the
+// Big-M cost for target-only and excluded-producer recipes. Named once so the
 // extraction's pass-2 leak filter and recipeCostWeight key on the same value.
-export const BIG_M_COST = 1e6;
+const BIG_M_COST = 1e6;
 
 // Default cost weights. The ordering deficit >> recipe >> surplus is the cost
 // contract. Target-only and excluded-producer recipes get a big-M cost so the LP

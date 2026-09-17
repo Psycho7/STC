@@ -14,7 +14,7 @@ import {
   widthFnFor,
   type MeasuredFont,
 } from "./measureText";
-import { iconPosition } from "./iconSprite";
+import { iconIdForItem, iconPosition } from "./iconSprite";
 import { Sprite } from "./RecipeNode";
 
 // Data shape accepted by ProductNode. The component branches on `kind` (and on
@@ -194,7 +194,7 @@ export default function ProductNode({
   const isInput = data.kind === "inputProduct";
   // Sprite key: the item's own icon id, falling back to the item id itself for
   // pack entries that declare none.
-  const iconId = item?.icon ?? data.itemId;
+  const iconId = iconIdForItem(data.itemId);
 
   // Direction and classification, spoken rather than drawn.
   const ariaLabel = buildPnAriaLabel(data, item, i18n);
