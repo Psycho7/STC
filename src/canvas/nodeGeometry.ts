@@ -175,9 +175,9 @@ export function portOffsetY(
         ? recipe.in
         : side === "out"
           ? recipe.out
-          : (recipe.catalyst ?? []);
+          : (recipe.catalyst ?? NO_ROWS);
     const order = side === "in" ? node.data.inputOrder : undefined;
-    const idx = orderByItem(rows, order).findIndex((r) => r.item === item);
+    const idx = rowIndexOf(rows, order, item);
     if (idx >= 0) {
       const geom = measureRecipe(recipe);
       const ys =
@@ -191,6 +191,41 @@ export function portOffsetY(
     }
   }
   return nodeHeight(node) / 2;
+}
+
+const NO_ROWS: ReadonlyArray<{ item: string }> = [];
+const NO_ORDER: readonly string[] = [];
+
+// The index of `item` among `rows` as orderByItem arranges them (the first
+// match, as findIndex reads it), or -1. Memoized per (rows, order) pair: the
+// recipe rows and the resolved input order are the same arrays for every port
+// lookup the routing passes make on one card.
+const rowIndexByRows = new WeakMap<
+  ReadonlyArray<{ item: string }>,
+  WeakMap<readonly string[], Map<string, number>>
+>();
+
+function rowIndexOf(
+  rows: ReadonlyArray<{ item: string }>,
+  order: readonly string[] | undefined,
+  item: string,
+): number {
+  let byOrder = rowIndexByRows.get(rows);
+  if (byOrder === undefined) {
+    byOrder = new WeakMap();
+    rowIndexByRows.set(rows, byOrder);
+  }
+  const orderKey = order ?? NO_ORDER;
+  let index = byOrder.get(orderKey);
+  if (index === undefined) {
+    const built = new Map<string, number>();
+    orderByItem(rows, order).forEach((row, i) => {
+      if (!built.has(row.item)) built.set(row.item, i);
+    });
+    byOrder.set(orderKey, built);
+    index = built;
+  }
+  return index.get(item) ?? -1;
 }
 
 // Did portOffsetY resolve `y` to an actual row on this node, rather than the

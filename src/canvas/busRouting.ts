@@ -213,9 +213,12 @@ function legBlockedIn(
   y: number,
   x0: number,
   x1: number,
+  // Narrows `set` in place of a filtered copy.
+  include: (o: PaddedObstacle) => boolean = () => true,
 ): boolean {
   return set.some(
     (o) =>
+      include(o) &&
       o.right > Math.min(x0, x1) &&
       o.left < Math.max(x0, x1) &&
       y > o.top &&
@@ -835,16 +838,20 @@ function arrivalRowOf(
 // with the cards taken top to bottom and rows whose verticals miss each other in
 // y free to share a slot. The column zone is charged one pitch per forward edge
 // (gapRequirements), which is the worst case this can ask for.
+// Beside the slots it hands back the row key of every arriving edge, by edge
+// index, so a caller placing the columns need not resolve the rows again.
 function arrivalSlots(
   nodes: ReadonlyArray<RFAnyNode>,
   edges: ReadonlyArray<Edge>,
   byId: ReadonlyMap<string, RFAnyNode>,
-): Map<string, number> {
+): { slots: Map<string, number>; rowKeyByIndex: Map<number, string> } {
   const model = buildLayerModel(nodes);
   const rows = new Map<string, ArrivalRow>();
-  for (const edge of edges) {
+  const rowKeyByIndex = new Map<number, string>();
+  for (const [index, edge] of edges.entries()) {
     const row = arrivalRowOf(edge, byId, model);
     if (row === undefined) continue;
+    rowKeyByIndex.set(index, row.key);
     const seen = rows.get(row.key);
     if (seen === undefined) {
       rows.set(row.key, row);
@@ -901,7 +908,7 @@ function arrivalSlots(
       });
     }
   }
-  return slots;
+  return { slots, rowKeyByIndex };
 }
 
 // Count of gutter columns each target node hosts, keyed by node id. Both passes
@@ -1130,6 +1137,8 @@ function arrivalModelOf(
   edges: ReadonlyArray<Edge>,
   byId: ReadonlyMap<string, RFAnyNode>,
   ctx: RoutingCtx | undefined,
+  // pinnedColumnsByGap(nodes, edges), when the caller already holds it.
+  pinned?: Map<string, PinnedColumn[]>,
 ): ArrivalModel {
   const gaps = ctx?.gaps ?? [];
   const stubColumn = (edge: Edge, k: number): number => {
@@ -1142,7 +1151,7 @@ function arrivalModelOf(
   }
   const model = buildLayerModel(nodes);
   const gapByKey = new Map(gaps.map((gap) => [gapKeyOf(gap), gap]));
-  const pinnedByGap = pinnedColumnsByGap(nodes, edges);
+  const pinnedByGap = pinned ?? pinnedColumnsByGap(nodes, edges);
   const gapOf = (edge: Edge): GapRecord | undefined =>
     firstGap(gapByKey, gapKeysFor(model, edge.target, "arrive"));
   return {
@@ -1235,14 +1244,13 @@ export function assignEntryColumns(
 ): Edge[] {
   const byId = nodeIndexOf(nodes);
   const arrivals = arrivalModelOf(nodes, edges, byId, ctx);
-  const slots = arrivalSlots(nodes, edges, byId);
-  const model = buildLayerModel(nodes);
+  const { slots, rowKeyByIndex } = arrivalSlots(nodes, edges, byId);
 
   const entryXByIndex = new Map<number, number>();
   edges.forEach((edge, index) => {
-    const row = arrivalRowOf(edge, byId, model);
-    if (row === undefined) return;
-    const slot = slots.get(row.key);
+    const rowKey = rowKeyByIndex.get(index);
+    if (rowKey === undefined) return;
+    const slot = slots.get(rowKey);
     if (slot === undefined) return;
     entryXByIndex.set(index, arrivals.columnOf(edge, slot));
   });
@@ -2424,7 +2432,8 @@ export function jogForwardLegs(
   ctx?: RoutingCtx,
 ): Edge[] {
   const byId = nodeIndexOf(nodes);
-  const arrivals = arrivalModelOf(nodes, edges, byId, ctx);
+  const pinnedByGap = pinnedColumnsByGap(nodes, edges);
+  const arrivals = arrivalModelOf(nodes, edges, byId, ctx, pinnedByGap);
 
   const obstacles = paddedObstacles(nodes, edges);
   const rawCards = rawCardRects(nodes);
@@ -2455,7 +2464,6 @@ export function jogForwardLegs(
   // caller re-running the passes on its own) the pre-zone rule stands: one
   // stub plus a chamfer out of the source port.
   const sourceGapOf = sourceGapOfEdge(nodes, ctx);
-  const pinnedByGap = pinnedColumnsByGap(nodes, edges);
   // The columns THIS pass stakes out, by gap. pinnedColumnsByGap is read off the
   // edges as the earlier passes left them and so knows none of them, while the
   // per-target counts above only separate jogs into ONE card: two jogs into two
@@ -2528,18 +2536,96 @@ export function jogForwardLegs(
     // late drop, so the long horizontal at sy runs out to HERE and the run at the
     // target row is only the approach band.
     const dropX = forwardDropX(geom, hints);
+
+    // Exempt from the obstacle scan: both endpoints' own cards / gutters (the leg
+    // leaves the source and ends inside the target) and each endpoint's own
+    // container box (a group background the edge legitimately enters, not an
+    // obstacle to route around). A foreign container in an intermediate layer
+    // stays an obstacle. Horizontal legs may cross a foreign entry gutter (every
+    // entering leg does), so the leg tests only foreign CARDS; vertical runs
+    // (bend, descent, source column) must also stay out of foreign gutters, so
+    // they test the full card + gutter set. Each obstacle tier (padded first,
+    // raw-card fallback where sibling paddings overlap) carries its own leg /
+    // column tests.
+    const exempt = ownExempt([source, target]);
+    const isForeignCard = (o: PaddedObstacle): boolean =>
+      o.kind === "card" && !exempt.has(o.nodeId);
+
+    // Nothing to jog unless the straight step is dirty: the long SOURCE
+    // horizontal at sy out to the drop column, or the approach at ty from there
+    // into the port, crosses a foreign card. (A blocked drop VERTICAL with both
+    // legs clean is not a jog.) Since the late drop the long run is the source
+    // one, and the run at ty is the approach band -- which lies in the gap in
+    // front of the target and so is dirty only in a degenerate placement, where
+    // the drop collapses back onto the bend column. Tested on the whole field
+    // through the foreign-card filter, so an edge that turns out clean pays for
+    // no obstacle lists.
+    const tgtBlocked = legBlockedIn(obstacles, ty, dropX, tx, isForeignCard);
+    const srcBlocked = legBlockedIn(obstacles, sy, sx, dropX, isForeignCard);
+    const cardBlocked = tgtBlocked || srcBlocked;
+
     // The jog runs the long horizontal from its entry column to the descent
     // column, then descends into the target port. The descent's desired column
     // is the target's next free entry slot (see occupancy above).
     const occupied =
       (gutterCounts.get(edge.target) ?? 0) +
       (jogsByTarget.get(edge.target) ?? 0);
+
+    // The descent's desired column. A jog around a CARD takes the arrival
+    // model's next free slot: the straight shape is unroutable, so where the
+    // edge turns down is this pass's to choose. A jog fired only by the level
+    // floor moves the long run's LEVEL and nothing else, and its late-drop entry
+    // column is already a slot of its own (assignEntryColumns); taking a slot
+    // further left instead would lengthen the approach band it shares with the
+    // other flows into the same card for no gain.
+    const descentX0 =
+      cardBlocked || hints.entryX === undefined
+        ? arrivals.columnOf(edge, occupied)
+        : hints.entryX;
+
+    // The floor trigger is asked only of the stretch a jog RELOCATES: from the
+    // bend column out to the drop column at sy, and from there to the descent
+    // column at ty. The runs outside that stretch (source port to bend column,
+    // descent column to target port) survive the jog unmoved, so a strike on
+    // one of them is not this edge's to fix -- it is a band the other edge
+    // yields to when its own turn comes.
+    // Either stretch can be EMPTY -- an edge that drops at its bend column has
+    // nothing to relocate at sy, and one whose descent would stand left of its
+    // drop column has nothing to relocate at ty -- and an empty stretch owes
+    // nothing, so the bounds are taken in order rather than normalised. A clean
+    // edge with both stretches empty cannot fire at all.
+    const srcStretch = dropX > bx;
+    const tgtStretch = descentX0 > dropX;
+    if (!cardBlocked && !srcStretch && !tgtStretch) return;
+
+    // The level bands this edge owes clearance to: every other edge's, confined
+    // to this edge's own x-corridor, since a band it never runs beside cannot
+    // be struck and would only lengthen the candidate scan. Which of them are
+    // waived is levelNear's rule, not a filter here, because the waiver depends
+    // on the level being tested.
+    const self: LevelPorts = {
+      source: edge.source,
+      target: edge.target,
+      sy,
+      ty,
+    };
+    const foreignBands: LevelBand[] = [];
+    for (const [otherId, bands] of levelBands) {
+      if (otherId === edge.id) continue;
+      for (const band of bands) {
+        if (band.right > sx && band.left < tx) foreignBands.push(band);
+      }
+    }
+    const srcNear = srcStretch && levelNear(foreignBands, self, sy, bx, dropX);
+    const tgtNear =
+      tgtStretch && levelNear(foreignBands, self, ty, dropX, descentX0);
+    if (!cardBlocked && !srcNear && !tgtNear) return;
+
     // The gap the descent stands in, when there is a record for it: every
     // candidate column below is confined to its column zone, so a descent
     // pushed clear of a card cannot end up inside the chip reserve in front of
     // the target.
     const descentGap = arrivals.zoneOf(edge);
-    const slotX = arrivals.columnOf(edge, occupied);
     const inDescentZone = (x: number): boolean =>
       descentGap === undefined ||
       (x >= descentGap.columnZone.left && x <= descentGap.columnZone.right);
@@ -2567,20 +2653,7 @@ export function jogForwardLegs(
             columnsPinnedIn(sourceGap),
           );
 
-    // Exempt from the obstacle scan: both endpoints' own cards / gutters (the leg
-    // leaves the source and ends inside the target) and each endpoint's own
-    // container box (a group background the edge legitimately enters, not an
-    // obstacle to route around). A foreign container in an intermediate layer
-    // stays an obstacle. Horizontal legs may cross a foreign entry gutter (every
-    // entering leg does), so the leg tests only foreign CARDS; vertical runs
-    // (bend, descent, source column) must also stay out of foreign gutters, so
-    // they test the full card + gutter set. Each obstacle tier (padded first,
-    // raw-card fallback where sibling paddings overlap) carries its own leg /
-    // column tests.
-    const exempt = ownExempt([source, target]);
-    const foreignCards = obstacles.filter(
-      (o) => o.kind === "card" && !exempt.has(o.nodeId),
-    );
+    const foreignCards = obstacles.filter(isForeignCard);
     const foreignAll = obstacles.filter((o) => !exempt.has(o.nodeId));
     const foreignRaw = rawCards.filter((o) => !exempt.has(o.nodeId));
     const vRunBlockedIn = (
@@ -2596,59 +2669,6 @@ export function jogForwardLegs(
           o.top < Math.max(y0, y1) &&
           o.bottom > Math.min(y0, y1),
       );
-
-    // Nothing to jog unless the straight step is dirty: the long SOURCE
-    // horizontal at sy out to the drop column, or the approach at ty from there
-    // into the port, crosses a foreign card. (A blocked drop VERTICAL with both
-    // legs clean is not a jog.) Since the late drop the long run is the source
-    // one, and the run at ty is the approach band -- which lies in the gap in
-    // front of the target and so is dirty only in a degenerate placement, where
-    // the drop collapses back onto the bend column.
-    const tgtBlocked = legBlockedIn(foreignCards, ty, dropX, tx);
-    const srcBlocked = legBlockedIn(foreignCards, sy, sx, dropX);
-    const cardBlocked = tgtBlocked || srcBlocked;
-
-    // The descent's desired column. A jog around a CARD takes the arrival
-    // model's next free slot: the straight shape is unroutable, so where the
-    // edge turns down is this pass's to choose. A jog fired only by the level
-    // floor moves the long run's LEVEL and nothing else, and its late-drop entry
-    // column is already a slot of its own (assignEntryColumns); taking a slot
-    // further left instead would lengthen the approach band it shares with the
-    // other flows into the same card for no gain.
-    const descentX0 = cardBlocked ? slotX : (hints.entryX ?? slotX);
-
-    // The level bands this edge owes clearance to: every other edge's, confined
-    // to this edge's own x-corridor, since a band it never runs beside cannot
-    // be struck and would only lengthen the candidate scan. Which of them are
-    // waived is levelNear's rule, not a filter here, because the waiver depends
-    // on the level being tested.
-    const self: LevelPorts = {
-      source: edge.source,
-      target: edge.target,
-      sy,
-      ty,
-    };
-    const foreignBands: LevelBand[] = [];
-    for (const [otherId, bands] of levelBands) {
-      if (otherId === edge.id) continue;
-      for (const band of bands) {
-        if (band.right > sx && band.left < tx) foreignBands.push(band);
-      }
-    }
-    // The floor trigger is asked only of the stretch a jog RELOCATES: from the
-    // bend column out to the drop column at sy, and from there to the descent
-    // column at ty. The runs outside that stretch (source port to bend column,
-    // descent column to target port) survive the jog unmoved, so a strike on
-    // one of them is not this edge's to fix -- it is a band the other edge
-    // yields to when its own turn comes.
-    // Either stretch can be EMPTY -- an edge that drops at its bend column has
-    // nothing to relocate at sy, and one whose descent would stand left of its
-    // drop column has nothing to relocate at ty -- and an empty stretch owes
-    // nothing, so the bounds are taken in order rather than normalised.
-    const srcNear = dropX > bx && levelNear(foreignBands, self, sy, bx, dropX);
-    const tgtNear =
-      descentX0 > dropX && levelNear(foreignBands, self, ty, dropX, descentX0);
-    if (!cardBlocked && !srcNear && !tgtNear) return;
 
     // Try one obstacle tier: find (entry column C, rail level R, descent D)
     // with every piece clear in this tier's card / obstacle sets. R candidates:
@@ -2668,6 +2688,45 @@ export function jogForwardLegs(
     //          to the floor here only vetoes jogs that could never fix them.
     //   "off"  none of it, the shape this pass chose before the floor existed.
     type BandMode = "all" | "rail" | "off";
+    // Nearest to ty first, ties broken by the row value itself: the rails are
+    // deduped numbers, so (distance, row) is a TOTAL order and the chosen
+    // rail no longer depends on the order the obstacles were handed in.
+    // A level band already carries the clearance it wants, so its own edges
+    // ARE candidate levels; offering only the padded ones would skip the
+    // level that just clears a neighbouring line and land on the line past
+    // it. Both are offered, since a candidate further out of a band is no
+    // less clear of it. A card offers its padded gaps as before.
+    // The list depends only on the obstacle tier and on whether the bands are
+    // admitted, so the tier chain below builds each one once per edge.
+    const railsByTier = new Map<
+      ReadonlyArray<PaddedObstacle>,
+      Map<string, number[]>
+    >();
+    const railsFor = (
+      cardSet: ReadonlyArray<PaddedObstacle>,
+      pad: number,
+      withBands: boolean,
+    ): number[] => {
+      const bySet = railsByTier.get(cardSet) ?? new Map<string, number[]>();
+      railsByTier.set(cardSet, bySet);
+      const key = `${pad}|${withBands}`;
+      const cached = bySet.get(key);
+      if (cached !== undefined) return cached;
+      const spanning = [...cardSet, ...(withBands ? foreignBands : [])].filter(
+        (o) => o.right > sx && o.left < tx,
+      );
+      const rails = [
+        ...new Set(
+          spanning.flatMap((o) =>
+            o.kind === "level"
+              ? [o.top, o.bottom, o.top - pad, o.bottom + pad]
+              : [o.top - pad, o.bottom + pad],
+          ),
+        ),
+      ].sort((a, b) => Math.abs(a - ty) - Math.abs(b - ty) || a - b);
+      bySet.set(key, rails);
+      return rails;
+    };
     const tryTier = (
       cardSet: ReadonlyArray<PaddedObstacle>,
       columnSet: ReadonlyArray<PaddedObstacle>,
@@ -2685,10 +2744,6 @@ export function jogForwardLegs(
       const stubBlocked = (y: number, x0: number, x1: number): boolean =>
         legBlockedIn(cardSet, y, x0, x1) ||
         (bands === "all" && levelNear(foreignBands, self, y, x0, x1));
-      const spanning = [
-        ...cardSet,
-        ...(bands === "off" ? [] : foreignBands),
-      ].filter((o) => o.right > sx && o.left < tx);
       // The columns the stubs need when the bands have a say over them, offered
       // to the searches below: stubClearColumns' header says why the searches
       // cannot derive them for themselves.
@@ -2696,24 +2751,14 @@ export function jogForwardLegs(
         bands === "all"
           ? stubClearColumns(foreignBands, self, y, portX, side)
           : [];
-      // Nearest to ty first, ties broken by the row value itself: the rails are
-      // deduped numbers, so (distance, row) is a TOTAL order and the chosen
-      // rail no longer depends on the order the obstacles were handed in.
-      // A level band already carries the clearance it wants, so its own edges
-      // ARE candidate levels; offering only the padded ones would skip the
-      // level that just clears a neighbouring line and land on the line past
-      // it. Both are offered, since a candidate further out of a band is no
-      // less clear of it. A card offers its padded gaps as before.
-      const rails = [
-        ...new Set(
-          spanning.flatMap((o) =>
-            o.kind === "level"
-              ? [o.top, o.bottom, o.top - pad, o.bottom + pad]
-              : [o.top - pad, o.bottom + pad],
-          ),
-        ),
-      ].sort((a, b) => Math.abs(a - ty) - Math.abs(b - ty) || a - b);
+      const rails = railsFor(cardSet, pad, bands !== "off");
       const candidates = srcBlocked ? [ty, ...rails] : rails;
+      // Everything below that does not depend on R, taken once per tier.
+      const srcStubColumns = stubColumns(sy, sx, "right");
+      const tgtStubColumns = stubColumns(ty, tx, "left");
+      const descentColumnSet = columnSet.filter(
+        (o) => o.nodeId !== edge.target,
+      );
       for (const R of candidates) {
         // A detour level inside the floor of the row it left has cleared
         // nothing: the stub at ty is still drawn, so the edge reads as two
@@ -2741,7 +2786,7 @@ export function jogForwardLegs(
               towardTarget: 1,
               gap: colGap,
               radius,
-              extra: stubColumns(sy, sx, "right"),
+              extra: srcStubColumns,
               accept: (x) =>
                 x > sx &&
                 x < tx &&
@@ -2768,12 +2813,12 @@ export function jogForwardLegs(
           descentX0,
           Math.min(R, ty),
           Math.max(R, ty),
-          columnSet.filter((o) => o.nodeId !== edge.target),
+          descentColumnSet,
           {
             towardTarget: 1,
             gap: colGap,
             radius,
-            extra: stubColumns(ty, tx, "left"),
+            extra: tgtStubColumns,
             accept: (x) =>
               x <= tx - CHAMFER &&
               (relaxed || inDescentZone(x)) &&
