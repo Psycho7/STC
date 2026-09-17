@@ -2,6 +2,7 @@ import {
   BaseEdge,
   EdgeLabelRenderer,
   useStore,
+  type Edge,
   type EdgeProps,
   type ReactFlowState,
 } from "@xyflow/react";
@@ -9,7 +10,8 @@ import { useCallback, useMemo } from "react";
 import type Fraction from "fraction.js";
 import type { ItemId, TransportKindId } from "../pipeline/types";
 import { useI18n } from "../data/i18n-context";
-import { formatRateExactPerMin, formatRatePerMin } from "../data/rate-format";
+import { formatRateExactPerMin } from "../data/rate-format";
+import { rateChipText } from "./chipMetrics";
 import {
   CHIP_ICON_ONLY_MAX_ZOOM,
   LABEL_MIN_ZOOM,
@@ -629,8 +631,12 @@ export default function ItemEdge({
   // and the image keeps full detail whatever the camera was parked at.
   const zoom = useEffectiveZoom();
   const i18n = useI18n();
+  // The chip body comes from the builder the seat reserves its box by, so the
+  // drawn text and the reserved width cannot disagree.
   const rateStr = useMemo(
-    () => (edgeData ? formatRatePerMin(edgeData.rate) : ""),
+    () =>
+      rateChipText({ id: "", source: "", target: "", data: edgeData } as Edge)
+        ?.body ?? "",
     [edgeData],
   );
   const unit = i18n.t("canvas.rate.unit");

@@ -1,7 +1,4 @@
 import { useEffect, useRef, useState } from "react";
-// Aliased: the bare name would shadow the DOM KeyboardEvent the document-level
-// Escape listener below is typed against.
-import type { KeyboardEvent as ReactKeyboardEvent } from "react";
 import { createPortal } from "react-dom";
 import type { Recipe, RecipePack } from "@aef/schema";
 import { useI18n } from "../data/i18n-context";
@@ -12,6 +9,7 @@ import {
 } from "../data/event-cohorts";
 import { iconSheetUrl } from "../canvas/iconSprite";
 import { Sprite } from "../canvas/RecipeNode";
+import { useModalDialog } from "./useModalDialog";
 
 // Icons a cohort row's strip shows before the "+N" overflow chip.
 const MAX_STRIP_ICONS = 4;
@@ -66,14 +64,7 @@ export function SettingsPanel({
       if (opener && document.contains(opener)) opener.focus();
     };
   }, []);
-  // Document-level Escape close, matching the picker popup.
-  useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") onClose();
-    }
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  const trapTab = useModalDialog(dialogRef, onClose);
 
   // The Events rows, one per cohort the pack carries, in eventCohortsOf's
   // sorted order. Recomputed per render of a small list; no memo needed.
@@ -92,26 +83,6 @@ export function SettingsPanel({
     onOverridesChange({ ...overrides, [cohort]: value });
   }
 
-  function onDialogKeyDown(e: ReactKeyboardEvent<HTMLDivElement>) {
-    if (e.key !== "Tab") return;
-    // aria-modal alone does not confine Tab. Wrap at both ends so focus cannot
-    // leave for the page behind the backdrop (the picker popup's rule).
-    const root = dialogRef.current;
-    if (!root) return;
-    const stops = [
-      ...root.querySelectorAll<HTMLElement>(
-        "button:not([disabled]), input:not([disabled])",
-      ),
-    ].filter((el) => el.tabIndex >= 0);
-    const first = stops[0];
-    const last = stops[stops.length - 1];
-    if (!first || !last) return;
-    const at = e.shiftKey ? first : last;
-    if (document.activeElement !== at) return;
-    e.preventDefault();
-    (e.shiftKey ? last : first).focus();
-  }
-
   return createPortal(
     // The portal escapes .ak-app-shell where --icons-url lives, so the backdrop
     // re-declares it or the icon strip renders blank.
@@ -128,7 +99,7 @@ export function SettingsPanel({
         aria-label={i18n.t("settings.title")}
         tabIndex={-1}
         onClick={(e) => e.stopPropagation()}
-        onKeyDown={onDialogKeyDown}
+        onKeyDown={trapTab}
       >
         <div className="settings-head">
           <span className="settings-title">{i18n.t("settings.title")}</span>

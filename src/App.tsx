@@ -465,6 +465,38 @@ function AppInner() {
     [plan],
   );
 
+  // Swap the derived render state to a finished solve + layout. Shared by the
+  // hash load and the re-solve paths, which each wrap it in their own plan and
+  // error bookkeeping.
+  const applySolved = useCallback(
+    (
+      solved: ReturnType<typeof solveFromPlan>,
+      laid: Awaited<ReturnType<typeof layoutSolved>>,
+    ): void => {
+      setRecipeCount(countDistinctRecipes(solved.full.logical));
+      setCatalystAccount(solved.full.catalystAccount);
+      setNodes(laid.nodes as Node[]);
+      setEdges(laid.edges);
+      setGaps(laid.gaps);
+      setBaseEdges(laid.baseEdges);
+      setUnderDelivered(solved.underDelivered);
+      setLayoutGeneration((g) => g + 1);
+    },
+    [setNodes, setEdges, setGaps, setBaseEdges],
+  );
+
+  // Write the plan's hash into the URL, unless a newer generation superseded
+  // this one while the plan encoded.
+  const writeHash = useCallback(
+    async (nextPlan: Plan, myGen: number): Promise<void> => {
+      const newHash = "#" + (await encodePlan(nextPlan));
+      if (myGen !== solveGen.current) return;
+      lastHandledHashRef.current = newHash;
+      history.replaceState(null, "", newHash);
+    },
+    [],
+  );
+
   // Load a plan from a URL hash, solve it, and swap the whole app state to it.
   // Serves both the mount-time load and hashchange navigation (pasting another
   // plan's #v1.* URL into the address bar). It joins the solveGen last-write-
@@ -521,23 +553,11 @@ function AppInner() {
           unavailableRef.current,
         );
         const laid = await layoutSolved(solved);
-        if (outcome.kind === "seeded") {
-          const newHash = "#" + (await encodePlan(nextPlan));
-          if (myGen !== solveGen.current) return;
-          lastHandledHashRef.current = newHash;
-          history.replaceState(null, "", newHash);
-        }
+        if (outcome.kind === "seeded") await writeHash(nextPlan, myGen);
         if (myGen !== solveGen.current) return;
         planRef.current = nextPlan;
         setPlan(nextPlan);
-        setRecipeCount(countDistinctRecipes(solved.full.logical));
-        setCatalystAccount(solved.full.catalystAccount);
-        setNodes(laid.nodes as Node[]);
-        setEdges(laid.edges);
-        setGaps(laid.gaps);
-        setBaseEdges(laid.baseEdges);
-        setUnderDelivered(solved.underDelivered);
-        setLayoutGeneration((g) => g + 1);
+        applySolved(solved, laid);
         setPlanEpoch((e) => e + 1);
         // A fresh render is authoritative: the canvas now matches the plan.
         setStale(false);
@@ -556,7 +576,7 @@ function AppInner() {
         }
       }
     },
-    [setNodes, setEdges, setGaps, setBaseEdges],
+    [applySolved, writeHash],
   );
 
   // Recover from a damaged share link: drop the hash and load the default plan
@@ -602,20 +622,10 @@ function AppInner() {
         const solved = solveFromPlan(nextPlan, undefined, unavailable);
         const laid = await layoutSolved(solved);
         if (myGen !== solveGen.current) return;
-        setRecipeCount(countDistinctRecipes(solved.full.logical));
-        setCatalystAccount(solved.full.catalystAccount);
-        setNodes(laid.nodes as Node[]);
-        setEdges(laid.edges);
-        setGaps(laid.gaps);
-        setBaseEdges(laid.baseEdges);
-        setUnderDelivered(solved.underDelivered);
-        setLayoutGeneration((g) => g + 1);
+        applySolved(solved, laid);
         setMutationError(null);
         setStale(false);
-        const newHash = "#" + (await encodePlan(nextPlan));
-        if (myGen !== solveGen.current) return;
-        lastHandledHashRef.current = newHash;
-        history.replaceState(null, "", newHash);
+        await writeHash(nextPlan, myGen);
       } catch (e) {
         if (myGen !== solveGen.current) return;
         setMutationError({ kind: "solver", error: e });
@@ -624,7 +634,7 @@ function AppInner() {
         if (myGen === solveGen.current) setPending(false);
       }
     },
-    [setNodes, setEdges, setGaps, setBaseEdges, unavailable],
+    [applySolved, writeHash, unavailable],
   );
 
   // Commit the plan (user intent) synchronously, then kick off the async

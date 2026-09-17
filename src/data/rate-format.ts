@@ -63,23 +63,27 @@ export function formatRateExactPerMin(itemsPerSec: Fraction): string {
     : text;
 }
 
-// Per-minute Fraction from a per-second rational. x60 stays exact, so both the
-// fraction and numeric formatters below build on this.
+// Per-minute Fraction from a per-second rational. x60 stays exact.
 function perMinFromRational(rps: RationalString): Fraction {
   return rationalFromString(rps).mul(60);
 }
 
-// RationalString version, for the ProductNode boundary cards, recipe port rows,
-// and the sidebar demand lines. Routes through the same decimal core as the
-// canvas chips so the two never disagree; an exact-zero rational renders "0"
-// (a definite readout) rather than the empty string the chip formatter uses.
+// Readout version, for the ProductNode boundary cards, recipe port rows, and
+// the sidebar demand lines. Routes through the same decimal core as the canvas
+// chips so the two never disagree; an exact zero renders "0" (a definite
+// readout) rather than the empty string the chip formatter uses.
+export function formatFractionPerMin(itemsPerSec: Fraction): string {
+  const perMin = itemsPerSec.mul(60);
+  if (perMin.valueOf() === 0) return "0";
+  return formatPerMin(perMin);
+}
+
+// The same readout for a per-second rational.
 export function formatRationalPerMin(rps: {
   num: string;
   denom: string;
 }): string {
-  const perMin = perMinFromRational(rps);
-  if (perMin.valueOf() === 0) return "0";
-  return formatPerMin(perMin);
+  return formatFractionPerMin(rationalFromString(rps));
 }
 
 // Items-per-minute input text (per-second rational x60) for editable rate

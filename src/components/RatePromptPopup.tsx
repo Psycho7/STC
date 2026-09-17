@@ -1,7 +1,4 @@
 import { useEffect, useRef, useState } from "react";
-// Aliased: the bare name would shadow the DOM KeyboardEvent the document-level
-// Escape listener below is typed against.
-import type { KeyboardEvent as ReactKeyboardEvent } from "react";
 import { createPortal } from "react-dom";
 import { useI18n } from "../data/i18n-context";
 import type { RationalString } from "../data/targets";
@@ -10,6 +7,7 @@ import type { RationalString } from "../data/targets";
 import { parsePerMinToRatePerSec } from "../data/rate-format";
 import { iconIdForItem } from "../canvas/iconSprite";
 import { Sprite } from "../canvas/RecipeNode";
+import { useModalDialog } from "./useModalDialog";
 
 type Props = {
   // The item that was just picked. The caller resolves the display name (the
@@ -56,13 +54,7 @@ export function RatePromptPopup({
   useEffect(() => {
     inputRef.current?.focus();
   }, []);
-  useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") onCancel();
-    }
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, [onCancel]);
+  const trapTab = useModalDialog(dialogRef, onCancel);
 
   function confirmRate() {
     const trimmed = text.trim();
@@ -86,33 +78,6 @@ export function RatePromptPopup({
     onConfirm(parsed);
   }
 
-  // Everything inside the dialog that Tab can reach: the rate input and the
-  // Cancel / Add buttons.
-  function tabbables(): HTMLElement[] {
-    const root = dialogRef.current;
-    if (!root) return [];
-    return [
-      ...root.querySelectorAll<HTMLElement>(
-        "button:not([disabled]), input:not([disabled])",
-      ),
-    ].filter((el) => el.tabIndex >= 0);
-  }
-
-  function onDialogKeyDown(e: ReactKeyboardEvent<HTMLDivElement>) {
-    if (e.key !== "Tab") return;
-    // aria-modal alone does not confine Tab; wrap at both ends of the
-    // three-stop ring instead of letting focus escape to the page behind the
-    // backdrop.
-    const stops = tabbables();
-    const first = stops[0];
-    const last = stops[stops.length - 1];
-    if (!first || !last) return;
-    const at = e.shiftKey ? first : last;
-    if (document.activeElement !== at) return;
-    e.preventDefault();
-    (e.shiftKey ? last : first).focus();
-  }
-
   return createPortal(
     // The portal escapes .ak-app-shell where --icons-url lives, so the backdrop
     // re-declares it or the sprite renders blank.
@@ -128,7 +93,7 @@ export function RatePromptPopup({
         aria-modal="true"
         aria-label={i18n.t("ratePrompt.title")}
         onClick={(e) => e.stopPropagation()}
-        onKeyDown={onDialogKeyDown}
+        onKeyDown={trapTab}
       >
         <div className="rate-prompt-item">
           <Sprite iconId={iconIdForItem(item.id)} size={28} />

@@ -6,7 +6,7 @@ import { measureRecipe } from "./recipeGeometry";
 import { envBannerLayers } from "./envBanner";
 import { useI18n } from "../data/i18n-context";
 import { PortGlyph } from "./PortGlyph";
-import { formatRationalPerMin } from "../data/rate-format";
+import { formatFractionPerMin } from "../data/rate-format";
 import { catalystChargeOf } from "../solver/catalyst";
 import type { PortTransportKinds } from "./layout";
 import type { ItemId } from "../pipeline/types";
@@ -189,18 +189,9 @@ function rowRateText(
   speed: Fraction,
   scale: Fraction,
 ): string {
-  return ratePerMinText(
+  return formatFractionPerMin(
     new Fraction(stoich.qty).mul(speed).mul(scale).div(recipeTime),
   );
-}
-
-// A per-second rational rate as the card's per-minute label. Rates here are
-// non-negative, so serializing .n/.d is safe.
-function ratePerMinText(perSec: Fraction): string {
-  return formatRationalPerMin({
-    num: perSec.n.toString(),
-    denom: perSec.d.toString(),
-  });
 }
 
 export default function RecipeNode({
@@ -394,7 +385,7 @@ export default function RecipeNode({
             // the row reads it there so the card, the account and the edge
             // chip cannot drift apart.
             const perMachine = rowRateText(p, recipe.time, speed, ONE);
-            const aggregate = ratePerMinText(
+            const aggregate = formatFractionPerMin(
               catalystChargeOf(scale, p, recipe, machine ?? { speed: 1 }),
             );
             const visible = elideRowLabel(
