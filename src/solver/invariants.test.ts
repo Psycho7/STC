@@ -735,4 +735,64 @@ describe("solver invariant table", () => {
     checkSolvePlan(makeArgs(reportCosts));
     expect(reportCosts.read).toBe(true);
   });
+
+  it("forwards the unavailable set to the optimal row", () => {
+    // mid_cheap is cheaper at intrinsic costs but switched off, and the cost
+    // override keeps the base on the pricey chain either way. Only a re-solve
+    // that still sees mid_cheap can report a violation.
+    const p = {
+      recipes: [
+        {
+          id: "T",
+          category: "material",
+          time: 1,
+          in: [{ item: "mid", qty: 1 }],
+          out: [{ item: "prod", qty: 1 }],
+        },
+        {
+          id: "mid_cheap",
+          category: "material",
+          time: 1,
+          in: [{ item: "raw_a", qty: 1 }],
+          out: [{ item: "mid", qty: 1 }],
+        },
+        {
+          id: "mid_pricey",
+          category: "material",
+          time: 1,
+          in: [{ item: "inter", qty: 1 }],
+          out: [{ item: "mid", qty: 1 }],
+        },
+        {
+          id: "make_inter",
+          category: "material",
+          time: 1,
+          in: [{ item: "raw_a", qty: 1 }],
+          out: [{ item: "inter", qty: 1 }],
+        },
+      ],
+      items: [
+        { id: "raw_a", raw: true },
+        { id: "inter", raw: false },
+        { id: "mid", raw: false },
+        { id: "prod", raw: false },
+      ],
+    } as unknown as typeof pack;
+    const targets: ItemTarget[] = [
+      { itemId: "prod", ratePerSec: { num: "1", denom: "1" } },
+    ];
+    const optimal = SOLVER_INVARIANT_CHECKERS.find(
+      (c) => c.name === "optimal",
+    )!;
+    const res = optimal.check({
+      full: makeFull(),
+      result: solveLp({ targets, pack: p }),
+      pack: p,
+      targets,
+      itemOverrides: noOverrides,
+      recipeCosts: new Map([["mid_cheap", 100]]),
+      unavailableRecipeIds: new Set(["mid_cheap"]),
+    });
+    expect(res.violations).toEqual([]);
+  });
 });

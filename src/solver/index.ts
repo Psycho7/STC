@@ -339,6 +339,7 @@ export function solvePlanWithIntermediates(
       targets,
       itemOverrides: itemOverrides ?? [],
       ...(recipeCosts !== undefined && { recipeCosts }),
+      ...(unavailableRecipeIds !== undefined && { unavailableRecipeIds }),
     });
   }
 

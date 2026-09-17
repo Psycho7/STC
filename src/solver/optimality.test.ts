@@ -145,4 +145,66 @@ describe("assertOptimal", () => {
     expect(res.ok).toBe(false);
     expect(res.violations.length).toBeGreaterThan(0);
   });
+
+  it("passes when the cheaper recipe is unavailable for the solve", () => {
+    // Same two-chain shape as above, but mid_cheap is switched off. The pricey
+    // 3-run chain is then the only way to make `mid`, so the base is optimal
+    // for the solve the user asked for. Re-solving with mid_cheap back in the
+    // model would find the 2-run plan and report a false violation.
+    const p = {
+      recipes: [
+        {
+          id: "T",
+          category: "material",
+          time: 1,
+          in: [{ item: "mid", qty: 1 }],
+          out: [{ item: "prod", qty: 1 }],
+        },
+        {
+          id: "mid_cheap",
+          category: "material",
+          time: 1,
+          in: [{ item: "raw_a", qty: 1 }],
+          out: [{ item: "mid", qty: 1 }],
+        },
+        {
+          id: "mid_pricey",
+          category: "material",
+          time: 1,
+          in: [{ item: "inter", qty: 1 }],
+          out: [{ item: "mid", qty: 1 }],
+        },
+        {
+          id: "make_inter",
+          category: "material",
+          time: 1,
+          in: [{ item: "raw_a", qty: 1 }],
+          out: [{ item: "inter", qty: 1 }],
+        },
+      ],
+      items: [
+        { id: "raw_a", raw: true },
+        { id: "inter", raw: false },
+        { id: "mid", raw: false },
+        { id: "prod", raw: false },
+      ],
+    } as unknown as RecipePack;
+    const targets: ItemTarget[] = [
+      { itemId: "prod", ratePerSec: { num: "1", denom: "1" } },
+    ];
+    const recipeCosts = new Map<string, number>([["mid_cheap", 100]]);
+    const unavailableRecipeIds = new Set(["mid_cheap"]);
+
+    // Control: with mid_cheap available the same costs are flagged suboptimal.
+    expect(assertOptimal({ targets, pack: p, recipeCosts }).ok).toBe(false);
+
+    const res = assertOptimal({
+      targets,
+      pack: p,
+      recipeCosts,
+      unavailableRecipeIds,
+    });
+    expect(res.violations).toEqual([]);
+    expect(res.ok).toBe(true);
+  });
 });

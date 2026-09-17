@@ -341,6 +341,7 @@ export type SolverInvariantArgs = {
   targets: ReadonlyArray<ItemTarget>;
   itemOverrides: ReadonlyArray<ItemOverride>;
   recipeCosts?: Map<RecipeId, number>;
+  unavailableRecipeIds?: ReadonlySet<RecipeId>;
 };
 
 /**
@@ -428,6 +429,9 @@ export const SOLVER_INVARIANT_CHECKERS: ReadonlyArray<{
         pack: a.pack,
         itemOverrides: [...a.itemOverrides],
         ...(a.recipeCosts !== undefined ? { recipeCosts: a.recipeCosts } : {}),
+        ...(a.unavailableRecipeIds !== undefined
+          ? { unavailableRecipeIds: a.unavailableRecipeIds }
+          : {}),
       }),
     asserted: false,
   },
