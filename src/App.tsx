@@ -738,23 +738,38 @@ function AppInner() {
   // alone. What the general pool was billed of the charge comes from
   // catalystAccount, not from the catalyst node, so adding the node's rate
   // here would count that share twice.
+  //
+  // A drag hands App a fresh node array every pointer frame without touching
+  // any node's data, so the entries are flattened to a string key and the map
+  // is rebuilt only when that key changes: the panels keep the same map, and
+  // the memos below keyed on it, for the whole drag.
+  const supplyRateEntries: Array<
+    [string, import("./pipeline/types").RationalString]
+  > = [];
+  for (const [itemId, rates] of buildRealizedRateByItem(nodes)) {
+    if (rates.ordinary !== undefined) {
+      supplyRateEntries.push([
+        encodeItemOverrideKey({ itemId }),
+        rates.ordinary,
+      ]);
+    }
+    if (rates.catalyst !== undefined) {
+      supplyRateEntries.push([
+        encodeItemOverrideKey({ itemId, role: "catalyst" }),
+        rates.catalyst,
+      ]);
+    }
+  }
+  const supplyRateKey = JSON.stringify(supplyRateEntries);
   const supplyRateByItem = useMemo<
     ReadonlyMap<string, import("./pipeline/types").RationalString>
-  >(() => {
-    const map = new Map<string, import("./pipeline/types").RationalString>();
-    for (const [itemId, rates] of buildRealizedRateByItem(nodes)) {
-      if (rates.ordinary !== undefined) {
-        map.set(encodeItemOverrideKey({ itemId }), rates.ordinary);
-      }
-      if (rates.catalyst !== undefined) {
-        map.set(
-          encodeItemOverrideKey({ itemId, role: "catalyst" }),
-          rates.catalyst,
-        );
-      }
-    }
-    return map;
-  }, [nodes]);
+  >(
+    () =>
+      new Map<string, import("./pipeline/types").RationalString>(
+        JSON.parse(supplyRateKey),
+      ),
+    [supplyRateKey],
+  );
 
   // Items the current plan pulls across the boundary as assumed-infinite
   // supply: raw items with a realized draw, plus every item whose cycled

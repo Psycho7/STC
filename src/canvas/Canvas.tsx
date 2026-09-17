@@ -28,7 +28,7 @@ import RecipeNode from "./RecipeNode";
 import GroupNode from "./GroupNode";
 import LoopNode from "./LoopNode";
 import ProductNode from "./ProductNode";
-import ItemEdge from "./ItemEdge";
+import ItemEdge, { edgeStrokeWidth, withFocusFlags } from "./ItemEdge";
 import BusEdge from "./BusEdge";
 import { contentBounds } from "./chipSeating";
 import { examChipReservations } from "./chipMetrics";
@@ -154,6 +154,68 @@ function withLitContainer(className: string | undefined): string {
   return className ? `${className} lit-container` : "lit-container";
 }
 
+// The dimmed / lit-container node copies handed to React Flow, one per source
+// node and variant. A copy is a pure function of its source, so reusing it
+// keeps the object React Flow sees stable across drag frames: a drag hands
+// Canvas a new array every frame but touches only the dragged node, and every
+// other node keeps its wrapper instead of re-rendering.
+type FocusVariant = "dimmed" | "litContainer";
+const focusCopies = new WeakMap<
+  object,
+  Partial<Record<FocusVariant, object>>
+>();
+
+function focusCopy<T extends object>(
+  source: T,
+  variant: FocusVariant,
+  build: (source: T) => T,
+): T {
+  let copies = focusCopies.get(source);
+  if (copies === undefined) {
+    copies = {};
+    focusCopies.set(source, copies);
+  }
+  const hit = copies[variant];
+  if (hit !== undefined) return hit as T;
+  const copy = build(source);
+  copies[variant] = copy;
+  return copy;
+}
+
+// Stamp the hover focus onto the nodes React Flow renders. Idle (`focus` null)
+// returns the input array untouched. Exported for the unit test.
+export function focusNodes(
+  nodes: Node[],
+  focus: { nodeIds: Set<string> } | null,
+): Node[] {
+  if (!focus) return nodes;
+  // Container boxes (`type: "group"`) never dim while any of their child nodes
+  // is in the focus set, so the frame around a lit cluster does not read as
+  // faded. With no focused child they dim like any other node.
+  const litContainers = new Set<string>();
+  for (const node of nodes) {
+    if (node.parentId && focus.nodeIds.has(node.id)) {
+      litContainers.add(node.parentId);
+    }
+  }
+  return nodes.map((node) => {
+    if (focus.nodeIds.has(node.id)) return node;
+    // A container lit only because a child is focused keeps a lit border but a
+    // still-translucent fill, so it does not read as a bright empty slab over
+    // its dimmed members.
+    if (node.type === "group" && litContainers.has(node.id)) {
+      return focusCopy(node, "litContainer", (n) => ({
+        ...n,
+        className: withLitContainer(n.className),
+      }));
+    }
+    return focusCopy(node, "dimmed", (n) => ({
+      ...n,
+      className: withDimmed(n.className),
+    }));
+  });
+}
+
 // Stamp the hover focus onto the edges React Flow renders. Idle (`focus` null)
 // returns the input array untouched, so nothing re-renders while the pointer is
 // off the graph. Exported for the unit test: Canvas owns its ReactFlowProvider
@@ -168,7 +230,7 @@ export function focusEdges(
     focus.edgeIds.has(edge.id)
       ? // The lit edge announces itself so its chips can outrank the zoom
         // level-of-detail gates and show the rate the hover is asking for.
-        { ...edge, data: { ...edge.data, focused: true } }
+        { ...edge, data: withFocusFlags(edge.data, { focused: true }) }
       : {
           ...edge,
           className: withDimmed(edge.className),
@@ -176,7 +238,7 @@ export function focusEdges(
           // this wrapper via EdgeLabelRenderer, so the wrapper's `dimmed`
           // class never fades them. Thread the dim through edge data; the
           // chips map it onto their own .flow-chip.dimmed rule.
-          data: { ...edge.data, dimmed: true },
+          data: withFocusFlags(edge.data, { dimmed: true }),
         },
   );
 }
@@ -594,31 +656,10 @@ function CanvasInner({
     return { nodeIds, edgeIds };
   }, [hovered, adjacency, presentNodeIds]);
 
-  // Container boxes (`type: "group"`) never dim while any of their child nodes
-  // is in the focus set, so the frame around a lit cluster does not read as
-  // faded. With no focused child they dim like any other node.
-  const litContainers = useMemo<Set<string> | null>(() => {
-    if (!focus) return null;
-    const lit = new Set<string>();
-    for (const node of nodes) {
-      if (node.parentId && focus.nodeIds.has(node.id)) lit.add(node.parentId);
-    }
-    return lit;
-  }, [focus, nodes]);
-
-  const displayNodes = useMemo<Node[]>(() => {
-    if (!focus || !litContainers) return nodes;
-    return nodes.map((node) => {
-      if (focus.nodeIds.has(node.id)) return node;
-      // A container lit only because a child is focused keeps a lit border but a
-      // still-translucent fill, so it does not read as a bright empty slab over
-      // its dimmed members.
-      if (node.type === "group" && litContainers.has(node.id)) {
-        return { ...node, className: withLitContainer(node.className) };
-      }
-      return { ...node, className: withDimmed(node.className) };
-    });
-  }, [nodes, focus, litContainers]);
+  const displayNodes = useMemo<Node[]>(
+    () => focusNodes(nodes, focus),
+    [nodes, focus],
+  );
 
   const displayEdges = useMemo<Edge[]>(
     () => focusEdges(edges, focus),
@@ -643,7 +684,13 @@ function CanvasInner({
       ]
         .filter(Boolean)
         .join(" ")}
-      style={canvasThemeStyle}
+      style={{
+        ...canvasThemeStyle,
+        // The zoom-compensated edge stroke width, inherited by every edge path
+        // (edgeStrokeStyle reads it), so a zoom tick restyles the edges here
+        // instead of re-rendering each one.
+        ["--edge-base-width" as string]: `${edgeStrokeWidth(exporting ? 1 : zoom)}px`,
+      }}
     >
       <ExportModeProvider exporting={exporting}>
         <ReactFlow
