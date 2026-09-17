@@ -27,7 +27,6 @@ import { cssBlock } from "../../src/canvas/cssContract.testkit";
 
 const EMPTY_PACK_VALUE: ItemPackContextValue = {
   itemById: new Map(),
-  overrides: [],
   machineById: new Map(),
 };
 

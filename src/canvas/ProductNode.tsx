@@ -4,6 +4,7 @@ import { useI18n } from "../data/i18n-context";
 import type { I18nIndex } from "../data/i18n";
 import { formatRationalPerMin } from "../data/rate-format";
 import type { RationalString } from "../pipeline/types";
+import { portId } from "../pipeline/render/port-ids";
 import { PortGlyph } from "./PortGlyph";
 import { useItemPack } from "./itemPackContext";
 import type { CatalystBreakdown, PortTransportKinds } from "./layout";
@@ -250,35 +251,35 @@ export default function ProductNode({
           {data.isFanout ? (
             <>
               <Handle
-                id={`in:${data.itemId}`}
+                id={portId("in", data.itemId)}
                 type="target"
                 position={Position.Left}
               />
               <PortGlyph
-                kind={data.portTransportKinds?.get(`in:${data.itemId}`)}
+                kind={data.portTransportKinds?.get(portId("in", data.itemId))}
                 side="left"
               />
             </>
           ) : null}
           <Handle
-            id={`out:${data.itemId}`}
+            id={portId("out", data.itemId)}
             type="source"
             position={Position.Right}
           />
           <PortGlyph
-            kind={data.portTransportKinds?.get(`out:${data.itemId}`)}
+            kind={data.portTransportKinds?.get(portId("out", data.itemId))}
             side="right"
           />
         </>
       ) : (
         <>
           <Handle
-            id={`in:${data.itemId}`}
+            id={portId("in", data.itemId)}
             type="target"
             position={Position.Left}
           />
           <PortGlyph
-            kind={data.portTransportKinds?.get(`in:${data.itemId}`)}
+            kind={data.portTransportKinds?.get(portId("in", data.itemId))}
             side="left"
           />
         </>

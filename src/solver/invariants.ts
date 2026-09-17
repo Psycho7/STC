@@ -3,7 +3,7 @@ import type { RecipePack } from "@aef/schema";
 import type { ItemTarget } from "../data/targets";
 import type { ItemOverride } from "../data/plan";
 import type { LpResult } from "./lp";
-import { REL_TOL, demandByItem, toleranceScaleFloor } from "./lp";
+import { REL_TOL, demandByItem, relSlack, toleranceScaleFloor } from "./lp";
 import type { SolvePlanFull } from "./index";
 import { buildSupplyTable } from "./effectiveSupply";
 import { buildCatalystAccount } from "./catalyst";
@@ -71,8 +71,7 @@ export function checkMassBalance(
     const draw = result.draws.get(it.id)?.valueOf() ?? 0;
     const demand = demandOf.get(it.id) ?? 0;
     const residual = bal + draw - surplus + deficit - demand;
-    const scale = Math.max(scaleFloor, Math.abs(demand));
-    if (Math.abs(residual) / scale >= REL_TOL) {
+    if (Math.abs(residual) >= relSlack(scaleFloor, Math.abs(demand))) {
       violations.push(`mass-balance residual for ${it.id}: ${residual}`);
     }
   }
@@ -106,7 +105,7 @@ export function checkTargetsMet(
     const demand = demandOf.get(t.itemId) ?? 0;
     const deficit = result.deficit.get(t.itemId)?.valueOf() ?? 0;
     // Allow a relative slack so float noise is not a violation.
-    const slack = Math.max(scaleFloor, Math.abs(demand)) * REL_TOL;
+    const slack = relSlack(scaleFloor, Math.abs(demand));
     if (deficit > slack) {
       violations.push(
         `target item ${t.itemId} carries deficit ${deficit} against demand ${demand}`,

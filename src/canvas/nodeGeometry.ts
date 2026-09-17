@@ -128,6 +128,30 @@ export function nodeHeight(node: RFAnyNode): number {
   }
 }
 
+// An axis-aligned box in absolute MODEL-frame coordinates.
+export type Rect = {
+  left: number;
+  right: number;
+  top: number;
+  bottom: number;
+};
+
+// A node's absolute model box: absoluteLeft / absoluteTop plus its width and
+// height. Callers pad or grow the edges they need from here.
+export function nodeRectOf(
+  node: RFAnyNode,
+  byId: ReadonlyMap<string, RFAnyNode>,
+): Rect {
+  const left = absoluteLeft(node, byId);
+  const top = absoluteTop(node, byId);
+  return {
+    left,
+    right: left + nodeWidth(node),
+    top,
+    bottom: top + nodeHeight(node),
+  };
+}
+
 // Which column of rows a port sits in. "cat" is the catalyst rows at the foot
 // of the input column: they take edges like input rows but are looked up in
 // recipe.catalyst, so the same item can resolve to a different row per side.

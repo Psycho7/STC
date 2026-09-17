@@ -8,6 +8,7 @@ import {
   type ItemOverrideKey,
 } from "../data/plan";
 import { catalystItemIds } from "../data/recipe-category";
+import { packIndex } from "../data/pack-index";
 import { useI18n } from "../data/i18n-context";
 import type { CatalystAccount } from "../solver/catalyst";
 import { rationalFromString, type RationalString } from "../data/targets";
@@ -131,11 +132,7 @@ export function InputsPanel({
   assumedRawItemIds,
 }: Props) {
   const i18n = useI18n();
-  const itemById = useMemo(() => {
-    const m = new Map<string, (typeof pack.items)[number]>();
-    for (const it of pack.items) m.set(it.id, it);
-    return m;
-  }, [pack]);
+  const { itemById } = packIndex(pack);
   // The items that HAVE a catalyst pool: only these can carry a catalyst row,
   // so only these show the checkbox and fill a catalyst row's picker.
   const catalystIds = useMemo(() => catalystItemIds(pack.recipes), [pack]);

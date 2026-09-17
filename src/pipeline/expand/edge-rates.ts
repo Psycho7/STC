@@ -12,6 +12,7 @@ import {
   supplyShareKey,
 } from "../../solver/replicate";
 import type { ItemId, RecipeId, Replica } from "../../solver/types";
+import { itemOfPort } from "../render/port-ids";
 
 /**
  * Works out the demand rate on each edge.
@@ -66,16 +67,6 @@ export function computeEdgeRates(args: {
   const result = new Map<string, Fraction>();
   const ZERO = new Fraction(0);
 
-  // Port ids are "<side>:<item>"; a bare item id (older synthetic graphs) is
-  // its own item. `cat:` is spelled out rather than left to the fall-through:
-  // the logical graph never wires a catalyst row, so a cat: port arriving here
-  // would otherwise be read as an item named "cat:<item>".
-  const itemFor = (port: string): string => {
-    if (port.startsWith("in:")) return port.slice("in:".length);
-    if (port.startsWith("cat:")) return port.slice("cat:".length);
-    return port;
-  };
-
   // Pre-pass: group INPUT edges (consumer treats the item as a recipe input) by
   // (consumer replica logical-node id, item). Each consumer STAMP's demand for
   // an item splits across its inbound edges in proportion to each source
@@ -91,7 +82,12 @@ export function computeEdgeRates(args: {
   const groupKey = (target: string, item: string): string =>
     `${target}\0${item}`;
   for (const e of logical.edges) {
-    const item = itemFor(e.targetPort);
+    // Port ids are "<side>:<item>"; a bare item id (older synthetic graphs) is
+    // its own item. `cat` is included alongside `in` rather than left to the
+    // fall-through: the logical graph never wires a catalyst row, so a cat:
+    // port arriving here would otherwise be read as an item named
+    // "cat:<item>".
+    const item = itemOfPort(e.targetPort, ["in", "cat"]);
     const consumer = replicaByLogicalId.get(e.target);
     if (!consumer) continue;
     const recipe = recipeById.get(consumer.recipeId);
@@ -221,7 +217,7 @@ export function computeEdgeRates(args: {
   //   - everything else stays ZERO.
   for (const e of logical.edges) {
     if (result.has(e.id)) continue;
-    const item = itemFor(e.targetPort);
+    const item = itemOfPort(e.targetPort, ["in", "cat"]);
     let rate = ZERO;
     const consumer = replicaByLogicalId.get(e.target);
     const consumerRecipe = consumer

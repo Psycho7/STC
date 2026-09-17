@@ -14,6 +14,7 @@ import type {
 } from "./types";
 import { wireConnections } from "./wiring";
 import { logicalNodeIdForReplica } from "./replicate";
+import { portId } from "../pipeline/render/port-ids";
 
 /**
  * Translates the solver's output (replicas, multipliers, torn edges) into the
@@ -91,8 +92,8 @@ function buildEdge(pId: ReplicaId, cId: ReplicaId, item: string): LogicalEdge {
     id: `${source}->${target}:${item}`,
     source,
     target,
-    sourcePort: `out:${item}`,
-    targetPort: `in:${item}`,
+    sourcePort: portId("out", item),
+    targetPort: portId("in", item),
   };
 }
 
@@ -107,8 +108,8 @@ function buildReturnArc(
     id: `${source}->return->${target}:${item}`,
     source,
     target,
-    sourcePort: `out:${item}`,
-    targetPort: `in:${item}`,
+    sourcePort: portId("out", item),
+    targetPort: portId("in", item),
   };
 }
 

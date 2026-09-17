@@ -1,11 +1,9 @@
 import { createContext, useContext, type ReactNode } from "react";
 import type { Item, Machine } from "@aef/schema";
-import type { ItemOverride } from "../data/plan";
 
 export type ItemPackContextValue = {
-  itemById: Map<string, Item>;
-  overrides: ItemOverride[];
-  machineById: Map<string, Machine>;
+  itemById: ReadonlyMap<string, Item>;
+  machineById: ReadonlyMap<string, Machine>;
 };
 
 const ItemPackContext = createContext<ItemPackContextValue | null>(null);

@@ -8,6 +8,9 @@ import type {
 import type { Replica } from "../../solver/types";
 import { logicalNodeIdForReplica } from "../../solver/replicate";
 import { catalystChargeOf } from "../../solver/catalyst";
+import { executionsPerMachine } from "../../solver/multiplier";
+import { itemOfPort } from "../render/port-ids";
+import { pushInto } from "../../util/multimap";
 import type {
   ItemId,
   MachineEdge,
@@ -64,10 +67,6 @@ function machineVertexId(
   stampIndex: number,
 ): MachineVertexId {
   return `${logicalNodeId}${STAMP_SEP}${stampIndex}`;
-}
-
-function itemFromPort(port: string, prefix: "in:" | "out:"): ItemId {
-  return port.startsWith(prefix) ? port.slice(prefix.length) : port;
 }
 
 function compareEdges(a: MachineEdge, b: MachineEdge): number {
@@ -168,7 +167,7 @@ export function expandMultipliers(input: ExpandMultipliersInput): MachineGraph {
       ? input.machineById?.get(n.recipe.producers[0] ?? "")
       : undefined;
     const machineSpeed = producerMachine
-      ? new Fraction(producerMachine.speed).div(new Fraction(n.recipe.time))
+      ? executionsPerMachine(n.recipe, producerMachine)
       : undefined;
 
     // Per-stamp catalyst draw. The stamp's machine count is executionRate *
@@ -295,7 +294,7 @@ export function expandMultipliers(input: ExpandMultipliersInput): MachineGraph {
   const sccTouchingEdges: GroupedEdge[] = [];
 
   for (const e of logical.edges) {
-    const item: ItemId = itemFromPort(e.sourcePort, "out:");
+    const item: ItemId = itemOfPort(e.sourcePort, ["out"]);
     const rateTotal = edgeRatesByLogicalEdgeId.get(e.id) ?? new Fraction(0);
     const grouped: GroupedEdge = { edge: e, item, rateTotal };
 
@@ -309,9 +308,7 @@ export function expandMultipliers(input: ExpandMultipliersInput): MachineGraph {
     const producer = replicaByLogicalId.get(e.source);
     if (producer && producer.sharedAtArticulation) {
       const key = `${e.source}|${item}`;
-      const arr = sharedBuckets.get(key) ?? [];
-      arr.push(grouped);
-      sharedBuckets.set(key, arr);
+      pushInto(sharedBuckets, key, grouped);
     } else {
       pairedEdges.push(grouped);
     }

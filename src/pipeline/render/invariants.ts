@@ -5,7 +5,9 @@ import type { ItemOverride } from "../../data/plan";
 import type { InvariantResult } from "../../solver/invariants";
 import { buildSupplyTable } from "../../solver/effectiveSupply";
 import { netSelfConsumption } from "../../solver/net-self";
-import { REL_TOL, demandByItem, toleranceScaleFloor } from "../../solver/lp";
+import { demandByItem, relSlack, toleranceScaleFloor } from "../../solver/lp";
+import { executionsPerMachine } from "../../solver/multiplier";
+import { packIndex } from "../../data/pack-index";
 import type {
   RenderPlan,
   RenderUnitId,
@@ -26,12 +28,6 @@ import { rationalFromString } from "./rational";
 import { unitIdForOutputProduct } from "./unit-ids";
 
 export type { InvariantResult };
-
-// Re-exported from the solver so render-layer callers have one import site for
-// the plan-rate tolerance: boundary-products suppresses phantom surpluses at
-// the exact threshold checkBoundaryProductsJustified tags at, and both read
-// the same binding. See solver/lp for the domain and the directional rule.
-export { REL_TOL };
 
 // Plan-magnitude floor for tolerance scales, shared with the solver checkers
 // and the extraction hygiene gate. Sub-unit plans shrink the floor to their
@@ -273,9 +269,11 @@ export function checkBoundaryProductsJustified(
             )
           : FRAC_ZERO;
       const magnitude = net.valueOf();
-      const slack = Math.max(scaleFloor, Math.abs(magnitude)) * REL_TOL;
-      const shortSlack =
-        Math.max(scaleFloor, Math.abs(exportShortfall.valueOf())) * REL_TOL;
+      const slack = relSlack(scaleFloor, Math.abs(magnitude));
+      const shortSlack = relSlack(
+        scaleFloor,
+        Math.abs(exportShortfall.valueOf()),
+      );
       if (net.valueOf() <= slack && exportShortfall.valueOf() <= shortSlack) {
         violations.push(
           `inputProduct for "${x}": item is not net-consumed from outside (consumption - production = ${magnitude})`,
@@ -297,7 +295,7 @@ export function checkBoundaryProductsJustified(
         const demand = demandOf.get(x) ?? 0;
         const netSurplus = prod.sub(cons).sub(new Fraction(demand));
         const magnitude = netSurplus.valueOf();
-        const slack = Math.max(scaleFloor, Math.abs(magnitude)) * REL_TOL;
+        const slack = relSlack(scaleFloor, Math.abs(magnitude));
         if (magnitude <= slack) {
           violations.push(
             `outputProduct (surplus) for "${x}": no genuine surplus (production - consumption - demand = ${magnitude}); unjustified surplus unit (RF-1 phantom)`,
@@ -416,7 +414,7 @@ export function checkInternalFlowConservation(
     const availRaw = prod.sub(targetDemand);
     const availProd = availRaw.compare(FRAC_ZERO) > 0 ? availRaw : FRAC_ZERO;
     const expected = availProd.compare(cons) <= 0 ? availProd : cons;
-    const slack = Math.max(scaleFloor, expected.valueOf()) * REL_TOL;
+    const slack = relSlack(scaleFloor, expected.valueOf());
 
     // Skip items with negligible expected internal flow.
     if (prod.valueOf() <= slack || cons.valueOf() <= slack) continue;
@@ -478,14 +476,14 @@ export function checkConsumerInputsSatisfied(
   // Distinct recipeIds among rendered recipe units.
   const renderedRecipeIds = new Set(recipeIdByUnitId.values());
 
-  const recipeById = new Map(nettedPack(pack).recipes.map((r) => [r.id, r]));
+  const { recipeById } = packIndex(nettedPack(pack));
 
   for (const recipeId of renderedRecipeIds) {
     const rate = rates.get(recipeId);
     if (!rate) continue; // recipe not running
 
     const rateVal = rate.valueOf();
-    const rateSlack = Math.max(scaleFloor, rateVal) * REL_TOL;
+    const rateSlack = relSlack(scaleFloor, rateVal);
     if (rateVal <= rateSlack) continue; // negligible rate
 
     const recipe = recipeById.get(recipeId);
@@ -496,7 +494,7 @@ export function checkConsumerInputsSatisfied(
       const expectedVal = expected.valueOf();
       const actual = inflow.get(`${recipeId}\0${inp.item}`) ?? FRAC_ZERO;
       const actualVal = actual.valueOf();
-      const slack = Math.max(scaleFloor, expectedVal) * REL_TOL;
+      const slack = relSlack(scaleFloor, expectedVal);
 
       if (actualVal < expectedVal - slack) {
         violations.push(
@@ -555,14 +553,14 @@ export function checkConsumerInputsNotOverfed(
   // Distinct recipeIds among rendered recipe units.
   const renderedRecipeIds = new Set(recipeIdByUnitId.values());
 
-  const recipeById = new Map(nettedPack(pack).recipes.map((r) => [r.id, r]));
+  const { recipeById } = packIndex(nettedPack(pack));
 
   for (const recipeId of renderedRecipeIds) {
     const rate = rates.get(recipeId);
     if (!rate) continue; // recipe not running
 
     const rateVal = rate.valueOf();
-    const rateSlack = Math.max(scaleFloor, rateVal) * REL_TOL;
+    const rateSlack = relSlack(scaleFloor, rateVal);
     if (rateVal <= rateSlack) continue; // negligible rate
 
     const recipe = recipeById.get(recipeId);
@@ -573,7 +571,7 @@ export function checkConsumerInputsNotOverfed(
       const expectedVal = expected.valueOf();
       const actual = inflow.get(`${recipeId}\0${inp.item}`) ?? FRAC_ZERO;
       const actualVal = actual.valueOf();
-      const slack = Math.max(scaleFloor, expectedVal) * REL_TOL;
+      const slack = relSlack(scaleFloor, expectedVal);
 
       if (actualVal > expectedVal + slack) {
         violations.push(
@@ -657,7 +655,7 @@ export function targetOutputShortfalls(
     const declaredVal = declared.valueOf();
     const actual = actualByItem.get(item) ?? FRAC_ZERO;
     const actualVal = actual.valueOf();
-    const slack = Math.max(scaleFloor, declaredVal) * REL_TOL;
+    const slack = relSlack(scaleFloor, declaredVal);
     if (actualVal < declaredVal - slack) {
       shortfalls.push({ item, declared: declaredVal, actual: actualVal });
     }
@@ -732,14 +730,14 @@ export function checkUnitOutflowVsProduction(
   const violations: string[] = [];
   const scaleFloor = planScaleFloor(targets);
 
-  const recipeById = new Map(nettedPack(pack).recipes.map((r) => [r.id, r]));
-  const machineById = new Map(pack.machines.map((m) => [m.id, m]));
+  const { recipeById } = packIndex(nettedPack(pack));
+  const { machineById } = packIndex(pack);
 
-  const speedOf = (recipe: (typeof pack.recipes)[number]): Fraction => {
+  const executionsOf = (recipe: (typeof pack.recipes)[number]): Fraction => {
     const producerId = recipe.producers[0];
     const machine =
       producerId === undefined ? undefined : machineById.get(producerId);
-    return machine ? new Fraction(machine.speed) : new Fraction(1);
+    return executionsPerMachine(recipe, machine ?? { speed: 1 });
   };
 
   // The set of recipe-unit ids, so clause (b) sums outgoing edges only from
@@ -758,8 +756,7 @@ export function checkUnitOutflowVsProduction(
     const recipe = recipeById.get(unit.recipeId);
     if (!recipe) continue;
     const multiplicity = rationalFromString(unit.multiplicity);
-    const time = new Fraction(recipe.time);
-    const execRate = multiplicity.mul(speedOf(recipe)).div(time);
+    const execRate = multiplicity.mul(executionsOf(recipe));
     derivedRateByRecipe.set(
       unit.recipeId,
       (derivedRateByRecipe.get(unit.recipeId) ?? FRAC_ZERO).add(execRate),
@@ -804,7 +801,7 @@ export function checkUnitOutflowVsProduction(
     const outgoing = outgoingByUnitItem.get(key) ?? FRAC_ZERO;
     const producedVal = produced.valueOf();
     const outgoingVal = outgoing.valueOf();
-    const slack = Math.max(scaleFloor, producedVal) * REL_TOL;
+    const slack = relSlack(scaleFloor, producedVal);
     if (outgoingVal > producedVal + slack) {
       violations.push(
         `unit "${unitId}" item "${item}": outgoing ${outgoingVal} exceeds production ${producedVal} (over-billed producer edge)`,
@@ -824,7 +821,7 @@ export function checkUnitOutflowVsProduction(
     const outgoing = outgoingByItem.get(item) ?? FRAC_ZERO;
     const producedVal = produced.valueOf();
     const outgoingVal = outgoing.valueOf();
-    const slack = Math.max(scaleFloor, producedVal, outgoingVal) * REL_TOL;
+    const slack = relSlack(scaleFloor, producedVal, outgoingVal);
     if (Math.abs(producedVal - outgoingVal) > slack) {
       violations.push(
         `item "${item}": production ${producedVal} != outgoing ${outgoingVal} (production vanished without a compensating over-bill)`,
@@ -839,7 +836,7 @@ export function checkUnitOutflowVsProduction(
     if (lpRate === undefined) continue;
     const derivedVal = derived.valueOf();
     const lpVal = lpRate.valueOf();
-    const slack = Math.max(scaleFloor, Math.abs(lpVal)) * REL_TOL;
+    const slack = relSlack(scaleFloor, Math.abs(lpVal));
     if (Math.abs(derivedVal - lpVal) > slack) {
       violations.push(
         `recipe "${recipeId}": multiplicity-derived rate ${derivedVal} != LP rate ${lpVal} (unit multiplicities incoherent with the solve)`,
@@ -882,7 +879,7 @@ export function checkProductUnitRates(
   const units = unitById(plan);
 
   const slackFor = (expected: number): number =>
-    Math.max(scaleFloor, Math.abs(expected)) * REL_TOL;
+    relSlack(scaleFloor, Math.abs(expected));
 
   // Outbound/inbound edge-rate sums per unit id, restricted to product units.
   const outboundByUnit = new Map<RenderUnitId, Fraction>();
@@ -1042,7 +1039,7 @@ export function checkCatalystNodesMatchAccount(
   for (const [item, node] of nodeByItem) {
     const chip = rationalFromString(node.rate).valueOf();
     const need = (catalystAccount.get(item)?.need ?? FRAC_ZERO).valueOf();
-    const slack = Math.max(scaleFloor, Math.abs(need)) * REL_TOL;
+    const slack = relSlack(scaleFloor, Math.abs(need));
     if (Math.abs(chip - need) > slack) {
       violations.push(
         `catalyst inputProduct "${node.id}": rate ${chip} != account need ${need}`,

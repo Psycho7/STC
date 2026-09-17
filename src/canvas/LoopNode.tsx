@@ -7,6 +7,7 @@ import { PortGlyph } from "./PortGlyph";
 import { itemColor } from "./itemColor";
 import type { PortTransportKinds } from "./layout";
 import type { ItemId } from "../pipeline/types";
+import { portId } from "../pipeline/render/port-ids";
 import { orderByItem } from "./orderByItem";
 
 export type LoopNodeNetIO = {
@@ -167,8 +168,8 @@ export default function LoopNode({ data }: NodeProps<LoopNodeType>) {
           them. */}
       {ins.map((p, i) => (
         <Handle
-          key={`in:${p.item}`}
-          id={`in:${p.item}`}
+          key={portId("in", p.item)}
+          id={portId("in", p.item)}
           type="target"
           position={Position.Left}
           style={{ top: LOOP_BOX_PADDING + 8 + i * 18 }}
@@ -177,7 +178,7 @@ export default function LoopNode({ data }: NodeProps<LoopNodeType>) {
       {ins.map((p, i) => (
         <PortGlyph
           key={`in-glyph:${p.item}`}
-          kind={portTransportKinds?.get(`in:${p.item}`)}
+          kind={portTransportKinds?.get(portId("in", p.item))}
           side="left"
           top={LOOP_BOX_PADDING + 8 + i * 18}
           item={p.item}
@@ -186,8 +187,8 @@ export default function LoopNode({ data }: NodeProps<LoopNodeType>) {
 
       {outs.map((p, i) => (
         <Handle
-          key={`out:${p.item}`}
-          id={`out:${p.item}`}
+          key={portId("out", p.item)}
+          id={portId("out", p.item)}
           type="source"
           position={Position.Right}
           style={{ top: LOOP_BOX_PADDING + 8 + i * 18 }}
@@ -196,7 +197,7 @@ export default function LoopNode({ data }: NodeProps<LoopNodeType>) {
       {outs.map((p, i) => (
         <PortGlyph
           key={`out-glyph:${p.item}`}
-          kind={portTransportKinds?.get(`out:${p.item}`)}
+          kind={portTransportKinds?.get(portId("out", p.item))}
           side="right"
           top={LOOP_BOX_PADDING + 8 + i * 18}
           item={p.item}

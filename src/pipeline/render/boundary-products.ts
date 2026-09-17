@@ -12,12 +12,12 @@ import type {
 } from "../types";
 import { isMachineRecipeVertex, isMachineSccVertex } from "../types";
 import type { SupplyTable } from "../../solver/effectiveSupply";
-import { toleranceScaleFloor } from "../../solver/lp";
+import { relSlack, toleranceScaleFloor } from "../../solver/lp";
 import type { ItemTarget } from "../../data/targets";
 import type { ItemOverride } from "../../data/plan";
 import type { Item, Recipe } from "@aef/schema";
+import { pushInto } from "../../util/multimap";
 import { rationalFromString, rationalToString } from "./rational";
-import { REL_TOL } from "./invariants";
 import {
   unitIdForCatalystAggregate,
   unitIdForCatalystContainer,
@@ -233,9 +233,7 @@ export function deriveBoundaryProducts(
     end: RecapEnd,
   ): void => {
     if (end.rate.compare(new Fraction(0)) <= 0) return;
-    const arr = map.get(item) ?? [];
-    arr.push(end);
-    map.set(item, arr);
+    pushInto(map, item, end);
   };
   for (const v of machineGraph.vertices) {
     const unitId = unitIdByVertex.get(v.id);
@@ -477,9 +475,7 @@ export function deriveBoundaryProducts(
     const bucket = bucketFor(c.containerId);
     const role: BoundaryRole = c.catalyst ? "catalyst" : "ordinary";
     const k = boundaryKey(c.item, role, bucket);
-    const arr = consumersByKey.get(k) ?? [];
-    arr.push(c);
-    consumersByKey.set(k, arr);
+    pushInto(consumersByKey, k, c);
     itemByKey.set(k, c.item);
     roleByKey.set(k, role);
     bucketByKey.set(k, bucket);
@@ -542,9 +538,7 @@ export function deriveBoundaryProducts(
     const itemId = itemByKey.get(key)!;
     const role = roleByKey.get(key)!;
     const pool = poolKey(itemId, role);
-    const arr = keysByPool.get(pool) ?? [];
-    arr.push(key);
-    keysByPool.set(pool, arr);
+    pushInto(keysByPool, pool, key);
     poolItem.set(pool, itemId);
     poolRole.set(pool, role);
   }
@@ -830,9 +824,7 @@ export function deriveBoundaryProducts(
     const outgoing = targetOutgoingByUnitItem.get(k) ?? new Fraction(0);
     const spare = produced.sub(outgoing);
     if (spare.compare(0) <= 0) continue;
-    const arr = unitsByTargetOutItem.get(outItem) ?? [];
-    arr.push({ unitId, vertexId, spare });
-    unitsByTargetOutItem.set(outItem, arr);
+    pushInto(unitsByTargetOutItem, outItem, { unitId, vertexId, spare });
   }
   const targetBilledByItem = new Map<ItemId, Fraction>();
   for (const [outItem, units] of unitsByTargetOutItem) {
@@ -989,9 +981,7 @@ export function deriveBoundaryProducts(
       outgoingByUnitItem.get(key) ?? new Fraction(0),
     );
     if (residual.compare(0) > 0) {
-      const arr = positivesByItem.get(item) ?? [];
-      arr.push({ unitId, rate: residual });
-      positivesByItem.set(item, arr);
+      pushInto(positivesByItem, item, { unitId, rate: residual });
     }
   }
   const consumedByItem = new Map<ItemId, Fraction>();
@@ -1031,8 +1021,7 @@ export function deriveBoundaryProducts(
       .sub(consumedByItem.get(item) ?? new Fraction(0))
       .sub(targetRateByItem.get(item) ?? new Fraction(0));
     const genuineVal = genuine.valueOf();
-    if (genuineVal <= Math.max(scaleFloor, Math.abs(genuineVal)) * REL_TOL)
-      continue;
+    if (genuineVal <= relSlack(scaleFloor, Math.abs(genuineVal))) continue;
     const positives = positivesByItem.get(item) ?? [];
     const positiveSum = positives.reduce(
       (acc, p) => acc.add(p.rate),
