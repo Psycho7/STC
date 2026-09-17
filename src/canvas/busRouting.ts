@@ -43,8 +43,10 @@ import {
   edgeTargetSide,
   nodeHeight,
   nodeIndexOf,
+  nodeRectOf,
   nodeWidth,
   portOffsetY,
+  type Rect,
 } from "./nodeGeometry";
 import {
   COLUMN_MIN_PITCH,
@@ -63,6 +65,7 @@ import {
   type TrunkKind,
 } from "./layerModel";
 import { CHIP_HALF_H } from "./chipMetrics";
+import { pushInto } from "../util/multimap";
 import type { RFAnyNode, RoutingCtx } from "./layout";
 // Type-only: ItemEdge.tsx declares the base canvas edge payload these passes
 // stamp onto and read back. Erased at compile time, so it adds no runtime or
@@ -372,9 +375,7 @@ export function routeTrunkEdges(
   // opposite ends so neither can land on the other's column.
   const geomsByGap = new Map<string, TrunkGeom[]>();
   for (const geom of geoms) {
-    const group = geomsByGap.get(geom.gapKey) ?? [];
-    group.push(geom);
-    geomsByGap.set(geom.gapKey, group);
+    pushInto(geomsByGap, geom.gapKey, geom);
   }
   const gapByKey = new Map(
     (ctx?.gaps ?? []).map((gap) => [gapKeyOf(gap), gap]),
@@ -680,12 +681,7 @@ export function gutterWidth(columnCount: number): number {
 // An entry-gutter rectangle in absolute coordinates: the band [left, right] in
 // x and the node's vertical extent padded by CHAMFER in y. Foreign vertical
 // runs must not fall strictly inside this rect.
-export type GutterRect = {
-  left: number;
-  right: number;
-  top: number;
-  bottom: number;
-};
+export type GutterRect = Rect;
 
 // Node-gap between a (source, target) pair, signed: <= 0 means the target sits
 // at or left of the source (a backward edge under ELK's cycle reversal). The
@@ -869,9 +865,7 @@ function arrivalSlots(
     if (home === undefined) continue;
     const layer = gapKeyOf(home);
     const cards = byLayer.get(layer) ?? new Map<string, ArrivalRow[]>();
-    const list = cards.get(row.targetId) ?? [];
-    list.push(row);
-    cards.set(row.targetId, list);
+    pushInto(cards, row.targetId, row);
     byLayer.set(layer, cards);
   }
 
@@ -939,14 +933,13 @@ export function entryGutterRects(
   const counts = gutterColumnCounts(edges, byId);
   const rects = new Map<string, GutterRect>();
   for (const node of nodes) {
-    const left = absoluteLeft(node, byId);
-    const top = absoluteTop(node, byId);
+    const r = nodeRectOf(node, byId);
     const g = gutterWidth(counts.get(node.id) ?? 0);
     rects.set(node.id, {
-      left: left - g,
-      right: left,
-      top: top - CHAMFER,
-      bottom: top + nodeHeight(node) + CHAMFER,
+      left: r.left - g,
+      right: r.left,
+      top: r.top - CHAMFER,
+      bottom: r.bottom + CHAMFER,
     });
   }
   return rects;
@@ -1006,9 +999,7 @@ function pinnedColumnsByGap(
   ): void => {
     if (x === undefined) return;
     for (const key of gapKeys) {
-      const list = out.get(key) ?? [];
-      list.push({ x, trunk, owner });
-      out.set(key, list);
+      pushInto(out, key, { x, trunk, owner });
     }
   };
   for (const edge of edges) {
@@ -1328,11 +1319,11 @@ export function assignBendColumns(
   const gutterCounts = gutterColumnCounts(edges, byId);
   type NodeGeom = { left: number; top: number; bottom: number; gutter: number };
   const geom: NodeGeom[] = nodes.map((n) => {
-    const top = absoluteTop(n, byId);
+    const r = nodeRectOf(n, byId);
     return {
-      left: absoluteLeft(n, byId),
-      top,
-      bottom: top + nodeHeight(n),
+      left: r.left,
+      top: r.top,
+      bottom: r.bottom,
       gutter: gutterWidth(gutterCounts.get(n.id) ?? 0),
     };
   });
@@ -1374,9 +1365,11 @@ export function assignBendColumns(
       const source = byId.get(edge.source);
       if (source !== undefined) {
         const band = Math.round(absoluteLeft(source, byId));
-        const list = pinnedColumnsByBand.get(band) ?? [];
-        list.push({ x: pinnedData.bendX, trunk: true, owner: edge.id });
-        pinnedColumnsByBand.set(band, list);
+        pushInto(pinnedColumnsByBand, band, {
+          x: pinnedData.bendX,
+          trunk: true,
+          owner: edge.id,
+        });
       }
     }
     // Respect a pre-stamped bendX: a demoted trunk bound to its proven clear
@@ -1402,9 +1395,7 @@ export function assignBendColumns(
       targetTop + nodeHeight(target),
     );
     const band = Math.round(sourceLeft);
-    const list = groups.get(band) ?? [];
-    list.push({ id: edge.id, sourceRight, targetLeft, yLo, yHi });
-    groups.set(band, list);
+    pushInto(groups, band, { id: edge.id, sourceRight, targetLeft, yLo, yHi });
     const gap = sourceGapOf(edge);
     if (gap !== undefined) gapByBand.set(band, gap);
   }
@@ -1572,13 +1563,12 @@ export function paddedObstacles(
   const byId = nodeIndexOf(nodes);
   const out: PaddedObstacle[] = [];
   for (const node of nodes) {
-    const left = absoluteLeft(node, byId);
-    const top = absoluteTop(node, byId);
+    const r = nodeRectOf(node, byId);
     out.push({
-      left: left - OBSTACLE_PAD_LEFT,
-      right: left + nodeWidth(node) + OBSTACLE_PAD_RIGHT,
-      top: top - OBSTACLE_PAD_Y,
-      bottom: top + nodeHeight(node) + OBSTACLE_PAD_Y,
+      left: r.left - OBSTACLE_PAD_LEFT,
+      right: r.right + OBSTACLE_PAD_RIGHT,
+      top: r.top - OBSTACLE_PAD_Y,
+      bottom: r.bottom + OBSTACLE_PAD_Y,
       kind: "card",
       nodeId: node.id,
       container: node.type === "group" || node.type === "loop",
@@ -1702,13 +1692,12 @@ export function rawCardRects(
 ): PaddedObstacle[] {
   const byId = nodeIndexOf(nodes);
   return nodes.map((node) => {
-    const left = absoluteLeft(node, byId);
-    const top = absoluteTop(node, byId);
+    const r = nodeRectOf(node, byId);
     return {
-      left,
-      right: left + nodeWidth(node),
-      top,
-      bottom: top + nodeHeight(node),
+      left: r.left,
+      right: r.right,
+      top: r.top,
+      bottom: r.bottom,
       kind: "card" as const,
       nodeId: node.id,
       // Same container tag paddedObstacles stamps: the raw-fallback tiers read

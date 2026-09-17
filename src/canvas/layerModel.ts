@@ -38,6 +38,8 @@
 import Fraction from "fraction.js";
 import type { Edge } from "@xyflow/react";
 
+import { pushInto } from "../util/multimap";
+
 import { DOT_KEEPOFF } from "./dimensions";
 import { CHAMFER, FORWARD_STEP_BUDGET, PORT_STUB } from "./edgePath";
 import {
@@ -862,9 +864,7 @@ export function widenLayerGaps(
   const membersByScope = new Map<string, WorkingNode[]>();
   for (const node of working) {
     const scope = scopeByNodeId.get(node.id)!;
-    const list = membersByScope.get(scope) ?? [];
-    list.push(node);
-    membersByScope.set(scope, list);
+    pushInto(membersByScope, scope, node);
   }
 
   // Deepest scope first. A scope's depth is its container's depth plus one.

@@ -77,6 +77,8 @@ import type {
 import type { RawRecipeMap } from "../solver/net-self";
 import type { CatalystAccount } from "../solver/catalyst";
 import { rationalToString } from "../pipeline/render/rational";
+import { itemOfPort, parsePort, portId } from "../pipeline/render/port-ids";
+import { pushInto } from "../util/multimap";
 import type { RationalString } from "../data/targets";
 
 // LogicalGraph types
@@ -338,9 +340,7 @@ export function renderPlanToElkGraph(input: LayoutInput): ElkGraph {
       (u.kind === "recipe" || u.kind === "loop") && u.containerId !== undefined
         ? u.containerId
         : "__root__";
-    const arr = unitsByContainer.get(key) ?? [];
-    arr.push(u);
-    unitsByContainer.set(key, arr);
+    pushInto(unitsByContainer, key, u);
   }
 
   const unitToElk = (u: RenderUnit): ElkNode => {
@@ -462,7 +462,7 @@ function buildRecipePorts(
 ): ElkPortWithKind[] {
   return [
     ...recipe.in.map((p, i) =>
-      makePort(`${unitId}.in:${p.item}`, "WEST", i, p.item, kindOf),
+      makePort(`${unitId}.${portId("in", p.item)}`, "WEST", i, p.item, kindOf),
     ),
     // Catalyst rows take a WEST port too: their edge comes from the item's
     // catalyst boundary card, exactly like an input row's. The port id uses the
@@ -470,7 +470,7 @@ function buildRecipePorts(
     // and a catalyst row.
     ...(recipe.catalyst ?? []).map((p, i) =>
       makePort(
-        `${unitId}.cat:${p.item}`,
+        `${unitId}.${portId("cat", p.item)}`,
         "WEST",
         recipe.in.length + i,
         p.item,
@@ -478,7 +478,7 @@ function buildRecipePorts(
       ),
     ),
     ...recipe.out.map((p, i) =>
-      makePort(`${unitId}.out:${p.item}`, "EAST", i, p.item, kindOf),
+      makePort(`${unitId}.${portId("out", p.item)}`, "EAST", i, p.item, kindOf),
     ),
   ];
 }
@@ -574,7 +574,7 @@ function productPort(
   kindOf: KindOf,
 ): ElkPortWithKind {
   return makePort(
-    `${unitId}.${direction}:${item}`,
+    `${unitId}.${portId(direction, item)}`,
     direction === "in" ? "WEST" : "EAST",
     index,
     item,
@@ -597,10 +597,10 @@ function loopUnitToElk(
     layoutOptions: { ...RECIPE_LAYOUT_OPTIONS },
     ports: [
       ...ins.map((p, i) =>
-        makePort(`${u.id}.in:${p.item}`, "WEST", i, p.item, kindOf),
+        makePort(`${u.id}.${portId("in", p.item)}`, "WEST", i, p.item, kindOf),
       ),
       ...outs.map((p, i) =>
-        makePort(`${u.id}.out:${p.item}`, "EAST", i, p.item, kindOf),
+        makePort(`${u.id}.${portId("out", p.item)}`, "EAST", i, p.item, kindOf),
       ),
     ],
   };
@@ -609,11 +609,10 @@ function loopUnitToElk(
 // A catalyst edge lands on the `cat:` port; every other edge on the `in:` port.
 // The item alone cannot decide it: one card can carry both rows for one item.
 function renderEdgeToElk(e: RenderEdge, index: number): ElkExtendedEdge {
-  const targetPort =
-    e.toPortKind === "catalyst" ? `cat:${e.item}` : `in:${e.item}`;
+  const targetPort = portId(e.toPortKind === "catalyst" ? "cat" : "in", e.item);
   return {
     id: `e:${index}:${e.fromUnit}->${e.toUnit}:${e.item}`,
-    sources: [`${e.fromUnit}.out:${e.item}`],
+    sources: [`${e.fromUnit}.${portId("out", e.item)}`],
     targets: [`${e.toUnit}.${targetPort}`],
   };
 }
@@ -714,7 +713,7 @@ export function fromElkRenderLayout(
     const [targetNode, targetPort] = splitPortRef(e.targets[0]!);
     const idx = parseElkEdgeIndex(e.id);
     const renderEdge = idx !== null ? plan.edges[idx] : undefined;
-    const itemId = renderEdge?.item ?? portToItem(sourcePort);
+    const itemId = renderEdge?.item ?? itemOfPort(sourcePort);
     const rate = renderEdge?.rate ?? new Fraction(0);
     const edgeData: ItemEdgeData = {
       item: itemId,
@@ -787,21 +786,15 @@ function resolveInputOrder(node: ElkNode): {
     const dot = id.indexOf(".");
     const handleId = dot >= 0 ? id.slice(dot + 1) : id;
     const y = typeof p.y === "number" ? p.y : 0;
-    if (handleId.startsWith("in:")) {
-      ins.push({ item: handleId.slice("in:".length), y });
+    const port = parsePort(handleId);
+    if (port?.side === "in") {
+      ins.push({ item: port.item, y });
     }
   }
   ins.sort((a, b) => a.y - b.y);
   return {
     inputOrder: ins.map((e) => e.item),
   };
-}
-
-function portToItem(port: string): string {
-  if (port.startsWith("out:")) return port.slice("out:".length);
-  if (port.startsWith("in:")) return port.slice("in:".length);
-  if (port.startsWith("cat:")) return port.slice("cat:".length);
-  return port;
 }
 
 // The catalyst pool split for one input card, in the spread-in shape the

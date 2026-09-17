@@ -36,6 +36,7 @@ import {
 } from "./data/transport-config";
 import type { Target } from "./data/targets";
 import { pack } from "./data/load";
+import { packIndex } from "./data/pack-index";
 import {
   readStoredEventOverrides,
   unavailableEventItems,
@@ -452,18 +453,9 @@ function AppInner() {
     },
     [],
   );
-  // Accepted transient: this recomputes from the synchronously committed plan,
-  // so ProductNode override chips on the still-stale canvas nodes update
-  // against the new overrides during the solve window. Sub-second cosmetic
-  // mismatch that self-heals when the new render lands.
-  const itemPackValue = useMemo(
-    () => ({
-      itemById: new Map(pack.items.map((i) => [i.id, i])),
-      overrides: plan?.itemOverrides ?? [],
-      machineById: new Map(pack.machines.map((m) => [m.id, m])),
-    }),
-    [plan],
-  );
+  // `pack` is a module-stable import, so its memoized index is one object for
+  // the app's lifetime and the item-pack context value never changes identity.
+  const itemPackValue = packIndex(pack);
 
   // Load a plan from a URL hash, solve it, and swap the whole app state to it.
   // Serves both the mount-time load and hashchange navigation (pasting another

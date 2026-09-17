@@ -7,6 +7,7 @@ import type { Item } from "@aef/schema";
 import { useI18n } from "../data/i18n-context";
 import { iconPosition, iconSheetUrl } from "../canvas/iconSprite";
 import { Sprite } from "../canvas/RecipeNode";
+import { pushInto } from "../util/multimap";
 
 type Props = {
   // The pickable catalogue. The caller decides what belongs here: targets pass
@@ -81,9 +82,7 @@ export function ItemPickerPopup({
       )
         continue;
       const tier = tierByItemId.get(it.id) ?? Number.POSITIVE_INFINITY;
-      const arr = byTier.get(tier);
-      if (arr) arr.push(it);
-      else byTier.set(tier, [it]);
+      pushInto(byTier, tier, it);
     }
     return [...byTier.entries()]
       .map(([tier, group]) => ({

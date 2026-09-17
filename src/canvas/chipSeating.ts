@@ -61,10 +61,11 @@ import {
   drawnPortsOf,
   edgeItem,
   flowKeyOf as busFlowKey,
-  nodeHeight,
   nodeIndexOf,
-  nodeWidth,
+  nodeRectOf,
+  type Rect,
 } from "./nodeGeometry";
+import { pushInto } from "../util/multimap";
 // Type-only: ItemEdge.tsx declares the base canvas edge payload this pass
 // stamps. Erased at compile time, so it adds no runtime or bundler edge.
 import type { ItemEdgeData } from "./ItemEdge";
@@ -84,14 +85,7 @@ import {
 // what the e2e audit measures (see CARD_GROWTH). `border` is the card's frame
 // width (cardBorder): the port furniture anchors on the row edge, one border
 // inside the drawn edge.
-export type CardRect = {
-  id: string;
-  left: number;
-  top: number;
-  right: number;
-  bottom: number;
-  border: number;
-};
+export type CardRect = Rect & { id: string; border: number };
 
 // Port-adjacent exemption depth (issue #10). An edge-label chip is ~2x wider
 // than the inter-card corridor it labels, so a chip on its own line necessarily
@@ -147,12 +141,7 @@ export function portKeepOutRect(
 
 export type PortZoneSide = "source" | "target";
 
-type PortZoneRect = {
-  left: number;
-  top: number;
-  right: number;
-  bottom: number;
-};
+type PortZoneRect = Rect;
 
 // Does `chip`'s CENTRE sit ON the OWN endpoint `card`'s body, past its
 // port-adjacent strip? True = the chip is seated on the card body (a #10
@@ -247,15 +236,14 @@ export function cardRectsFor(
   byId: ReadonlyMap<string, RFAnyNode>,
 ): CardRect[] {
   return nodes.map((n) => {
-    const left = absoluteLeft(n, byId);
-    const top = absoluteTop(n, byId);
+    const r = nodeRectOf(n, byId);
     const growth = cardGrowth(n.type);
     return {
       id: n.id,
-      left,
-      top,
-      right: left + nodeWidth(n) + growth,
-      bottom: top + nodeHeight(n) + growth,
+      left: r.left,
+      top: r.top,
+      right: r.right + growth,
+      bottom: r.bottom + growth,
       border: cardBorder(n.type),
     };
   });
@@ -436,9 +424,7 @@ export function deconflictChipAnchors(
               const partners: Array<CrossingCuePartner> = [];
               entry = { cue: { x, y, partners }, partners };
               cueByKey.set(key, entry);
-              const list = crossingCuesByIndex.get(stampIndex) ?? [];
-              list.push(entry.cue);
-              crossingCuesByIndex.set(stampIndex, list);
+              pushInto(crossingCuesByIndex, stampIndex, entry.cue);
             }
             entry.partners.push(partnerStampOf(j));
           }
@@ -496,9 +482,14 @@ export function deconflictChipAnchors(
       }
     }
     const key = flowKeyOf(edge);
-    const list = divergenceGroups.get(key) ?? [];
-    list.push({ index, id: edge.id, target: edge.target, sx, sy, bendX });
-    divergenceGroups.set(key, list);
+    pushInto(divergenceGroups, key, {
+      index,
+      id: edge.id,
+      target: edge.target,
+      sx,
+      sy,
+      bendX,
+    });
   });
   for (const members of divergenceGroups.values()) {
     if (members.length < 2) continue;
@@ -554,9 +545,12 @@ export function deconflictChipAnchors(
     // One trunk is one (item, target port) with one column, the same key
     // routeTrunkEdges pinned the column by.
     const key = `${edgeItem(edge) ?? ""}|${edge.target}|${bendX}`;
-    const list = faninGroups.get(key) ?? [];
-    list.push({ index, id: edge.id, x: bendX + CHAMFER, y: ty });
-    faninGroups.set(key, list);
+    pushInto(faninGroups, key, {
+      index,
+      id: edge.id,
+      x: bendX + CHAMFER,
+      y: ty,
+    });
   });
   for (const members of faninGroups.values()) {
     if (members.length < 2) continue;
@@ -793,12 +787,11 @@ export function contentBounds(
   let right = -Infinity;
   let bottom = -Infinity;
   for (const n of nodes) {
-    const l = absoluteLeft(n, byId);
-    const t = absoluteTop(n, byId);
-    left = Math.min(left, l);
-    top = Math.min(top, t);
-    right = Math.max(right, l + nodeWidth(n));
-    bottom = Math.max(bottom, t + nodeHeight(n));
+    const r = nodeRectOf(n, byId);
+    left = Math.min(left, r.left);
+    top = Math.min(top, r.top);
+    right = Math.max(right, r.right);
+    bottom = Math.max(bottom, r.bottom);
   }
 
   // One chip box each, at the rule anchor its render component draws it at. The

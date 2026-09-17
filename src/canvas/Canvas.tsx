@@ -39,6 +39,7 @@ import { ExportModeProvider } from "./exportMode";
 import { capturePlanPng, exportFrame, withInlinedSprites } from "./exportPng";
 import { useI18n } from "../data/i18n-context";
 import { pack } from "../data/load";
+import { pushInto } from "../util/multimap";
 import type { CSSProperties } from "react";
 import { iconSheetUrl } from "./iconSprite";
 import { HOVER_INTENT_MS } from "./dimensions";
@@ -134,16 +135,6 @@ interface Adjacency {
   endpointsByEdge: Map<string, [string, string]>;
   edgesByTrunk: Map<string, string[]>;
   edgeById: Map<string, Edge>;
-}
-
-function pushInto(
-  map: Map<string, string[]>,
-  key: string,
-  value: string,
-): void {
-  const list = map.get(key);
-  if (list) list.push(value);
-  else map.set(key, [value]);
 }
 
 function withDimmed(className: string | undefined): string {

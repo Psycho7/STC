@@ -17,6 +17,7 @@
 
 import { DOT_KEEPOFF } from "./dimensions";
 import { CHIP_HALF_H, CHIP_HALF_W_WIDE, chipHalfWidthsOf } from "./chipMetrics";
+import type { Rect } from "./nodeGeometry";
 
 // Minimum straight run leaving a source's Right handle and entering a target's
 // Left handle. Keeps the arrow head from sprouting directly out of a corner.
@@ -130,11 +131,7 @@ export function backwardRailDefaults(args: {
 
 // An axis-aligned card rectangle in absolute graph coordinates, for rail
 // obstacle avoidance.
-export type ObstacleRect = {
-  left: number;
-  right: number;
-  top: number;
-  bottom: number;
+export type ObstacleRect = Rect & {
   // A container slab (group / loop box), not a plain card. clearRailY keeps a
   // detour rail a wider gap off these so the rail no longer hugs the slab border
   // in a near-identical gray (#29). Absent / false on cards and gutters.

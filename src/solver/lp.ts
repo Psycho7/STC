@@ -110,6 +110,12 @@ export function toleranceScaleFloor(demand: Map<ItemId, number>): number {
   return maxDemand > 0 ? Math.min(1, maxDemand) : 1;
 }
 
+// The relative slack for a residual: max(scaleFloor, ...magnitudes) * REL_TOL.
+// Magnitudes are taken as given, so a caller that wants |x| passes Math.abs(x).
+export function relSlack(scaleFloor: number, ...magnitudes: number[]): number {
+  return Math.max(scaleFloor, ...magnitudes) * REL_TOL;
+}
+
 // Relative tolerance for PLAN-RATE residuals, shared by the extraction hygiene
 // gate and every invariant checker (solver and render). Applied as
 // Math.max(toleranceScaleFloor(demandByItem(targets)), |magnitude|) * REL_TOL.
@@ -702,7 +708,7 @@ function extractResult(args: ExtractArgs): LpResult {
   // checkMassBalance mirror: the residual tolerance the checkers tag at.
   const scaleFloor = toleranceScaleFloor(demand);
   const mbTol = (itemId: ItemId): number =>
-    Math.max(scaleFloor, Math.abs(demand.get(itemId) ?? 0)) * REL_TOL;
+    relSlack(scaleFloor, Math.abs(demand.get(itemId) ?? 0));
 
   // Repair loop: zeroing candidates must not leave an item with a raw-clean
   // negative slack the checkers would tag. Re-admit zeroed producers of a

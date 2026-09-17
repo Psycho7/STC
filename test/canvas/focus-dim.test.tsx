@@ -29,7 +29,6 @@ import { LocaleProvider } from "../../src/data/i18n-context";
 
 const PACK = {
   itemById: new Map(),
-  overrides: [],
   machineById: new Map(),
 } as unknown as ItemPackContextValue;
 
