@@ -1,4 +1,4 @@
-import { type EdgeProps } from "@xyflow/react";
+import { type Edge, type EdgeProps } from "@xyflow/react";
 import { useMemo } from "react";
 import {
   FlowChip,
@@ -9,11 +9,12 @@ import {
   type ItemEdgeData,
 } from "./ItemEdge";
 import { isTrunkOwner, type BusEdgeData } from "./busRouting";
+import { aggregateChipText, branchChipText } from "./chipMetrics";
 import { LABEL_MIN_ZOOM } from "./dimensions";
 import { drawnEdge } from "./edgePath";
 import { useEffectiveZoom } from "./exportMode";
 import { useI18n } from "../data/i18n-context";
-import { formatRateExactPerMin, formatRatePerMin } from "../data/rate-format";
+import { formatRateExactPerMin } from "../data/rate-format";
 
 // BusEdge renders a TRUNK member, fan-out or fan-in, through the matching path
 // builder:
@@ -98,16 +99,18 @@ export default function BusEdge({
   // still sum a cent off that number, and the tooltips below keep the exact rate
   // either way). The formatting is BigInt Fraction work and the zoom
   // subscription above re-renders every member on every zoom tick, so the memo
-  // keeps the digits off the tick.
-  const { memberRateStr, memberExactStr, dropRateStr, totalExactStr } = useMemo(
-    () => ({
-      memberRateStr: edgeData ? formatRatePerMin(edgeData.rate) : "",
-      memberExactStr: edgeData ? formatRateExactPerMin(edgeData.rate) : "",
-      dropRateStr: totalRate ? formatRatePerMin(totalRate) : "",
-      totalExactStr: totalRate ? formatRateExactPerMin(totalRate) : "",
-    }),
-    [edgeData, totalRate],
-  );
+  // keeps the digits off the tick. The chip bodies come from the builders the
+  // seat reserves their boxes by, so drawn text and reserved width agree.
+  const { memberRateStr, memberExactStr, dropRateStr, totalExactStr } =
+    useMemo(() => {
+      const edge = { id: "", source: "", target: "", data: edgeData } as Edge;
+      return {
+        memberRateStr: branchChipText(edge)?.body ?? "",
+        memberExactStr: edgeData ? formatRateExactPerMin(edgeData.rate) : "",
+        dropRateStr: aggregateChipText(edge)?.body ?? "",
+        totalExactStr: totalRate ? formatRateExactPerMin(totalRate) : "",
+      };
+    }, [edgeData, totalRate]);
   // Item name for every label and tooltip below; empty on a data-less edge, the
   // same case each string already guards.
   const itemName = edgeData ? i18n.displayName(edgeData.item) : "";

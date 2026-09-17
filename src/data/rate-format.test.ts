@@ -1,6 +1,7 @@
 import { expect, test } from "vitest";
 import Fraction from "fraction.js";
 import {
+  formatFractionPerMin,
   formatRateExactPerMin,
   formatRatePerMin,
   formatRationalPerMin,
@@ -174,4 +175,21 @@ test("parsePerMinToRatePerSec rejects negatives, garbage, and empty text", () =>
   // caller (useRateEdit's emptyMeans).
   expect(parsePerMinToRatePerSec("")).toBeUndefined();
   expect(parsePerMinToRatePerSec("   ")).toBeUndefined();
+});
+
+test("formatFractionPerMin matches formatRationalPerMin, zero rule included", () => {
+  const rates: [string, string][] = [
+    ["0", "1"],
+    ["1", "7"],
+    ["2", "1"],
+    ["40", "27"],
+    ["1", "12500"],
+    ["1", "1000"],
+  ];
+  for (const [num, denom] of rates) {
+    expect(formatFractionPerMin(new Fraction(`${num}/${denom}`))).toBe(
+      formatRationalPerMin({ num, denom }),
+    );
+  }
+  expect(formatFractionPerMin(new Fraction(0))).toBe("0");
 });

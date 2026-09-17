@@ -1,6 +1,4 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-// Aliased: the bare name would shadow the DOM KeyboardEvent the document-level
-// Escape listener below is typed against.
 import type { KeyboardEvent as ReactKeyboardEvent } from "react";
 import { createPortal } from "react-dom";
 import type { Item } from "@aef/schema";
@@ -8,6 +6,7 @@ import { useI18n } from "../data/i18n-context";
 import { iconPosition, iconSheetUrl } from "../canvas/iconSprite";
 import { Sprite } from "../canvas/RecipeNode";
 import { pushInto } from "../util/multimap";
+import { useModalDialog } from "./useModalDialog";
 
 type Props = {
   // The pickable catalogue. The caller decides what belongs here: targets pass
@@ -59,13 +58,7 @@ export function ItemPickerPopup({
   useEffect(() => {
     searchRef.current?.focus();
   }, []);
-  useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") onClose();
-    }
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  const trapTab = useModalDialog(dialogRef, onClose);
 
   // Filter by localized name or raw id, bucket by availability tier, sort each
   // bucket by localized name, and order the buckets ascending (Infinity last,
@@ -125,18 +118,6 @@ export function ItemPickerPopup({
       ?.focus();
   }
 
-  // Everything inside the dialog that Tab can reach: the close button, the
-  // search box, and the grid's single roving stop.
-  function tabbables(): HTMLElement[] {
-    const root = dialogRef.current;
-    if (!root) return [];
-    return [
-      ...root.querySelectorAll<HTMLElement>(
-        "button:not([disabled]), input:not([disabled])",
-      ),
-    ].filter((el) => el.tabIndex >= 0);
-  }
-
   // Columns come from the live grid rather than a constant, since the template
   // is responsive. An environment that does not compute the property (jsdom)
   // reports none, and one column degrades Up/Down into Left/Right rather than
@@ -152,19 +133,10 @@ export function ItemPickerPopup({
   }
 
   function onDialogKeyDown(e: ReactKeyboardEvent<HTMLDivElement>) {
+    // Tab stops are the close button, the search box, and the grid's single
+    // roving stop; the shared trap wraps them.
     if (e.key === "Tab") {
-      // aria-modal alone does not confine Tab. Without this, Tab off the last
-      // stop leaves the dialog for the page behind the backdrop, which the
-      // user cannot see and can only come back from by tabbing the whole way
-      // round.
-      const stops = tabbables();
-      const first = stops[0];
-      const last = stops[stops.length - 1];
-      if (!first || !last) return;
-      const at = e.shiftKey ? first : last;
-      if (document.activeElement !== at) return;
-      e.preventDefault();
-      (e.shiftKey ? last : first).focus();
+      trapTab(e);
       return;
     }
     const tile = e.target as HTMLElement;

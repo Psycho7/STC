@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Fraction from "fraction.js";
 import type { RecipePack } from "@aef/schema";
 import {
@@ -13,8 +13,8 @@ import { useI18n } from "../data/i18n-context";
 import type { CatalystAccount } from "../solver/catalyst";
 import { rationalFromString, type RationalString } from "../data/targets";
 import {
+  formatFractionPerMin,
   formatRatePerMin,
-  formatRationalPerMin,
   ratePerSecToPerMin,
 } from "../data/rate-format";
 import {
@@ -23,9 +23,9 @@ import {
   iconSheetUrl,
 } from "../canvas/iconSprite";
 import { Sprite } from "../canvas/RecipeNode";
-import { computeItemDepths } from "../data/recipe-depth";
 import { ItemPickerPopup } from "./ItemPickerPopup";
 import { RatePromptPopup } from "./RatePromptPopup";
+import { usePickerFlow } from "./usePickerFlow";
 import { useRateEdit } from "./useRateEdit";
 
 // An item has two boundary supply pools - the general one and, when some
@@ -47,16 +47,6 @@ function isRow(override: ItemOverride, key: RowKey): boolean {
 }
 
 const RATE_ZERO = new Fraction(0);
-
-// Row readouts are definite numbers, so they take the rational formatter's
-// zero rule ("0") rather than the chip formatter's empty string. Rates here
-// are non-negative, so serializing .n/.d is safe.
-function perMinText(itemsPerSec: Fraction): string {
-  return formatRationalPerMin({
-    num: itemsPerSec.n.toString(),
-    denom: itemsPerSec.d.toString(),
-  });
-}
 
 type Props = {
   itemOverrides: ItemOverride[];
@@ -111,13 +101,6 @@ export function displayedInputCount(
   return ids.size;
 }
 
-// A focus target armed by a pick and consumed by the row that renders on the
-// very next commit. The kind matters: both consumers live on the same row and
-// React attaches refs in tree order, so the trigger inside .info completes
-// before the rate input inside .b-rate. A bare row key would let the trigger
-// ref swallow every token and the add path's rate focus would never fire.
-type PendingFocus = { rowKey: string; kind: "rate" | "trigger" };
-
 // Default for the optional eventOffItems prop: nothing is off-cohort.
 const NO_EVENT_OFF: ReadonlyMap<string, string> = new Map();
 
@@ -136,57 +119,15 @@ export function InputsPanel({
   // The items that HAVE a catalyst pool: only these can carry a catalyst row,
   // so only these show the checkbox and fill a catalyst row's picker.
   const catalystIds = useMemo(() => catalystItemIds(pack.recipes), [pack]);
-  // Availability depth per item id, used by the picker popup to group tiles.
-  // computeItemDepths seeds every pack item; ones no recipe can reach land in
-  // the unranked bucket, which on the shipped pack is empty.
-  const tierByItemId = useMemo(() => computeItemDepths(pack), [pack]);
-  // The off-cohort event sentence of the picker hint (#144's T6): the raw
-  // cohort tokens ("v1.2 · v1.5"), the same ones the producer-unavailable
-  // validation error interpolates. Gated on at least one of the items being in
-  // the catalogue (pack.items here), so a hand-built map naming items the grid
-  // never shows explains nothing.
-  const eventOffHint = useMemo(() => {
-    if (eventOffItems.size === 0) return undefined;
-    if (!pack.items.some((it) => eventOffItems.has(it.id))) return undefined;
-    const cohorts = [...new Set(eventOffItems.values())].sort().join(" · ");
-    return i18n.t("picker.event.off", { cohorts });
-  }, [eventOffItems, pack, i18n]);
-  // Which row the picker popup is open for, plus the trigger button that
-  // opened it so focus can return there on close.
-  const [pickerFor, setPickerFor] = useState<
-    { kind: "row"; key: RowKey } | { kind: "add" } | null
-  >(null);
-  const triggerRef = useRef<HTMLButtonElement | null>(null);
-  // The override whose amount prompt (R5) is open. Picking in the add picker
-  // closes it and opens this, so only one popup is ever mounted. The carried
-  // override already names the resolved pool, so the prompt can badge the
-  // catalyst case.
-  const [prompt, setPrompt] = useState<{ override: ItemOverride } | null>(null);
-  // Armed by a pick, consumed by the matching row's callback ref on the next
-  // commit. A stale token (the commit was rejected, or the panel is rendered
-  // with an onChange that never feeds the prop back) is simply overwritten by
-  // the next pick.
-  const pendingFocus = useRef<PendingFocus | null>(null);
-  // The token lives for exactly one commit. focusOnMount is an inline arrow, so
-  // React re-attaches it on every render, not only on mount: an unconsumed
-  // token would otherwise sit armed indefinitely and fire on some later,
-  // unrelated commit that happens to render a row with the same key, yanking
-  // focus out of whatever the user was doing. Ref callbacks run before
-  // effects within a commit, so a token the matching row consumed is already
-  // null here; one whose commit never applied is dropped.
-  useEffect(() => {
-    pendingFocus.current = null;
-  });
-  function focusOnMount(
-    el: HTMLElement | null,
-    rowKey: string,
-    kind: PendingFocus["kind"],
-  ) {
-    const want = pendingFocus.current;
-    if (!el || !want || want.rowKey !== rowKey || want.kind !== kind) return;
-    pendingFocus.current = null;
-    el.focus();
-  }
+  // The picker popup (per row, or Add's) and the amount prompt (R5) an add
+  // pick opens, keyed by row key. The carried override already names the
+  // resolved pool, so the prompt can badge the catalyst case. The picker's
+  // catalogue is the whole pack.
+  const flow = usePickerFlow<
+    { kind: "row"; key: RowKey } | { kind: "add" },
+    { override: ItemOverride }
+  >(pack, pack.items, eventOffItems);
+  const { pickerFor, prompt, closePicker, focusOnMount } = flow;
   // The row's item name plus, when present, the message under its rate field.
   // The name is a description rather than a label so the accessible NAME stays
   // the generic rate label every existing query resolves by.
@@ -194,14 +135,6 @@ export function InputsPanel({
     const ids = [`i-name-${key.itemId}${rowIdSuffix(key)}`];
     if (hasMessage) ids.push(`i-rate-err-${key.itemId}${rowIdSuffix(key)}`);
     return ids.join(" ");
-  }
-  function closePicker() {
-    setPickerFor(null);
-    const btn = triggerRef.current;
-    triggerRef.current = null;
-    // The trigger may have been removed (a committed swap unmounts its row),
-    // so guard the focus.
-    if (btn && document.contains(btn)) btn.focus();
   }
 
   // The add prompt confirmed an amount (R5). The row commits exactly as a
@@ -212,10 +145,7 @@ export function InputsPanel({
   function confirmPromptRate(rate: RationalString | undefined) {
     const added = prompt?.override;
     if (added === undefined) return;
-    pendingFocus.current = {
-      rowKey: encodeItemOverrideKey(added),
-      kind: "rate",
-    };
+    flow.armFocus(encodeItemOverrideKey(added), "rate");
     onChange((current) =>
       current.some((o) => isRow(o, added))
         ? current
@@ -224,17 +154,7 @@ export function InputsPanel({
             rate === undefined ? added : { ...added, ratePerSec: rate },
           ],
     );
-    triggerRef.current = null;
-    setPrompt(null);
-  }
-
-  // R7: cancelling the prompt cancels the whole add - nothing committed, and
-  // focus returns to the Add button that started it.
-  function cancelPrompt() {
-    setPrompt(null);
-    const btn = triggerRef.current;
-    triggerRef.current = null;
-    if (btn && document.contains(btn)) btn.focus();
+    flow.closePrompt();
   }
 
   // Raised by a gesture that would land a second row on a row key that already
@@ -453,7 +373,7 @@ export function InputsPanel({
     if (ordinary === undefined && part.valueOf() === 0) return undefined;
     const base =
       ordinary === undefined ? RATE_ZERO : rationalFromString(ordinary);
-    return perMinText(base.add(part));
+    return formatFractionPerMin(base.add(part));
   }
 
   // What the catalyst pool is asked to hold: the whole cycled charge less
@@ -462,7 +382,7 @@ export function InputsPanel({
   function catalystRateText(itemId: string): string {
     const entry = catalystAccount?.get(itemId);
     if (entry === undefined) return "0";
-    return perMinText(entry.need.sub(entry.fromGeneral));
+    return formatFractionPerMin(entry.need.sub(entry.fromGeneral));
   }
 
   function catalystPartText(itemId: string): string | undefined {
@@ -691,10 +611,9 @@ export function InputsPanel({
                   // title shows the full localised item name on hover, for
                   // when the trigger truncates long names at narrow widths.
                   title={i18n.displayName(row.itemId)}
-                  onClick={(e) => {
-                    triggerRef.current = e.currentTarget;
-                    setPickerFor({ kind: "row", key });
-                  }}
+                  onClick={(e) =>
+                    flow.openPicker(e.currentTarget, { kind: "row", key })
+                  }
                 >
                   <span id={`i-name-${domId}`}>
                     {i18n.displayName(row.itemId)}
@@ -800,8 +719,7 @@ export function InputsPanel({
         className="b-add"
         onClick={(e) => {
           if (addExhausted) return;
-          triggerRef.current = e.currentTarget;
-          setPickerFor({ kind: "add" });
+          flow.openPicker(e.currentTarget, { kind: "add" });
         }}
         // aria-disabled, not disabled: a disabled button is not focusable, so
         // keyboard and screen-reader users would never reach the title that
@@ -827,7 +745,7 @@ export function InputsPanel({
           note={i18n.t("ratePrompt.noLimit")}
           iconSheetUrl={iconSheetUrl}
           onConfirm={confirmPromptRate}
-          onCancel={cancelPrompt}
+          onCancel={flow.cancelPrompt}
         />
       ) : null}
     </div>
@@ -894,14 +812,14 @@ export function InputsPanel({
     // nothing is dimmed and the hint would explain an absence.
     const hintSentences = [
       ...(listedCount > 0 ? [i18n.t("inputs.picker.listed")] : []),
-      ...(eventOffHint !== undefined ? [eventOffHint] : []),
+      ...(flow.eventOffHint !== undefined ? [flow.eventOffHint] : []),
     ];
     return (
       <ItemPickerPopup
         items={pack.items}
         disabledIds={disabledIds}
         selectedId={row?.itemId}
-        tierByItemId={tierByItemId}
+        tierByItemId={flow.tierByItemId}
         disabledHint={
           hintSentences.length > 0 ? hintSentences.join(" · ") : undefined
         }
@@ -914,12 +832,8 @@ export function InputsPanel({
               ? { itemId: newId, role: "catalyst" }
               : { itemId: newId };
             // R5: the amount prompt asks for the rate before anything
-            // commits. The picker closes without refocusing - the prompt's
-            // input takes focus when it mounts - and the trigger stays
-            // stashed for the prompt's cancel path, so only one popup is
-            // ever mounted.
-            setPickerFor(null);
-            setPrompt({ override: added });
+            // commits.
+            flow.openPrompt({ override: added });
             return;
           }
           // Re-picking the row's own (still-enabled, highlighted) item is a
@@ -929,10 +843,10 @@ export function InputsPanel({
             // The swap unmounts this row (rows are keyed by row key), so
             // closePicker's refocus lands on a button the next commit
             // removes. Hand focus to the swapped row's trigger instead.
-            pendingFocus.current = {
-              rowKey: encodeItemOverrideKey({ itemId: newId, role: row.role }),
-              kind: "trigger",
-            };
+            flow.armFocus(
+              encodeItemOverrideKey({ itemId: newId, role: row.role }),
+              "trigger",
+            );
             handleItemChange({ itemId: row.itemId, role: row.role }, newId);
           }
           closePicker();

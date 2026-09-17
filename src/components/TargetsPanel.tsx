@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useState } from "react";
 // Aliased: the bare name would shadow the DOM MouseEvent the Add handler below
 // is typed against.
 import type { MouseEvent as ReactMouseEvent } from "react";
@@ -7,7 +7,6 @@ import type { RationalString, Target } from "../data/targets";
 import { useI18n } from "../data/i18n-context";
 import { producibleItemIds } from "../data/recipe-category";
 import { ratePerSecToPerMin } from "../data/rate-format";
-import { computeItemDepths } from "../data/recipe-depth";
 import {
   iconIdForItem,
   iconPosition,
@@ -16,9 +15,8 @@ import {
 import { Sprite } from "../canvas/RecipeNode";
 import { ItemPickerPopup } from "./ItemPickerPopup";
 import { RatePromptPopup } from "./RatePromptPopup";
+import { usePickerFlow } from "./usePickerFlow";
 import { useRateEdit } from "./useRateEdit";
-
-type PendingFocus = { itemId: string; kind: "rate" | "trigger" };
 
 // Default for the optional eventOffItems prop: nothing is off-cohort.
 const NO_EVENT_OFF: ReadonlyMap<string, string> = new Map();
@@ -53,59 +51,13 @@ export function TargetsPanel({
     const ids = producibleItemIds(pack.recipes);
     return pack.items.filter((i) => ids.has(i.id));
   }, [pack]);
-  // Availability depth per item id, used by the picker popup to group tiles.
-  const tierByItemId = useMemo(() => computeItemDepths(pack), [pack]);
-  // The picker hint for off-cohort event items (#144's T6): the raw cohort
-  // tokens ("v1.2 · v1.5"), the same ones the producer-unavailable validation
-  // error interpolates, so both surfaces name a cohort identically. Gated on at
-  // least one of the items being in the catalogue above - a cohort whose every
-  // item is non-producible would explain dimming the grid never shows.
-  const eventOffHint = useMemo(() => {
-    if (eventOffItems.size === 0) return undefined;
-    if (!pickableItems.some((it) => eventOffItems.has(it.id))) return undefined;
-    const cohorts = [...new Set(eventOffItems.values())].sort().join(" · ");
-    return i18n.t("picker.event.off", { cohorts });
-  }, [eventOffItems, pickableItems, i18n]);
-  // Which row the row-swap picker popup is open for, or that Add opened the
-  // picker directly (R4), plus the trigger button that opened it so focus can
-  // return there on close.
-  const [pickerFor, setPickerFor] = useState<
-    { kind: "row"; itemId: string } | { kind: "add" } | null
-  >(null);
-  // The item whose amount prompt (R4) is open. Picking in the add picker
-  // closes it and opens this, so only one popup is ever mounted.
-  const [prompt, setPrompt] = useState<{ itemId: string } | null>(null);
-  const triggerRef = useRef<HTMLButtonElement | null>(null);
-  function closePicker() {
-    setPickerFor(null);
-    const btn = triggerRef.current;
-    triggerRef.current = null;
-    // The trigger may have been removed (a row swapped onto another item -
-    // rows are keyed by itemId), so guard the focus. The removed case hands
-    // focus to the replacement row through the pending-focus token below.
-    if (btn && document.contains(btn)) btn.focus();
-  }
-  // Armed by a row swap or an add confirm, consumed by the matching row's
-  // callback ref on the next commit (the InputsPanel token, same rules): a
-  // swap unmounts the element that held focus, and a fresh add must hand it
-  // to the new row's rate input.
-  const pendingFocus = useRef<PendingFocus | null>(null);
-  // The token lives for exactly one commit: ref callbacks run before effects,
-  // so a consumed token is already null here and an unapplied one is dropped
-  // rather than firing on a later unrelated commit.
-  useEffect(() => {
-    pendingFocus.current = null;
-  });
-  function focusOnMount(
-    el: HTMLElement | null,
-    itemId: string,
-    kind: PendingFocus["kind"],
-  ) {
-    const want = pendingFocus.current;
-    if (!el || !want || want.itemId !== itemId || want.kind !== kind) return;
-    pendingFocus.current = null;
-    el.focus();
-  }
+  // The row-swap picker (or Add's picker, R4) and the amount prompt (R4) that
+  // follows an add pick. Rows are keyed by item id.
+  const flow = usePickerFlow<
+    { kind: "row"; itemId: string } | { kind: "add" },
+    { itemId: string }
+  >(pack, pickableItems, eventOffItems);
+  const { pickerFor, prompt, closePicker, focusOnMount } = flow;
   const [duplicateError, setDuplicateError] = useState<{
     rowId: string;
     itemId: string;
@@ -162,8 +114,7 @@ export function TargetsPanel({
   // in the prompt that follows the pick; nothing commits until a positive rate
   // confirms there (R6), so no draft row ever exists.
   function handleAdd(e: ReactMouseEvent<HTMLButtonElement>) {
-    triggerRef.current = e.currentTarget;
-    setPickerFor({ kind: "add" });
+    flow.openPicker(e.currentTarget, { kind: "add" });
   }
 
   // The add prompt confirmed a rate. The row commits exactly once (the picker
@@ -174,23 +125,13 @@ export function TargetsPanel({
     // The "invalid" mode never confirms without a rate; the guard only tells
     // the type system that.
     if (itemId === undefined || rate === undefined) return;
-    pendingFocus.current = { itemId, kind: "rate" };
+    flow.armFocus(itemId, "rate");
     onChange((current) =>
       current.some((t) => t.itemId === itemId)
         ? current
         : [...current, { itemId, ratePerSec: rate }],
     );
-    triggerRef.current = null;
-    setPrompt(null);
-  }
-
-  // R7: cancelling the prompt cancels the whole add - nothing committed, and
-  // focus returns to the Add button that started it.
-  function cancelPrompt() {
-    setPrompt(null);
-    const btn = triggerRef.current;
-    triggerRef.current = null;
-    if (btn && document.contains(btn)) btn.focus();
+    flow.closePrompt();
   }
 
   return (
@@ -233,10 +174,12 @@ export function TargetsPanel({
                   // when the trigger truncates long names at narrow widths.
                   title={i18n.displayName(t.itemId)}
                   ref={(el) => focusOnMount(el, t.itemId, "trigger")}
-                  onClick={(e) => {
-                    triggerRef.current = e.currentTarget;
-                    setPickerFor({ kind: "row", itemId: t.itemId });
-                  }}
+                  onClick={(e) =>
+                    flow.openPicker(e.currentTarget, {
+                      kind: "row",
+                      itemId: t.itemId,
+                    })
+                  }
                 >
                   {i18n.displayName(t.itemId)}
                 </button>
@@ -296,7 +239,7 @@ export function TargetsPanel({
           emptyMeans="invalid"
           iconSheetUrl={iconSheetUrl}
           onConfirm={confirmPromptRate}
-          onCancel={cancelPrompt}
+          onCancel={flow.cancelPrompt}
         />
       ) : null}
     </div>
@@ -313,15 +256,9 @@ export function TargetsPanel({
         <ItemPickerPopup
           items={pickableItems}
           disabledIds={disabledIds}
-          tierByItemId={tierByItemId}
-          disabledHint={eventOffHint}
-          onPick={(newId) => {
-            // The prompt takes focus when it opens (its rate input
-            // autofocuses), so the trigger is not refocused here; it stays
-            // stashed for the prompt's cancel path (R7).
-            setPickerFor(null);
-            setPrompt({ itemId: newId });
-          }}
+          tierByItemId={flow.tierByItemId}
+          disabledHint={flow.eventOffHint}
+          onPick={(newId) => flow.openPrompt({ itemId: newId })}
           onClose={closePicker}
         />
       );
@@ -344,8 +281,8 @@ export function TargetsPanel({
         items={pickableItems}
         disabledIds={disabledIds}
         selectedId={rowId}
-        tierByItemId={tierByItemId}
-        disabledHint={eventOffHint}
+        tierByItemId={flow.tierByItemId}
+        disabledHint={flow.eventOffHint}
         onPick={(newId) => {
           // Re-picking the row's own (still-enabled, highlighted) item is a
           // confirm, not a swap; without this guard the dup check would match
@@ -354,7 +291,7 @@ export function TargetsPanel({
             // The swap unmounts this row (rows are keyed by itemId), so
             // closePicker's refocus lands on a button the next commit
             // removes. Hand focus to the swapped row's trigger instead.
-            pendingFocus.current = { itemId: newId, kind: "trigger" };
+            flow.armFocus(newId, "trigger");
             handleItemChange(rowId, newId);
           }
           closePicker();
