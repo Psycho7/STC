@@ -263,7 +263,22 @@ function scopeOf(id: string, layers: ReadonlyArray<Layer>): Scope {
 
 // The layer model of a placement: one scope for the root and one per container
 // interior, each layered in its own frame.
+//
+// Memoized per nodes ARRAY: every routing pass of one fold is handed the same
+// array and asks for its model several times. That holds only while nobody
+// moves a node inside an array whose model was already taken; the one
+// in-place mover, widenLayerGaps, builds its own model after its last move.
+const layerModelByNodes = new WeakMap<ReadonlyArray<RFAnyNode>, LayerModel>();
+
 export function buildLayerModel(nodes: ReadonlyArray<RFAnyNode>): LayerModel {
+  const cached = layerModelByNodes.get(nodes);
+  if (cached !== undefined) return cached;
+  const model = layerModelOf(nodes);
+  layerModelByNodes.set(nodes, model);
+  return model;
+}
+
+function layerModelOf(nodes: ReadonlyArray<RFAnyNode>): LayerModel {
   const byId = nodeIndexOf(nodes);
   const scopeByNodeId = scopeByNodeIdOf(nodes);
   const scopes = new Map<string, Scope>();

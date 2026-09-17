@@ -28,25 +28,53 @@ export type Pt = readonly [number, number];
 // cross. The parametric solve only runs once the orientation signs have
 // already proven a strict crossing, so the boolean caller pays nothing extra.
 export function properCrossPoint(a: Pt, b: Pt, c: Pt, d: Pt): Pt | null {
-  const o = (p: Pt, q: Pt, r: Pt): number =>
-    (q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0]);
-  const d1 = o(c, d, a);
-  const d2 = o(c, d, b);
-  const d3 = o(a, b, c);
-  const d4 = o(a, b, d);
-  const EPS = 1e-9;
-  const strictlyOpposite = (u: number, v: number): boolean =>
-    (u > EPS && v < -EPS) || (u < -EPS && v > EPS);
+  return properCrossPointXY(a[0], a[1], b[0], b[1], c[0], c[1], d[0], d[1]);
+}
+
+const CROSS_EPS = 1e-9;
+
+// Orientation of r against the directed line p -> q.
+function orient(
+  px: number,
+  py: number,
+  qx: number,
+  qy: number,
+  rx: number,
+  ry: number,
+): number {
+  return (qx - px) * (ry - py) - (qy - py) * (rx - px);
+}
+
+function strictlyOpposite(u: number, v: number): boolean {
+  return (u > CROSS_EPS && v < -CROSS_EPS) || (u < -CROSS_EPS && v > CROSS_EPS);
+}
+
+// properCrossPoint on bare coordinates (segments a-b and c-d), for the cue
+// pass's pair loop, which would otherwise allocate four tuples per test.
+export function properCrossPointXY(
+  ax: number,
+  ay: number,
+  bx: number,
+  by: number,
+  cx: number,
+  cy: number,
+  dx: number,
+  dy: number,
+): Pt | null {
+  const d1 = orient(cx, cy, dx, dy, ax, ay);
+  const d2 = orient(cx, cy, dx, dy, bx, by);
+  const d3 = orient(ax, ay, bx, by, cx, cy);
+  const d4 = orient(ax, ay, bx, by, dx, dy);
   if (!(strictlyOpposite(d1, d2) && strictlyOpposite(d3, d4))) return null;
-  const rx = b[0] - a[0];
-  const ry = b[1] - a[1];
-  const sx = d[0] - c[0];
-  const sy = d[1] - c[1];
+  const rx = bx - ax;
+  const ry = by - ay;
+  const sx = dx - cx;
+  const sy = dy - cy;
   const denom = rx * sy - ry * sx;
   // Strictly opposite orientations exclude parallel and collinear pairs (and
   // zero-length segments), so the denominator cannot vanish here.
-  const t = ((c[0] - a[0]) * sy - (c[1] - a[1]) * sx) / denom;
-  return [a[0] + t * rx, a[1] + t * ry];
+  const t = ((cx - ax) * sy - (cy - ay) * sx) / denom;
+  return [ax + t * rx, ay + t * ry];
 }
 
 // The boolean form, the exact contract the crossing census has always

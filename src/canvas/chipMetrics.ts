@@ -18,6 +18,7 @@
 // forces a relayout.
 
 import type { Edge } from "@xyflow/react";
+import type Fraction from "fraction.js";
 
 import { CHIP_BOX_HEIGHT, CHIP_BOX_WIDTH } from "./dimensions";
 import type { BusEdgeData } from "./busRouting";
@@ -176,11 +177,36 @@ export function chipHalfWidthsOf(data: unknown): {
   aggHalfW: number;
   memberHalfW: number;
 } {
-  const edge = { id: "", source: "", target: "", data } as Edge;
+  const total = (data as BusEdgeData | undefined)?.busTotalRate;
   return {
-    aggHalfW: chipSeatHalfW(aggregateChipText(edge), false),
-    memberHalfW: chipSeatHalfW(branchChipText(edge), false),
+    aggHalfW: total === undefined ? memberHalfWOf(data) : rateSeatHalfW(total),
+    memberHalfW: memberHalfWOf(data),
   };
+}
+
+// The member half-width alone, for a caller that draws no aggregate chip.
+export function memberHalfWOf(data: unknown): number {
+  const edge = { id: "", source: "", target: "", data } as Edge;
+  const rate = edgeRate(edge);
+  return rate === undefined
+    ? chipSeatHalfW(undefined, false)
+    : rateSeatHalfW(rate);
+}
+
+// The seat half-width of a rate chip (formatted rate plus unit), memoized per
+// rate object: every routing pass rebuilds each edge's drawn shape from the
+// same Fraction, and the half-width depends on nothing else.
+const rateSeatHalfWByRate = new WeakMap<Fraction, number>();
+
+function rateSeatHalfW(rate: Fraction): number {
+  const cached = rateSeatHalfWByRate.get(rate);
+  if (cached !== undefined) return cached;
+  const halfW = chipSeatHalfW(
+    { body: formatRatePerMin(rate), unit: true },
+    false,
+  );
+  rateSeatHalfWByRate.set(rate, halfW);
+  return halfW;
 }
 
 // One row per chip an edge CAN draw, keyed by the FlowChip testId, carrying the

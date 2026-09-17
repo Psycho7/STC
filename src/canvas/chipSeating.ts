@@ -46,7 +46,7 @@ import {
   routingHintsFromData,
 } from "./edgePath";
 import {
-  properCrossPoint,
+  properCrossPointXY,
   type CrossingCue,
   type CrossingCuePartner,
 } from "./crossings";
@@ -268,7 +268,48 @@ type EdgeSegments = {
   id: string;
   flowKey: string;
   segs: ReadonlyArray<readonly [number, number, number, number]>;
+  // The polyline's bounding box, the pair loop's first reject.
+  box: Box;
 };
+
+type Box = { left: number; top: number; right: number; bottom: number };
+
+// Slack on the bounding-box rejects ahead of properCrossPoint. A proper
+// crossing lies inside both segments' boxes, so a pair apart by more than this
+// cannot cross; the slack only keeps float noise in the orientation test from
+// being rejected here instead of there.
+const CROSS_BOX_SLACK = 1;
+
+function boxesApart(a: Box, b: Box): boolean {
+  return (
+    a.left > b.right + CROSS_BOX_SLACK ||
+    b.left > a.right + CROSS_BOX_SLACK ||
+    a.top > b.bottom + CROSS_BOX_SLACK ||
+    b.top > a.bottom + CROSS_BOX_SLACK
+  );
+}
+
+// boxesApart(box, segmentBox(seg)) without building the segment's box.
+function segmentApart(
+  box: Box,
+  seg: readonly [number, number, number, number],
+): boolean {
+  return (
+    box.left > Math.max(seg[0], seg[2]) + CROSS_BOX_SLACK ||
+    Math.min(seg[0], seg[2]) > box.right + CROSS_BOX_SLACK ||
+    box.top > Math.max(seg[1], seg[3]) + CROSS_BOX_SLACK ||
+    Math.min(seg[1], seg[3]) > box.bottom + CROSS_BOX_SLACK
+  );
+}
+
+function segmentBox(seg: readonly [number, number, number, number]): Box {
+  return {
+    left: Math.min(seg[0], seg[2]),
+    top: Math.min(seg[1], seg[3]),
+    right: Math.max(seg[0], seg[2]),
+    bottom: Math.max(seg[1], seg[3]),
+  };
+}
 
 // Every edge-data field this pass stamps. Picking them off the types that
 // declare them makes a rename at the declaration a build error here.
@@ -319,15 +360,27 @@ export function deconflictChipAnchors(
     const drawn = drawnEdge(ends, edge.type, edge.data);
     if (drawn.shape === "item") itemPtsById.set(edge.id, drawn.pts);
     const segs: Array<readonly [number, number, number, number]> = [];
+    const box: Box = {
+      left: Infinity,
+      top: Infinity,
+      right: -Infinity,
+      bottom: -Infinity,
+    };
     for (let i = 1; i < drawn.pts.length; i++) {
-      segs.push([
+      const seg = [
         drawn.pts[i - 1]![0],
         drawn.pts[i - 1]![1],
         drawn.pts[i]![0],
         drawn.pts[i]![1],
-      ]);
+      ] as const;
+      segs.push(seg);
+      const sb = segmentBox(seg);
+      box.left = Math.min(box.left, sb.left);
+      box.top = Math.min(box.top, sb.top);
+      box.right = Math.max(box.right, sb.right);
+      box.bottom = Math.max(box.bottom, sb.bottom);
     }
-    edgeSegments.push({ id: edge.id, flowKey: flowKeyOf(edge), segs });
+    edgeSegments.push({ id: edge.id, flowKey: flowKeyOf(edge), segs, box });
     edgeIndexOfSegment.push(index);
   });
 
@@ -417,13 +470,23 @@ export function deconflictChipAnchors(
         const si = edgeSegments[i]!;
         const sj = edgeSegments[j]!;
         if (si.flowKey === sj.flowKey) continue;
+        // The rejects only skip pairs that cannot cross, so the scan still
+        // meets every crossing in the same (i, j, segment) order.
+        if (boxesApart(si.box, sj.box)) continue;
         for (const sa of si.segs) {
+          const boxA = segmentBox(sa);
+          if (boxesApart(boxA, sj.box)) continue;
           for (const sb of sj.segs) {
-            const p = properCrossPoint(
-              [sa[0], sa[1]],
-              [sa[2], sa[3]],
-              [sb[0], sb[1]],
-              [sb[2], sb[3]],
+            if (segmentApart(boxA, sb)) continue;
+            const p = properCrossPointXY(
+              sa[0],
+              sa[1],
+              sa[2],
+              sa[3],
+              sb[0],
+              sb[1],
+              sb[2],
+              sb[3],
             );
             if (p === null) continue;
             const x = Math.round(p[0] * 100) / 100;
