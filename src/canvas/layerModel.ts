@@ -38,6 +38,8 @@
 import Fraction from "fraction.js";
 import type { Edge } from "@xyflow/react";
 
+import { pushInto } from "../util/multimap";
+
 import { DOT_KEEPOFF } from "./dimensions";
 import { CHAMFER, FORWARD_STEP_BUDGET, PORT_STUB } from "./edgePath";
 import {
@@ -263,7 +265,22 @@ function scopeOf(id: string, layers: ReadonlyArray<Layer>): Scope {
 
 // The layer model of a placement: one scope for the root and one per container
 // interior, each layered in its own frame.
+//
+// Memoized per nodes ARRAY: every routing pass of one fold is handed the same
+// array and asks for its model several times. That holds only while nobody
+// moves a node inside an array whose model was already taken; the one
+// in-place mover, widenLayerGaps, builds its own model after its last move.
+const layerModelByNodes = new WeakMap<ReadonlyArray<RFAnyNode>, LayerModel>();
+
 export function buildLayerModel(nodes: ReadonlyArray<RFAnyNode>): LayerModel {
+  const cached = layerModelByNodes.get(nodes);
+  if (cached !== undefined) return cached;
+  const model = layerModelOf(nodes);
+  layerModelByNodes.set(nodes, model);
+  return model;
+}
+
+function layerModelOf(nodes: ReadonlyArray<RFAnyNode>): LayerModel {
   const byId = nodeIndexOf(nodes);
   const scopeByNodeId = scopeByNodeIdOf(nodes);
   const scopes = new Map<string, Scope>();
@@ -290,7 +307,7 @@ function scopeChainOf(model: LayerModel, id: string): string[] {
 // The LOWEST COMMON SCOPE of a set of nodes: the innermost frame all of them are
 // placed in, which is the frame an edge's (or a whole trunk's) layer distance,
 // gaps and columns are all measured in.
-export function commonScopeOfAll(
+function commonScopeOfAll(
   model: LayerModel,
   ids: ReadonlyArray<string>,
 ): string | undefined {
@@ -300,7 +317,7 @@ export function commonScopeOfAll(
   return first.find((scope) => chains.every((chain) => chain.includes(scope)));
 }
 
-export function commonScopeOf(
+function commonScopeOf(
   model: LayerModel,
   a: string,
   b: string,
@@ -862,9 +879,7 @@ export function widenLayerGaps(
   const membersByScope = new Map<string, WorkingNode[]>();
   for (const node of working) {
     const scope = scopeByNodeId.get(node.id)!;
-    const list = membersByScope.get(scope) ?? [];
-    list.push(node);
-    membersByScope.set(scope, list);
+    pushInto(membersByScope, scope, node);
   }
 
   // Deepest scope first. A scope's depth is its container's depth plus one.

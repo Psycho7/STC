@@ -4,6 +4,7 @@ import { useI18n } from "../data/i18n-context";
 import type { I18nIndex } from "../data/i18n";
 import { formatRationalPerMin } from "../data/rate-format";
 import type { RationalString } from "../pipeline/types";
+import { portId } from "../pipeline/render/port-ids";
 import { PortGlyph } from "./PortGlyph";
 import { useItemPack } from "./itemPackContext";
 import type { CatalystBreakdown, PortTransportKinds } from "./layout";
@@ -14,7 +15,7 @@ import {
   widthFnFor,
   type MeasuredFont,
 } from "./measureText";
-import { iconPosition } from "./iconSprite";
+import { iconIdForItem, iconPosition } from "./iconSprite";
 import { Sprite } from "./RecipeNode";
 
 // Data shape accepted by ProductNode. The component branches on `kind` (and on
@@ -194,7 +195,7 @@ export default function ProductNode({
   const isInput = data.kind === "inputProduct";
   // Sprite key: the item's own icon id, falling back to the item id itself for
   // pack entries that declare none.
-  const iconId = item?.icon ?? data.itemId;
+  const iconId = iconIdForItem(data.itemId);
 
   // Direction and classification, spoken rather than drawn.
   const ariaLabel = buildPnAriaLabel(data, item, i18n);
@@ -250,35 +251,35 @@ export default function ProductNode({
           {data.isFanout ? (
             <>
               <Handle
-                id={`in:${data.itemId}`}
+                id={portId("in", data.itemId)}
                 type="target"
                 position={Position.Left}
               />
               <PortGlyph
-                kind={data.portTransportKinds?.get(`in:${data.itemId}`)}
+                kind={data.portTransportKinds?.get(portId("in", data.itemId))}
                 side="left"
               />
             </>
           ) : null}
           <Handle
-            id={`out:${data.itemId}`}
+            id={portId("out", data.itemId)}
             type="source"
             position={Position.Right}
           />
           <PortGlyph
-            kind={data.portTransportKinds?.get(`out:${data.itemId}`)}
+            kind={data.portTransportKinds?.get(portId("out", data.itemId))}
             side="right"
           />
         </>
       ) : (
         <>
           <Handle
-            id={`in:${data.itemId}`}
+            id={portId("in", data.itemId)}
             type="target"
             position={Position.Left}
           />
           <PortGlyph
-            kind={data.portTransportKinds?.get(`in:${data.itemId}`)}
+            kind={data.portTransportKinds?.get(portId("in", data.itemId))}
             side="left"
           />
         </>

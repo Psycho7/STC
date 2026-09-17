@@ -3,6 +3,7 @@ import type { Machine, Recipe, Stoich } from "@aef/schema";
 import type { SupplyTable } from "./effectiveSupply";
 import type { ItemId, Replica, ReplicaId, RecipeId } from "./types";
 import { MissingMachineError } from "./types";
+import { executionsPerMachine } from "./multiplier";
 
 /**
  * Per-machine catalyst charge in items per second.
@@ -25,9 +26,9 @@ export function catalystChargeOf(
   machine: Pick<Machine, "speed">,
 ): Fraction {
   const wholeMachines = machines.ceil(0);
-  const perMachine = new Fraction(stoich.qty)
-    .mul(new Fraction(machine.speed))
-    .div(new Fraction(recipe.time));
+  const perMachine = new Fraction(stoich.qty).mul(
+    executionsPerMachine(recipe, machine),
+  );
   return wholeMachines.mul(perMachine);
 }
 

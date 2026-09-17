@@ -28,7 +28,7 @@ import RecipeNode from "./RecipeNode";
 import GroupNode from "./GroupNode";
 import LoopNode from "./LoopNode";
 import ProductNode from "./ProductNode";
-import ItemEdge from "./ItemEdge";
+import ItemEdge, { edgeStrokeWidth, withFocusFlags } from "./ItemEdge";
 import BusEdge from "./BusEdge";
 import { contentBounds } from "./chipSeating";
 import { examChipReservations } from "./chipMetrics";
@@ -39,6 +39,7 @@ import { ExportModeProvider } from "./exportMode";
 import { capturePlanPng, exportFrame, withInlinedSprites } from "./exportPng";
 import { useI18n } from "../data/i18n-context";
 import { pack } from "../data/load";
+import { pushInto } from "../util/multimap";
 import type { CSSProperties } from "react";
 import { iconSheetUrl } from "./iconSprite";
 import { HOVER_INTENT_MS } from "./dimensions";
@@ -79,7 +80,7 @@ const FIT_VIEW_OPTIONS = { padding: 0.12 };
 // explicit rect (the node cards PLUS the chip extents contentBounds computes),
 // where fitView would frame the node cards alone and clip a chip standing on a
 // routed leg outside them.
-const FIT_BOUNDS_OPTIONS = { padding: 0.12 };
+const FIT_BOUNDS_OPTIONS = { padding: FIT_VIEW_OPTIONS.padding };
 
 // Debounce for the ResizeObserver re-fit so dragging the window edge (a burst of
 // resize callbacks) coalesces into a single fitView instead of thrashing.
@@ -128,22 +129,12 @@ type Hovered =
 
 // Adjacency indexes derived once per `edges` array. Everything the highlight
 // needs to expand a hovered element into its focus set: node -> incident edges,
-// edge -> endpoints, trunk -> member edges, and an id -> edge lookup.
+// trunk -> member edges, and an id -> edge lookup (which also gives an edge's
+// endpoints).
 interface Adjacency {
   edgesByNode: Map<string, string[]>;
-  endpointsByEdge: Map<string, [string, string]>;
   edgesByTrunk: Map<string, string[]>;
   edgeById: Map<string, Edge>;
-}
-
-function pushInto(
-  map: Map<string, string[]>,
-  key: string,
-  value: string,
-): void {
-  const list = map.get(key);
-  if (list) list.push(value);
-  else map.set(key, [value]);
 }
 
 function withDimmed(className: string | undefined): string {
@@ -152,6 +143,68 @@ function withDimmed(className: string | undefined): string {
 
 function withLitContainer(className: string | undefined): string {
   return className ? `${className} lit-container` : "lit-container";
+}
+
+// The dimmed / lit-container node copies handed to React Flow, one per source
+// node and variant. A copy is a pure function of its source, so reusing it
+// keeps the object React Flow sees stable across drag frames: a drag hands
+// Canvas a new array every frame but touches only the dragged node, and every
+// other node keeps its wrapper instead of re-rendering.
+type FocusVariant = "dimmed" | "litContainer";
+const focusCopies = new WeakMap<
+  object,
+  Partial<Record<FocusVariant, object>>
+>();
+
+function focusCopy<T extends object>(
+  source: T,
+  variant: FocusVariant,
+  build: (source: T) => T,
+): T {
+  let copies = focusCopies.get(source);
+  if (copies === undefined) {
+    copies = {};
+    focusCopies.set(source, copies);
+  }
+  const hit = copies[variant];
+  if (hit !== undefined) return hit as T;
+  const copy = build(source);
+  copies[variant] = copy;
+  return copy;
+}
+
+// Stamp the hover focus onto the nodes React Flow renders. Idle (`focus` null)
+// returns the input array untouched. Exported for the unit test.
+export function focusNodes(
+  nodes: Node[],
+  focus: { nodeIds: Set<string> } | null,
+): Node[] {
+  if (!focus) return nodes;
+  // Container boxes (`type: "group"`) never dim while any of their child nodes
+  // is in the focus set, so the frame around a lit cluster does not read as
+  // faded. With no focused child they dim like any other node.
+  const litContainers = new Set<string>();
+  for (const node of nodes) {
+    if (node.parentId && focus.nodeIds.has(node.id)) {
+      litContainers.add(node.parentId);
+    }
+  }
+  return nodes.map((node) => {
+    if (focus.nodeIds.has(node.id)) return node;
+    // A container lit only because a child is focused keeps a lit border but a
+    // still-translucent fill, so it does not read as a bright empty slab over
+    // its dimmed members.
+    if (node.type === "group" && litContainers.has(node.id)) {
+      return focusCopy(node, "litContainer", (n) => ({
+        ...n,
+        className: withLitContainer(n.className),
+      }));
+    }
+    return focusCopy(node, "dimmed", (n) => ({
+      ...n,
+      className: withDimmed(n.className),
+    }));
+  });
 }
 
 // Stamp the hover focus onto the edges React Flow renders. Idle (`focus` null)
@@ -168,7 +221,7 @@ export function focusEdges(
     focus.edgeIds.has(edge.id)
       ? // The lit edge announces itself so its chips can outrank the zoom
         // level-of-detail gates and show the rate the hover is asking for.
-        { ...edge, data: { ...edge.data, focused: true } }
+        { ...edge, data: withFocusFlags(edge.data, { focused: true }) }
       : {
           ...edge,
           className: withDimmed(edge.className),
@@ -176,7 +229,7 @@ export function focusEdges(
           // this wrapper via EdgeLabelRenderer, so the wrapper's `dimmed`
           // class never fades them. Thread the dim through edge data; the
           // chips map it onto their own .flow-chip.dimmed rule.
-          data: { ...edge.data, dimmed: true },
+          data: withFocusFlags(edge.data, { dimmed: true }),
         },
   );
 }
@@ -501,25 +554,22 @@ function CanvasInner({
 
   const adjacency = useMemo<Adjacency>(() => {
     const edgesByNode = new Map<string, string[]>();
-    const endpointsByEdge = new Map<string, [string, string]>();
     const edgesByTrunk = new Map<string, string[]>();
     const edgeById = new Map<string, Edge>();
     for (const edge of edges) {
       edgeById.set(edge.id, edge);
-      endpointsByEdge.set(edge.id, [edge.source, edge.target]);
       pushInto(edgesByNode, edge.source, edge.id);
       pushInto(edgesByNode, edge.target, edge.id);
       const trunkKey = (edge.data as BusAggregate | undefined)?.trunkKey;
-      // trunkKey is item + "|" + source, so a lane trunk and a fan-out trunk
-      // leaving the SAME (item, source) port share ONE trunkKey and merge into a
-      // single hover group here. Each sub-trunk still keeps its own aggregate
-      // chip showing that sub-trunk's OWN total (its members' summed rate), not
-      // the port's full outflow across both.
+      // trunkKey is item + "|" + the trunk's shared unit (a fan-out's source,
+      // a fan-in's target), so every member of one trunk shares ONE trunkKey
+      // and they form a single hover group here. The trunk's aggregate chip
+      // shows its own total (its members' summed rate).
       if (edge.type === "bus" && typeof trunkKey === "string") {
         pushInto(edgesByTrunk, trunkKey, edge.id);
       }
     }
-    return { edgesByNode, endpointsByEdge, edgesByTrunk, edgeById };
+    return { edgesByNode, edgesByTrunk, edgeById };
   }, [edges]);
 
   // The lit set for the current hover: node ids and edge ids that keep full
@@ -544,10 +594,10 @@ function CanvasInner({
     const edgeIds = new Set<string>();
     const lightEdge = (edgeId: string): void => {
       edgeIds.add(edgeId);
-      const endpoints = adjacency.endpointsByEdge.get(edgeId);
-      if (endpoints) {
-        nodeIds.add(endpoints[0]);
-        nodeIds.add(endpoints[1]);
+      const edge = adjacency.edgeById.get(edgeId);
+      if (edge) {
+        nodeIds.add(edge.source);
+        nodeIds.add(edge.target);
       }
     };
     if (hovered.kind === "node") {
@@ -566,10 +616,8 @@ function CanvasInner({
       //     the whole group, today's behaviour. `busChipOwner` absent counts as
       //     owner so an un-annotated fixture keeps the whole-group highlight.
       //   BRANCH hover -- the pointer is over a non-owner member. Light only that
-      //     branch plus the trunk owner(s); sibling branches stay dimmed. A lane
-      //     and a fan-out sub-trunk may share one trunkKey (merged group); each
-      //     sub-trunk keeps its own owner, so branch mode lights every member
-      //     isTrunkOwner accepts and dims the rest across both.
+      //     branch plus the trunk owner(s); sibling branches stay dimmed. Branch
+      //     mode lights every member isTrunkOwner accepts and dims the rest.
       const trunkEdges =
         edge?.type === "bus" && typeof trunkKey === "string"
           ? adjacency.edgesByTrunk.get(trunkKey)
@@ -594,31 +642,10 @@ function CanvasInner({
     return { nodeIds, edgeIds };
   }, [hovered, adjacency, presentNodeIds]);
 
-  // Container boxes (`type: "group"`) never dim while any of their child nodes
-  // is in the focus set, so the frame around a lit cluster does not read as
-  // faded. With no focused child they dim like any other node.
-  const litContainers = useMemo<Set<string> | null>(() => {
-    if (!focus) return null;
-    const lit = new Set<string>();
-    for (const node of nodes) {
-      if (node.parentId && focus.nodeIds.has(node.id)) lit.add(node.parentId);
-    }
-    return lit;
-  }, [focus, nodes]);
-
-  const displayNodes = useMemo<Node[]>(() => {
-    if (!focus || !litContainers) return nodes;
-    return nodes.map((node) => {
-      if (focus.nodeIds.has(node.id)) return node;
-      // A container lit only because a child is focused keeps a lit border but a
-      // still-translucent fill, so it does not read as a bright empty slab over
-      // its dimmed members.
-      if (node.type === "group" && litContainers.has(node.id)) {
-        return { ...node, className: withLitContainer(node.className) };
-      }
-      return { ...node, className: withDimmed(node.className) };
-    });
-  }, [nodes, focus, litContainers]);
+  const displayNodes = useMemo<Node[]>(
+    () => focusNodes(nodes, focus),
+    [nodes, focus],
+  );
 
   const displayEdges = useMemo<Edge[]>(
     () => focusEdges(edges, focus),
@@ -643,7 +670,13 @@ function CanvasInner({
       ]
         .filter(Boolean)
         .join(" ")}
-      style={canvasThemeStyle}
+      style={{
+        ...canvasThemeStyle,
+        // The zoom-compensated edge stroke width, inherited by every edge path
+        // (edgeStrokeStyle reads it), so a zoom tick restyles the edges here
+        // instead of re-rendering each one.
+        ["--edge-base-width" as string]: `${edgeStrokeWidth(exporting ? 1 : zoom)}px`,
+      }}
     >
       <ExportModeProvider exporting={exporting}>
         <ReactFlow

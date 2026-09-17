@@ -6,10 +6,12 @@ import { measureRecipe } from "./recipeGeometry";
 import { envBannerLayers } from "./envBanner";
 import { useI18n } from "../data/i18n-context";
 import { PortGlyph } from "./PortGlyph";
-import { formatRationalPerMin } from "../data/rate-format";
+import { formatFractionPerMin } from "../data/rate-format";
 import { catalystChargeOf } from "../solver/catalyst";
+import { executionsPerMachine } from "../solver/multiplier";
 import type { PortTransportKinds } from "./layout";
 import type { ItemId } from "../pipeline/types";
+import { portId } from "../pipeline/render/port-ids";
 import { rationalFromString, type RationalString } from "../data/targets";
 import { orderByItem } from "./orderByItem";
 import { formatMultiplicityBadge } from "./multiplicity-badge";
@@ -153,7 +155,7 @@ export function Sprite({
 //  - The render-pipeline path passes { recipe, kind: "recipe", multiplicity }.
 //    The badge formatter turns multiplicity into an integer or two-decimal
 //    rational. The kind discriminator keeps callers explicit.
-type RecipeNodeData = {
+export type RecipeNodeData = {
   recipe: Recipe;
   multiplier?: number;
   multiplicity?: RationalString;
@@ -176,7 +178,7 @@ type RecipeNodeType = Node<RecipeNodeData, "recipe">;
 // One machine's worth, the scale a per-machine row rate is read at.
 const ONE = new Fraction(1);
 
-// Per-row rate label: items per cycle over cycle time, times the machine speed
+// Per-row rate label: items per cycle times one machine's executions per second
 // (the solver runs a machine at speed/time executions per second, so the
 // per-machine port rate is qty * speed / time), times the `scale` factor. The
 // render-pipeline path passes the solved rational multiplicity so rows show
@@ -185,22 +187,12 @@ const ONE = new Fraction(1);
 // speeds and multiplicities free of float junk.
 function rowRateText(
   stoich: Stoich,
-  recipeTime: number,
-  speed: Fraction,
+  executions: Fraction,
   scale: Fraction,
 ): string {
-  return ratePerMinText(
-    new Fraction(stoich.qty).mul(speed).mul(scale).div(recipeTime),
+  return formatFractionPerMin(
+    new Fraction(stoich.qty).mul(executions).mul(scale),
   );
-}
-
-// A per-second rational rate as the card's per-minute label. Rates here are
-// non-negative, so serializing .n/.d is safe.
-function ratePerMinText(perSec: Fraction): string {
-  return formatRationalPerMin({
-    num: perSec.n.toString(),
-    denom: perSec.d.toString(),
-  });
 }
 
 export default function RecipeNode({
@@ -254,8 +246,7 @@ export default function RecipeNode({
     producerId !== undefined ? i18n.displayName(producerId) : "";
   // Same speed factor the solver applies (multiplier.ts); a missing machine
   // record (corrupt fixture) falls back to 1, the only value the pack uses.
-  const speed =
-    machine !== undefined ? new Fraction(machine.speed) : new Fraction(1);
+  const executions = executionsPerMachine(recipe, machine ?? { speed: 1 });
   // Later sprite wiring reads this attribute; falls back to the raw producer id
   // when the machine record is missing (corrupt fixture).
   const machineIconKey = machine?.icon ?? producerId ?? "";
@@ -343,10 +334,10 @@ export default function RecipeNode({
         <div className="rn-side in">
           {ins.map((p) => {
             const label = i18n.displayName(p.item);
-            const handleId = `in:${p.item}`;
+            const handleId = portId("in", p.item);
             // The visible label is the elided string (tail preserved when
             // the budget allows); the title attribute keeps the full name.
-            const rate = rowRateText(p, recipe.time, speed, scale);
+            const rate = rowRateText(p, executions, scale);
             const visible = elideRowLabel(
               label,
               geom.width,
@@ -387,14 +378,14 @@ export default function RecipeNode({
           })}
           {catalysts.map((p, i) => {
             const label = i18n.displayName(p.item);
-            const handleId = `cat:${p.item}`;
+            const handleId = portId("cat", p.item);
             // The charge is held per MACHINE, not per cycle: a machine at 40%
             // still holds a whole charge, so the card's aggregate counts whole
             // machines. The solver's catalystChargeOf owns that formula, and
             // the row reads it there so the card, the account and the edge
             // chip cannot drift apart.
-            const perMachine = rowRateText(p, recipe.time, speed, ONE);
-            const aggregate = ratePerMinText(
+            const perMachine = rowRateText(p, executions, ONE);
+            const aggregate = formatFractionPerMin(
               catalystChargeOf(scale, p, recipe, machine ?? { speed: 1 }),
             );
             const visible = elideRowLabel(
@@ -446,8 +437,8 @@ export default function RecipeNode({
         <div className="rn-side out">
           {outs.map((p) => {
             const label = i18n.displayName(p.item);
-            const handleId = `out:${p.item}`;
-            const rate = rowRateText(p, recipe.time, speed, scale);
+            const handleId = portId("out", p.item);
+            const rate = rowRateText(p, executions, scale);
             const visible = elideRowLabel(
               label,
               geom.width,

@@ -15,6 +15,8 @@ import type {
 import type { LogicalGraph } from "../../canvas/layout";
 import { logicalNodeIdForReplica } from "../../solver/replicate";
 import { tarjanScc } from "../../solver/scc";
+import { itemOfPort } from "../render/port-ids";
+import { pushInto } from "../../util/multimap";
 
 export type { ClusteringPolicy };
 
@@ -48,9 +50,7 @@ export const PillarsOnly: ClusteringPolicy = (
   for (const r of replicas) {
     const sccId = recipeToSccId.get(r.recipeId);
     if (sccId === undefined) continue;
-    const arr = loopMembers.get(sccId) ?? [];
-    arr.push(r.id);
-    loopMembers.set(sccId, arr);
+    pushInto(loopMembers, sccId, r.id);
   }
 
   const containers: Container[] = [];
@@ -103,7 +103,7 @@ function cyclicMembers(
       id: e.id,
       source: e.source,
       target: e.target,
-      item: e.sourcePort.replace(/^out:/, ""),
+      item: itemOfPort(e.sourcePort, ["out"]),
     });
   }
 

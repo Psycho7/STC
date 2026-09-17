@@ -6,7 +6,6 @@ import {
   useItemPack,
   type ItemPackContextValue,
 } from "../../src/canvas/itemPackContext";
-import type { ItemOverride } from "../../src/data/plan";
 
 afterEach(() => cleanup());
 
@@ -29,10 +28,8 @@ function makeValue(): ItemPackContextValue {
     powerKw: 75,
     hideRate: false,
   };
-  const overrides: ItemOverride[] = [{ itemId: "iron-ore", plan: true }];
   return {
     itemById: new Map([[item.id, item]]),
-    overrides,
     machineById: new Map([[machine.id, machine]]),
   };
 }
@@ -48,7 +45,6 @@ describe("useItemPack", () => {
     expect(result.current).toBe(value);
     expect(result.current.itemById.get("iron-ore")?.name).toBe("Iron Ore");
     expect(result.current.machineById.get("assembler-t1")?.speed).toBe(1);
-    expect(result.current.overrides).toHaveLength(1);
   });
 
   it("throws when called outside of ItemPackProvider", () => {

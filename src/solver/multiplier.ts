@@ -24,10 +24,20 @@ export function assignIdealMultipliers(
     if (!producerId) throw new MissingMachineError(r.recipeId, undefined);
     const machine = machineById.get(producerId);
     if (!machine) throw new MissingMachineError(r.recipeId, producerId);
-    const speedFrac = new Fraction(machine.speed);
-    const timeFrac = new Fraction(recipe.time);
-    const ideal = r.executionRate.mul(timeFrac).div(speedFrac);
+    const ideal = r.executionRate.div(executionsPerMachine(recipe, machine));
     result.set(r.id, ideal);
   }
   return result;
+}
+
+/**
+ * Executions per second one machine runs a recipe at: machine speed over
+ * recipe time. Both are pack numbers and go through Fraction, so a pack time
+ * of 0.3 stays exactly 3/10.
+ */
+export function executionsPerMachine(
+  recipe: Pick<Recipe, "time">,
+  machine: Pick<Machine, "speed">,
+): Fraction {
+  return new Fraction(machine.speed).div(new Fraction(recipe.time));
 }

@@ -13,7 +13,6 @@ afterEach(cleanup);
 
 const PACK = {
   itemById: new Map(),
-  overrides: [],
   machineById: new Map([["mk1", { id: "mk1", icon: "mk1" }]]),
 } as unknown as ItemPackContextValue;
 

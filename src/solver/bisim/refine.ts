@@ -5,6 +5,7 @@ import {
   type ReplicaEdge,
 } from "./types";
 import type { Replica, ReplicaId } from "../types";
+import { pushInto } from "../../util/multimap";
 
 /**
  * Refine a strong-bisimulation partition to a fixed point and return the
@@ -32,12 +33,8 @@ export function refinePartition(
   const outBySource = new Map<ReplicaId, ReplicaEdge[]>();
   const inByTarget = new Map<ReplicaId, ReplicaEdge[]>();
   for (const e of edges) {
-    const o = outBySource.get(e.source) ?? [];
-    o.push(e);
-    outBySource.set(e.source, o);
-    const i = inByTarget.get(e.target) ?? [];
-    i.push(e);
-    inByTarget.set(e.target, i);
+    pushInto(outBySource, e.source, e);
+    pushInto(inByTarget, e.target, e);
   }
   // Index replicas by id so signature lookups inside the refinement loop are
   // O(1) rather than a linear scan over `replicas`.
@@ -60,9 +57,7 @@ export function refinePartition(
   const recipeGroups = new Map<string, ReplicaId[]>();
   for (const r of replicas) {
     if (pinnedReplicaIds.has(r.id)) continue;
-    const arr = recipeGroups.get(r.recipeId) ?? [];
-    arr.push(r.id);
-    recipeGroups.set(r.recipeId, arr);
+    pushInto(recipeGroups, r.recipeId, r.id);
   }
   // Walk recipeIds in sorted order so the initial class ids are deterministic.
   for (const recipeId of [...recipeGroups.keys()].sort()) {
@@ -84,9 +79,7 @@ export function refinePartition(
     const membersByClass = new Map<ClassId, ReplicaId[]>();
     for (const [rid, cid] of snapshot) {
       if (pinnedReplicaIds.has(rid)) continue;
-      const arr = membersByClass.get(cid) ?? [];
-      arr.push(rid);
-      membersByClass.set(cid, arr);
+      pushInto(membersByClass, cid, rid);
     }
 
     for (const [cid, members] of membersByClass) {

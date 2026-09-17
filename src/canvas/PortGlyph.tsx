@@ -22,7 +22,7 @@ const GAS_GLYPH_SIZE = 6;
 
 export type PortGlyphSide = "left" | "right";
 
-export function glyphKind(
+function glyphKind(
   kind: TransportKindId | undefined,
 ): "belt" | "pipe" | "gas" | null {
   if (kind === "belt") return "belt";

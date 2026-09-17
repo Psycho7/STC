@@ -25,9 +25,12 @@ export function useExportMode(): boolean {
   return useContext(ExportModeContext);
 }
 
-// The zoom every level-of-detail gate should read: the live camera zoom, or 1
-// while the PNG capture is rasterizing.
-export function useEffectiveZoom(): number {
-  const liveZoom = useStore((state) => state.transform[2]);
-  return useExportMode() ? 1 : liveZoom;
+// The zoom every level-of-detail gate should read -- the live camera zoom, or 1
+// while the PNG capture is rasterizing -- mapped through `select`, re-rendering
+// the caller only when the selected value changes. A gate that asks which side
+// of a threshold the camera is on subscribes to that boolean, so a zoom tick
+// that stays inside one band leaves it alone.
+export function useEffectiveZoomSelect<T>(select: (zoom: number) => T): T {
+  const exporting = useExportMode();
+  return useStore((state) => select(exporting ? 1 : state.transform[2]));
 }

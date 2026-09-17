@@ -1,6 +1,7 @@
 import Fraction from "fraction.js";
 import type { ClassId, QuotientEdge, ReplicaEdge } from "./types";
 import type { Replica, ReplicaId } from "../types";
+import { pushInto } from "../../util/multimap";
 
 const ZERO = new Fraction(0);
 
@@ -36,9 +37,7 @@ export function emitQuotientReplicas(
   for (const r of replicas) {
     const cid = classByReplicaId.get(r.id);
     if (!cid) continue;
-    const arr = membersByClass.get(cid) ?? [];
-    arr.push(r);
-    membersByClass.set(cid, arr);
+    pushInto(membersByClass, cid, r);
   }
 
   const sortedClassIds = [...membersByClass.keys()].sort();

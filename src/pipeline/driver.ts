@@ -12,6 +12,7 @@ import type { ItemOverride } from "../data/plan";
 import type { ItemTarget } from "../data/targets";
 import type { SolvePlanFull } from "../solver";
 import type { RawPack } from "../solver/net-self";
+import { packIndex } from "../data/pack-index";
 import type { SccId } from "../solver/types";
 import { buildSupplyTable } from "../solver/effectiveSupply";
 import { PillarsOnly } from "./cluster";
@@ -78,8 +79,7 @@ export function renderPlanFromSolve(
   // Both rules are now typed, not just written here. The supply table is the
   // exception - it reads `pack.items` only, so the solve half's table and this
   // one agree whichever pack variant each was built from.
-  const itemById = new Map(pack.items.map((i) => [i.id, i]));
-  const machineById = new Map(pack.machines.map((m) => [m.id, m]));
+  const { itemById, machineById } = packIndex(pack);
   const supply = buildSupplyTable(pack, itemOverrides);
 
   // Keep only surviving replicas. assembleLogicalGraph already dropped zero-rate

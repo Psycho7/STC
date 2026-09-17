@@ -79,6 +79,7 @@ type OptimalityInput = {
   pack: RecipePack;
   itemOverrides?: ItemOverride[];
   recipeCosts?: Map<RecipeId, number>;
+  unavailableRecipeIds?: ReadonlySet<RecipeId>;
 };
 
 // Items that appear (as an input or output) in the given active recipes.
@@ -128,7 +129,8 @@ function itemsTouchedBy(active: Set<RecipeId>, pack: RecipePack): Set<ItemId> {
  * report a spurious violation. The REL_TOL comparison absorbs the common case.
  */
 export function assertOptimal(input: OptimalityInput): InvariantResult {
-  const { targets, pack, itemOverrides, recipeCosts } = input;
+  const { targets, pack, itemOverrides, recipeCosts, unavailableRecipeIds } =
+    input;
   const violations: string[] = [];
 
   // Build an LpInput, omitting optional keys when undefined to stay compatible
@@ -137,6 +139,12 @@ export function assertOptimal(input: OptimalityInput): InvariantResult {
     const base: LpInput = { targets, pack };
     if (itemOverrides !== undefined) base.itemOverrides = itemOverrides;
     if (costs !== undefined) base.recipeCosts = costs;
+    // Every re-solve runs on the same model the plan was solved with: solveLp
+    // drops the unavailable recipes, so a switched-off recipe is never a
+    // cheaper alternative. Forcing one to cost 0 re-solves the base.
+    if (unavailableRecipeIds !== undefined) {
+      base.unavailableRecipeIds = unavailableRecipeIds;
+    }
     return base;
   };
 

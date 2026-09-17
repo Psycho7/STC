@@ -2,6 +2,7 @@ import {
   BaseEdge,
   EdgeLabelRenderer,
   useStore,
+  type Edge,
   type EdgeProps,
   type ReactFlowState,
 } from "@xyflow/react";
@@ -9,14 +10,20 @@ import { useCallback, useMemo } from "react";
 import type Fraction from "fraction.js";
 import type { ItemId, TransportKindId } from "../pipeline/types";
 import { useI18n } from "../data/i18n-context";
-import { formatRateExactPerMin, formatRatePerMin } from "../data/rate-format";
+import { formatRateExactPerMin } from "../data/rate-format";
+import { rateChipText } from "./chipMetrics";
 import {
   CHIP_ICON_ONLY_MAX_ZOOM,
   LABEL_MIN_ZOOM,
   portRowStampLive,
 } from "./dimensions";
-import { drawnEdge, parsePathPoints, type DrawnEdge } from "./edgePath";
-import { useEffectiveZoom } from "./exportMode";
+import {
+  drawnEdge,
+  parsePathPoints,
+  type DrawnEdge,
+  type RoutingHints,
+} from "./edgePath";
+import { useEffectiveZoomSelect } from "./exportMode";
 import {
   crossingCueRadius,
   crossingPartnerBits,
@@ -29,7 +36,8 @@ import { itemColor } from "./itemColor";
 import { Sprite } from "./RecipeNode";
 import { BELT_COLOR, GAS_COLOR, PIPE_COLOR } from "./transportPalette";
 
-export type ItemEdgeData = {
+// The stamped routing hints (and their docs) live in edgePath's RoutingHints.
+export type ItemEdgeData = RoutingHints & {
   item: ItemId;
   rate: Fraction;
   // Per-edge transport phase (belt, pipe, or gas, with room to grow). Picks the
@@ -49,40 +57,6 @@ export type ItemEdgeData = {
   // Not the mirror of toPortKind: the pool's aggregate-to-slice edge lands on
   // no catalyst row and still carries it.
   fromPool?: "catalyst";
-  // Bend column x assigned by the stagger pass (assignBendColumns). Optional:
-  // when absent the path builder centers the bend at the corridor midpoint.
-  bendX?: number;
-  // Set beside bendX when that column is a fan-out trunk's SHARED junction
-  // column (routeTrunkEdges pinned every same-(item, source-port) member to
-  // it) rather than a stagger column of this edge's own. chamferStepPath then
-  // anchors this member's rate chip on its own final horizontal leg instead of
-  // the shared vertical, where every member's chip would stack.
-  fanoutColumn?: boolean;
-  // The mirror of fanoutColumn: this edge's bendX is a fan-in trunk's SHARED
-  // merge column (routeTrunkEdges pinned every far member of one (item,
-  // target-port) fan-in to it). chamferStepPath then anchors this member's rate
-  // chip on its own SOURCE horizontal, because here it is the final leg into
-  // the port that the members share.
-  faninColumn?: boolean;
-  // Per-bend corridor budget (half the stagger pitch) assigned alongside bendX by
-  // assignBendColumns. chamferStepPath grows the forward step's corner chamfers
-  // toward MAX_CHAMFER, capped by this budget so a fattened bevel never reaches a
-  // sibling column. Optional: when absent the base CHAMFER stands.
-  chamferBudget?: number;
-  // Entry-gutter column x assigned by the stagger pass (assignEntryColumns).
-  // chamferStepPath places a backward edge's left rail here. Optional: when
-  // absent the path builder falls back to its default column just before the
-  // target port.
-  entryX?: number;
-  // Backward-detour rail y staked out by clampBackwardRails so the rail clears
-  // the cards it spans. chamferStepPath reads it in its backward branch.
-  // Optional: absent for forward edges and un-clamped backward edges.
-  railY?: number;
-  // Clear horizontal y for a blocked forward final leg, stamped by
-  // jogForwardLegs. chamferStepPath reads it in its forward normal-step branch
-  // to bend the leg around an intervening card. Optional: absent for unblocked
-  // forward edges and every backward edge.
-  legY?: number;
   // Set by Canvas's hover focus on every non-focused edge. The chips read it
   // because EdgeLabelRenderer portals them outside the edge wrapper that carries
   // the `dimmed` class, so the wrapper's fade never reaches them; the chip's own
@@ -114,15 +88,6 @@ export type ItemEdgeData = {
   // nothing: one line merges with nothing.
   faninJunctionX?: number;
   faninJunctionY?: number;
-  // Card-clear chip seat (deconflictChipAnchors). The rule seat of a 1-to-1
-  // chip is the centre of its longest horizontal run, and that run can pass
-  // over a card, where the box reads as the card's own label. The pass -- the
-  // only reader that sees the card rects -- slides the box along its own run to
-  // the nearest card-clear position and stamps it here. drawnEdge uses it only
-  // while it still lies on a horizontal run of the live polyline, so a drag in
-  // flight falls back to the rule seat instead of floating the chip.
-  chipX?: number;
-  chipY?: number;
   // Crossing cues (deconflictChipAnchors). Where this edge's polyline
   // properly crosses a DIFFERENT flow's polyline (different item|source),
   // the seating pass stamps the crossing point on ONE edge of the pair --
@@ -137,10 +102,10 @@ export type ItemEdgeData = {
   // by default, and a drag auto-selects). A bare X of two continuous
   // strokes reads as a join; the gap is what says "crossing, not a merge".
   // Strict-interior crossing semantics (crossings.ts) mean a collinear
-  // fan-in run, a bus lane's overlapping member runs, and a shared fan-out
-  // trunk -- including the far members riding its junction column as plain
-  // item edges, whose verticals overlap collinearly on that column -- can
-  // never produce a stamp. Cues render only while the crossing
+  // fan-in run and a shared fan-out trunk -- including the far members
+  // riding its junction column as plain item edges, whose verticals overlap
+  // collinearly on that column -- can never produce a stamp. Cues render
+  // only while the crossing
   // still stands on BOTH sides: the stamp must sit on this edge's own live
   // polyline (the shared stale-stamp rule) AND at least one recorded
   // partner edge must still exist with both endpoints within the stale eps
@@ -149,19 +114,13 @@ export type ItemEdgeData = {
   crossingCues?: ReadonlyArray<CrossingCue>;
 };
 
-// The two zoom LOD gates are declared in ./dimensions, beside the rest of the
-// geometry contract, so a consumer that only needs a threshold does not have to
-// load this module and the React chain behind it. Re-exported here because
-// BusEdge, the canvas suites and the exam capture all name them through this
-// module; both comments live with the definitions.
-export { LABEL_MIN_ZOOM, CHIP_ICON_ONLY_MAX_ZOOM };
-
 // Physical stroke-width bounds. Edge strokes are drawn in graph units, so the
 // pane zoom scales them: at fit zoom a 1-unit stroke is a sub-pixel hairline. To
 // keep edges visible the width is set to 1/zoom (so it renders near-constant on
 // screen), clamped to this physical-pixel range so it neither vanishes at low
-// zoom nor bloats into a slab. Exposed on the path as --edge-base-width so the
-// hover emphasis rule can scale relative to it.
+// zoom nor bloats into a slab. Published by Canvas on its theme container as
+// --edge-base-width, so a zoom tick restyles every edge without re-rendering
+// one, and the hover emphasis rule scales relative to it.
 const MIN_EDGE_PX = 1;
 const MAX_EDGE_PX = 3;
 
@@ -171,18 +130,38 @@ export function edgeStrokeWidth(zoom: number): number {
   return Math.min(MAX_EDGE_PX, Math.max(MIN_EDGE_PX, 1 / zoom));
 }
 
+// Canvas's hover focus stamps `dimmed` / `focused` onto a copy of an edge's
+// data, so every hover change hands each edge a new data object. Nothing the
+// edge memoizes reads either flag, so the memos key on the data the copy was
+// made from (focusSourceOf) and a hover change leaves the geometry and the
+// rate strings alone.
+const focusSources = new WeakMap<object, object>();
+
+export function withFocusFlags(
+  data: Record<string, unknown> | undefined,
+  flags: { dimmed: true } | { focused: true },
+): Record<string, unknown> {
+  const copy = { ...data, ...flags };
+  if (data !== undefined) focusSources.set(copy, data);
+  return copy;
+}
+
+export function focusSourceOf<T>(data: T): T {
+  if (typeof data !== "object" || data === null) return data;
+  return (focusSources.get(data) as T | undefined) ?? data;
+}
+
 // Inline style carrying the chip's accent color as the --chip-accent custom
 // property, or an empty object when there is no item to color by. Both edge
 // components spread this onto their flow-chip so the chip tints to the item.
-export function chipAccentStyle(item?: ItemId): React.CSSProperties {
+function chipAccentStyle(item?: ItemId): React.CSSProperties {
   return item !== undefined
     ? { ["--chip-accent" as string]: itemColor(item) }
     : {};
 }
 
 // FlowChip: the shared EdgeLabelRenderer chip every edge label uses -- the rate
-// chip at ItemEdge's bend column and BusEdge's drop / rise chips on the trunk
-// lane. One place owns the DOM contract: a nodrag/nopan .flow-chip div centered
+// chip at ItemEdge's bend column and BusEdge's drop / rise chips on the trunk. One place owns the DOM contract: a nodrag/nopan .flow-chip div centered
 // on (x, y) by the double translate, tinted to the item through
 // chipAccentStyle, carrying the full "Name x rate/min" string on aria-label and
 // title, with an optional 16px item sprite followed by the optional chip text.
@@ -200,7 +179,7 @@ export function FlowChip({
   title,
   dimmed,
   focused,
-  zoom,
+  belowDigitsGate,
 }: {
   testId: string;
   // Owning edge id, emitted as data-edge-id so the geometry audit can exempt an
@@ -218,18 +197,17 @@ export function FlowChip({
   // Set on a hover-lit edge's chip: it keeps its digits below the icon-only
   // zoom so the hover surfaces the rate.
   focused?: boolean | undefined;
-  // Live pane zoom, read only for the digits gate: a chip draws its box at its
-  // natural size at every zoom. Optional -- a caller without a zoom draws the
-  // full chip.
-  zoom?: number | undefined;
+  // True while the live pane zoom sits below CHIP_ICON_ONLY_MAX_ZOOM, read only
+  // for the digits gate: a chip draws its box at its natural size at every
+  // zoom. Optional -- a caller without it draws the full chip.
+  belowDigitsGate?: boolean | undefined;
 }) {
   // Below the digits gate every chip sheds its rate digits and renders as the
   // bare item icon, so a dense fit view stops blanketing. The exact rate stays
   // on the title tooltip. Chips below the mount gate never reach here: their
   // call sites drop them. The hover reveal overrides the gate, so no chip is
   // permanently rate-less.
-  const iconOnly =
-    zoom !== undefined && zoom < CHIP_ICON_ONLY_MAX_ZOOM && !focused;
+  const iconOnly = belowDigitsGate === true && !focused;
   const bodyText = iconOnly ? "" : text;
   return (
     <EdgeLabelRenderer>
@@ -306,21 +284,24 @@ export function junctionRadius(zoom: number): number {
 // edge and stable across renders.
 const CUE_MASK_EXTENT = 1_000_000;
 
-export function crossingCueMaskId(edgeId: string): string {
+function crossingCueMaskId(edgeId: string): string {
   return `cue-mask-${edgeId.replace(/[^A-Za-z0-9_-]/g, "_")}`;
 }
 
 export function CrossingCueMask({
   id,
   cues,
-  zoom,
 }: {
   id: string;
   cues: ReadonlyArray<{ x: number; y: number }>;
-  zoom: number;
 }) {
+  // The radius follows the zoom continuously, so the mask subscribes to it
+  // itself rather than re-rendering its whole edge on every tick. A cue-less
+  // mask selects a constant and never re-renders for zoom.
+  const r = useEffectiveZoomSelect((zoom) =>
+    cues.length === 0 ? 0 : crossingCueRadius(zoom),
+  );
   if (cues.length === 0) return null;
-  const r = crossingCueRadius(zoom);
   const half = CUE_MASK_EXTENT / 2;
   return (
     <defs>
@@ -380,7 +361,7 @@ const partnerBitsEqual = (
 // record shape.
 const NO_BITS: ReadonlyArray<boolean> = [];
 
-export function useLiveCrossingCues(
+function useLiveCrossingCues(
   cues: ReadonlyArray<CrossingCue> | undefined,
   ownPts: ReadonlyArray<readonly [number, number]>,
 ): Array<{ x: number; y: number }> {
@@ -402,7 +383,7 @@ export function useLiveCrossingCues(
 // both edge components): a cue-less edge returns it instead of allocating, and
 // the consumer has already answered "no stamp" by then, so the shared identity
 // is all that matters.
-export const NO_CUE_PTS: ReadonlyArray<readonly [number, number]> = [];
+const NO_CUE_PTS: ReadonlyArray<readonly [number, number]> = [];
 
 // Which family of junction a dot marks. The testid alone cannot tell them
 // apart, so the geometry audit needs the family as its own hook. Same three
@@ -424,7 +405,6 @@ export function JunctionDot({
   y,
   color,
   dimmed,
-  zoom,
 }: {
   testId: string;
   family: JunctionFamily;
@@ -432,8 +412,10 @@ export function JunctionDot({
   y: number;
   color: string;
   dimmed?: boolean | undefined;
-  zoom: number;
 }) {
+  // Subscribed here rather than in the owning edge: the radius follows the
+  // zoom continuously, and only the dot needs to redraw for it.
+  const radius = useEffectiveZoomSelect(junctionRadius);
   return (
     <EdgeLabelRenderer>
       <div
@@ -444,8 +426,8 @@ export function JunctionDot({
         style={{
           position: "absolute",
           transform: `translate(-50%, -50%) translate(${x}px, ${y}px)`,
-          width: `${2 * junctionRadius(zoom)}px`,
-          height: `${2 * junctionRadius(zoom)}px`,
+          width: `${2 * radius}px`,
+          height: `${2 * radius}px`,
           background: color,
         }}
       />
@@ -479,16 +461,14 @@ export function strokeColorForKind(
 }
 
 // The drawn stroke style both edge components hand to BaseEdge: the kind's
-// stroke colour, plus the zoom-compensated base width published as
-// --edge-base-width so the hover emphasis CSS can scale relative to it. A
-// caller-supplied style wins over these defaults, so later overrides for hover,
-// tear edges or cross-group edges take effect without this file knowing about
-// them. The stroke colour is returned alongside because both components also
+// stroke colour, plus the zoom-compensated base width Canvas publishes as
+// --edge-base-width (see edgeStrokeWidth). A caller-supplied style wins over
+// these defaults, so later overrides for hover, tear edges or cross-group edges
+// take effect without this file knowing about them. The stroke colour is returned alongside because both components also
 // paint their junction dots with it.
 export function edgeStrokeStyle(
   kind: TransportKindId | undefined,
   itemId: ItemId | undefined,
-  zoom: number,
   style: React.CSSProperties | undefined,
 ): { stroke: string; style: React.CSSProperties } {
   const stroke = strokeColorForKind(kind, itemId);
@@ -496,7 +476,6 @@ export function edgeStrokeStyle(
     stroke,
     style: {
       stroke,
-      ["--edge-base-width" as string]: `${edgeStrokeWidth(zoom)}px`,
       strokeWidth: "var(--edge-base-width)",
       ...(style ?? {}),
     },
@@ -526,7 +505,6 @@ export function MaskedEdge({
   path,
   style,
   cues,
-  zoom,
   ariaLabel,
   transportKind,
   fromPool,
@@ -536,7 +514,6 @@ export function MaskedEdge({
   path: string;
   style: React.CSSProperties;
   cues: ReadonlyArray<CrossingCue> | undefined;
-  zoom: number;
   ariaLabel?: string | undefined;
   transportKind?: TransportKindId | undefined;
   // Source boundary pool, stamped on the base path as data-pool and, for the
@@ -547,12 +524,12 @@ export function MaskedEdge({
   markerEnd?: string | undefined;
 }) {
   // Parse the own polyline for the cue filter once per (path, cue stamp),
-  // never once per render: the zoom subscription in the callers re-renders
-  // every edge on each zoom tick, and with the parse in argument position
-  // every tick re-ran it -- a regex matchAll plus a tuple per vertex -- on
+  // never once per render: the callers re-render on every endpoint move and
+  // zoom-gate flip, and with the parse in argument position every render
+  // re-ran it -- a regex matchAll plus a tuple per vertex -- on
   // every mounted edge, cue-carrying or not, before the callee's cue early-out
   // could skip it. The stamp gate runs first (a cue-less edge never parses at
-  // all) and the memo holds the survivors' parse across the ticks; the same
+  // all) and the memo holds the survivors' parse across those renders; the same
   // one-parse-per-edge hoist the seating pass documents on pathPointAtPts.
   const cuePts = useMemo(
     () => (cues?.length ? parsePathPoints(path) : NO_CUE_PTS),
@@ -565,7 +542,7 @@ export function MaskedEdge({
   const maskId = crossingCueMaskId(id);
   return (
     <>
-      <CrossingCueMask id={maskId} cues={liveCues} zoom={zoom} />
+      <CrossingCueMask id={maskId} cues={liveCues} />
       <g mask={liveCues.length > 0 ? `url(#${maskId})` : undefined}>
         <BaseEdge
           id={id}
@@ -584,25 +561,6 @@ export function MaskedEdge({
         />
       </g>
     </>
-  );
-}
-
-// A chip that draws nothing still owes the reader its exact rate, so the edge
-// carries it itself: a transparent hover path over the same geometry with the
-// native SVG tooltip on it. Both components fall back to this wherever a hide
-// rule (a hidden bus branch, an off-line item seat) takes their only chip
-// away.
-export function HoverTitlePath({ d, title }: { d: string; title: string }) {
-  return (
-    <path
-      d={d}
-      fill="none"
-      stroke="transparent"
-      strokeWidth={12}
-      pointerEvents="stroke"
-    >
-      <title>{title}</title>
-    </path>
   );
 }
 
@@ -625,13 +583,21 @@ export default function ItemEdge({
   style,
 }: EdgeProps) {
   const edgeData = data as ItemEdgeData | undefined;
+  const sourceData = focusSourceOf(edgeData);
   // The PNG export rasterizes at unit scale, so every zoom gate below reads 1
   // and the image keeps full detail whatever the camera was parked at.
-  const zoom = useEffectiveZoom();
+  const labelsShown = useEffectiveZoomSelect((zoom) => zoom >= LABEL_MIN_ZOOM);
+  const belowDigitsGate = useEffectiveZoomSelect(
+    (zoom) => zoom < CHIP_ICON_ONLY_MAX_ZOOM,
+  );
   const i18n = useI18n();
+  // The chip body comes from the builder the seat reserves its box by, so the
+  // drawn text and the reserved width cannot disagree.
   const rateStr = useMemo(
-    () => (edgeData ? formatRatePerMin(edgeData.rate) : ""),
-    [edgeData],
+    () =>
+      rateChipText({ id: "", source: "", target: "", data: sourceData } as Edge)
+        ?.body ?? "",
+    [sourceData],
   );
   const unit = i18n.t("canvas.rate.unit");
   // The chip body shows the icon plus the rounded rate and unit, nothing more.
@@ -649,8 +615,8 @@ export default function ItemEdge({
     edgeData?.faninJunctionY !== undefined &&
     portRowStampLive(edgeData.faninJunctionY, targetY);
   // The label pair is BigInt Fraction work (the exact half re-formats the
-  // rational in full), and the zoom subscription above re-renders every edge on
-  // every zoom tick, so it is memoized on what it actually reads: this edge's
+  // rational in full), and the edge re-renders on every endpoint move and
+  // zoom-gate flip, so it is memoized on what it actually reads: this edge's
   // item and rate, and the locale that names and formats them.
   const item = edgeData?.item;
   const rate = edgeData?.rate;
@@ -678,15 +644,16 @@ export default function ItemEdge({
   // the type drawnEdge answers with the item shape, so the union's two bus arms
   // are unreachable here.
   // Memoized on the endpoints and edge data: the geometry does not depend on
-  // zoom, and the zoom subscription above re-renders every edge each zoom tick.
+  // zoom, and the zoom-gate subscriptions above re-render the edge when a gate
+  // flips.
   const drawn = useMemo(
     () =>
       drawnEdge(
         { sourceX, sourceY, targetX, targetY },
         "item",
-        edgeData,
+        sourceData,
       ) as Extract<DrawnEdge, { shape: "item" }>,
-    [sourceX, sourceY, targetX, targetY, edgeData],
+    [sourceX, sourceY, targetX, targetY, sourceData],
   );
   const edgePath = drawn.path;
   const { x: labelX, y: labelY } = drawn.labelAnchor;
@@ -721,14 +688,13 @@ export default function ItemEdge({
   // zoom. Nothing else can take a chip away: no chip is hidden for lack of
   // room.
   const chipText =
-    edgeData && rateStr && (zoom >= LABEL_MIN_ZOOM || edgeData.focused === true)
+    edgeData && rateStr && (labelsShown || edgeData.focused === true)
       ? `${rateStr}${unit}`
       : "";
 
   const { stroke, style: mergedStyle } = edgeStrokeStyle(
     edgeData?.transportKind,
     edgeData?.item,
-    zoom,
     style,
   );
 
@@ -739,7 +705,6 @@ export default function ItemEdge({
         path={edgePath}
         style={mergedStyle}
         cues={edgeData?.crossingCues}
-        zoom={zoom}
         ariaLabel={fullLabel}
         transportKind={edgeData?.transportKind}
         fromPool={edgeData?.fromPool}
@@ -757,7 +722,7 @@ export default function ItemEdge({
           title={exactTitle}
           dimmed={edgeData?.dimmed}
           focused={edgeData?.focused}
-          zoom={zoom}
+          belowDigitsGate={belowDigitsGate}
         />
       ) : null}
       {/* Declined fan-out divergence dot (#43, owner only): where coincident
@@ -772,7 +737,6 @@ export default function ItemEdge({
           y={edgeData.fanoutJunctionY!}
           color={stroke}
           dimmed={edgeData.dimmed}
-          zoom={zoom}
         />
       ) : null}
       {/* Fan-in convergence dot (owner only): where the far members of one
@@ -788,7 +752,6 @@ export default function ItemEdge({
           y={edgeData.faninJunctionY!}
           color={stroke}
           dimmed={edgeData.dimmed}
-          zoom={zoom}
         />
       ) : null}
     </>

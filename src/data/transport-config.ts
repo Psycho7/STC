@@ -17,9 +17,6 @@ export class UnknownCarrierError extends Error {
 
 export type TransportConfig = {
   schemaVersion: string;
-  source: string;
-  lanesPerBlueprintGroup: number;
-  interGroupGapTiles: number;
   carriers: Record<
     TransportKindId,
     { transportId: string; itemsPerSecondPerLane: number }
@@ -31,8 +28,7 @@ const EXPECTED_SCHEMA = "0.2";
 export const defaultTransportConfig: TransportConfig = raw as TransportConfig;
 
 /**
- * Validate that every carrier kind the pack names has a config entry, and
- * return the config. This is the only carrier-kind check left: the solver
+ * Validate that every carrier kind the pack names has a config entry. This is the only carrier-kind check left: the solver
  * stopped taking a transport config, so a kind missing from the config is
  * caught here alone. The app runs this at startup; the CLI tools do not, so
  * they would render an unknown kind without complaint.
@@ -40,7 +36,7 @@ export const defaultTransportConfig: TransportConfig = raw as TransportConfig;
 export function loadTransportConfig(
   config: TransportConfig,
   pack: RecipePack,
-): TransportConfig {
+): void {
   if (config.schemaVersion !== EXPECTED_SCHEMA) {
     console.warn(
       `transport-config schemaVersion drift: config=${config.schemaVersion}, expected=${EXPECTED_SCHEMA}`,
@@ -63,5 +59,4 @@ export function loadTransportConfig(
       throw new UnknownCarrierError(item.id, item.transportKind);
     }
   }
-  return config;
 }

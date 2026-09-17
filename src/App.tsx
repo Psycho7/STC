@@ -36,6 +36,7 @@ import {
 } from "./data/transport-config";
 import type { Target } from "./data/targets";
 import { pack } from "./data/load";
+import { packIndex } from "./data/pack-index";
 import {
   readStoredEventOverrides,
   unavailableEventItems,
@@ -118,10 +119,9 @@ const shortfallStripStyle: CSSProperties = {
 };
 
 // Validated once at import: loadTransportConfig is a pure check over the two
-// module constants and hands back its first argument, so the outcome (including
-// an UnknownCarrierError throw on a pack the config cannot carry) is the same on
-// every run. The returned config is not threaded anywhere - solveForRender
-// supplies it to the solver itself - so this call IS the check.
+// module constants, so the outcome (including an UnknownCarrierError throw on a
+// pack the config cannot carry) is the same on every run. Nothing downstream
+// takes the config, so this call IS the check.
 loadTransportConfig(defaultTransportConfig, pack);
 
 // A dismissible banner error. "load" wraps a hash-decode / validation failure
@@ -408,11 +408,21 @@ function AppInner() {
   // The recipes switched off under those overrides - the availability set the
   // load, mutation, and re-solve paths below all thread into the seam from
   // T3. `pack` is a module-stable import, so it stays out of the dependency
-  // list; only an override flip re-derives the set.
-  const unavailable = useMemo(
+  // list; only an override flip re-derives the set. A flip that leaves the set's
+  // members unchanged keeps the previous Set instance, so the validate / solve /
+  // layout work keyed on it does not re-run for an identical availability.
+  const derivedUnavailable = useMemo(
     () => unavailableRecipeIds(pack, eventOverrides),
     [eventOverrides],
   );
+  const [unavailable, setUnavailable] = useState(derivedUnavailable);
+  if (
+    derivedUnavailable !== unavailable &&
+    (derivedUnavailable.size !== unavailable.size ||
+      [...derivedUnavailable].some((id) => !unavailable.has(id)))
+  ) {
+    setUnavailable(derivedUnavailable);
+  }
   // The event items behind that set, each with its cohort (#144's T6): the
   // pickers dim exactly these tiles and their hint names the cohort(s) the
   // validation error above also interpolates. Derived beside `unavailable`
@@ -452,17 +462,40 @@ function AppInner() {
     },
     [],
   );
-  // Accepted transient: this recomputes from the synchronously committed plan,
-  // so ProductNode override chips on the still-stale canvas nodes update
-  // against the new overrides during the solve window. Sub-second cosmetic
-  // mismatch that self-heals when the new render lands.
-  const itemPackValue = useMemo(
-    () => ({
-      itemById: new Map(pack.items.map((i) => [i.id, i])),
-      overrides: plan?.itemOverrides ?? [],
-      machineById: new Map(pack.machines.map((m) => [m.id, m])),
-    }),
-    [plan],
+  // `pack` is a module-stable import, so its memoized index is one object for
+  // the app's lifetime and the item-pack context value never changes identity.
+  const itemPackValue = packIndex(pack);
+
+  // Swap the derived render state to a finished solve + layout. Shared by the
+  // hash load and the re-solve paths, which each wrap it in their own plan and
+  // error bookkeeping.
+  const applySolved = useCallback(
+    (
+      solved: ReturnType<typeof solveFromPlan>,
+      laid: Awaited<ReturnType<typeof layoutSolved>>,
+    ): void => {
+      setRecipeCount(countDistinctRecipes(solved.full.logical));
+      setCatalystAccount(solved.full.catalystAccount);
+      setNodes(laid.nodes as Node[]);
+      setEdges(laid.edges);
+      setGaps(laid.gaps);
+      setBaseEdges(laid.baseEdges);
+      setUnderDelivered(solved.underDelivered);
+      setLayoutGeneration((g) => g + 1);
+    },
+    [setNodes, setEdges, setGaps, setBaseEdges],
+  );
+
+  // Write the plan's hash into the URL, unless a newer generation superseded
+  // this one while the plan encoded.
+  const writeHash = useCallback(
+    async (nextPlan: Plan, myGen: number): Promise<void> => {
+      const newHash = "#" + (await encodePlan(nextPlan));
+      if (myGen !== solveGen.current) return;
+      lastHandledHashRef.current = newHash;
+      history.replaceState(null, "", newHash);
+    },
+    [],
   );
 
   // Load a plan from a URL hash, solve it, and swap the whole app state to it.
@@ -521,23 +554,11 @@ function AppInner() {
           unavailableRef.current,
         );
         const laid = await layoutSolved(solved);
-        if (outcome.kind === "seeded") {
-          const newHash = "#" + (await encodePlan(nextPlan));
-          if (myGen !== solveGen.current) return;
-          lastHandledHashRef.current = newHash;
-          history.replaceState(null, "", newHash);
-        }
+        if (outcome.kind === "seeded") await writeHash(nextPlan, myGen);
         if (myGen !== solveGen.current) return;
         planRef.current = nextPlan;
         setPlan(nextPlan);
-        setRecipeCount(countDistinctRecipes(solved.full.logical));
-        setCatalystAccount(solved.full.catalystAccount);
-        setNodes(laid.nodes as Node[]);
-        setEdges(laid.edges);
-        setGaps(laid.gaps);
-        setBaseEdges(laid.baseEdges);
-        setUnderDelivered(solved.underDelivered);
-        setLayoutGeneration((g) => g + 1);
+        applySolved(solved, laid);
         setPlanEpoch((e) => e + 1);
         // A fresh render is authoritative: the canvas now matches the plan.
         setStale(false);
@@ -556,7 +577,7 @@ function AppInner() {
         }
       }
     },
-    [setNodes, setEdges, setGaps, setBaseEdges],
+    [applySolved, writeHash],
   );
 
   // Recover from a damaged share link: drop the hash and load the default plan
@@ -602,20 +623,10 @@ function AppInner() {
         const solved = solveFromPlan(nextPlan, undefined, unavailable);
         const laid = await layoutSolved(solved);
         if (myGen !== solveGen.current) return;
-        setRecipeCount(countDistinctRecipes(solved.full.logical));
-        setCatalystAccount(solved.full.catalystAccount);
-        setNodes(laid.nodes as Node[]);
-        setEdges(laid.edges);
-        setGaps(laid.gaps);
-        setBaseEdges(laid.baseEdges);
-        setUnderDelivered(solved.underDelivered);
-        setLayoutGeneration((g) => g + 1);
+        applySolved(solved, laid);
         setMutationError(null);
         setStale(false);
-        const newHash = "#" + (await encodePlan(nextPlan));
-        if (myGen !== solveGen.current) return;
-        lastHandledHashRef.current = newHash;
-        history.replaceState(null, "", newHash);
+        await writeHash(nextPlan, myGen);
       } catch (e) {
         if (myGen !== solveGen.current) return;
         setMutationError({ kind: "solver", error: e });
@@ -624,7 +635,7 @@ function AppInner() {
         if (myGen === solveGen.current) setPending(false);
       }
     },
-    [setNodes, setEdges, setGaps, setBaseEdges, unavailable],
+    [applySolved, writeHash, unavailable],
   );
 
   // Commit the plan (user intent) synchronously, then kick off the async
@@ -738,23 +749,38 @@ function AppInner() {
   // alone. What the general pool was billed of the charge comes from
   // catalystAccount, not from the catalyst node, so adding the node's rate
   // here would count that share twice.
+  //
+  // A drag hands App a fresh node array every pointer frame without touching
+  // any node's data, so the entries are flattened to a string key and the map
+  // is rebuilt only when that key changes: the panels keep the same map, and
+  // the memos below keyed on it, for the whole drag.
+  const supplyRateEntries: Array<
+    [string, import("./pipeline/types").RationalString]
+  > = [];
+  for (const [itemId, rates] of buildRealizedRateByItem(nodes)) {
+    if (rates.ordinary !== undefined) {
+      supplyRateEntries.push([
+        encodeItemOverrideKey({ itemId }),
+        rates.ordinary,
+      ]);
+    }
+    if (rates.catalyst !== undefined) {
+      supplyRateEntries.push([
+        encodeItemOverrideKey({ itemId, role: "catalyst" }),
+        rates.catalyst,
+      ]);
+    }
+  }
+  const supplyRateKey = JSON.stringify(supplyRateEntries);
   const supplyRateByItem = useMemo<
     ReadonlyMap<string, import("./pipeline/types").RationalString>
-  >(() => {
-    const map = new Map<string, import("./pipeline/types").RationalString>();
-    for (const [itemId, rates] of buildRealizedRateByItem(nodes)) {
-      if (rates.ordinary !== undefined) {
-        map.set(encodeItemOverrideKey({ itemId }), rates.ordinary);
-      }
-      if (rates.catalyst !== undefined) {
-        map.set(
-          encodeItemOverrideKey({ itemId, role: "catalyst" }),
-          rates.catalyst,
-        );
-      }
-    }
-    return map;
-  }, [nodes]);
+  >(
+    () =>
+      new Map<string, import("./pipeline/types").RationalString>(
+        JSON.parse(supplyRateKey),
+      ),
+    [supplyRateKey],
+  );
 
   // Items the current plan pulls across the boundary as assumed-infinite
   // supply: raw items with a realized draw, plus every item whose cycled
@@ -888,6 +914,14 @@ function AppInner() {
   };
 
   const targetCount = plan.targets.length;
+  // Label and count of each side-rail section tab, in SIDE_SECTION_ORDER.
+  const sideTabs: Record<SideSection, { label: string; count: number }> = {
+    targets: { label: i18n.t("targets.title"), count: targetCount },
+    inputs: {
+      label: i18n.t("inputs.title"),
+      count: displayedInputCount(plan.itemOverrides ?? [], assumedRawItemIds),
+    },
+  };
 
   return (
     <div
@@ -1022,53 +1056,32 @@ function AppInner() {
                 className="side-panel-tabs"
                 aria-label={i18n.t("side.nav.label")}
               >
-                <a
-                  data-testid="side-panel-tab-targets"
-                  href="#side-targets"
-                  aria-current={
-                    activeSection === "targets" ? "location" : undefined
-                  }
-                  className={
-                    "side-panel-tab" +
-                    (activeSection === "targets" ? " active" : "")
-                  }
-                  onClick={(e) => {
-                    e.preventDefault();
-                    document.getElementById("side-targets")?.scrollIntoView({
-                      block: "start",
-                      behavior: "smooth",
-                    });
-                  }}
-                >
-                  <span>{i18n.t("targets.title")}</span>
-                  <span className="count">{plan.targets.length}</span>
-                </a>
-                <a
-                  data-testid="side-panel-tab-inputs"
-                  href="#side-inputs"
-                  aria-current={
-                    activeSection === "inputs" ? "location" : undefined
-                  }
-                  className={
-                    "side-panel-tab" +
-                    (activeSection === "inputs" ? " active" : "")
-                  }
-                  onClick={(e) => {
-                    e.preventDefault();
-                    document.getElementById("side-inputs")?.scrollIntoView({
-                      block: "start",
-                      behavior: "smooth",
-                    });
-                  }}
-                >
-                  <span>{i18n.t("inputs.title")}</span>
-                  <span className="count">
-                    {displayedInputCount(
-                      plan.itemOverrides ?? [],
-                      assumedRawItemIds,
-                    )}
-                  </span>
-                </a>
+                {SIDE_SECTION_ORDER.map((section) => (
+                  <a
+                    key={section}
+                    data-testid={`side-panel-tab-${section}`}
+                    href={`#side-${section}`}
+                    aria-current={
+                      activeSection === section ? "location" : undefined
+                    }
+                    className={
+                      "side-panel-tab" +
+                      (activeSection === section ? " active" : "")
+                    }
+                    onClick={(e) => {
+                      e.preventDefault();
+                      document
+                        .getElementById(`side-${section}`)
+                        ?.scrollIntoView({
+                          block: "start",
+                          behavior: "smooth",
+                        });
+                    }}
+                  >
+                    <span>{sideTabs[section].label}</span>
+                    <span className="count">{sideTabs[section].count}</span>
+                  </a>
+                ))}
               </nav>
               <div id="side-targets">
                 <TargetsPanel

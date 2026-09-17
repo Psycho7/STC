@@ -45,7 +45,6 @@ export function makePackValue(
 ): ItemPackContextValue {
   return {
     itemById: new Map((opts.items ?? []).map((i) => [i.id, i])),
-    overrides: [],
     machineById: new Map((opts.machines ?? []).map((m) => [m.id, m])),
   };
 }

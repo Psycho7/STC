@@ -89,4 +89,22 @@ describe("assertInvariants", () => {
     // hands the checker the pack it solved on.
     expect(recorded.assertedArgs[0]!.pack).toBe(pack);
   });
+
+  it("hands the checker the unavailable set the pipeline solved with", () => {
+    recorded.assertedArgs.length = 0;
+    const unavailableRecipeIds = new Set(["no_such_recipe"]);
+
+    solvePlanWithIntermediates(
+      headlineTargets,
+      pack,
+      undefined,
+      undefined,
+      unavailableRecipeIds,
+    );
+
+    expect(recorded.assertedArgs.length).toBe(1);
+    expect(recorded.assertedArgs[0]!.unavailableRecipeIds).toBe(
+      unavailableRecipeIds,
+    );
+  });
 });

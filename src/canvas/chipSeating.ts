@@ -46,7 +46,7 @@ import {
   routingHintsFromData,
 } from "./edgePath";
 import {
-  properCrossPoint,
+  properCrossPointXY,
   type CrossingCue,
   type CrossingCuePartner,
 } from "./crossings";
@@ -61,10 +61,11 @@ import {
   drawnPortsOf,
   edgeItem,
   flowKeyOf as busFlowKey,
-  nodeHeight,
   nodeIndexOf,
-  nodeWidth,
+  nodeRectOf,
+  type Rect,
 } from "./nodeGeometry";
+import { pushInto } from "../util/multimap";
 // Type-only: ItemEdge.tsx declares the base canvas edge payload this pass
 // stamps. Erased at compile time, so it adds no runtime or bundler edge.
 import type { ItemEdgeData } from "./ItemEdge";
@@ -84,14 +85,7 @@ import {
 // what the e2e audit measures (see CARD_GROWTH). `border` is the card's frame
 // width (cardBorder): the port furniture anchors on the row edge, one border
 // inside the drawn edge.
-export type CardRect = {
-  id: string;
-  left: number;
-  top: number;
-  right: number;
-  bottom: number;
-  border: number;
-};
+export type CardRect = Rect & { id: string; border: number };
 
 // Port-adjacent exemption depth (issue #10). An edge-label chip is ~2x wider
 // than the inter-card corridor it labels, so a chip on its own line necessarily
@@ -147,12 +141,7 @@ export function portKeepOutRect(
 
 export type PortZoneSide = "source" | "target";
 
-type PortZoneRect = {
-  left: number;
-  top: number;
-  right: number;
-  bottom: number;
-};
+type PortZoneRect = Rect;
 
 // Does `chip`'s CENTRE sit ON the OWN endpoint `card`'s body, past its
 // port-adjacent strip? True = the chip is seated on the card body (a #10
@@ -247,15 +236,14 @@ export function cardRectsFor(
   byId: ReadonlyMap<string, RFAnyNode>,
 ): CardRect[] {
   return nodes.map((n) => {
-    const left = absoluteLeft(n, byId);
-    const top = absoluteTop(n, byId);
+    const r = nodeRectOf(n, byId);
     const growth = cardGrowth(n.type);
     return {
       id: n.id,
-      left,
-      top,
-      right: left + nodeWidth(n) + growth,
-      bottom: top + nodeHeight(n) + growth,
+      left: r.left,
+      top: r.top,
+      right: r.right + growth,
+      bottom: r.bottom + growth,
       border: cardBorder(n.type),
     };
   });
@@ -268,7 +256,48 @@ type EdgeSegments = {
   id: string;
   flowKey: string;
   segs: ReadonlyArray<readonly [number, number, number, number]>;
+  // The polyline's bounding box, the pair loop's first reject.
+  box: Box;
 };
+
+type Box = { left: number; top: number; right: number; bottom: number };
+
+// Slack on the bounding-box rejects ahead of properCrossPoint. A proper
+// crossing lies inside both segments' boxes, so a pair apart by more than this
+// cannot cross; the slack only keeps float noise in the orientation test from
+// being rejected here instead of there.
+const CROSS_BOX_SLACK = 1;
+
+function boxesApart(a: Box, b: Box): boolean {
+  return (
+    a.left > b.right + CROSS_BOX_SLACK ||
+    b.left > a.right + CROSS_BOX_SLACK ||
+    a.top > b.bottom + CROSS_BOX_SLACK ||
+    b.top > a.bottom + CROSS_BOX_SLACK
+  );
+}
+
+// boxesApart(box, segmentBox(seg)) without building the segment's box.
+function segmentApart(
+  box: Box,
+  seg: readonly [number, number, number, number],
+): boolean {
+  return (
+    box.left > Math.max(seg[0], seg[2]) + CROSS_BOX_SLACK ||
+    Math.min(seg[0], seg[2]) > box.right + CROSS_BOX_SLACK ||
+    box.top > Math.max(seg[1], seg[3]) + CROSS_BOX_SLACK ||
+    Math.min(seg[1], seg[3]) > box.bottom + CROSS_BOX_SLACK
+  );
+}
+
+function segmentBox(seg: readonly [number, number, number, number]): Box {
+  return {
+    left: Math.min(seg[0], seg[2]),
+    top: Math.min(seg[1], seg[3]),
+    right: Math.max(seg[0], seg[2]),
+    bottom: Math.max(seg[1], seg[3]),
+  };
+}
 
 // Every edge-data field this pass stamps. Picking them off the types that
 // declare them makes a rename at the declaration a build error here.
@@ -319,15 +348,27 @@ export function deconflictChipAnchors(
     const drawn = drawnEdge(ends, edge.type, edge.data);
     if (drawn.shape === "item") itemPtsById.set(edge.id, drawn.pts);
     const segs: Array<readonly [number, number, number, number]> = [];
+    const box: Box = {
+      left: Infinity,
+      top: Infinity,
+      right: -Infinity,
+      bottom: -Infinity,
+    };
     for (let i = 1; i < drawn.pts.length; i++) {
-      segs.push([
+      const seg = [
         drawn.pts[i - 1]![0],
         drawn.pts[i - 1]![1],
         drawn.pts[i]![0],
         drawn.pts[i]![1],
-      ]);
+      ] as const;
+      segs.push(seg);
+      const sb = segmentBox(seg);
+      box.left = Math.min(box.left, sb.left);
+      box.top = Math.min(box.top, sb.top);
+      box.right = Math.max(box.right, sb.right);
+      box.bottom = Math.max(box.bottom, sb.bottom);
     }
-    edgeSegments.push({ id: edge.id, flowKey: flowKeyOf(edge), segs });
+    edgeSegments.push({ id: edge.id, flowKey: flowKeyOf(edge), segs, box });
     edgeIndexOfSegment.push(index);
   });
 
@@ -352,7 +393,7 @@ export function deconflictChipAnchors(
   // continuous stroke is the only one drawn there in either order. The
   // stamped edge is simply the earlier one in the edges array: any
   // consistent choice draws the same picture, and where several members of
-  // one trunk cross a foreign edge at one shared point (overlapping lane
+  // one trunk cross a foreign edge at one shared point (overlapping trunk
   // runs), the mixture of stamps still reads right -- a member's gap is
   // covered by its unstamped siblings' continuous runs, and the foreign
   // edge's gap is the one that shows.
@@ -376,7 +417,7 @@ export function deconflictChipAnchors(
   //
   // O(S^2) over segment pairs of different flows, the same shape as the e2e
   // crossing census. Points are rounded to the emitted paths' two decimals and
-  // deduped per edge: the members of one trunk share a lane exactly, so their
+  // deduped per edge: the members of one trunk share a run exactly, so their
   // crossings with one foreign edge land on the same point and one gap must
   // draw there, not six stacked cut-outs. Each stamp carries every partner
   // edge crossing there -- its id and endpoint NODE anchors (see
@@ -417,13 +458,23 @@ export function deconflictChipAnchors(
         const si = edgeSegments[i]!;
         const sj = edgeSegments[j]!;
         if (si.flowKey === sj.flowKey) continue;
+        // The rejects only skip pairs that cannot cross, so the scan still
+        // meets every crossing in the same (i, j, segment) order.
+        if (boxesApart(si.box, sj.box)) continue;
         for (const sa of si.segs) {
+          const boxA = segmentBox(sa);
+          if (boxesApart(boxA, sj.box)) continue;
           for (const sb of sj.segs) {
-            const p = properCrossPoint(
-              [sa[0], sa[1]],
-              [sa[2], sa[3]],
-              [sb[0], sb[1]],
-              [sb[2], sb[3]],
+            if (segmentApart(boxA, sb)) continue;
+            const p = properCrossPointXY(
+              sa[0],
+              sa[1],
+              sa[2],
+              sa[3],
+              sb[0],
+              sb[1],
+              sb[2],
+              sb[3],
             );
             if (p === null) continue;
             const x = Math.round(p[0] * 100) / 100;
@@ -436,9 +487,7 @@ export function deconflictChipAnchors(
               const partners: Array<CrossingCuePartner> = [];
               entry = { cue: { x, y, partners }, partners };
               cueByKey.set(key, entry);
-              const list = crossingCuesByIndex.get(stampIndex) ?? [];
-              list.push(entry.cue);
-              crossingCuesByIndex.set(stampIndex, list);
+              pushInto(crossingCuesByIndex, stampIndex, entry.cue);
             }
             entry.partners.push(partnerStampOf(j));
           }
@@ -496,9 +545,14 @@ export function deconflictChipAnchors(
       }
     }
     const key = flowKeyOf(edge);
-    const list = divergenceGroups.get(key) ?? [];
-    list.push({ index, id: edge.id, target: edge.target, sx, sy, bendX });
-    divergenceGroups.set(key, list);
+    pushInto(divergenceGroups, key, {
+      index,
+      id: edge.id,
+      target: edge.target,
+      sx,
+      sy,
+      bendX,
+    });
   });
   for (const members of divergenceGroups.values()) {
     if (members.length < 2) continue;
@@ -554,9 +608,12 @@ export function deconflictChipAnchors(
     // One trunk is one (item, target port) with one column, the same key
     // routeTrunkEdges pinned the column by.
     const key = `${edgeItem(edge) ?? ""}|${edge.target}|${bendX}`;
-    const list = faninGroups.get(key) ?? [];
-    list.push({ index, id: edge.id, x: bendX + CHAMFER, y: ty });
-    faninGroups.set(key, list);
+    pushInto(faninGroups, key, {
+      index,
+      id: edge.id,
+      x: bendX + CHAMFER,
+      y: ty,
+    });
   });
   for (const members of faninGroups.values()) {
     if (members.length < 2) continue;
@@ -793,12 +850,11 @@ export function contentBounds(
   let right = -Infinity;
   let bottom = -Infinity;
   for (const n of nodes) {
-    const l = absoluteLeft(n, byId);
-    const t = absoluteTop(n, byId);
-    left = Math.min(left, l);
-    top = Math.min(top, t);
-    right = Math.max(right, l + nodeWidth(n));
-    bottom = Math.max(bottom, t + nodeHeight(n));
+    const r = nodeRectOf(n, byId);
+    left = Math.min(left, r.left);
+    top = Math.min(top, r.top);
+    right = Math.max(right, r.right);
+    bottom = Math.max(bottom, r.bottom);
   }
 
   // One chip box each, at the rule anchor its render component draws it at. The

@@ -79,18 +79,40 @@ function familyOf(name: FontFamilyVar): string | null {
   return value === "" ? null : value;
 }
 
+// Measured widths per CSS font string, then per text. Assigning ctx.font
+// re-parses the font on every write, so it is written only when the font
+// changes. Both caches answer for the faces resolved when they were filled and
+// are dropped with the family cache when a face arrives (bump below).
+const widthCache = new Map<string, Map<string, number>>();
+let contextFont: string | undefined;
+
 // Width of one string in one font: exact when a canvas can measure in the
 // resolved faces, the char-class upper bound otherwise.
 export function measureTextWidth(text: string, font: MeasuredFont): number {
   const c = context();
   const family = familyOf(font.family);
   if (c === null || family === null) return estimateTextWidth(text, font);
-  c.font = `${font.weight} ${font.fontSize}px ${family}`;
-  const tracking =
-    font.letterSpacingEm === undefined
-      ? 0
-      : font.letterSpacingEm * font.fontSize * [...text].length;
-  return c.measureText(text).width + tracking;
+  const cssFont = `${font.weight} ${font.fontSize}px ${family}`;
+  let widths = widthCache.get(cssFont);
+  if (widths === undefined) {
+    widths = new Map();
+    widthCache.set(cssFont, widths);
+  }
+  const hit = widths.get(text);
+  if (hit !== undefined) return hit + trackingOf(text, font);
+  if (contextFont !== cssFont) {
+    c.font = cssFont;
+    contextFont = cssFont;
+  }
+  const width = c.measureText(text).width;
+  widths.set(text, width);
+  return width + trackingOf(text, font);
+}
+
+function trackingOf(text: string, font: MeasuredFont): number {
+  return font.letterSpacingEm === undefined
+    ? 0
+    : font.letterSpacingEm * font.fontSize * [...text].length;
 }
 
 // A WidthFn bound to one font, for the elision helper.
@@ -108,6 +130,7 @@ let watching = false;
 function bump(): void {
   generation++;
   familyCache.clear();
+  widthCache.clear();
   clearElisionCache();
   for (const listener of listeners) listener();
 }

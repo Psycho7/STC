@@ -18,6 +18,7 @@
 
 import type { Edge } from "@xyflow/react";
 
+import { packIndex } from "../data/pack-index";
 import { layoutRenderPlan, type RFAnyNode } from "./layout";
 import type { GapRecord } from "./layerModel";
 import type { SolveForRenderOutput } from "../pipeline/solveForRender";
@@ -34,10 +35,11 @@ export async function layoutSolved(
   baseEdges: Edge[];
 }> {
   const { plan, pack, full } = solved;
+  const { recipeById, itemById } = packIndex(pack);
   return layoutRenderPlan({
     plan,
-    recipeById: new Map(pack.recipes.map((r) => [r.id, r])),
-    itemById: new Map(pack.items.map((i) => [i.id, i])),
+    recipeById,
+    itemById,
     catalystAccount: full.catalystAccount,
     ...(options.widenGaps !== undefined
       ? { widenGaps: options.widenGaps }

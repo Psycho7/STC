@@ -16,7 +16,13 @@
 // (orient=auto) points right.
 
 import { DOT_KEEPOFF } from "./dimensions";
-import { CHIP_HALF_H, CHIP_HALF_W_WIDE, chipHalfWidthsOf } from "./chipMetrics";
+import {
+  CHIP_HALF_H,
+  CHIP_HALF_W_WIDE,
+  chipHalfWidthsOf,
+  memberHalfWOf,
+} from "./chipMetrics";
+import type { Rect } from "./nodeGeometry";
 
 // Minimum straight run leaving a source's Right handle and entering a target's
 // Left handle. Keeps the arrow head from sprouting directly out of a corner.
@@ -44,6 +50,29 @@ export const FORWARD_STEP_BUDGET = 2 * (PORT_STUB + CHAMFER);
 // floating tails in the emitted `d` string (keeps pinned tests stable).
 function r(n: number): number {
   return Math.round(n * 100) / 100;
+}
+
+type Vertex = readonly [number, number];
+
+// One emitted vertex, rounded as the `d` string prints it. `+ 0` folds -0 to 0,
+// so the tuple equals what parsePathPoints reads back from that string.
+function vertex(x: number, y: number): Vertex {
+  return [r(x) + 0, r(y) + 0];
+}
+
+// Does a coordinate print as the plain decimal parsePathPoints matches? Every
+// finite double below 1e21 does, and reads back as the same number.
+function printsPlain(v: number): boolean {
+  return Number.isFinite(v) && Math.abs(v) < 1e21;
+}
+
+// A builder's vertex list and the `d` string joined from it once. The vertices
+// stand in for a parse of `d`; a coordinate the parser would not read back
+// (never emitted in practice) falls back to that parse.
+function emitted(pts: Vertex[]): { d: string; pts: ReadonlyArray<Vertex> } {
+  const d = "M " + pts.map(([x, y]) => `${x},${y}`).join(" L ");
+  const exact = pts.every(([x, y]) => printsPlain(x) && printsPlain(y));
+  return { d, pts: exact ? pts : parsePathPoints(d) };
 }
 
 export function clamp(v: number, lo: number, hi: number): number {
@@ -130,11 +159,7 @@ export function backwardRailDefaults(args: {
 
 // An axis-aligned card rectangle in absolute graph coordinates, for rail
 // obstacle avoidance.
-export type ObstacleRect = {
-  left: number;
-  right: number;
-  top: number;
-  bottom: number;
+export type ObstacleRect = Rect & {
   // A container slab (group / loop box), not a plain card. clearRailY keeps a
   // detour rail a wider gap off these so the rail no longer hugs the slab border
   // in a near-identical gray (#29). Absent / false on cards and gutters.
@@ -404,25 +429,27 @@ function collapsesToDiagonal(dy: number, chamfer: number): boolean {
 // holds the column becomes a two-point diagonal (a flat horizontal when
 // y0 === y1), skipping the run.
 function chamferColumn(
+  out: Vertex[],
   x: number,
   y0: number,
   y1: number,
   chamfer: number,
   entryDir = -1,
   exitDir = 1,
-): string {
+): void {
   if (collapsesToDiagonal(y1 - y0, chamfer)) {
-    return (
-      ` L ${r(x + entryDir * chamfer)},${r(y0)}` +
-      ` L ${r(x + exitDir * chamfer)},${r(y1)}`
+    out.push(
+      vertex(x + entryDir * chamfer, y0),
+      vertex(x + exitDir * chamfer, y1),
     );
+    return;
   }
   const dir = y1 > y0 ? 1 : -1;
-  return (
-    ` L ${r(x + entryDir * chamfer)},${r(y0)}` +
-    ` L ${r(x)},${r(y0 + dir * chamfer)}` +
-    ` L ${r(x)},${r(y1 - dir * chamfer)}` +
-    ` L ${r(x + exitDir * chamfer)},${r(y1)}`
+  out.push(
+    vertex(x + entryDir * chamfer, y0),
+    vertex(x, y0 + dir * chamfer),
+    vertex(x, y1 - dir * chamfer),
+    vertex(x + exitDir * chamfer, y1),
   );
 }
 
@@ -521,22 +548,16 @@ export function horizontalRuns(
 export function longestRunAnchor(
   pts: ReadonlyArray<readonly [number, number]>,
 ): [x: number, y: number] {
-  const runs = horizontalRuns(pts);
-  if (runs.length === 0) return pathPointAtPts(pts, 0.5);
-  const [mx, my] = pathPointAtPts(pts, 0.5);
-  let best = runs[0]!;
-  let bestLen = -1;
-  let bestGap = Infinity;
-  for (const run of runs) {
-    const len = run.hi - run.lo;
-    const cx = (run.lo + run.hi) / 2;
-    const gap = Math.hypot(cx - mx, run.y - my);
-    if (len > bestLen || (len === bestLen && gap < bestGap)) {
-      best = run;
-      bestLen = len;
-      bestGap = gap;
-    }
-  }
+  return longestRunAnchorIn(pts, horizontalRuns(pts));
+}
+
+// longestRunAnchor over runs the caller already took off `pts`.
+function longestRunAnchorIn(
+  pts: ReadonlyArray<readonly [number, number]>,
+  runs: ReadonlyArray<HorizontalRun>,
+): [x: number, y: number] {
+  const best = runsByPreference(pts, runs)[0];
+  if (best === undefined) return pathPointAtPts(pts, 0.5);
   return [r((best.lo + best.hi) / 2), r(best.y)];
 }
 
@@ -582,9 +603,10 @@ const BOX_EPS = 1e-6;
 // list IS that winner and a chip that needs no slide never moves.
 function runsByPreference(
   pts: ReadonlyArray<readonly [number, number]>,
+  runs: ReadonlyArray<HorizontalRun> = horizontalRuns(pts),
 ): HorizontalRun[] {
   const [mx, my] = pathPointAtPts(pts, 0.5);
-  return horizontalRuns(pts)
+  return runs
     .map((run) => ({
       run,
       len: run.hi - run.lo,
@@ -732,7 +754,7 @@ export function itemAnchor(
   if (args.faninColumn === true && first !== undefined) {
     return [r(reserveSeatX(sx, null, halfW, first.lo, first.hi)), r(first.y)];
   }
-  return longestRunAnchor(pts);
+  return longestRunAnchorIn(pts, runs);
 }
 
 // chamferStepPath: forward step, small-dy diagonal, narrow-gap degradation, and
@@ -752,13 +774,30 @@ export function chamferStepPath(
   } & RoutingHints &
     ChipBoxes,
 ): [path: string, labelX: number, labelY: number] {
+  const { path, x, y } = chamferStepShape(args);
+  return [path, x, y];
+}
+
+// chamferStepPath with the vertex list it drew, so drawnEdge need not parse
+// the path back.
+function chamferStepShape(
+  args: {
+    sourceX: number;
+    sourceY: number;
+    targetX: number;
+    targetY: number;
+  } & RoutingHints &
+    ChipBoxes,
+): { path: string; pts: ReadonlyArray<Vertex>; x: number; y: number } {
   const { sourceX: sx, sourceY: sy, targetX: tx, targetY: ty, bendX } = args;
   const gap = tx - sx;
   // One exit for every branch: the emitted path plus its rule anchor.
-  const anchored = (d: string): [string, number, number] => {
-    const pts = parsePathPoints(d);
+  const anchored = (
+    vertices: Vertex[],
+  ): { path: string; pts: ReadonlyArray<Vertex>; x: number; y: number } => {
+    const { d, pts } = emitted(vertices);
     const [x, y] = itemAnchor(pts, args, sx, tx);
-    return [d, x, y];
+    return { path: d, pts, x, y };
   };
 
   // Backward: the target sits at or left of the source (ELK breaks cycles by
@@ -787,26 +826,25 @@ export function chamferStepPath(
     // vertical run), mirroring the forward small-dy diagonal. The sy===ty case
     // offsets the rail past this threshold, so it keeps the full shape.
     if (Math.abs(railY - sy) <= 2 * CHAMFER) {
-      const d =
-        `M ${r(sx)},${r(sy)}` +
-        ` L ${r(xr - CHAMFER)},${r(sy)}` +
-        ` L ${r(xr)},${r((sy + railY) / 2)}` +
-        ` L ${r(xr - CHAMFER)},${r(railY)}` +
-        ` L ${r(xl + CHAMFER)},${r(railY)}` +
-        ` L ${r(xl)},${r((railY + ty) / 2)}` +
-        ` L ${r(xl + CHAMFER)},${r(ty)}` +
-        ` L ${r(tx)},${r(ty)}`;
-      return anchored(d);
+      return anchored([
+        vertex(sx, sy),
+        vertex(xr - CHAMFER, sy),
+        vertex(xr, (sy + railY) / 2),
+        vertex(xr - CHAMFER, railY),
+        vertex(xl + CHAMFER, railY),
+        vertex(xl, (railY + ty) / 2),
+        vertex(xl + CHAMFER, ty),
+        vertex(tx, ty),
+      ]);
     }
     // Right column exits leftward (-1, -1) onto the rail, left column enters
     // leftward (+1, +1) off it; the leftward rail run is the implicit segment
     // between the right column's exit and the left column's entry.
-    const d =
-      `M ${r(sx)},${r(sy)}` +
-      chamferColumn(xr, sy, railY, CHAMFER, -1, -1) +
-      chamferColumn(xl, railY, ty, CHAMFER, 1, 1) +
-      ` L ${r(tx)},${r(ty)}`;
-    return anchored(d);
+    const detour = [vertex(sx, sy)];
+    chamferColumn(detour, xr, sy, railY, CHAMFER, -1, -1);
+    chamferColumn(detour, xl, railY, ty, CHAMFER, 1, 1);
+    detour.push(vertex(tx, ty));
+    return anchored(detour);
   }
 
   // Forward. forwardStepGeometry scales the stub+chamfer budget down
@@ -833,18 +871,17 @@ export function chamferStepPath(
   // the hint the shapes below stand, byte-identical.
   if (args.legY !== undefined) {
     const descentX = args.jogDescentX ?? args.entryX ?? tx - PORT_STUB;
-    const jog =
-      `M ${r(sx)},${r(sy)}` +
-      chamferColumn(bx, sy, args.legY, chamfer) +
-      chamferColumn(descentX, args.legY, ty, chamfer) +
-      ` L ${r(tx)},${r(ty)}`;
+    const jog = [vertex(sx, sy)];
+    chamferColumn(jog, bx, sy, args.legY, chamfer);
+    chamferColumn(jog, descentX, args.legY, ty, chamfer);
+    jog.push(vertex(tx, ty));
     return anchored(jog);
   }
 
   // Same rail: a plain straight line, no vertical offset at all -- one long
   // horizontal run, which is also where its chip anchors.
   if (sy === ty) {
-    return anchored(`M ${r(sx)},${r(sy)} L ${r(tx)},${r(ty)}`);
+    return anchored([vertex(sx, sy), vertex(tx, ty)]);
   }
 
   // Small dy: the straight run left between the two chamfers would be shorter
@@ -852,12 +889,12 @@ export function chamferStepPath(
   // vertical segment). The enlarged-bevel arm below runs the same rule on
   // stepChamfer inside chamferColumn.
   if (collapsesToDiagonal(ty - sy, chamfer)) {
-    const d =
-      `M ${r(sx)},${r(sy)}` +
-      ` L ${r(dropX - chamfer)},${r(sy)}` +
-      ` L ${r(dropX + chamfer)},${r(ty)}` +
-      ` L ${r(tx)},${r(ty)}`;
-    return anchored(d);
+    return anchored([
+      vertex(sx, sy),
+      vertex(dropX - chamfer, sy),
+      vertex(dropX + chamfer, ty),
+      vertex(tx, ty),
+    ]);
   }
 
   // Normal forward step: H run at the source row, chamfer, V run at the drop
@@ -884,11 +921,10 @@ export function chamferStepPath(
           Math.min(dropX - sx, tx - dropX, Math.abs(ty - sy)) / 2,
           args.chamferBudget,
         );
-  return anchored(
-    `M ${r(sx)},${r(sy)}` +
-      chamferColumn(dropX, sy, ty, stepChamfer) +
-      ` L ${r(tx)},${r(ty)}`,
-  );
+  const step = [vertex(sx, sy)];
+  chamferColumn(step, dropX, sy, ty, stepChamfer);
+  step.push(vertex(tx, ty));
+  return anchored(step);
 }
 
 // The half-widths of a trunk member's two chips. drawnEdge reads them off the
@@ -992,6 +1028,7 @@ export function chamferFanoutPath(
     ChipBoxes,
 ): {
   path: string;
+  pts: ReadonlyArray<readonly [number, number]>;
   junction: { x: number; y: number };
   trunkAnchor: { x: number; y: number };
   branchAnchor: { x: number; y: number };
@@ -1034,31 +1071,34 @@ export function chamferFanoutPath(
     y: r(ty),
   };
 
+  const shaped = (vertices: Vertex[]) => {
+    const { d, pts } = emitted(vertices);
+    return { path: d, pts, junction, trunkAnchor, branchAnchor };
+  };
+
   // Shared-y member: a straight trunk with no branch vertical.
   if (sy === ty) {
-    const d = `M ${r(sx)},${r(sy)} L ${r(tx)},${r(ty)}`;
-    return { path: d, junction, trunkAnchor, branchAnchor };
+    return shaped([vertex(sx, sy), vertex(tx, ty)]);
   }
 
   // Small dy: the run left between the two chamfers would be shorter than a
   // CHAMFER, so join the two horizontals with a single diagonal at the junction
   // column.
   if (collapsesToDiagonal(ty - sy, CHAMFER)) {
-    const d =
-      `M ${r(sx)},${r(sy)}` +
-      ` L ${r(jx - CHAMFER)},${r(sy)}` +
-      ` L ${r(jx + CHAMFER)},${r(ty)}` +
-      ` L ${r(tx)},${r(ty)}`;
-    return { path: d, junction, trunkAnchor, branchAnchor };
+    return shaped([
+      vertex(sx, sy),
+      vertex(jx - CHAMFER, sy),
+      vertex(jx + CHAMFER, ty),
+      vertex(tx, ty),
+    ]);
   }
 
   // Normal branch: trunk horizontal, chamfer, branch vertical, chamfer, final
   // rightward stub into the target.
-  const d =
-    `M ${r(sx)},${r(sy)}` +
-    chamferColumn(jx, sy, ty, CHAMFER) +
-    ` L ${r(tx)},${r(ty)}`;
-  return { path: d, junction, trunkAnchor, branchAnchor };
+  const branch = [vertex(sx, sy)];
+  chamferColumn(branch, jx, sy, ty, CHAMFER);
+  branch.push(vertex(tx, ty));
+  return shaped(branch);
 }
 
 // chamferFaninPath: one member of a fan-in trunk (routeTrunkEdges), the mirror
@@ -1090,6 +1130,7 @@ export function chamferFaninPath(
     ChipBoxes,
 ): {
   path: string;
+  pts: ReadonlyArray<readonly [number, number]>;
   junction: { x: number; y: number };
   trunkAnchor: { x: number; y: number };
   branchAnchor: { x: number; y: number };
@@ -1128,25 +1169,28 @@ export function chamferFaninPath(
     y: r(sy),
   };
 
+  const shaped = (vertices: Vertex[]) => {
+    const { d, pts } = emitted(vertices);
+    return { path: d, pts, junction, trunkAnchor, branchAnchor };
+  };
+
   if (sy === ty) {
-    const d = `M ${r(sx)},${r(sy)} L ${r(tx)},${r(ty)}`;
-    return { path: d, junction, trunkAnchor, branchAnchor };
+    return shaped([vertex(sx, sy), vertex(tx, ty)]);
   }
 
   if (collapsesToDiagonal(ty - sy, CHAMFER)) {
-    const d =
-      `M ${r(sx)},${r(sy)}` +
-      ` L ${r(jx - CHAMFER)},${r(sy)}` +
-      ` L ${r(jx + CHAMFER)},${r(ty)}` +
-      ` L ${r(tx)},${r(ty)}`;
-    return { path: d, junction, trunkAnchor, branchAnchor };
+    return shaped([
+      vertex(sx, sy),
+      vertex(jx - CHAMFER, sy),
+      vertex(jx + CHAMFER, ty),
+      vertex(tx, ty),
+    ]);
   }
 
-  const d =
-    `M ${r(sx)},${r(sy)}` +
-    chamferColumn(jx, sy, ty, CHAMFER) +
-    ` L ${r(tx)},${r(ty)}`;
-  return { path: d, junction, trunkAnchor, branchAnchor };
+  const merge = [vertex(sx, sy)];
+  chamferColumn(merge, jx, sy, ty, CHAMFER);
+  merge.push(vertex(tx, ty));
+  return shaped(merge);
 }
 
 // The sub-polyline a fan-out member's BRANCH chip draws on: the suffix from
@@ -1195,10 +1239,7 @@ export function branchLegAfterJunction(
 // walks back from the end while the vertices sit right of the junction; the
 // junction is appended when the prefix does not already end on it (a shared-y
 // member draws a straight line with no vertex of its own at that x).
-//
-// Exported for the trunk suites, which read a member's own stub through the
-// same slice the drawn shape carries.
-export function stubBeforeJunction(
+function stubBeforeJunction(
   pts: ReadonlyArray<readonly [number, number]>,
   junction: { x: number; y: number },
 ): ReadonlyArray<readonly [number, number]> {
@@ -1287,7 +1328,7 @@ export function drawnEdge(
       ...hints,
       ...chipHalfWidthsOf(d),
     });
-    const pts = parsePathPoints(fan.path);
+    const pts = fan.pts;
     return {
       shape: "fanin",
       path: fan.path,
@@ -1305,7 +1346,7 @@ export function drawnEdge(
       ...hints,
       ...chipHalfWidthsOf(d),
     });
-    const pts = parsePathPoints(fan.path);
+    const pts = fan.pts;
     return {
       shape: "fanout",
       path: fan.path,
@@ -1317,15 +1358,17 @@ export function drawnEdge(
     };
   }
 
-  const [path, labelX, labelY] = chamferStepPath({
+  // An item shape seats only its own rate chip (itemAnchor reads memberHalfW),
+  // so the aggregate width is never measured here.
+  const step = chamferStepShape({
     ...ports,
     ...hints,
-    ...chipHalfWidthsOf(d),
+    memberHalfW: memberHalfWOf(d),
   });
   return {
     shape: "item",
-    path,
-    pts: parsePathPoints(path),
-    labelAnchor: { x: labelX, y: labelY },
+    path: step.path,
+    pts: step.pts,
+    labelAnchor: { x: step.x, y: step.y },
   };
 }
