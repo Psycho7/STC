@@ -301,13 +301,79 @@ export function solveLp(input: LpInput): LpResult {
   //                external supply (free boundary draws are invisible to cost).
   //  - "lex":      minimize recipe-id rank under both caps, breaking whatever
   //                ties survive.
+  //
+  // Mass balance, one equality per finite-supply item:
+  //   production - consumption + draw - surplus + deficit = demand
+  // A finite positive cap is a bounded draw variable (0..cap), never a
+  // forced injection: the LP pulls in only what the solution consumes, so an
+  // unconsumed cap remainder produces neither phantom surplus nor recruited
+  // consumers. The draw costs 0 in both passes (raw boundary draws are free,
+  // so a capped draw is too); cap 0 emits no variable, keeping no-override
+  // models identical to before. Where production and draw are cost-equal the
+  // solve prefers the draw (use external supply first); a recipe-cost
+  // override of 0 ties with the free draw and the pick is solver-arbitrary
+  // (the lex pass ranks only recipes). Accepted corner.
+  //
+  // These rows are the same in every pass, so they are built once here and
+  // copied into each pass's model. Row and coefficient insertion order matches
+  // an item-by-item build, since the engine indexes rows and columns in key order.
+  const balanceTermsByItem = new Map<ItemId, [RecipeId, number][]>();
+  for (const r of recipes) {
+    // First listed entry per item, as a per-item find over r.out / r.in reads.
+    const outQty = new Map<ItemId, number>();
+    for (const o of r.out) if (!outQty.has(o.item)) outQty.set(o.item, o.qty);
+    const inQty = new Map<ItemId, number>();
+    for (const i of r.in) if (!inQty.has(i.item)) inQty.set(i.item, i.qty);
+    for (const item of new Set([...outQty.keys(), ...inQty.keys()])) {
+      const coef = (outQty.get(item) ?? 0) - (inQty.get(item) ?? 0);
+      if (coef === 0) continue;
+      const terms = balanceTermsByItem.get(item);
+      if (terms) {
+        terms.push([r.id, coef]);
+      } else {
+        balanceTermsByItem.set(item, [[r.id, coef]]);
+      }
+    }
+  }
+
+  const balanceRows: LpModelConstraints = {};
+  const balanceCoefs: LpModelVars = {};
+  for (const r of recipes) balanceCoefs[`x_${r.id}`] = {};
+  for (const it of items) {
+    balanceCoefs[`surplus_${it.id}`] = {};
+    balanceCoefs[`deficit_${it.id}`] = {};
+  }
+  const drawVariables: string[] = [];
+  for (const it of items) {
+    const supply = supplyTable.supplyOf(it.id);
+    if (supply === Infinity) continue;
+    const cn = `mb_${it.id}`;
+    balanceRows[cn] = { equal: demand.get(it.id) ?? 0 };
+    for (const [recipeId, coef] of balanceTermsByItem.get(it.id) ?? []) {
+      balanceCoefs[`x_${recipeId}`]![cn] = coef;
+    }
+    balanceCoefs[`surplus_${it.id}`]![cn] = -1;
+    balanceCoefs[`deficit_${it.id}`]![cn] = 1;
+    const cap = (supply as Fraction).valueOf();
+    if (cap > 0) {
+      const capName = `drawcap_${it.id}`;
+      balanceCoefs[`draw_${it.id}`] = { [cn]: 1, [capName]: 1 };
+      drawVariables.push(`draw_${it.id}`);
+      balanceRows[capName] = { max: cap };
+    }
+  }
+
   const buildModel = (
     mode: "primary" | "boundary" | "lex",
     costCap?: number,
     boundaryCap?: number,
   ): LpModel => {
+    // Fresh objects per pass: an onModel observer may hold every pass's model.
     const variables: LpModelVars = {};
     const constraints: LpModelConstraints = {};
+    for (const [name, row] of Object.entries(balanceRows)) {
+      constraints[name] = { ...row };
+    }
 
     for (const r of recipes) {
       const objective =
@@ -317,52 +383,25 @@ export function solveLp(input: LpInput): LpResult {
             ? boundaryCoefById.get(r.id)! +
               BOUNDARY_RANK_EPS * (lexRank.get(r.id)! + 1)
             : lexRank.get(r.id)!;
-      variables[`x_${r.id}`] = { objective };
+      const name = `x_${r.id}`;
+      variables[name] = { objective, ...balanceCoefs[name] };
     }
 
     for (const it of items) {
-      variables[`surplus_${it.id}`] = {
+      const surplus = `surplus_${it.id}`;
+      variables[surplus] = {
         objective: mode === "primary" ? SURPLUS_WEIGHT : 0,
+        ...balanceCoefs[surplus],
       };
-      variables[`deficit_${it.id}`] = {
+      const deficit = `deficit_${it.id}`;
+      variables[deficit] = {
         objective: mode === "primary" ? DEFICIT_WEIGHT : 0,
+        ...balanceCoefs[deficit],
       };
     }
 
-    // Mass balance, one equality per finite-supply item:
-    //   production - consumption + draw - surplus + deficit = demand
-    // A finite positive cap is a bounded draw variable (0..cap), never a
-    // forced injection: the LP pulls in only what the solution consumes, so an
-    // unconsumed cap remainder produces neither phantom surplus nor recruited
-    // consumers. The draw costs 0 in both passes (raw boundary draws are free,
-    // so a capped draw is too); cap 0 emits no variable, keeping no-override
-    // models identical to before. Where production and draw are cost-equal the
-    // solve prefers the draw (use external supply first); a recipe-cost
-    // override of 0 ties with the free draw and the pick is solver-arbitrary
-    // (the lex pass ranks only recipes). Accepted corner.
-    for (const it of items) {
-      const supply = supplyTable.supplyOf(it.id);
-      if (supply === Infinity) continue;
-      const cn = `mb_${it.id}`;
-      constraints[cn] = { equal: demand.get(it.id) ?? 0 };
-      for (const r of recipes) {
-        const outQty = r.out.find((o) => o.item === it.id)?.qty ?? 0;
-        const inQty = r.in.find((i) => i.item === it.id)?.qty ?? 0;
-        const coef = outQty - inQty;
-        if (coef !== 0) variables[`x_${r.id}`]![cn] = coef;
-      }
-      variables[`surplus_${it.id}`]![cn] = -1;
-      variables[`deficit_${it.id}`]![cn] = 1;
-      const cap = (supply as Fraction).valueOf();
-      if (cap > 0) {
-        const capName = `drawcap_${it.id}`;
-        variables[`draw_${it.id}`] = {
-          objective: 0,
-          [cn]: 1,
-          [capName]: 1,
-        };
-        constraints[capName] = { max: cap };
-      }
+    for (const name of drawVariables) {
+      variables[name] = { objective: 0, ...balanceCoefs[name] };
     }
 
     // Tie-break passes: freeze pass-1 cost as an upper bound (with a small
@@ -534,9 +573,136 @@ export const RATE_ZERO = 1e-12;
 const NOISE_CEILING_REL = 1e-4;
 const DEFICIT_MATERIAL_REL = 1e-9;
 
+// Largest denominator fraction.js's float parser walks to.
+const FAREY_MAX_DENOM = 10_000_000;
+
+// Number of leading indices in [0, limit) where a monotone predicate holds
+// (true on a prefix, false after): galloping probe, then binary search.
+function leadingTrueCount(
+  limit: number,
+  holds: (j: number) => boolean,
+): number {
+  let lo = 0;
+  let hi = limit;
+  let stride = 1;
+  while (lo < hi) {
+    const probe = Math.min(lo + stride - 1, hi - 1);
+    if (!holds(probe)) {
+      hi = probe;
+      break;
+    }
+    lo = probe + 1;
+    stride *= 2;
+  }
+  while (lo < hi) {
+    const mid = Math.floor((lo + hi) / 2);
+    if (holds(mid)) {
+      lo = mid + 1;
+    } else {
+      hi = mid;
+    }
+  }
+  return lo;
+}
+
+// The rational `new Fraction(p)` parses a non-negative float to, as [n, d]
+// (not reduced). fraction.js walks the Stern-Brocot tree one mediant at a time,
+// up to ten million steps for a float just off a small rational; this takes
+// each run of same-direction steps in one galloping search. Every mediant is
+// evaluated with the same float expression the library uses, so the float
+// equality stop and the final bound pick are reproduced exactly.
+function fareyParse(value: number): [bigint, bigint] {
+  if (value % 1 === 0) return [BigInt(value), 1n];
+
+  let p = value;
+  let z = 1;
+  if (p >= 1) {
+    z = 10 ** Math.floor(1 + Math.log10(p));
+    p /= z;
+  }
+
+  const max = FAREY_MAX_DENOM;
+  let a = 0;
+  let b = 1;
+  let c = 1;
+  let d = 1;
+  let n = 0;
+  let den = 1;
+  while (b <= max && d <= max) {
+    if (p === (a + c) / (b + d)) {
+      if (b + d <= max) {
+        n = a + c;
+        den = b + d;
+      } else if (d > b) {
+        n = c;
+        den = d;
+      } else {
+        n = a;
+        den = b;
+      }
+      break;
+    }
+
+    if (p > (a + c) / (b + d)) {
+      const steps = leadingTrueCount(
+        Math.floor((max - b) / d) + 1,
+        (j) => p > (a + (j + 1) * c) / (b + (j + 1) * d),
+      );
+      a += steps * c;
+      b += steps * d;
+    } else {
+      const steps = leadingTrueCount(
+        Math.floor((max - d) / b) + 1,
+        (j) => p < ((j + 1) * a + c) / ((j + 1) * b + d),
+      );
+      c += steps * a;
+      d += steps * b;
+    }
+    if (b > max) {
+      n = c;
+      den = d;
+    } else {
+      n = a;
+      den = b;
+    }
+  }
+  return [BigInt(n) * BigInt(z), BigInt(den)];
+}
+
 // Relative rational snap: the extraction's default reading of a float primal.
-const plainSnap = (v: number): Fraction =>
-  new Fraction(v).simplify(Math.min(SNAP_REL, Math.abs(v) * SNAP_REL));
+// Returns exactly `new Fraction(v).simplify(eps)`: the first continued-fraction
+// convergent (the full fraction excluded) of the parsed rational within eps of
+// it, else the parsed rational. Computed directly because the library's parse
+// and its per-convergent rebuild dominated solve time. One representational
+// difference: a negative v that parses to zero yields +0 where fraction.js
+// keeps a negative-signed zero; the solver only snaps positive primals.
+export function plainSnap(v: number): Fraction {
+  const eps = Math.min(SNAP_REL, Math.abs(v) * SNAP_REL);
+  // Same threshold arithmetic as simplify, including its throw on v = 0.
+  const ieps = BigInt(Math.ceil(1 / eps));
+  const [pn, pd] = fareyParse(Math.abs(v));
+  const sign = v < 0 ? -1n : 1n;
+
+  let hPrev = 0n;
+  let h = 1n;
+  let kPrev = 1n;
+  let k = 0n;
+  let x = pn;
+  let y = pd;
+  while (y !== 0n) {
+    const term = x / y;
+    [x, y] = [y, x % y];
+    [hPrev, h] = [h, term * h + hPrev];
+    [kPrev, k] = [k, term * k + kPrev];
+    if (y === 0n) break;
+
+    const diff = h * pd - pn * k;
+    if ((diff < 0n ? -diff : diff) * ieps < k * pd) {
+      return new Fraction(sign * h, k);
+    }
+  }
+  return new Fraction(sign * pn, pd);
+}
 
 /**
  * Read one boundary-draw primal exactly, against a finite positive cap.
