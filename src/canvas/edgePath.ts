@@ -521,22 +521,8 @@ export function horizontalRuns(
 export function longestRunAnchor(
   pts: ReadonlyArray<readonly [number, number]>,
 ): [x: number, y: number] {
-  const runs = horizontalRuns(pts);
-  if (runs.length === 0) return pathPointAtPts(pts, 0.5);
-  const [mx, my] = pathPointAtPts(pts, 0.5);
-  let best = runs[0]!;
-  let bestLen = -1;
-  let bestGap = Infinity;
-  for (const run of runs) {
-    const len = run.hi - run.lo;
-    const cx = (run.lo + run.hi) / 2;
-    const gap = Math.hypot(cx - mx, run.y - my);
-    if (len > bestLen || (len === bestLen && gap < bestGap)) {
-      best = run;
-      bestLen = len;
-      bestGap = gap;
-    }
-  }
+  const best = runsByPreference(pts)[0];
+  if (best === undefined) return pathPointAtPts(pts, 0.5);
   return [r((best.lo + best.hi) / 2), r(best.y)];
 }
 
@@ -1195,10 +1181,7 @@ export function branchLegAfterJunction(
 // walks back from the end while the vertices sit right of the junction; the
 // junction is appended when the prefix does not already end on it (a shared-y
 // member draws a straight line with no vertex of its own at that x).
-//
-// Exported for the trunk suites, which read a member's own stub through the
-// same slice the drawn shape carries.
-export function stubBeforeJunction(
+function stubBeforeJunction(
   pts: ReadonlyArray<readonly [number, number]>,
   junction: { x: number; y: number },
 ): ReadonlyArray<readonly [number, number]> {

@@ -5,7 +5,6 @@ export type Locale = "en" | "zh";
 export type UiKey =
   | "targets.title"
   | "targets.add"
-  | "targets.remove"
   | "targets.rate.unit"
   | "targets.rate.label"
   | "item.selected"
@@ -40,7 +39,6 @@ export type UiKey =
   | "canvas.rate.unit"
   | "canvas.catalyst.perMachine"
   | "inputs.rate.placeholder"
-  | "inputs.remove"
   | "inputs.remove.label"
   | "inputs.add"
   | "inputs.add.exhausted"
@@ -109,7 +107,6 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
   zh: {
     "targets.title": "目标",
     "targets.add": "添加目标",
-    "targets.remove": "删除",
     "targets.rate.unit": "件 / 分钟",
     "targets.rate.label": "速率",
     "item.selected": "物品：{name}",
@@ -150,7 +147,6 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "canvas.rate.unit": "/分",
     "canvas.catalyst.perMachine": "每台 {rate}/分",
     "inputs.rate.placeholder": "上限 / 分",
-    "inputs.remove": "移除",
     "inputs.remove.label": "移除输入行",
     "inputs.add": "添加输入",
     "inputs.add.exhausted": "所有物品均已添加",
@@ -210,7 +206,6 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
   en: {
     "targets.title": "Targets",
     "targets.add": "Add target",
-    "targets.remove": "Remove",
     "targets.rate.unit": "items / minute",
     "targets.rate.label": "rate",
     "item.selected": "Item: {name}",
@@ -254,7 +249,6 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "canvas.rate.unit": "/min",
     "canvas.catalyst.perMachine": "{rate}/min per machine",
     "inputs.rate.placeholder": "cap /min",
-    "inputs.remove": "Remove",
     "inputs.remove.label": "Remove input row",
     "inputs.add": "Add input",
     "inputs.add.exhausted": "All items already have a row",

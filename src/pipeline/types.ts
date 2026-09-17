@@ -190,8 +190,8 @@ export type RenderUnit =
   | RenderUnitInputProduct
   | RenderUnitOutputProduct;
 
-// The one canonical list of RenderUnit.kind strings. The policy and the tests
-// both import it, so a new kind only ever has to be added in this one spot.
+// The one canonical list of RenderUnit.kind strings. The tests import it, so a
+// new kind only ever has to be added in this one spot.
 export const RENDER_UNIT_KINDS = [
   "recipe",
   "loop",
@@ -242,12 +242,6 @@ export const isMachineRecipeVertex = (
 ): v is MachineRecipeVertex => v.kind === "machine";
 export const isMachineSccVertex = (v: MachineVertex): v is MachineSccVertex =>
   v.kind === "scc-box";
-
-export const isBlueprintGroupContainer = (
-  c: Container,
-): c is BlueprintGroupContainer => c.kind === "blueprint-group";
-export const isLoopBoxContainer = (c: Container): c is LoopBoxContainer =>
-  c.kind === "loop-box";
 
 import type { LogicalGraph } from "../canvas/layout";
 

@@ -16,7 +16,11 @@ import {
   formatRationalPerMin,
   ratePerSecToPerMin,
 } from "../data/rate-format";
-import { iconPosition, iconSheetUrl } from "../canvas/iconSprite";
+import {
+  iconIdForItem,
+  iconPosition,
+  iconSheetUrl,
+} from "../canvas/iconSprite";
 import { Sprite } from "../canvas/RecipeNode";
 import { computeItemDepths } from "../data/recipe-depth";
 import { ItemPickerPopup } from "./ItemPickerPopup";
@@ -543,7 +547,7 @@ export function InputsPanel({
         const key: RowKey = { itemId };
         const item = itemById.get(itemId);
         const isAlsoTarget = targetItemIds?.has(itemId) === true;
-        const iconPos = iconPosition(item?.icon ?? itemId);
+        const iconPos = iconPosition(iconIdForItem(itemId));
         const rate = autoEdit.field(itemId, "");
         const realizedPerMin = generalRateText(itemId);
         const partText = catalystPartText(itemId);
@@ -558,7 +562,7 @@ export function InputsPanel({
             data-is-also-target={isAlsoTarget ? "true" : "false"}
           >
             <span className={"slot" + (iconPos === undefined ? " empty" : "")}>
-              <Sprite iconId={item?.icon ?? itemId} size={40} />
+              <Sprite iconId={iconIdForItem(itemId)} size={40} />
             </span>
             <div className="info">
               <span
@@ -641,7 +645,7 @@ export function InputsPanel({
         const item = itemById.get(row.itemId);
         const isRaw = item?.raw === true;
         const isAlsoTarget = targetItemIds?.has(row.itemId) === true;
-        const iconPos = iconPosition(item?.icon ?? row.itemId);
+        const iconPos = iconPosition(iconIdForItem(row.itemId));
         const uncapped = row.ratePerSec === undefined;
         const rate = rowEdit.field(
           rowKey,
@@ -669,7 +673,7 @@ export function InputsPanel({
             data-is-also-target={isAlsoTarget ? "true" : "false"}
           >
             <span className={"slot" + (iconPos === undefined ? " empty" : "")}>
-              <Sprite iconId={item?.icon ?? row.itemId} size={40} />
+              <Sprite iconId={iconIdForItem(row.itemId)} size={40} />
             </span>
             <div className="info">
               <span className="b-pick">

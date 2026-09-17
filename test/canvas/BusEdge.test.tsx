@@ -2,14 +2,14 @@ import { afterEach, describe, expect, it } from "vitest";
 import { cleanup, render, waitFor } from "@testing-library/react";
 import { ReactFlow, type Edge, type Node } from "@xyflow/react";
 import Fraction from "fraction.js";
-import BusEdge, { junctionRadius } from "../../src/canvas/BusEdge";
+import BusEdge from "../../src/canvas/BusEdge";
 import type { BusEdgeData } from "../../src/canvas/busRouting";
-import { parsePathPoints } from "../../src/canvas/edgePath";
 import {
   CHIP_ICON_ONLY_MAX_ZOOM,
   LABEL_MIN_ZOOM,
-  type ItemEdgeData,
-} from "../../src/canvas/ItemEdge";
+} from "../../src/canvas/dimensions";
+import { parsePathPoints } from "../../src/canvas/edgePath";
+import { junctionRadius, type ItemEdgeData } from "../../src/canvas/ItemEdge";
 import { itemColor } from "../../src/canvas/itemColor";
 import { LocaleProvider } from "../../src/data/i18n-context";
 

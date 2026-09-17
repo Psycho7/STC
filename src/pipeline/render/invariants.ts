@@ -85,10 +85,12 @@ export function unitById(plan: RenderPlan): Map<RenderUnitId, RenderUnit> {
   return m;
 }
 
-// Sum of out.qty * rate over recipes. With restrict, only recipes in the set count.
-function productionByItem(
+// Sum of qty * rate over recipes, on the `out` (production) or `in`
+// (consumption) side. With restrict, only recipes in the set count.
+function flowByItem(
   rates: ReadonlyMap<RecipeId, Fraction>,
   pack: RecipePack,
+  side: "in" | "out",
   restrict?: ReadonlySet<RecipeId>,
 ): Map<ItemId, Fraction> {
   const result = new Map<ItemId, Fraction>();
@@ -96,33 +98,10 @@ function productionByItem(
     if (restrict !== undefined && !restrict.has(r.id)) continue;
     const rate = rates.get(r.id);
     if (!rate) continue;
-    for (const o of r.out) {
+    for (const io of r[side]) {
       result.set(
-        o.item,
-        (result.get(o.item) ?? FRAC_ZERO).add(new Fraction(o.qty).mul(rate)),
-      );
-    }
-  }
-  return result;
-}
-
-// Sum of in.qty * rate over recipes. With restrict, only recipes in the set count.
-function consumptionByItem(
-  rates: ReadonlyMap<RecipeId, Fraction>,
-  pack: RecipePack,
-  restrict?: ReadonlySet<RecipeId>,
-): Map<ItemId, Fraction> {
-  const result = new Map<ItemId, Fraction>();
-  for (const r of nettedPack(pack).recipes) {
-    if (restrict !== undefined && !restrict.has(r.id)) continue;
-    const rate = rates.get(r.id);
-    if (!rate) continue;
-    for (const inp of r.in) {
-      result.set(
-        inp.item,
-        (result.get(inp.item) ?? FRAC_ZERO).add(
-          new Fraction(inp.qty).mul(rate),
-        ),
+        io.item,
+        (result.get(io.item) ?? FRAC_ZERO).add(new Fraction(io.qty).mul(rate)),
       );
     }
   }
@@ -243,8 +222,8 @@ export function checkBoundaryProductsJustified(
   // built for the same plan.
   const supplyTable = buildSupplyTable(pack, itemOverrides);
 
-  const production = productionByItem(rates, pack);
-  const consumption = consumptionByItem(rates, pack);
+  const production = flowByItem(rates, pack, "out");
+  const consumption = flowByItem(rates, pack, "in");
   const catalystOutflow = catalystOutflowByUnit(plan);
   const demandOf = demandByItem(targets);
   const scaleFloor = planScaleFloor(targets);
@@ -380,8 +359,8 @@ export function checkInternalFlowConservation(
   }
 
   // Visible production and consumption: rendered recipes plus loop unit netIO.
-  const prodVisible = productionByItem(rates, pack, renderedRecipeIds);
-  const consVisible = consumptionByItem(rates, pack, renderedRecipeIds);
+  const prodVisible = flowByItem(rates, pack, "out", renderedRecipeIds);
+  const consVisible = flowByItem(rates, pack, "in", renderedRecipeIds);
 
   const addTo = (
     map: Map<ItemId, Fraction>,

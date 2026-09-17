@@ -2,12 +2,12 @@ import { afterEach, describe, expect, it } from "vitest";
 import { cleanup, render, waitFor } from "@testing-library/react";
 import { ReactFlow, type Edge, type Node } from "@xyflow/react";
 import Fraction from "fraction.js";
-import ItemEdge, {
+import ItemEdge, { type ItemEdgeData } from "../../src/canvas/ItemEdge";
+import {
   CHIP_ICON_ONLY_MAX_ZOOM,
   LABEL_MIN_ZOOM,
-  type ItemEdgeData,
-} from "../../src/canvas/ItemEdge";
-import { STAMP_ROW_EPS } from "../../src/canvas/dimensions";
+  STAMP_ROW_EPS,
+} from "../../src/canvas/dimensions";
 import { properCrossPoint } from "../../src/canvas/crossings";
 import { parsePathPoints } from "../../src/canvas/edgePath";
 import { itemColor } from "../../src/canvas/itemColor";

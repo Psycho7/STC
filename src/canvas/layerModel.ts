@@ -290,7 +290,7 @@ function scopeChainOf(model: LayerModel, id: string): string[] {
 // The LOWEST COMMON SCOPE of a set of nodes: the innermost frame all of them are
 // placed in, which is the frame an edge's (or a whole trunk's) layer distance,
 // gaps and columns are all measured in.
-export function commonScopeOfAll(
+function commonScopeOfAll(
   model: LayerModel,
   ids: ReadonlyArray<string>,
 ): string | undefined {
@@ -300,7 +300,7 @@ export function commonScopeOfAll(
   return first.find((scope) => chains.every((chain) => chain.includes(scope)));
 }
 
-export function commonScopeOf(
+function commonScopeOf(
   model: LayerModel,
   a: string,
   b: string,

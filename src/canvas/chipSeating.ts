@@ -352,7 +352,7 @@ export function deconflictChipAnchors(
   // continuous stroke is the only one drawn there in either order. The
   // stamped edge is simply the earlier one in the edges array: any
   // consistent choice draws the same picture, and where several members of
-  // one trunk cross a foreign edge at one shared point (overlapping lane
+  // one trunk cross a foreign edge at one shared point (overlapping trunk
   // runs), the mixture of stamps still reads right -- a member's gap is
   // covered by its unstamped siblings' continuous runs, and the foreign
   // edge's gap is the one that shows.
@@ -376,7 +376,7 @@ export function deconflictChipAnchors(
   //
   // O(S^2) over segment pairs of different flows, the same shape as the e2e
   // crossing census. Points are rounded to the emitted paths' two decimals and
-  // deduped per edge: the members of one trunk share a lane exactly, so their
+  // deduped per edge: the members of one trunk share a run exactly, so their
   // crossings with one foreign edge land on the same point and one gap must
   // draw there, not six stacked cut-outs. Each stamp carries every partner
   // edge crossing there -- its id and endpoint NODE anchors (see

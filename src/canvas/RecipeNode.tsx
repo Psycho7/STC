@@ -153,7 +153,7 @@ export function Sprite({
 //  - The render-pipeline path passes { recipe, kind: "recipe", multiplicity }.
 //    The badge formatter turns multiplicity into an integer or two-decimal
 //    rational. The kind discriminator keeps callers explicit.
-type RecipeNodeData = {
+export type RecipeNodeData = {
   recipe: Recipe;
   multiplier?: number;
   multiplicity?: RationalString;

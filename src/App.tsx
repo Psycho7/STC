@@ -118,10 +118,9 @@ const shortfallStripStyle: CSSProperties = {
 };
 
 // Validated once at import: loadTransportConfig is a pure check over the two
-// module constants and hands back its first argument, so the outcome (including
-// an UnknownCarrierError throw on a pack the config cannot carry) is the same on
-// every run. The returned config is not threaded anywhere - solveForRender
-// supplies it to the solver itself - so this call IS the check.
+// module constants, so the outcome (including an UnknownCarrierError throw on a
+// pack the config cannot carry) is the same on every run. Nothing downstream
+// takes the config, so this call IS the check.
 loadTransportConfig(defaultTransportConfig, pack);
 
 // A dismissible banner error. "load" wraps a hash-decode / validation failure
@@ -408,11 +407,21 @@ function AppInner() {
   // The recipes switched off under those overrides - the availability set the
   // load, mutation, and re-solve paths below all thread into the seam from
   // T3. `pack` is a module-stable import, so it stays out of the dependency
-  // list; only an override flip re-derives the set.
-  const unavailable = useMemo(
+  // list; only an override flip re-derives the set. A flip that leaves the set's
+  // members unchanged keeps the previous Set instance, so the validate / solve /
+  // layout work keyed on it does not re-run for an identical availability.
+  const derivedUnavailable = useMemo(
     () => unavailableRecipeIds(pack, eventOverrides),
     [eventOverrides],
   );
+  const [unavailable, setUnavailable] = useState(derivedUnavailable);
+  if (
+    derivedUnavailable !== unavailable &&
+    (derivedUnavailable.size !== unavailable.size ||
+      [...derivedUnavailable].some((id) => !unavailable.has(id)))
+  ) {
+    setUnavailable(derivedUnavailable);
+  }
   // The event items behind that set, each with its cohort (#144's T6): the
   // pickers dim exactly these tiles and their hint names the cohort(s) the
   // validation error above also interpolates. Derived beside `unavailable`
@@ -888,6 +897,14 @@ function AppInner() {
   };
 
   const targetCount = plan.targets.length;
+  // Label and count of each side-rail section tab, in SIDE_SECTION_ORDER.
+  const sideTabs: Record<SideSection, { label: string; count: number }> = {
+    targets: { label: i18n.t("targets.title"), count: targetCount },
+    inputs: {
+      label: i18n.t("inputs.title"),
+      count: displayedInputCount(plan.itemOverrides ?? [], assumedRawItemIds),
+    },
+  };
 
   return (
     <div
@@ -1022,53 +1039,32 @@ function AppInner() {
                 className="side-panel-tabs"
                 aria-label={i18n.t("side.nav.label")}
               >
-                <a
-                  data-testid="side-panel-tab-targets"
-                  href="#side-targets"
-                  aria-current={
-                    activeSection === "targets" ? "location" : undefined
-                  }
-                  className={
-                    "side-panel-tab" +
-                    (activeSection === "targets" ? " active" : "")
-                  }
-                  onClick={(e) => {
-                    e.preventDefault();
-                    document.getElementById("side-targets")?.scrollIntoView({
-                      block: "start",
-                      behavior: "smooth",
-                    });
-                  }}
-                >
-                  <span>{i18n.t("targets.title")}</span>
-                  <span className="count">{plan.targets.length}</span>
-                </a>
-                <a
-                  data-testid="side-panel-tab-inputs"
-                  href="#side-inputs"
-                  aria-current={
-                    activeSection === "inputs" ? "location" : undefined
-                  }
-                  className={
-                    "side-panel-tab" +
-                    (activeSection === "inputs" ? " active" : "")
-                  }
-                  onClick={(e) => {
-                    e.preventDefault();
-                    document.getElementById("side-inputs")?.scrollIntoView({
-                      block: "start",
-                      behavior: "smooth",
-                    });
-                  }}
-                >
-                  <span>{i18n.t("inputs.title")}</span>
-                  <span className="count">
-                    {displayedInputCount(
-                      plan.itemOverrides ?? [],
-                      assumedRawItemIds,
-                    )}
-                  </span>
-                </a>
+                {SIDE_SECTION_ORDER.map((section) => (
+                  <a
+                    key={section}
+                    data-testid={`side-panel-tab-${section}`}
+                    href={`#side-${section}`}
+                    aria-current={
+                      activeSection === section ? "location" : undefined
+                    }
+                    className={
+                      "side-panel-tab" +
+                      (activeSection === section ? " active" : "")
+                    }
+                    onClick={(e) => {
+                      e.preventDefault();
+                      document
+                        .getElementById(`side-${section}`)
+                        ?.scrollIntoView({
+                          block: "start",
+                          behavior: "smooth",
+                        });
+                    }}
+                  >
+                    <span>{sideTabs[section].label}</span>
+                    <span className="count">{sideTabs[section].count}</span>
+                  </a>
+                ))}
               </nav>
               <div id="side-targets">
                 <TargetsPanel

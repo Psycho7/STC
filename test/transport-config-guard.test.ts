@@ -15,9 +15,6 @@ function mkConfig(carrierKinds: string[]): TransportConfig {
   }
   return {
     schemaVersion: "0.2",
-    source: "test",
-    lanesPerBlueprintGroup: 4,
-    interGroupGapTiles: 2,
     carriers,
   };
 }

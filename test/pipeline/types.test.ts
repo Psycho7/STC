@@ -5,11 +5,8 @@ import {
   isRecipeUnit,
   isMachineRecipeVertex,
   isMachineSccVertex,
-  isBlueprintGroupContainer,
-  isLoopBoxContainer,
   type RenderUnit,
   type MachineVertex,
-  type Container,
 } from "../../src/pipeline/types";
 
 describe("pipeline/types discriminators", () => {
@@ -53,22 +50,5 @@ describe("pipeline/types discriminators", () => {
     expect(isMachineRecipeVertex(m)).toBe(true);
     expect(isMachineSccVertex(s)).toBe(true);
     expect(isMachineSccVertex(m)).toBe(false);
-  });
-
-  it("narrows Container by kind", () => {
-    const bp: Container = {
-      kind: "blueprint-group",
-      id: "bp1",
-      members: ["r1"],
-    };
-    const loop: Container = {
-      kind: "loop-box",
-      id: "loop1",
-      members: ["r2"],
-      sccId: "scc:1",
-    };
-    expect(isBlueprintGroupContainer(bp)).toBe(true);
-    expect(isLoopBoxContainer(loop)).toBe(true);
-    expect(isBlueprintGroupContainer(loop)).toBe(false);
   });
 });
