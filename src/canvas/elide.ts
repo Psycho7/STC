@@ -60,17 +60,26 @@ export function elideName(
   let out = name;
   if (estimate(name) > bucket) {
     const headBudget = bucket - estimate(ELLIPSIS);
-    const keep: string[] = [];
-    let used = 0;
-    for (const p of [...name]) {
-      const w = estimate(p);
-      if (used + w > headBudget) break;
-      used += w;
-      keep.push(p);
+    const points = [...name];
+    // Running per-code-point widths, summed left to right so each prefix
+    // total is the same float the scan it replaces accumulated. Widths are
+    // never negative, so the totals only grow and the longest prefix that
+    // fits is found by binary search: keep = the largest k with
+    // prefix[k] <= headBudget.
+    const prefix = [0];
+    for (const p of points) {
+      prefix.push(prefix[prefix.length - 1]! + estimate(p));
+    }
+    let keep = 0;
+    let hi = points.length;
+    while (keep < hi) {
+      const mid = (keep + hi + 1) >> 1;
+      if (prefix[mid]! > headBudget) hi = mid - 1;
+      else keep = mid;
     }
     // A cut that lands after a space would spend budget on a gap the
     // reader cannot see, so the head gives it back.
-    const head = keep.join("").replace(/\s+$/, "");
+    const head = points.slice(0, keep).join("").replace(/\s+$/, "");
     // Nothing fits beside the ellipsis: hand the raw string back and let
     // the CSS clip show whatever the box allows, which beats a lone mark.
     if (head.length > 0) out = head + ELLIPSIS;
