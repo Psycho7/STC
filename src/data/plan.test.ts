@@ -10,6 +10,7 @@ import {
   encodePlan,
   type ItemOverride,
   type Plan,
+  type ProducerUnavailableCause,
 } from "./plan";
 import { gzipBytes } from "./encoding/gzip";
 import { bytesToBase64url } from "./encoding/base64url";
@@ -308,13 +309,30 @@ describe("validatePlan - rational wire fields", () => {
   });
 });
 
-// The availability seam (#144): with a set of unavailable recipe ids, an item
-// whose producers all sit in the set stops being a valid target, with a cause
-// naming the cohort that switched them off.
+// The availability seam: with a map of unavailable recipe ids, an item whose
+// producers all sit in the map stops being a valid target, carrying the cause
+// that switched them off.
 describe("validatePlan - unavailable producers", () => {
-  const v15 = new Set(
-    pack.recipes.filter((r) => r.event === "v1.5").map((r) => r.id),
-  );
+  // Causes keyed like the availability core hands them over, one kind per
+  // helper so the precedence and the messages can be pinned per kind.
+  function causesFor(
+    recipeIds: readonly string[],
+    cause:
+      | ProducerUnavailableCause
+      | ((id: string) => ProducerUnavailableCause),
+  ): ReadonlyMap<string, ProducerUnavailableCause> {
+    return new Map(
+      recipeIds.map((id) => [
+        id,
+        typeof cause === "function" ? cause(id) : cause,
+      ]),
+    );
+  }
+
+  const v15Ids = pack.recipes
+    .filter((r) => r.event === "v1.5")
+    .map((r) => r.id);
+  const v15 = causesFor(v15Ids, { kind: "event", cohort: "v1.5" });
 
   function targeting(itemId: string): Plan {
     const plan = basePlan();
@@ -345,7 +363,7 @@ describe("validatePlan - unavailable producers", () => {
   it("accepts the same target with an empty set (the default)", () => {
     expect(validatePlan(targeting("activity_xiranite_lung"), pack)).toBeNull();
     expect(
-      validatePlan(targeting("activity_xiranite_lung"), pack, new Set()),
+      validatePlan(targeting("activity_xiranite_lung"), pack, new Map()),
     ).toBeNull();
   });
 
@@ -362,6 +380,67 @@ describe("validatePlan - unavailable producers", () => {
     // jinlong_coupon has 12 always-on producers besides the two v1.5 event
     // exchanges; switching the cohort off must not make it untargetable.
     expect(validatePlan(targeting("jinlong_coupon"), pack, v15)).toBeNull();
+  });
+
+  it("carries an area cause when the area is what hides the producers", () => {
+    const causes = causesFor(v15Ids, { kind: "area", area: "tundra" });
+    const error = validatePlan(
+      targeting("activity_xiranite_lung"),
+      pack,
+      causes,
+    )!;
+    expect(error).toEqual({
+      kind: "producer-unavailable",
+      itemId: "activity_xiranite_lung",
+      cause: { kind: "area", area: "tundra" },
+    });
+    const message = describePlanLoadError(error);
+    expect(message).toContain("activity_xiranite_lung");
+    expect(message).toContain("tundra");
+  });
+
+  it("carries a manual cause naming the recipe the user switched off", () => {
+    const causes = causesFor(v15Ids, (recipeId) => ({
+      kind: "manual",
+      recipeId,
+    }));
+    const error = validatePlan(
+      targeting("activity_xiranite_lung"),
+      pack,
+      causes,
+    )!;
+    expect(error.kind).toBe("producer-unavailable");
+    const message = describePlanLoadError(error);
+    // The recipe id is the whole point of the manual kind: it names the toggle.
+    if (
+      error.kind === "producer-unavailable" &&
+      error.cause.kind === "manual"
+    ) {
+      expect(message).toContain(error.cause.recipeId);
+    } else {
+      throw new Error("expected a manual producer-unavailable cause");
+    }
+  });
+
+  it("reports the outermost cause when producers are off for different reasons", () => {
+    // jinlong_coupon's 14 producers: the two event exchanges land on a manual
+    // cause, everything else on an area cause, so the area cause wins.
+    const producers = pack.recipes.filter((r) =>
+      r.out.some((o) => o.item === "jinlong_coupon" && o.qty > 0),
+    );
+    const causes = new Map<string, ProducerUnavailableCause>(
+      producers.map((r) => [
+        r.id,
+        r.event === "v1.5"
+          ? { kind: "manual", recipeId: r.id }
+          : { kind: "area", area: "tundra" },
+      ]),
+    );
+    expect(validatePlan(targeting("jinlong_coupon"), pack, causes)).toEqual({
+      kind: "producer-unavailable",
+      itemId: "jinlong_coupon",
+      cause: { kind: "area", area: "tundra" },
+    });
   });
 });
 

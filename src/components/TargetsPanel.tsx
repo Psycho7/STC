@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import type { MouseEvent as ReactMouseEvent } from "react";
 import type { RecipePack } from "@aef/schema";
 import type { RationalString, Target } from "../data/targets";
+import type { ProducerUnavailableCause } from "../data/plan";
 import { useI18n } from "../data/i18n-context";
 import { producibleItemIds } from "../data/recipe-category";
 import { ratePerSecToPerMin } from "../data/rate-format";
@@ -18,8 +19,8 @@ import { RatePromptPopup } from "./RatePromptPopup";
 import { usePickerFlow } from "./usePickerFlow";
 import { useRateEdit } from "./useRateEdit";
 
-// Default for the optional eventOffItems prop: nothing is off-cohort.
-const NO_EVENT_OFF: ReadonlyMap<string, string> = new Map();
+// Default for the optional unavailableItems prop: nothing is unavailable.
+const NO_UNAVAILABLE: ReadonlyMap<string, ProducerUnavailableCause> = new Map();
 
 type Props = {
   targets: Target[];
@@ -30,18 +31,18 @@ type Props = {
   // (same reference) so the owner can skip a no-op commit.
   onChange: (update: (current: Target[]) => Target[]) => void;
   pack: RecipePack;
-  // Event items of effectively-off cohorts (#144's T6), itemId -> cohort, as
-  // derived by unavailableEventItems(pack, overrides) in the owner. Both picker
-  // call sites dim these tiles and the hint names the cohort(s). Optional with
-  // an empty default so callers that model no cohorts render every tile enabled.
-  eventOffItems?: ReadonlyMap<string, string> | undefined;
+  // Unavailable items, each mapped to the cause behind it, as derived by
+  // unavailableItems(pack, settings) in the owner. Both picker call sites dim
+  // these tiles and the hint names the cause. Optional with an empty default so
+  // callers that model no availability render every tile enabled.
+  unavailableItems?: ReadonlyMap<string, ProducerUnavailableCause> | undefined;
 };
 
 export function TargetsPanel({
   targets,
   onChange,
   pack,
-  eventOffItems = NO_EVENT_OFF,
+  unavailableItems = NO_UNAVAILABLE,
 }: Props) {
   const i18n = useI18n();
   // Producible items are the pickable targets: any item produced with positive
@@ -56,7 +57,7 @@ export function TargetsPanel({
   const flow = usePickerFlow<
     { kind: "row"; itemId: string } | { kind: "add" },
     { itemId: string }
-  >(pack, pickableItems, eventOffItems);
+  >(pack, pickableItems, unavailableItems);
   const { pickerFor, prompt, closePicker, focusOnMount } = flow;
   const [duplicateError, setDuplicateError] = useState<{
     rowId: string;
@@ -251,13 +252,13 @@ export function TargetsPanel({
       // Items already targeted are disabled tiles. Off-cohort event items
       // (#144's T6) dim on top, like every other unavailable pick.
       const disabledIds = new Set<string>(targets.map((t) => t.itemId));
-      for (const id of eventOffItems.keys()) disabledIds.add(id);
+      for (const id of unavailableItems.keys()) disabledIds.add(id);
       return (
         <ItemPickerPopup
           items={pickableItems}
           disabledIds={disabledIds}
           tierByItemId={flow.tierByItemId}
-          disabledHint={flow.eventOffHint}
+          disabledHint={flow.unavailableHint}
           onPick={(newId) => flow.openPrompt({ itemId: newId })}
           onClose={closePicker}
         />
@@ -275,14 +276,14 @@ export function TargetsPanel({
     const disabledIds = new Set<string>(
       targets.filter((t) => t.itemId !== rowId).map((t) => t.itemId),
     );
-    for (const id of eventOffItems.keys()) disabledIds.add(id);
+    for (const id of unavailableItems.keys()) disabledIds.add(id);
     return (
       <ItemPickerPopup
         items={pickableItems}
         disabledIds={disabledIds}
         selectedId={rowId}
         tierByItemId={flow.tierByItemId}
-        disabledHint={flow.eventOffHint}
+        disabledHint={flow.unavailableHint}
         onPick={(newId) => {
           // Re-picking the row's own (still-enabled, highlighted) item is a
           // confirm, not a swap; without this guard the dup check would match
