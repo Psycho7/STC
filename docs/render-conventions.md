@@ -136,11 +136,13 @@ A container's frame is kept clear of strokes. A loop's return edge runs in the
 corridor, never along the box border: its two verticals hold a fixed gap off
 the side borders of whatever container each endpoint sits inside, and its rail
 escapes only the cards it actually spans -- one connected band of them --
-rather than flying over every card that shares its x-range. A return stroke
-and a slab border drawn as one line is a defect. One column may still
-share that line: a forward tap's jog descent, dropping into its consumer, may
-share an entry-gutter line with a container border. That column is a tap
-approach, not a return riding the frame.
+rather than flying over every card that shares its x-range. Any stroke drawn as
+one line with a slab border is a defect, a loop's return and a forward run
+alike: a horizontal running along a container's top or bottom border reads as
+the edge of the slab rather than as a line of the plan, whichever direction it
+travels. One column is still exempt: a forward tap's jog descent, dropping into
+its consumer, may share an entry-gutter line with a container border. That
+column is a tap approach, not a stroke riding the frame.
 
 A forward edge between two adjacent layers drops LATE. It holds its source
 port's row from the port all the way across the gap and turns down only in the
@@ -170,10 +172,21 @@ of two continuous strokes is a defect: it is indistinguishable from a merge,
 which is exactly the confusion the dot exists to prevent. Crossings inside one
 flow (a fan-out's shared run) are one visual line and carry no gap.
 
+Both marks have to stay legible to do that work. A stroke of another flow
+running inside a junction dot's disc is a defect: the dot marks one flow meeting
+itself, so any line through it is read as a member of that merge or split. A
+crossing gap covered by a chip box or a junction dot is a defect for the same
+reason -- both paint above the strokes, so the gap is simply not there, and a
+dot sitting where two flows cross says the merge the gap exists to deny.
+
 ## Fan-out and fan-in
 
 Every edge leaving one source port shares a single junction column, marked with
-a dot where the flow splits. Members heading one layer over branch off the
+a dot where the flow splits. The dot stands on the shared run one chamfer before
+the column, and one chamfer past it for a merge, because the corner at the
+column is bevelled away: that point is the last one every member's path shares
+before they part, and the first they share again after they meet.
+Members heading one layer over branch off the
 column straight into their target. Members reaching further ride the same
 column and then run their own leg across to their target, bending around any
 card on the way.
@@ -289,6 +302,10 @@ Do not report these as defects.
   between it and the junction dot, is the reserve model: the chip is seated
   against the room the gap was widened for, not centred on the stretch it
   labels.
+- A split or merge dot sits 8 units beside its column rather than on it. The
+  offset is the chamfer that bevels the corner away: the dot stands on the run
+  the members share, which is where the reader looks for it, not on the column
+  they take.
 - Mid-drag, a fan-in merge dot can vanish while the merged run still shows one
   member's rate. The dot hides as soon as its stamped x leaves the owner's live
   polyline, while a non-owner member's chip hide is pinned to the port ROW

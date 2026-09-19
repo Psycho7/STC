@@ -15,8 +15,10 @@ import {
   auditChipBoxOverlaps,
   auditChipsOnOwnPath,
   auditChipsVsCards,
+  auditDotsOnForeignStrokes,
   auditDotsUnderChips,
   auditEndpointParity,
+  auditHiddenCues,
   auditFaninChipsOnOwnLeg,
   auditFanoutChipsOnOwnLeg,
   auditFrameRides,
@@ -294,7 +296,8 @@ test.describe("DOM geometry audit", () => {
 // SOFT (per-scenario ratchet tables, detailed at each table below): the crossing
 // census, padding-only grazes, foreign strokes through a chip box, chips off
 // their own trunk leg in each direction, own-endpoint pierces, frame rides,
-// junction dots hidden under a chip, and the endpoint-parity tolerance. The
+// junction dots hidden under a chip, junction dots sitting on a foreign flow's
+// stroke, and the endpoint-parity tolerance. The
 // 0.6 chip seating census below carries three more, and the reading-zoom census
 // at the bottom of this file five.
 //
@@ -562,19 +565,31 @@ const OWN_PIERCE_BASELINE: Record<string, number> = {
   "script43-xiranite": 0,
 };
 
-// Frame-ride ratchet: edge segments running ALONG a container slab's border
-// (within FRAME_RIDE_TOL = 16, for more than two port stubs of overlap), and
-// backward item edges running along a band border. The stroke and the border
-// then read as one line. Blind by design to a stroke that crosses or corners
-// near a frame: only a RUN along it counts.
+// Frame-ride ratchet: edge segments running ALONG a container slab's border,
+// so the stroke and the border read as one line. A backward rail counts on
+// both axes within FRAME_RIDE_TOL; a forward edge counts on its HORIZONTALS
+// within the wider FORWARD_FRAME_RIDE_TOL, with its own containers and a
+// port-row straight run exempt (auditFrameRides states why for each). Blind by
+// design to a stroke that crosses or corners near a frame: only a RUN along it
+// counts.
+//
+// CANVAS DEFECT CASEBOOK 2026-09-19: forward horizontals joined the scope, so
+// every cell below is a FIRST PIN of the widened counter at its harvested
+// count, not a raise of the backward-only counter (which stays where it was).
+// The casebook re-reports a forward jog hugging a slab border (family F) with
+// no measurement behind it; this is that measurement.
 const FRAME_RIDE_BASELINE: Record<string, number> = {
   // Structural zero with no bands drawn.
   default: 0,
   battery5: 0,
-  "battery5-xiranite": 0,
+  // A copper_ore supply run 22.5 under the plant_moss_3 loop box's top border,
+  // for 1400 units.
+  "battery5-xiranite": 1,
   crystal: 0,
   equip4: 0,
-  multi6: 0,
+  // Three supply runs along the two plant_grass loop boxes' borders, at 12, 16
+  // and 16, each for more than 1500 units.
+  multi6: 3,
   tundra: 0,
   script43: 0,
   "coupon-web": 0,
@@ -582,7 +597,8 @@ const FRAME_RIDE_BASELINE: Record<string, number> = {
   // ROUTING FINDINGS 2026-09-14: 1 -> 0. No stroke runs along a slab or band
   // border on this plan any more.
   "rot-bottled_food_3": 0,
-  "rot-bottled_food_4": 0,
+  // Two supply runs along the plant_grass_1 loop box's borders, at 23 and 16.
+  "rot-bottled_food_4": 2,
   transmuters: 0,
   "copper-script43": 0,
   "script43-xiranite": 0,
@@ -606,6 +622,34 @@ const DOT_COVER_BASELINE: Record<string, number> = {
   script43: 0,
   "coupon-web": 0,
   "gas-web": 0,
+  "rot-bottled_food_3": 0,
+  "rot-bottled_food_4": 0,
+  transmuters: 0,
+  "copper-script43": 0,
+  "script43-xiranite": 0,
+};
+
+// Dot-on-foreign-stroke ratchet (CANVAS DEFECT CASEBOOK 2026-09-19, family B):
+// junction dots with a stroke of a different flow inside their drawn disc. The
+// dot says "one flow meeting itself", so a foreign line through it is read as a
+// member of that merge or split -- a join the plan does not have. First pins at
+// the harvested counts.
+const DOT_FOREIGN_STROKE_BASELINE: Record<string, number> = {
+  // The Cuprium Ore split dot at (334.5, 239.5) with the Clean Water leg e:12
+  // 1.5 off its centre.
+  default: 1,
+  battery5: 0,
+  "battery5-xiranite": 0,
+  crystal: 0,
+  equip4: 0,
+  multi6: 0,
+  tundra: 0,
+  script43: 0,
+  // Both cells are the same site: the gas_xiranite CATALYST divergence dot with
+  // the item's ordinary supply run inside its disc, the pair the forward level
+  // floor separated as lines but not as dot and line.
+  "coupon-web": 1,
+  "gas-web": 1,
   "rot-bottled_food_3": 0,
   "rot-bottled_food_4": 0,
   transmuters: 0,
@@ -897,11 +941,12 @@ test.describe("segment placement audit", () => {
           .toBeLessThanOrEqual(ownPierceBaseline);
       }
 
-      // Frame-ride ratchet: backward item edges' segments running
-      // along a container slab's border (forward tap descents may share a border
-      // line by convention and are not counted). Stroke-on-frame braids are the
-      // loop-return family this counter exists to hold at zero; see
-      // FRAME_RIDE_BASELINE above.
+      // Frame-ride ratchet: segments running along a container slab's border --
+      // a backward rail on either axis, a forward edge on its horizontals
+      // (forward tap descents may share a border line by convention and are
+      // still not counted). Stroke-on-frame braids are the loop-return family
+      // this counter was built for, and the forward jog hugging a frame is the
+      // family it was widened for; see FRAME_RIDE_BASELINE above.
       const frameRides = auditFrameRides(rawEdges, nodes);
       const frameRideInventory = frameRides.map(
         (v) =>
@@ -949,6 +994,34 @@ test.describe("segment placement audit", () => {
             `${scenario.id}: ${hiddenDots.length} junction dot(s) hidden under a chip exceeds baseline ${dotBaseline} among ${geom.dots.length} dots:\n${hiddenDotInventory.join("\n")}`,
           )
           .toBeLessThanOrEqual(dotBaseline);
+      }
+
+      // Dot-on-foreign-stroke ratchet: junction dots with another flow's
+      // stroke inside the disc. Same DOM-measured disc the hidden-dot ratchet
+      // reads, so the radius is the one the dot renders at this camera; the
+      // zoom only converts the half-stroke allowance into graph units.
+      const dotStrokes = auditDotsOnForeignStrokes(
+        geom.dots as DotRect[],
+        rawEdges,
+        geom.zoom,
+      );
+      const dotStrokeInventory = dotStrokes.map(
+        (v) =>
+          `  ${v.dotId} at (${v.at[0].toFixed(1)},${v.at[1].toFixed(1)}) has ${v.strokes.length} foreign stroke(s) in its disc, nearest ${v.distance.toFixed(1)} off: ${v.strokes.join(", ")}`,
+      );
+      const dotStrokeBaseline = baselineFor(
+        DOT_FOREIGN_STROKE_BASELINE,
+        "DOT_FOREIGN_STROKE_BASELINE",
+        scenario.id,
+        unpinned,
+      );
+      if (dotStrokeBaseline !== null) {
+        expect
+          .soft(
+            dotStrokes.length,
+            `${scenario.id}: ${dotStrokes.length} junction dot(s) sitting on a foreign stroke exceeds baseline ${dotStrokeBaseline} among ${geom.dots.length} dots:\n${dotStrokeInventory.join("\n")}`,
+          )
+          .toBeLessThanOrEqual(dotStrokeBaseline);
       }
 
       // Card frames: the box the seating pass measures a recipe card by is the
@@ -1344,7 +1417,8 @@ test.describe("chip seating census", () => {
 // The counters are the seat-identity ones -- what a chip stands ON, and whether
 // anything is lost under it -- rather than the card-relation ones the 0.6 census
 // carries: a chip off its own run, a member chip off its own leg or stub, a
-// junction dot swallowed, and two chip boxes on each other.
+// junction dot swallowed, two chip boxes on each other, and a crossing cue
+// swallowed.
 //
 // NOTE 2026-09-15, docs/plans/2026-09-15-catalyst-exam-fixes.md (I7, T8): every
 // cell of every table below was pinned from ONE harvest on the integrated
@@ -1459,6 +1533,42 @@ const READING_CHIP_OVERLAP_BASELINE: Record<string, number> = {
   "script43-xiranite": 0,
 };
 
+// Hidden-cue ratchet (CANVAS DEFECT CASEBOOK 2026-09-19, family A): drawn
+// crossing cues whose centre sits under a chip box or inside a junction dot's
+// disc. Both paint above the edge layer, so the gap that says "crossing, not a
+// merge" is simply not there -- and a dot sitting on the crossing says the
+// opposite. The cue-coverage criterion in the P2 describe is hard zero and
+// blind to this: it asks whether a cue was STAMPED, not whether it can be seen.
+// This is the measurement the #131 "cue mask stays" ruling assumed and never
+// had.
+//
+// It lives at THIS camera because what hides a cue is mostly a chip box, and a
+// dense plan's fit zoom sits under the chip LOD gates: at fit zoom multi6 and
+// battery5-xiranite mount no chips at all, so the sites the casebook reports
+// there cannot be measured. First pins at the harvested counts.
+const HIDDEN_CUE_BASELINE: Record<string, number> = {
+  // The only dot site in the corpus: the Cuprium Ore split dot stands on the
+  // crossing it marks, which is the one shape the cue exists to deny.
+  default: 1,
+  battery5: 1,
+  "battery5-xiranite": 1,
+  crystal: 0,
+  equip4: 0,
+  // The three sites the casebook names on this plan: a loop-return column, a
+  // jogged leg and a fan-in source column, each crossing a chip's own run
+  // inside the chip's box.
+  multi6: 3,
+  tundra: 0,
+  script43: 0,
+  "coupon-web": 0,
+  "gas-web": 0,
+  "rot-bottled_food_3": 0,
+  "rot-bottled_food_4": 0,
+  transmuters: 2,
+  "copper-script43": 1,
+  "script43-xiranite": 0,
+};
+
 // Corpus-wide totals, one per counter, asserted arithmetically against the
 // tables above (see CENSUS_TOTALS for why: the suite is often run one scenario
 // at a time, and a total summed over a run would then say nothing).
@@ -1468,12 +1578,14 @@ const READING_TOTALS: {
   faninLeg: number;
   dotCover: number;
   chipOverlap: number;
+  hiddenCue: number;
 } = {
   ownPath: 0,
   fanoutLeg: 0,
   faninLeg: 0,
   dotCover: 0,
   chipOverlap: 0,
+  hiddenCue: 9,
 };
 
 test.describe("reading-zoom census", () => {
@@ -1492,6 +1604,9 @@ test.describe("reading-zoom census", () => {
     );
     expect(sumOf(READING_CHIP_OVERLAP_BASELINE), "chipOverlap totals").toBe(
       READING_TOTALS.chipOverlap,
+    );
+    expect(sumOf(HIDDEN_CUE_BASELINE), "hiddenCue totals").toBe(
+      READING_TOTALS.hiddenCue,
     );
   });
 
@@ -1603,6 +1718,26 @@ test.describe("reading-zoom census", () => {
             `${scenario.id}: ${hiddenDots.length} junction dot(s) hidden under a chip exceeds baseline ${dotPin} among ${dots.length} dots:\n${inventory.join("\n")}`,
           )
           .toBeLessThanOrEqual(dotPin);
+      }
+
+      const hiddenCues = auditHiddenCues(geom.crossingCues, chips, dots);
+      const hiddenCuePin = baselineFor(
+        HIDDEN_CUE_BASELINE,
+        "HIDDEN_CUE_BASELINE",
+        scenario.id,
+        unpinned,
+      );
+      if (hiddenCuePin !== null) {
+        const inventory = hiddenCues.map(
+          (v) =>
+            `  cue of ${v.edgeId} at (${v.at[0].toFixed(1)},${v.at[1].toFixed(1)}) is hidden under ${v.hiddenBy}`,
+        );
+        expect
+          .soft(
+            hiddenCues.length,
+            `${scenario.id}: ${hiddenCues.length} crossing cue(s) hidden under a chip or a dot exceeds baseline ${hiddenCuePin} among ${geom.crossingCues.length} cues:\n${inventory.join("\n")}`,
+          )
+          .toBeLessThanOrEqual(hiddenCuePin);
       }
 
       const collisions = auditChipBoxOverlaps(chips);
