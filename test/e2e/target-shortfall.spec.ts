@@ -32,8 +32,16 @@ function attachConsoleListener(page: Page): ConsoleLog {
   return { errors, warnings };
 }
 
+// The rail is one scroll body with two sticky heads, so reaching the inputs is
+// a scroll, not a click.
 async function waitForInputsPanel(page: Page): Promise<void> {
-  await page.getByTestId("side-panel-tab-inputs").click();
+  await page.getByTestId("inputs-head").waitFor({ timeout: 10_000 });
+  // Scrolled through the DOM rather than with scrollIntoViewIfNeeded: the
+  // canvas beside the rail keeps settling, and the action's stability wait
+  // would block on it.
+  await page
+    .getByTestId("inputs-section")
+    .evaluate((el) => el.scrollIntoView({ block: "start" }));
   await expect(page.getByRole("button", { name: "添加输入" })).toBeVisible({
     timeout: 10_000,
   });
@@ -56,16 +64,21 @@ test("a raw cap below demand warns instead of reporting READY", async ({
   // No strip on the default plan: every target is delivered in full.
   await expect(page.getByTestId("shortfall-strip")).toHaveCount(0);
 
-  // iron_ore is a raw boundary input of the default plan, so it arrives as an
-  // auto-row. The plan draws roughly 15/min; 5/min starves it, and no recipe
+  // iron_ore is a raw boundary input of the default plan, so it arrives in the
+  // Assumed unlimited block and takes a cap only after its own "set cap" button
+  // promotes it. The plan draws roughly 15/min; 5/min starves it, and no recipe
   // produces iron_ore, so the solver cannot route around the cap.
-  const autoRow = page.locator(
+  const assumedRow = page.locator(
     '[data-testid="input-auto-row"][data-item-id="iron_ore"]',
   );
-  await expect(autoRow).toHaveCount(1);
+  await expect(assumedRow).toHaveCount(1);
 
   const urlBeforeCap = page.url();
-  const rateInput = autoRow.getByRole("textbox", { name: TEXT.rateLabel });
+  await assumedRow.getByTestId("input-set-cap").click();
+
+  const rateInput = page
+    .locator('[data-testid="input-row"][data-item-id="iron_ore"]')
+    .getByRole("textbox", { name: TEXT.rateLabel });
   await rateInput.fill("5");
   // fill() does not blur, and the panel commits only on blur or Enter.
   await rateInput.press("Enter");

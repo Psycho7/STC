@@ -78,18 +78,18 @@ type Props = {
   catalystAccount?: CatalystAccount;
   // Items the current plan draws from the boundary as assumed-infinite supply:
   // raw items it consumes, plus any item it cycles as a catalyst (which need
-  // not be raw). With no explicit override declared, these surface as
-  // read-only auto-rows so the "unlimited by default" assumption is visible.
-  // Typing a cap into an auto-row promotes it to a real override. General side
-  // only: the catalyst pool has no auto-row.
+  // not be raw). With no explicit override declared, these surface in the
+  // Assumed unlimited block so the "unlimited by default" assumption is
+  // visible. The block's per-row "set cap" button promotes a row into a real
+  // override. General side only: the catalyst pool has no auto-row.
   assumedRawItemIds?: ReadonlyArray<string>;
 };
 
 // Number of input ITEMS the panel actually shows: an item with an explicit
 // override, an auto-row, or both counts once, so a split item does not read as
 // two against the `N / pack.items.length` denominator. The supply counters
-// (stats strip, side tab, section head) route through this so none of them can
-// report 0 while auto-rows are on screen.
+// (stats strip, section head) route through this so none of them can report 0
+// while auto-rows are on screen.
 export function displayedInputCount(
   itemOverrides: ReadonlyArray<{
     itemId: string;
@@ -100,6 +100,38 @@ export function displayedInputCount(
   const ids = new Set(itemOverrides.map((o) => o.itemId));
   for (const id of assumedRawItemIds ?? []) ids.add(id);
   return ids.size;
+}
+
+// The items the Assumed unlimited block lists: every boundary-supply item
+// WITHOUT an explicit GENERAL override, shown regardless of how many overrides
+// exist. Capping one item does not hide the realized demand of the remaining
+// inputs, and a catalyst override does not retire the item's general row. The
+// owner decides what belongs in the set; a catalyst item is in it because the
+// plan draws it, not because it is raw.
+export function assumedInputRows(
+  itemOverrides: ReadonlyArray<{
+    itemId: string;
+    role?: "catalyst" | undefined;
+  }>,
+  assumedRawItemIds: ReadonlyArray<string> | undefined,
+): string[] {
+  const general = new Set(
+    itemOverrides.filter((o) => o.role === undefined).map((o) => o.itemId),
+  );
+  return (assumedRawItemIds ?? []).filter((id) => !general.has(id));
+}
+
+// The Assumed unlimited block's own count. displayedInputCount stays the
+// scalar the stats strip and the section head read, so it cannot carry this
+// second number as well.
+export function assumedInputCount(
+  itemOverrides: ReadonlyArray<{
+    itemId: string;
+    role?: "catalyst" | undefined;
+  }>,
+  assumedRawItemIds: ReadonlyArray<string> | undefined,
+): number {
+  return assumedInputRows(itemOverrides, assumedRawItemIds).length;
 }
 
 // Default for the optional unavailableItems prop: nothing is unavailable.
@@ -166,20 +198,10 @@ export function InputsPanel({
     rowKey: string;
     itemId: string;
   } | null>(null);
-  // The rate edit/commit/revert protocol for the explicit override rows. Empty
-  // text is a valid commit here (uncapped), and the committed string is kept as
-  // the display value.
-  // This instance and autoEdit below carry SEPARATE invalid sets, which is
-  // equivalent to the one shared set only because no row key is ever an
-  // override row and an auto-row at once. Per side: the autoRows filter below
-  // ("every assumed-raw item WITHOUT a general override") enforces it on the
-  // general side, and the catalyst side has no auto-rows at all, so a catalyst
-  // key only ever reaches rowEdit. A catalyst override and a general auto-row
-  // for the SAME ITEM coexist by design; their keys differ in role, so the two
-  // sets still cannot disagree about one row.
-  // The split also means an invalid flag does NOT follow a row across a family
-  // change (auto row promoted to override, or override reverting to auto): the
-  // stale cue the shared set used to carry over is dropped now.
+  // The rate edit/commit/revert protocol for the override rows, which are the
+  // only rows with a rate field: an Assumed row has none until its "set cap"
+  // button promotes it. Empty text is a valid commit here (uncapped), and the
+  // committed string is kept as the display value.
   // The auto-row membership test the clear-cap rule below reads. Kept as a set
   // because the commit path is a lookup, not a walk.
   const autoRowIds = useMemo(
@@ -195,19 +217,18 @@ export function InputsPanel({
         const idx = current.findIndex((o) => isRow(o, key));
         // Row removed since the edit: no-op (same reference).
         if (idx < 0) return current;
-        // Clearing the cap on a NON-RAW AUTO-ROW drops the whole override. A
-        // field-less override means "import this item freely across the
-        // boundary", which for a raw item is what it already was, but for a
-        // non-raw one would silently make its balanced uses free too. Dropping
-        // it returns the item to the auto-row the plan's draw already earns it.
-        // Scoped to the auto-row set on purpose: a non-raw item outside it has
-        // no row to fall back to, so dropping the override would turn a free
-        // import into a forced internal build. Scoped to the general side too:
-        // a catalyst row has no auto-row to fall back to and stays a row.
+        // Clearing the cap on an AUTO-ROW ITEM drops the whole override, which
+        // is what sends the row back to the Assumed unlimited block the button
+        // promoted it out of. Raw items are in scope too: leaving a field-less
+        // override behind would strand the row in Supplies with no cap, which
+        // is exactly the state the block promises it never holds.
+        // Scoped to the auto-row set on purpose: an item outside it has no row
+        // to fall back to, so dropping the override would turn a free import
+        // into a forced internal build. Scoped to the general side too: a
+        // catalyst row has no auto-row to fall back to and stays a row.
         if (
           parsed === undefined &&
           key.role === undefined &&
-          itemById.get(key.itemId)?.raw !== true &&
           autoRowIds.has(key.itemId)
         ) {
           return current.filter((o) => !isRow(o, key));
@@ -227,9 +248,9 @@ export function InputsPanel({
       });
     },
   });
-  // Prune pending / seeded texts for rows that left the override list by any
-  // route: handleRemove clears its own row, but a promoted override can also
-  // vanish when the list changes under the panel, and a surviving seeded text
+  // Prune pending texts for rows that left the override list by any route:
+  // handleRemove clears its own row, but a promoted override can also vanish
+  // when the list changes under the panel, and a surviving committed text
   // would resurface if the row returns.
   const overrideKeys = useMemo(
     () => new Set(itemOverrides.map((o) => encodeItemOverrideKey(o))),
@@ -240,31 +261,18 @@ export function InputsPanel({
     // rowEdit is rebuilt every render; the prune depends only on the live keys.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [overrideKeys]);
-  // The same protocol for the auto-rows. A valid non-empty rate promotes the
-  // auto-row into an explicit override; an empty one is a no-op, since
-  // "Unlimited" is the auto state. The text only needs to survive until commit
-  // (the promoted row displays the seeded copy), so it is dropped afterwards
-  // and a later auto-row rebirth comes back as Unlimited, not a stale cap.
-  // Auto-rows are general-side only, so this instance is keyed by item id,
-  // which is the general row key.
-  const autoEdit = useRateEdit({
-    emptyMeans: "uncap",
-    keepTextAfterCommit: false,
-    commit: (itemId, parsed, text) => {
-      // Guard against re-adding the same row in case the commit races with
-      // a prop update that already inserted the override.
-      if (parsed !== undefined) {
-        onChange((current) =>
-          current.some((o) => isRow(o, { itemId }))
-            ? current
-            : [...current, { itemId, ratePerSec: parsed }],
-        );
-      }
-      // Carry the committed text over to the override rows so the promoted row
-      // shows what the user typed instead of the re-serialized Fraction.
-      if (text.trim() !== "") rowEdit.seedCommittedText(itemId, text);
-    },
-  });
+  // The Assumed block's promotion. It adds a bare (uncapped) override, so the
+  // plan's supply for the item is unchanged until a number is typed, and arms
+  // the focus token the new row's rate field consumes on mount: an empty field
+  // the user has to fill is the whole point of making promotion explicit.
+  function handleSetCap(itemId: string) {
+    flow.armFocus(encodeItemOverrideKey({ itemId }), "rate");
+    onChange((current) =>
+      current.some((o) => isRow(o, { itemId }))
+        ? current
+        : [...current, { itemId }],
+    );
+  }
 
   function hasRow(key: RowKey): boolean {
     return overrideKeys.has(encodeItemOverrideKey(key));
@@ -330,7 +338,6 @@ export function InputsPanel({
       // An auto-row: its box is always unchecked, so this is the general
       // auto-row converting into a catalyst override. The general side keeps
       // whatever number it has and re-appears as an auto-row of its own.
-      autoEdit.clearPendingEdit(key.itemId);
       onChange((current) =>
         current.some((o) => isRow(o, target))
           ? current
@@ -426,15 +433,7 @@ export function InputsPanel({
     );
   }
 
-  // Auto-rows are every boundary-supply item WITHOUT an explicit GENERAL
-  // override, shown regardless of how many overrides exist. Capping one item no
-  // longer hides the realized demand of the remaining inputs, and a catalyst
-  // override does not retire the item's general row. The owner decides what
-  // belongs in the set; a catalyst item is in it because the plan draws it, not
-  // because it is raw.
-  const autoRows = (assumedRawItemIds ?? []).filter(
-    (id) => !hasRow({ itemId: id }),
-  );
+  const autoRows = assumedInputRows(itemOverrides, assumedRawItemIds);
   const showEmptyState = itemOverrides.length === 0 && autoRows.length === 0;
   // Every row key already exists, so the picker would open on an all-dimmed
   // grid. Unreachable on the shipped pack, but a hand-crafted plan can carry a
@@ -443,10 +442,45 @@ export function InputsPanel({
   // harmless for a guard.
   const shownCount = displayedInputCount(itemOverrides, assumedRawItemIds);
   const addExhausted = pack.items.every((it) => fullyListed(it.id));
+  // Supplies holds every declared override, capped or not; Assumed unlimited
+  // holds the rows the plan earned by drawing the item. The blocks disappear
+  // together with the rows, so an empty panel shows one empty-state line
+  // instead of two headers over nothing.
+  const suppliesBlock = showEmptyState ? null : (
+    <>
+      <div className="block-head" data-testid="inputs-block-supplies">
+        <span>{i18n.t("inputs.block.supplies")}</span>
+        <span className="n">
+          {i18n.t("inputs.block.rows", { count: String(itemOverrides.length) })}
+        </span>
+      </div>
+      <div className="block-sub">{i18n.t("inputs.block.supplies.sub")}</div>
+    </>
+  );
+  const assumedBlock = showEmptyState ? null : (
+    <>
+      <div className="block-head assumed" data-testid="inputs-block-assumed">
+        <span>{i18n.t("inputs.block.assumed")}</span>
+        <span className="n">
+          {i18n.t("inputs.block.rows", {
+            count: String(assumedInputCount(itemOverrides, assumedRawItemIds)),
+          })}
+        </span>
+      </div>
+      <div className="block-sub">{i18n.t("inputs.block.assumed.sub")}</div>
+    </>
+  );
 
   return (
-    <div className="boundary-section" data-testid="inputs-section">
-      <div className="side-section-head">
+    <>
+      {/* Sibling of the targets head inside the one scroll body, not a child
+          of this section: a head nested in its own section unsticks the moment
+          that section scrolls past, and both counts have to stay on screen at
+          every scroll offset. */}
+      <div
+        className="side-section-head side-section-head-inputs"
+        data-testid="inputs-head"
+      >
         <span className="num">SUP · 02</span>
         <span className="label">INPUT SUPPLY</span>
         <span className="count">
@@ -455,301 +489,316 @@ export function InputsPanel({
           {pack.items.length}
         </span>
       </div>
-      <div className="side-section-sub">
-        {"// boundary import budget · raw + cross-domain"}
-      </div>
-      {showEmptyState ? (
-        <div className="b-empty">{i18n.t("inputs.empty")}</div>
-      ) : null}
-      {autoRows.map((itemId) => {
-        const key: RowKey = { itemId };
-        const item = itemById.get(itemId);
-        const isAlsoTarget = targetItemIds?.has(itemId) === true;
-        const iconPos = iconPosition(iconIdForItem(itemId));
-        const rate = autoEdit.field(itemId, "");
-        const realizedPerMin = generalRateText(itemId);
-        const partText = catalystPartText(itemId);
-        const shortage = rate.invalid ? undefined : shortageText(key);
-        return (
-          <div
-            key={`auto:${itemId}`}
-            className="b-row"
-            data-testid="input-auto-row"
-            data-item-id={itemId}
-            data-is-raw={item?.raw === true ? "true" : "false"}
-            data-is-also-target={isAlsoTarget ? "true" : "false"}
-          >
-            <span className={"slot" + (iconPos === undefined ? " empty" : "")}>
-              <Sprite iconId={iconIdForItem(itemId)} size={40} />
-            </span>
-            <div className="info">
-              <span
-                className="b-name"
-                id={`i-name-${itemId}`}
-                title={i18n.displayName(itemId)}
-                data-testid="input-auto-name"
+      <div className="boundary-section" data-testid="inputs-section">
+        <div className="side-section-sub">
+          {"// boundary import budget · raw + cross-domain"}
+        </div>
+        {showEmptyState ? (
+          <div className="b-empty">{i18n.t("inputs.empty")}</div>
+        ) : null}
+        {suppliesBlock}
+        <div className="supplies-body" data-testid="inputs-supplies-body">
+          {itemOverrides.map((row) => {
+            const key: RowKey = { itemId: row.itemId, role: row.role };
+            const rowKey = encodeItemOverrideKey(key);
+            const domId = `${row.itemId}${rowIdSuffix(key)}`;
+            const item = itemById.get(row.itemId);
+            const isRaw = item?.raw === true;
+            const isAlsoTarget = targetItemIds?.has(row.itemId) === true;
+            const iconPos = iconPosition(iconIdForItem(row.itemId));
+            const uncapped = row.ratePerSec === undefined;
+            const rate = rowEdit.field(
+              rowKey,
+              row.ratePerSec ? ratePerSecToPerMin(row.ratePerSec) : "",
+            );
+            // The needed rate for this row's own pool. The catalyst row always has
+            // one (a definite zero when the plan cycles none of the item); the
+            // general row shows nothing until a solve gives it something.
+            const realizedPerMin =
+              key.role === "catalyst"
+                ? catalystRateText(row.itemId)
+                : generalRateText(row.itemId);
+            const partText =
+              key.role === "catalyst"
+                ? undefined
+                : catalystPartText(row.itemId);
+            const shortage = rate.invalid ? undefined : shortageText(key);
+            const showsChip = !uncapped && realizedPerMin !== undefined;
+            return (
+              <div
+                key={rowKey}
+                className="b-row"
+                data-testid="input-row"
+                data-item-id={row.itemId}
+                data-role={key.role}
+                data-is-raw={isRaw ? "true" : "false"}
+                data-is-also-target={isAlsoTarget ? "true" : "false"}
               >
-                {i18n.displayName(itemId)}
-              </span>
-              {realizedPerMin !== undefined ? (
-                <div className="b-needed" data-testid="input-realized-rate">
-                  {i18n.t("inputs.needed", { rate: realizedPerMin })}
-                </div>
-              ) : null}
-              {isAlsoTarget || partText !== undefined ? (
-                <div className="b-tags">
-                  {isAlsoTarget ? <span className="dual">DUAL</span> : null}
-                  {partText !== undefined ? (
-                    <>
-                      {isAlsoTarget ? <span className="sep">·</span> : null}
-                      <span
-                        className="catalyst"
-                        data-testid="input-catalyst-part"
-                      >
-                        {partText}
+                <span
+                  className={"slot" + (iconPos === undefined ? " empty" : "")}
+                >
+                  <Sprite iconId={iconIdForItem(row.itemId)} size={40} />
+                </span>
+                <div className="info">
+                  <span className="b-pick">
+                    <button
+                      type="button"
+                      className="b-pick-trigger"
+                      ref={(el) => focusOnMount(el, rowKey, "trigger")}
+                      // The name goes in the accessible NAME, not just the visible
+                      // text: aria-label overrides the button's content, so a bare
+                      // "Item" would make every row's trigger announce identically
+                      // and a screen-reader user could not tell which row they were
+                      // about to open the picker for. The <select> this replaced
+                      // announced its item as the control's value.
+                      aria-label={i18n.t("item.selected", {
+                        name: i18n.displayName(row.itemId),
+                      })}
+                      aria-haspopup="dialog"
+                      // title shows the full localised item name on hover, for
+                      // when the trigger truncates long names at narrow widths.
+                      title={i18n.displayName(row.itemId)}
+                      onClick={(e) =>
+                        flow.openPicker(e.currentTarget, { kind: "row", key })
+                      }
+                    >
+                      <span id={`i-name-${domId}`}>
+                        {i18n.displayName(row.itemId)}
                       </span>
-                    </>
-                  ) : null}
-                </div>
-              ) : null}
-              {renderRoleToggle(key)}
-              <div className="item-id">
-                {itemId}
-                <span className="mid">ITEM</span>
-              </div>
-              {duplicateError?.rowKey === itemId && (
-                <span role="alert">{i18n.t("inputs.duplicate")}</span>
-              )}
-            </div>
-            <div className="b-rate">
-              <input
-                type="text"
-                inputMode="decimal"
-                aria-label={i18n.t("inputs.rate.label")}
-                aria-describedby={rateDescribedBy(
-                  key,
-                  rate.invalid || shortage !== undefined,
-                )}
-                placeholder={i18n.t("inputs.unlimited")}
-                {...rate.inputProps}
-              />
-              <span className="unit">{i18n.t("inputs.rate.unit")}</span>
-              {rate.invalid ? (
-                <span
-                  className="b-rate-err"
-                  id={`i-rate-err-${itemId}`}
-                  data-testid="rate-invalid"
-                >
-                  {i18n.t("rate.invalid")}
-                </span>
-              ) : null}
-              {shortage !== undefined ? (
-                <span
-                  className="b-rate-err"
-                  id={`i-rate-err-${itemId}`}
-                  data-testid="rate-catalyst-short"
-                >
-                  {shortage}
-                </span>
-              ) : null}
-            </div>
-          </div>
-        );
-      })}
-      {itemOverrides.map((row) => {
-        const key: RowKey = { itemId: row.itemId, role: row.role };
-        const rowKey = encodeItemOverrideKey(key);
-        const domId = `${row.itemId}${rowIdSuffix(key)}`;
-        const item = itemById.get(row.itemId);
-        const isRaw = item?.raw === true;
-        const isAlsoTarget = targetItemIds?.has(row.itemId) === true;
-        const iconPos = iconPosition(iconIdForItem(row.itemId));
-        const uncapped = row.ratePerSec === undefined;
-        const rate = rowEdit.field(
-          rowKey,
-          row.ratePerSec ? ratePerSecToPerMin(row.ratePerSec) : "",
-        );
-        // The needed rate for this row's own pool. The catalyst row always has
-        // one (a definite zero when the plan cycles none of the item); the
-        // general row shows nothing until a solve gives it something.
-        const realizedPerMin =
-          key.role === "catalyst"
-            ? catalystRateText(row.itemId)
-            : generalRateText(row.itemId);
-        const partText =
-          key.role === "catalyst" ? undefined : catalystPartText(row.itemId);
-        const shortage = rate.invalid ? undefined : shortageText(key);
-        const showsChip = !uncapped && realizedPerMin !== undefined;
-        return (
-          <div
-            key={rowKey}
-            className="b-row"
-            data-testid="input-row"
-            data-item-id={row.itemId}
-            data-role={key.role}
-            data-is-raw={isRaw ? "true" : "false"}
-            data-is-also-target={isAlsoTarget ? "true" : "false"}
-          >
-            <span className={"slot" + (iconPos === undefined ? " empty" : "")}>
-              <Sprite iconId={iconIdForItem(row.itemId)} size={40} />
-            </span>
-            <div className="info">
-              <span className="b-pick">
-                <button
-                  type="button"
-                  className="b-pick-trigger"
-                  ref={(el) => focusOnMount(el, rowKey, "trigger")}
-                  // The name goes in the accessible NAME, not just the visible
-                  // text: aria-label overrides the button's content, so a bare
-                  // "Item" would make every row's trigger announce identically
-                  // and a screen-reader user could not tell which row they were
-                  // about to open the picker for. The <select> this replaced
-                  // announced its item as the control's value.
-                  aria-label={i18n.t("item.selected", {
-                    name: i18n.displayName(row.itemId),
-                  })}
-                  aria-haspopup="dialog"
-                  // title shows the full localised item name on hover, for
-                  // when the trigger truncates long names at narrow widths.
-                  title={i18n.displayName(row.itemId)}
-                  onClick={(e) =>
-                    flow.openPicker(e.currentTarget, { kind: "row", key })
-                  }
-                >
-                  <span id={`i-name-${domId}`}>
-                    {i18n.displayName(row.itemId)}
+                    </button>
                   </span>
+                  {uncapped && realizedPerMin !== undefined ? (
+                    <div className="b-needed" data-testid="input-realized-rate">
+                      {i18n.t("inputs.needed", { rate: realizedPerMin })}
+                    </div>
+                  ) : null}
+                  {(isAlsoTarget ||
+                    showsChip ||
+                    key.role === "catalyst" ||
+                    partText !== undefined) && (
+                    <div className="b-tags">
+                      {key.role === "catalyst" ? (
+                        <span
+                          className="catalyst"
+                          data-testid="input-catalyst-badge"
+                        >
+                          {i18n.t("inputs.catalyst.badge")}
+                        </span>
+                      ) : null}
+                      {isAlsoTarget ? <span className="dual">DUAL</span> : null}
+                      {partText !== undefined ? (
+                        <span
+                          className="catalyst"
+                          data-testid="input-catalyst-part"
+                        >
+                          {partText}
+                        </span>
+                      ) : null}
+                      {showsChip ? (
+                        <span
+                          className="realized"
+                          data-testid="input-realized-rate"
+                        >
+                          {realizedPerMin}
+                          {i18n.t("inputs.rate.unit")}
+                        </span>
+                      ) : null}
+                    </div>
+                  )}
+                  {renderRoleToggle(key)}
+                  <div className="item-id">
+                    {row.itemId}
+                    <span className="mid">ITEM</span>
+                  </div>
+                  {duplicateError?.rowKey === rowKey && (
+                    <span role="alert">{i18n.t("inputs.duplicate")}</span>
+                  )}
+                </div>
+                <div className="b-rate">
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    ref={(el) => focusOnMount(el, rowKey, "rate")}
+                    aria-label={i18n.t("inputs.rate.label")}
+                    aria-describedby={rateDescribedBy(
+                      key,
+                      rate.invalid || shortage !== undefined,
+                    )}
+                    placeholder={
+                      uncapped
+                        ? i18n.t("inputs.unlimited")
+                        : i18n.t("inputs.rate.placeholder")
+                    }
+                    {...rate.inputProps}
+                  />
+                  <span className="unit">{i18n.t("inputs.rate.unit")}</span>
+                  {rate.invalid ? (
+                    <span
+                      className="b-rate-err"
+                      id={`i-rate-err-${domId}`}
+                      data-testid="rate-invalid"
+                    >
+                      {i18n.t("rate.invalid")}
+                    </span>
+                  ) : null}
+                  {shortage !== undefined ? (
+                    <span
+                      className="b-rate-err"
+                      id={`i-rate-err-${domId}`}
+                      data-testid="rate-catalyst-short"
+                    >
+                      {shortage}
+                    </span>
+                  ) : null}
+                </div>
+                <button
+                  className="b-remove"
+                  data-testid="remove-input"
+                  onClick={() => handleRemove(key)}
+                  aria-label={i18n.t("inputs.remove.label")}
+                >
+                  ×
                 </button>
-              </span>
-              {uncapped && realizedPerMin !== undefined ? (
-                <div className="b-needed" data-testid="input-realized-rate">
-                  {i18n.t("inputs.needed", { rate: realizedPerMin })}
-                </div>
-              ) : null}
-              {(isAlsoTarget ||
-                showsChip ||
-                key.role === "catalyst" ||
-                partText !== undefined) && (
-                <div className="b-tags">
-                  {key.role === "catalyst" ? (
-                    <span
-                      className="catalyst"
-                      data-testid="input-catalyst-badge"
-                    >
-                      {i18n.t("inputs.catalyst.badge")}
-                    </span>
-                  ) : null}
-                  {isAlsoTarget ? <span className="dual">DUAL</span> : null}
-                  {partText !== undefined ? (
-                    <span
-                      className="catalyst"
-                      data-testid="input-catalyst-part"
-                    >
-                      {partText}
-                    </span>
-                  ) : null}
-                  {showsChip ? (
-                    <span
-                      className="realized"
-                      data-testid="input-realized-rate"
-                    >
-                      {realizedPerMin}
-                      {i18n.t("inputs.rate.unit")}
-                    </span>
-                  ) : null}
-                </div>
-              )}
-              {renderRoleToggle(key)}
-              <div className="item-id">
-                {row.itemId}
-                <span className="mid">ITEM</span>
               </div>
-              {duplicateError?.rowKey === rowKey && (
-                <span role="alert">{i18n.t("inputs.duplicate")}</span>
-              )}
-            </div>
-            <div className="b-rate">
-              <input
-                type="text"
-                inputMode="decimal"
-                ref={(el) => focusOnMount(el, rowKey, "rate")}
-                aria-label={i18n.t("inputs.rate.label")}
-                aria-describedby={rateDescribedBy(
-                  key,
-                  rate.invalid || shortage !== undefined,
-                )}
-                placeholder={
-                  uncapped
-                    ? i18n.t("inputs.unlimited")
-                    : i18n.t("inputs.rate.placeholder")
-                }
-                {...rate.inputProps}
-              />
-              <span className="unit">{i18n.t("inputs.rate.unit")}</span>
-              {rate.invalid ? (
+            );
+          })}
+        </div>
+        {assumedBlock}
+        <div className="assumed-body" data-testid="inputs-assumed-body">
+          {autoRows.map((itemId) => {
+            const key: RowKey = { itemId };
+            const item = itemById.get(itemId);
+            const isAlsoTarget = targetItemIds?.has(itemId) === true;
+            const iconPos = iconPosition(iconIdForItem(itemId));
+            const realizedPerMin = generalRateText(itemId);
+            const partText = catalystPartText(itemId);
+            const shortage = shortageText(key);
+            return (
+              <div
+                key={`auto:${itemId}`}
+                className="b-row"
+                data-testid="input-auto-row"
+                data-item-id={itemId}
+                data-is-raw={item?.raw === true ? "true" : "false"}
+                data-is-also-target={isAlsoTarget ? "true" : "false"}
+              >
                 <span
-                  className="b-rate-err"
-                  id={`i-rate-err-${domId}`}
-                  data-testid="rate-invalid"
+                  className={"slot" + (iconPos === undefined ? " empty" : "")}
                 >
-                  {i18n.t("rate.invalid")}
+                  <Sprite iconId={iconIdForItem(itemId)} size={40} />
                 </span>
-              ) : null}
-              {shortage !== undefined ? (
-                <span
-                  className="b-rate-err"
-                  id={`i-rate-err-${domId}`}
-                  data-testid="rate-catalyst-short"
-                >
-                  {shortage}
-                </span>
-              ) : null}
-            </div>
-            <button
-              className="b-remove"
-              data-testid="remove-input"
-              onClick={() => handleRemove(key)}
-              aria-label={i18n.t("inputs.remove.label")}
-            >
-              ×
-            </button>
-          </div>
-        );
-      })}
-      <button
-        className="b-add"
-        onClick={(e) => {
-          if (addExhausted) return;
-          flow.openPicker(e.currentTarget, { kind: "add" });
-        }}
-        // aria-disabled, not disabled: a disabled button is not focusable, so
-        // keyboard and screen-reader users would never reach the title that
-        // explains why it does nothing.
-        aria-disabled={addExhausted ? true : undefined}
-        title={addExhausted ? i18n.t("inputs.add.exhausted") : undefined}
-      >
-        {i18n.t("inputs.add")}
-      </button>
-      {pickerFor !== null ? renderPicker() : null}
-      {prompt !== null ? (
-        <RatePromptPopup
-          item={{
-            id: prompt.override.itemId,
-            name: i18n.displayName(prompt.override.itemId),
+                <div className="info">
+                  <span
+                    className="b-name"
+                    id={`i-name-${itemId}`}
+                    title={i18n.displayName(itemId)}
+                    data-testid="input-auto-name"
+                  >
+                    {i18n.displayName(itemId)}
+                  </span>
+                  {realizedPerMin !== undefined ? (
+                    <div className="b-needed" data-testid="input-realized-rate">
+                      {i18n.t("inputs.needed", { rate: realizedPerMin })}
+                    </div>
+                  ) : null}
+                  {isAlsoTarget || partText !== undefined ? (
+                    <div className="b-tags">
+                      {isAlsoTarget ? <span className="dual">DUAL</span> : null}
+                      {partText !== undefined ? (
+                        <>
+                          {isAlsoTarget ? <span className="sep">·</span> : null}
+                          <span
+                            className="catalyst"
+                            data-testid="input-catalyst-part"
+                          >
+                            {partText}
+                          </span>
+                        </>
+                      ) : null}
+                    </div>
+                  ) : null}
+                  {/* The pool checkbox is the one live control in this block.
+                    "Read-only" here means "no rate field": an item's catalyst
+                    pool membership is orthogonal to whether it is capped, and
+                    dropping the box would strand catalyst items with no way to
+                    reach their pool. */}
+                  {renderRoleToggle(key)}
+                  <div className="item-id">
+                    {itemId}
+                    <span className="mid">ITEM</span>
+                  </div>
+                  {duplicateError?.rowKey === itemId && (
+                    <span role="alert">{i18n.t("inputs.duplicate")}</span>
+                  )}
+                </div>
+                <div className="b-rate">
+                  <span className="inf" aria-hidden="true">
+                    ∞
+                  </span>
+                  <span className="unit">{i18n.t("inputs.rate.unit")}</span>
+                  <button
+                    type="button"
+                    className="set-cap"
+                    data-testid="input-set-cap"
+                    // The item goes in the accessible NAME: a rail of buttons all
+                    // announcing "Set cap" tells a screen-reader user nothing
+                    // about which row they are about to promote.
+                    aria-label={i18n.t("inputs.setCap.label", {
+                      name: i18n.displayName(itemId),
+                    })}
+                    onClick={() => handleSetCap(itemId)}
+                  >
+                    {i18n.t("inputs.setCap")}
+                  </button>
+                  {shortage !== undefined ? (
+                    <span
+                      className="b-rate-err"
+                      id={`i-rate-err-${itemId}`}
+                      data-testid="rate-catalyst-short"
+                    >
+                      {shortage}
+                    </span>
+                  ) : null}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        <button
+          className="b-add"
+          onClick={(e) => {
+            if (addExhausted) return;
+            flow.openPicker(e.currentTarget, { kind: "add" });
           }}
-          badge={
-            prompt.override.role === "catalyst"
-              ? i18n.t("inputs.catalyst.badge")
-              : undefined
-          }
-          emptyMeans="uncap"
-          note={i18n.t("ratePrompt.noLimit")}
-          iconSheetUrl={iconSheetUrl}
-          onConfirm={confirmPromptRate}
-          onCancel={flow.cancelPrompt}
-        />
-      ) : null}
-    </div>
+          // aria-disabled, not disabled: a disabled button is not focusable, so
+          // keyboard and screen-reader users would never reach the title that
+          // explains why it does nothing.
+          aria-disabled={addExhausted ? true : undefined}
+          title={addExhausted ? i18n.t("inputs.add.exhausted") : undefined}
+        >
+          {i18n.t("inputs.add")}
+        </button>
+        {pickerFor !== null ? renderPicker() : null}
+        {prompt !== null ? (
+          <RatePromptPopup
+            item={{
+              id: prompt.override.itemId,
+              name: i18n.displayName(prompt.override.itemId),
+            }}
+            badge={
+              prompt.override.role === "catalyst"
+                ? i18n.t("inputs.catalyst.badge")
+                : undefined
+            }
+            emptyMeans="uncap"
+            note={i18n.t("ratePrompt.noLimit")}
+            iconSheetUrl={iconSheetUrl}
+            onConfirm={confirmPromptRate}
+            onCancel={flow.cancelPrompt}
+          />
+        ) : null}
+      </div>
+    </>
   );
 
   function renderPicker() {
@@ -793,8 +842,8 @@ export function InputsPanel({
         // with no cap to carry would only append a bare override, which for a
         // raw item leaves effectiveSupply at Infinity either way: a full
         // re-solve and hash rewrite that changes nothing, and it destroys the
-        // row it came from as well. To cap a raw item, type into its auto-row,
-        // whose commit promotes it to a real override.
+        // row it came from as well. To cap such an item, press "set cap" on its
+        // Assumed unlimited row, which promotes it to a real override.
         for (const id of assumedRawItemIds ?? []) disabledIds.add(id);
       }
     }
