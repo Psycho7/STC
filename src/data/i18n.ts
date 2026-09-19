@@ -32,6 +32,7 @@ export type UiKey =
   | "app.error.infeasible.generic"
   | "app.error.producer-unavailable.event"
   | "app.error.producer-unavailable.area"
+  | "app.error.producer-unavailable.manual"
   | "app.error.dismiss"
   | "app.error.busy"
   | "app.error.crash"
@@ -84,6 +85,15 @@ export type UiKey =
   | "settings.locale.title"
   | "settings.area.title"
   | "settings.area.all"
+  | "settings.recipes.title"
+  | "settings.recipes.filter.label"
+  | "settings.recipes.filter.placeholder"
+  | "settings.recipes.showAll"
+  | "settings.recipes.hideAll"
+  | "settings.recipes.toggle.label"
+  | "settings.recipes.off.area"
+  | "settings.recipes.off.event"
+  | "settings.recipes.empty"
   | "settings.events.title"
   | "settings.events.reset"
   | "settings.events.current"
@@ -152,6 +162,10 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     // panel's area option carries, so the banner and the control agree.
     "app.error.producer-unavailable.area":
       "物品 {itemId} 的配方均无法在{area}建造。",
+    // {recipe} is the localized recipe name, which is how the Recipes section
+    // labels the toggle the user flipped.
+    "app.error.producer-unavailable.manual":
+      "物品 {itemId} 的配方「{recipe}」已在设置中关闭。",
     "app.error.dismiss": "关闭",
     "app.error.busy": "方案正在加载，请等加载完成后再修改。",
     "app.error.crash": "规划器遇到意外错误，无法绘制当前方案。",
@@ -204,6 +218,15 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "settings.locale.title": "语言",
     "settings.area.title": "区域",
     "settings.area.all": "全部区域",
+    "settings.recipes.title": "配方",
+    "settings.recipes.filter.label": "筛选配方",
+    "settings.recipes.filter.placeholder": "物品或配方名称",
+    "settings.recipes.showAll": "显示全部配方",
+    "settings.recipes.hideAll": "隐藏全部配方",
+    "settings.recipes.toggle.label": "启用配方 {recipe}",
+    "settings.recipes.off.area": "无法在{area}建造",
+    "settings.recipes.off.event": "属于未开启的 {cohort} 活动",
+    "settings.recipes.empty": "没有匹配的配方",
     "settings.events.title": "活动",
     "settings.events.reset": "恢复默认",
     "settings.events.current": "当前",
@@ -262,6 +285,9 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
       "Item {itemId} cannot be a target right now: every recipe producing it is unavailable (the {cohort} event is switched off).",
     "app.error.producer-unavailable.area":
       "Item {itemId} cannot be a target right now: none of the recipes producing it can be built in {area}.",
+    // See the zh entry: {recipe} is the toggle's own label.
+    "app.error.producer-unavailable.manual":
+      "Item {itemId} cannot be a target right now: its recipe {recipe} is switched off in Settings.",
     "app.error.dismiss": "Dismiss",
     "app.error.busy":
       "A plan is still loading. Try that change again once it lands.",
@@ -317,6 +343,15 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "settings.locale.title": "Language",
     "settings.area.title": "Area",
     "settings.area.all": "All areas",
+    "settings.recipes.title": "Recipes",
+    "settings.recipes.filter.label": "Filter recipes",
+    "settings.recipes.filter.placeholder": "Item or recipe name",
+    "settings.recipes.showAll": "Show all recipes",
+    "settings.recipes.hideAll": "Hide all recipes",
+    "settings.recipes.toggle.label": "Enable the {recipe} recipe",
+    "settings.recipes.off.area": "Cannot be built in {area}",
+    "settings.recipes.off.event": "Belongs to the switched-off {cohort} event",
+    "settings.recipes.empty": "No recipe matches that name",
     "settings.events.title": "Events",
     "settings.events.reset": "Reset to defaults",
     "settings.events.current": "current",
@@ -337,6 +372,36 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
 };
 
 const cache = new Map<Locale, I18nIndex>();
+
+// The locales a name search looks in, whatever the UI is set to. The settings
+// panel's recipe filter (#125) has to find 赤铜溶液 for a player reading the
+// English build and Cuprium Solution for one reading the Chinese build, since
+// the community names for a row are not the ones the current locale shows.
+const SEARCH_LOCALES: Locale[] = ["zh", "en"];
+
+let searchIndex: Map<string, string[]> | null = null;
+
+// Every name an entity answers to, lowercased, plus its raw pack id: the id is
+// searchable too, so an id seen in a share link or a validation banner can be
+// pasted straight into the filter.
+export function searchNames(id: string): string[] {
+  if (searchIndex === null) {
+    const names = (
+      raw as { names: Record<string, Record<string, Record<string, string>>> }
+    ).names;
+    searchIndex = new Map();
+    for (const locale of SEARCH_LOCALES) {
+      for (const kindBucket of Object.values(names[locale] ?? {})) {
+        for (const [entityId, name] of Object.entries(kindBucket)) {
+          const found = searchIndex.get(entityId) ?? [entityId.toLowerCase()];
+          found.push(name.toLowerCase());
+          searchIndex.set(entityId, found);
+        }
+      }
+    }
+  }
+  return searchIndex.get(id) ?? [id.toLowerCase()];
+}
 
 export function loadI18n(locale: Locale = DEFAULT_LOCALE): I18nIndex {
   const cached = cache.get(locale);
