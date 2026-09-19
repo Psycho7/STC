@@ -2,10 +2,10 @@
   "name": "NagiYume/AKEDatabase",
   "repo": "https://github.com/NagiYume/AKEDatabase",
   "manifestUrl": "https://data.akedata.wiki/manifest.json",
-  "version": "1.5.3@9913107-5",
+  "version": "1.5.3@10024360-6",
   "gameVersion": "1.5.3",
-  "hotfixVersion": "9913107-5",
-  "tableCfgPath": "public/1.5.3/9913107-5/TableCfg",
-  "publishedAt": "2026-09-04T14:31:50.963743+00:00",
-  "snapshotDate": "2026-09-13"
+  "hotfixVersion": "10024360-6",
+  "tableCfgPath": "public/1.5.3/10024360-6/TableCfg",
+  "publishedAt": "2026-09-08T05:34:51.667413+00:00",
+  "snapshotDate": "2026-09-19"
 }
