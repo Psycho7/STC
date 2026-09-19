@@ -1,0 +1,75 @@
+name: GLM Auto Review
+on:
+  pull_request:
+    types: [opened, synchronize, ready_for_review]
+
+concurrency:
+  group: glm-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    # Fork PRs get no secrets; drafts are not ready for review.
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    env:
+      ANTHROPIC_BASE_URL: https://api.z.ai/api/anthropic
+      API_TIMEOUT_MS: 3000000
+      ANTHROPIC_DEFAULT_OPUS_MODEL: glm-5.3-flash
+      ANTHROPIC_DEFAULT_SONNET_MODEL: glm-5.3-flash
+      ANTHROPIC_DEFAULT_HAIKU_MODEL: glm-5.3-flash
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+
+      - uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ZAI_API_KEY }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          prompt: |
+            REPO: ${{ github.repository }}
+            PR NUMBER: ${{ github.event.pull_request.number }}
+
+            Note: The PR branch is already checked out in the current working directory.
+
+            Perform a comprehensive code review with the following focus areas:
+
+            1. **Correctness**
+               - Bugs: wrong logic, off-by-one, bad edge cases
+               - Numeric issues in solver: float vs exact-rational mixing, tolerances
+               - Geometry and layout: coordinate spaces, overlaps
+               - React bugs: stale closures, missing effect dependencies
+
+            2. **Code Quality**
+               - New code that duplicates a helper already in the codebase (name the helper)
+               - Dead code the PR leaves behind: unused exports, params, or branches
+               - Error handling that swallows failures, or guards cases that cannot happen
+               - Skip formatting and style; Prettier and ESLint run in CI
+
+            3. **Performance**
+               - Identify potential performance bottlenecks
+               - Check for memory leaks or resource issues
+
+            4. **Testing**
+               - Changed logic that no test exercises (name the untested case)
+               - Test or snapshot edits that loosen assertions or re-pin values
+                 without a reason in the PR description
+               - You cannot run tests; do not claim coverage numbers
+
+            5. **Documentation**
+               - Comments or docs the change made wrong
+               - Do not ask for comments beyond the density of the surrounding code
+
+            Only report a finding you can back with a specific line and a concrete
+            failing scenario. If you find nothing, say so in one line.
+
+            Use `gh pr comment` for top-level feedback.
+            Use `mcp__github_inline_comment__create_inline_comment` (with `confirmed: true`) to highlight specific code issues.
+            Only post GitHub comments - don't submit review text as messages.
+
+          claude_args: |
+            --allowedTools "mcp__github_inline_comment__create_inline_comment,Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*)"
