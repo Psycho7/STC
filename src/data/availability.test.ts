@@ -1,23 +1,35 @@
 // @vitest-environment jsdom
 //
-// The cohort model (#144): the effective-state rule (override wins in both
-// directions; absent one, on iff the cohort matches the pack's own version),
-// the unavailable-id derivation that feeds the availability seam, pack-cohort
-// truncation from provenance, and the localStorage read/write pair - whose
-// read side must survive any malformed stored value, since the key is
-// attacker-controllable browser state.
+// The availability model: the cohort effective-state rule (override wins in
+// both directions; absent one, on iff the cohort matches the pack's own
+// version), the cause map the three predicates compose into, the unavailable-id
+// derivation that feeds the solver seam, pack-cohort truncation from
+// provenance, and the localStorage read/write pair - whose read side must
+// survive any malformed stored value, since the key is attacker-controllable
+// browser state.
 import { afterEach, describe, expect, it } from "vitest";
-import type { Item, Recipe, RecipePack, Stoich } from "@aef/schema";
+import type { Item, Machine, Recipe, RecipePack, Stoich } from "@aef/schema";
 import {
+  availabilityKey,
   effectiveCohortEnabled,
   eventCohortsOf,
   packCohortOf,
   readStoredEventOverrides,
-  unavailableEventItems,
+  unavailableCauses,
+  unavailableItems,
   unavailableRecipeIds,
   writeStoredEventOverrides,
-} from "./event-cohorts";
+  type AvailabilitySettings,
+} from "./availability";
 import { EVENT_COHORT_OVERRIDES_STORAGE_KEY } from "./storage-keys";
+
+// The settings the app hands the core, with only the cohort overrides set:
+// area and manual toggles have no source until #124/#125 ship theirs.
+function eventsOnly(
+  eventOverrides: AvailabilitySettings["eventOverrides"] = {},
+): AvailabilitySettings {
+  return { eventOverrides };
+}
 
 afterEach(() => {
   window.localStorage.clear();
@@ -139,41 +151,163 @@ describe("effectiveCohortEnabled", () => {
   });
 });
 
+describe("unavailableCauses", () => {
+  // A pack whose location carriers are both exercised: `smelt` is tagged for
+  // the tundra alone, and `mint_coin` runs on a machine that only exists in
+  // jinlong. Everything else is untagged, which means everywhere.
+  function locatedPack(): RecipePack {
+    const pack = fixturePack();
+    const jinlongMachine: Machine = {
+      ...pack.machines[0]!,
+      id: "machine_jinlong",
+      locations: ["jinlong"],
+    };
+    pack.machines = [...pack.machines, jinlongMachine];
+    pack.recipes = pack.recipes.map((r) =>
+      r.id === "smelt"
+        ? { ...r, locations: ["tundra"] }
+        : r.id === "mint_coin"
+          ? { ...r, producers: ["machine_jinlong"] }
+          : r,
+    );
+    return pack;
+  }
+
+  it("passes every predicate whose settings field is absent", () => {
+    // Cohorts all on, no area, no manual set: the location carriers in the
+    // pack are inert and nothing is unavailable.
+    expect(
+      unavailableCauses(locatedPack(), eventsOnly({ "v1.2": true })),
+    ).toEqual(new Map());
+  });
+
+  it("reports an area cause for both location carriers", () => {
+    const causes = unavailableCauses(locatedPack(), {
+      eventOverrides: { "v1.2": true },
+      area: "jinlong",
+    });
+    // smelt is tundra-tagged on an untagged machine; grow_lung is untagged but
+    // runs on the untagged machine, so it survives.
+    expect(causes.get("smelt")).toEqual({ kind: "area", area: "jinlong" });
+    expect(causes.has("grow_lung")).toBe(false);
+
+    const tundra = unavailableCauses(locatedPack(), {
+      eventOverrides: { "v1.2": true },
+      area: "tundra",
+    });
+    // mint_coin is untagged on a jinlong-only machine: the machine carrier
+    // excludes it.
+    expect(tundra.get("mint_coin")).toEqual({ kind: "area", area: "tundra" });
+    expect(tundra.has("smelt")).toBe(false);
+  });
+
+  it("keeps a recipe whose producers disagree about a location", () => {
+    const pack = locatedPack();
+    pack.recipes = pack.recipes.map((r) =>
+      r.id === "mint_coin"
+        ? { ...r, producers: ["machine_jinlong", "machine"] }
+        : r,
+    );
+    // One producer is jinlong-only, the other is everywhere: some producer
+    // stands in the tundra, so the recipe stays available.
+    expect(
+      unavailableCauses(pack, {
+        eventOverrides: { "v1.2": true },
+        area: "tundra",
+      }).has("mint_coin"),
+    ).toBe(false);
+  });
+
+  it("reports a manual cause naming the recipe", () => {
+    expect(
+      unavailableCauses(fixturePack(), {
+        eventOverrides: { "v1.2": true },
+        disabledRecipeIds: new Set(["smelt"]),
+      }),
+    ).toEqual(new Map([["smelt", { kind: "manual", recipeId: "smelt" }]]));
+  });
+
+  it("prefers the area cause when area and event both fail", () => {
+    // mint_coin is off-cohort by default AND out of area under tundra.
+    expect(
+      unavailableCauses(locatedPack(), {
+        eventOverrides: {},
+        area: "tundra",
+      }).get("mint_coin"),
+    ).toEqual({ kind: "area", area: "tundra" });
+  });
+
+  it("prefers the event cause when event and manual both fail", () => {
+    expect(
+      unavailableCauses(fixturePack(), {
+        eventOverrides: {},
+        disabledRecipeIds: new Set(["mint_coin"]),
+      }).get("mint_coin"),
+    ).toEqual({ kind: "event", cohort: "v1.2" });
+  });
+});
+
 describe("unavailableRecipeIds", () => {
+  const idsFor = (
+    pack: RecipePack,
+    settings: AvailabilitySettings,
+  ): ReadonlySet<string> =>
+    unavailableRecipeIds(unavailableCauses(pack, settings));
+
   it("defaults to the off-cohort recipes only (fresh browser)", () => {
     // Pack cohort is v1.5: the v1.2 recipe is off, the v1.5 recipe and the
     // non-event recipe are on.
-    expect(unavailableRecipeIds(fixturePack(), {})).toEqual(
-      new Set(["mint_coin"]),
-    );
+    expect(idsFor(fixturePack(), eventsOnly())).toEqual(new Set(["mint_coin"]));
   });
 
   it("includes the pack cohort's recipes when it is forced off", () => {
-    expect(unavailableRecipeIds(fixturePack(), { "v1.5": false })).toEqual(
+    expect(idsFor(fixturePack(), eventsOnly({ "v1.5": false }))).toEqual(
       new Set(["mint_coin", "grow_lung"]),
     );
   });
 
   it("excludes everything non-event and honors a forced-on off-cohort", () => {
     expect(
-      unavailableRecipeIds(fixturePack(), { "v1.2": true, "v1.5": true }),
+      idsFor(fixturePack(), eventsOnly({ "v1.2": true, "v1.5": true })),
     ).toEqual(new Set());
     // The non-event recipe never appears under any override map.
-    expect(
-      unavailableRecipeIds(fixturePack(), { "v1.5": false }),
-    ).not.toContain("smelt");
+    expect(idsFor(fixturePack(), eventsOnly({ "v1.5": false }))).not.toContain(
+      "smelt",
+    );
   });
 });
 
-describe("unavailableEventItems", () => {
-  it("defaults to the off-cohort items only, each mapped to its cohort", () => {
+describe("availabilityKey", () => {
+  it("changes when only a cause's kind changes", () => {
+    const events = availabilityKey(
+      unavailableCauses(fixturePack(), eventsOnly()),
+    );
+    const manual = availabilityKey(
+      unavailableCauses(fixturePack(), {
+        eventOverrides: { "v1.2": true },
+        disabledRecipeIds: new Set(["mint_coin"]),
+      }),
+    );
+    // Same single id under both, different reason.
+    expect(events).not.toBe(manual);
+  });
+
+  it("is stable across two derivations of the same settings", () => {
+    expect(
+      availabilityKey(unavailableCauses(fixturePack(), eventsOnly())),
+    ).toBe(availabilityKey(unavailableCauses(fixturePack(), eventsOnly())));
+  });
+});
+
+describe("unavailableItems", () => {
+  it("defaults to the off-cohort items only, each mapped to its cause", () => {
     // Pack cohort is v1.5: coin (v1.2) is off, and so is token_orphan (v1.1)
     // - the derivation is item-driven, so an item whose cohort carries no
     // recipe still surfaces with the cohort its tiles must name.
-    expect(unavailableEventItems(fixturePack(), {})).toEqual(
+    expect(unavailableItems(fixturePack(), eventsOnly())).toEqual(
       new Map([
-        ["coin", "v1.2"],
-        ["token_orphan", "v1.1"],
+        ["coin", { kind: "event", cohort: "v1.2" }],
+        ["token_orphan", { kind: "event", cohort: "v1.1" }],
       ]),
     );
   });
@@ -182,22 +316,28 @@ describe("unavailableEventItems", () => {
     // v1.2 forced on drops its item; v1.5 forced off adds the pack cohort's;
     // untouched v1.1 keeps its default-off item.
     expect(
-      unavailableEventItems(fixturePack(), { "v1.2": true, "v1.5": false }),
+      unavailableItems(
+        fixturePack(),
+        eventsOnly({ "v1.2": true, "v1.5": false }),
+      ),
     ).toEqual(
       new Map([
-        ["lung", "v1.5"],
-        ["token_orphan", "v1.1"],
+        ["lung", { kind: "event", cohort: "v1.5" }],
+        ["token_orphan", { kind: "event", cohort: "v1.1" }],
       ]),
     );
   });
 
   it("never contains non-event items, under any override map", () => {
-    const map = unavailableEventItems(fixturePack(), { "v1.5": false });
+    const map = unavailableItems(fixturePack(), eventsOnly({ "v1.5": false }));
     expect(map.has("ore")).toBe(false);
     expect(map.has("bar")).toBe(false);
     // And every cohort on empties it entirely.
     expect(
-      unavailableEventItems(fixturePack(), { "v1.1": true, "v1.2": true }),
+      unavailableItems(
+        fixturePack(),
+        eventsOnly({ "v1.1": true, "v1.2": true }),
+      ),
     ).toEqual(new Map());
   });
 });

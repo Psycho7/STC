@@ -38,13 +38,16 @@ import type { Target } from "./data/targets";
 import { pack } from "./data/load";
 import { packIndex } from "./data/pack-index";
 import {
+  availabilityKey,
   readStoredEventOverrides,
-  unavailableEventItems,
+  unavailableCauses,
+  unavailableItems,
   unavailableRecipeIds,
   writeStoredEventOverrides,
   packCohortOf,
+  type AvailabilitySettings,
   type EventCohortOverrides,
-} from "./data/event-cohorts";
+} from "./data/availability";
 import { EVENT_COHORT_OVERRIDES_STORAGE_KEY } from "./data/storage-keys";
 import { SettingsPanel } from "./components/SettingsPanel";
 import type { LogicalGraph } from "./canvas/layout";
@@ -147,9 +150,11 @@ type InitialError =
 
 // Localized text for a plan-load error on a user-facing surface. The
 // producer-unavailable kind is the one failure aimed at the player rather
-// than the link (#144): it names the target item and the switched-off event
-// cohort, in the UI language. Every other kind describes a damaged share
-// link - developer-facing detail - and keeps describePlanLoadError's text.
+// than the link (#144): its event cause names the target item and the
+// switched-off cohort in the UI language. The area and manual causes keep
+// describePlanLoadError's text until #124 and #125 ship the settings that can
+// produce them. Every other kind describes a damaged share link -
+// developer-facing detail - and keeps that text too.
 function describeLoadError(error: PlanLoadError, i18n: I18nIndex): string {
   if (error.kind === "producer-unavailable" && error.cause.kind === "event") {
     return i18n.t("app.error.producer-unavailable.event", {
@@ -404,45 +409,56 @@ function AppInner() {
       setExportingPng(false);
     }
   }, []);
-  // The recipes switched off under those overrides - the availability set the
-  // load, mutation, and re-solve paths below all thread into the seam from
-  // T3. `pack` is a module-stable import, so it stays out of the dependency
-  // list; only an override flip re-derives the set. A flip that leaves the set's
-  // members unchanged keeps the previous Set instance, so the validate / solve /
-  // layout work keyed on it does not re-run for an identical availability.
-  const derivedUnavailable = useMemo(
-    () => unavailableRecipeIds(pack, eventOverrides),
+  // Everything the availability core reads. Only the cohort overrides have a
+  // source today; #124 and #125 add their fields and their own writers.
+  const availabilitySettings = useMemo<AvailabilitySettings>(
+    () => ({ eventOverrides }),
     [eventOverrides],
   );
-  const [unavailable, setUnavailable] = useState(derivedUnavailable);
+  // What is switched off and why: the cause map plan validation reports from,
+  // the id set the solver seam takes, and the digest that decides whether any
+  // of it actually changed. `pack` is a module-stable import, so it stays out
+  // of the dependency list; only a settings change re-derives. A change that
+  // leaves the map saying the same thing keeps the previous object, so the
+  // validate / solve / layout work keyed on it does not re-run - and unlike the
+  // old set-identity check, a same-ids-different-reason change does re-run,
+  // because the digest carries the cause kind and its detail.
+  const derivedAvailability = useMemo(() => {
+    const causes = unavailableCauses(pack, availabilitySettings);
+    return {
+      causes,
+      ids: unavailableRecipeIds(causes),
+      key: availabilityKey(causes),
+    };
+  }, [availabilitySettings]);
+  const [availability, setAvailability] = useState(derivedAvailability);
   if (
-    derivedUnavailable !== unavailable &&
-    (derivedUnavailable.size !== unavailable.size ||
-      [...derivedUnavailable].some((id) => !unavailable.has(id)))
+    derivedAvailability !== availability &&
+    derivedAvailability.key !== availability.key
   ) {
-    setUnavailable(derivedUnavailable);
+    setAvailability(derivedAvailability);
   }
-  // The event items behind that set, each with its cohort (#144's T6): the
-  // pickers dim exactly these tiles and their hint names the cohort(s) the
-  // validation error above also interpolates. Derived beside `unavailable`
-  // from the same overrides, so the tiles, the hint, and the banner can never
-  // disagree about which cohort is off.
-  const eventOffItems = useMemo(
-    () => unavailableEventItems(pack, eventOverrides),
-    [eventOverrides],
+  const unavailable = availability.ids;
+  // The items behind that map, each with its cause: the pickers dim exactly
+  // these tiles and their hint names the cause the validation error above also
+  // interpolates. Derived beside `availability` from the same settings, so the
+  // tiles, the hint, and the banner can never disagree.
+  const unavailableItemCauses = useMemo(
+    () => unavailableItems(pack, availabilitySettings),
+    [availabilitySettings],
   );
   // loadFromHash is a long-lived callback: the mount/hashchange wiring below
   // must not re-run when a flip recreates it, or every flip would reload the
-  // plan and reset the panels. It reads the set through this ref instead of
-  // closing over it; the re-solve effect owns flip-time work. The initializer
-  // covers boot, and the effect below (declared before anything that calls
-  // loadFromHash) keeps the ref current on later renders.
-  const unavailableRef = useRef(unavailable);
+  // plan and reset the panels. It reads availability through this ref instead
+  // of closing over it; the re-solve effect owns flip-time work. The
+  // initializer covers boot, and the effect below (declared before anything
+  // that calls loadFromHash) keeps the ref current on later renders.
+  const availabilityRef = useRef(availability);
   useEffect(() => {
-    unavailableRef.current = unavailable;
-  }, [unavailable]);
+    availabilityRef.current = availability;
+  }, [availability]);
   // Mirrors initialError for the availability effect below, the same trick as
-  // unavailableRef: that effect must fire on cohort flips alone, so it cannot
+  // availabilityRef: that effect must fire on availability changes alone, so it cannot
   // also key on the error object - every failed load stores a fresh one, and
   // keying on it would re-run the pending load after each failure (each retry
   // failing again) into a loop. It reads the current value through this ref.
@@ -541,7 +557,11 @@ function AppInner() {
         }
       };
       try {
-        const outcome = await loadPlan(hash, pack, unavailableRef.current);
+        const outcome = await loadPlan(
+          hash,
+          pack,
+          availabilityRef.current.causes,
+        );
         if (outcome.kind === "error") {
           failLoad(outcome.error);
           return;
@@ -550,7 +570,7 @@ function AppInner() {
         const solved = solveFromPlan(
           nextPlan,
           undefined,
-          unavailableRef.current,
+          availabilityRef.current.ids,
         );
         const laid = await layoutSolved(solved);
         if (outcome.kind === "seeded") await writeHash(nextPlan, myGen);
@@ -605,8 +625,8 @@ function AppInner() {
   // Async derived-state refresh for an already-committed plan. solveGen is
   // last-write-wins: every solve corresponds to a committed plan, so the
   // newest generation's render is always the right one to keep. A stable
-  // callback (the setters are stable and `unavailable` changes only on an
-  // override flip) so the availability re-solve effect below can key on it.
+  // callback (the setters are stable and `unavailable` changes only when the
+  // availability object does) so the re-solve effect below can key on it.
   // Declared before commitPlan, which forwards into it.
   const scheduleSolve = useCallback(
     async (nextPlan: Plan): Promise<void> => {
@@ -646,7 +666,7 @@ function AppInner() {
       setMutationError({ kind: "busy" });
       return;
     }
-    const error = validatePlan(nextPlan, pack, unavailable);
+    const error = validatePlan(nextPlan, pack, availability.causes);
     if (error) {
       // The edit itself is what validatePlan rejected, and the canvas keeps the
       // last good render, so mark it stale.
@@ -683,14 +703,14 @@ function AppInner() {
       }
       return;
     }
-    const error = validatePlan(current, pack, unavailable);
+    const error = validatePlan(current, pack, availability.causes);
     if (error) {
       setMutationError({ kind: "edit", error });
       setStale(true);
       return;
     }
     void scheduleSolve(current);
-  }, [unavailable, scheduleSolve, loadFromHash]);
+  }, [availability, scheduleSolve, loadFromHash]);
 
   // Cross-tab sync for the overrides: a `storage` event fires in every OTHER
   // window sharing this origin's localStorage when the key changes, which is
@@ -1087,7 +1107,7 @@ function AppInner() {
                   targets={plan.targets}
                   pack={pack}
                   onChange={handleTargetsChange}
-                  eventOffItems={eventOffItems}
+                  unavailableItems={unavailableItemCauses}
                 />
               </div>
               <div id="side-inputs">
@@ -1096,7 +1116,7 @@ function AppInner() {
                   itemOverrides={plan.itemOverrides ?? []}
                   onChange={handleItemOverridesChange}
                   pack={pack}
-                  eventOffItems={eventOffItems}
+                  unavailableItems={unavailableItemCauses}
                   targetItemIds={targetItemIds}
                   supplyRateByItem={supplyRateByItem}
                   catalystAccount={catalystAccount}
