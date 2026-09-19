@@ -440,7 +440,6 @@ export function auditOwnCardPierces(
 // Pure and deterministic.
 export type FrameRideHit = {
   edgeId: string;
-  kind: "frame";
   direction: "forward" | "backward";
   // The container node id whose border is ridden.
   target: string;
@@ -506,7 +505,6 @@ export function auditFrameRides(
     ): void => {
       out.push({
         edgeId: edge.id,
-        kind: "frame",
         direction,
         target,
         border,
@@ -1283,6 +1281,15 @@ export type DotStrokeHit = {
 // A split dot (the fan-out column's, the declined fan-out's divergence dot) is
 // shared by every edge leaving the same port, so the trunk is item + source; a
 // merge dot is shared by every edge reaching one port, so it is item + target.
+//
+// A blind spot rides on that keying. Edge ids carry no port, so a merge dot's
+// own trunk is item + target unit only. A card fed one item on both its raw
+// row and its catalyst row makes each of the two edges count as the other's
+// own trunk, so a catalyst line crossing the raw row's merge-dot disc is
+// exempted instead of counted. It can only suppress a hit, never invent one,
+// so a zero in DOT_FOREIGN_STROKE_BASELINE does not cover that shape. Keying
+// by port would need the port threaded through collect.ts, which reads edges
+// as id + d only -- out of scope here.
 const DOT_TRUNK_SIDE: ReadonlyArray<readonly [string, "source" | "target"]> = [
   [BUS_JUNCTION_PREFIX, "source"],
   [FANOUT_JUNCTION_PREFIX, "source"],
