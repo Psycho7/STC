@@ -93,6 +93,9 @@ import type { ItemEdgeData } from "./ItemEdge";
 // trunk's one aggregate chip (showing the total, plus the count when > 1). The
 // other members suppress that chip, so the trunk shows its true total once
 // instead of one member's share stacked N times. trunkKey groups the members.
+// A fan-out with no near member stamps these fields on its elected FAR owner
+// alone, which stays an item edge: the stamps are the whole contract, and the
+// item shape seats the chip off them the same way a retyped member does.
 export type BusAggregate = {
   trunkKey: string;
   busTotalRate?: Fraction;
@@ -496,15 +499,44 @@ export function routeTrunkEdges(
   // member that is STILL near after the demotions above, i.e. one BusEdge draws
   // the fan-out shape (and therefore the trunk anchor) for. Trunk.owner is
   // elected over ALL members, so a trunk whose lex-smallest member is far or
-  // backward would hand the aggregate to an edge that draws no trunk segment and
-  // the trunk would show no total at all. A trunk with no near member draws its
-  // aggregate on nothing, the same way a fan-in trunk of all-dual members does.
+  // backward would hand the aggregate to an edge that draws no trunk segment.
   const fanoutAggOwnerByTrunk = new Map<Trunk, string>();
   for (const [id, side] of fanOutByEdgeId) {
     if (side.reach !== "near") continue;
     const owner = fanoutAggOwnerByTrunk.get(side.geom.trunk);
     if (owner === undefined || id < owner) {
       fanoutAggOwnerByTrunk.set(side.geom.trunk, id);
+    }
+  }
+
+  // Second tier: a trunk with NO near member still owes its total, so the
+  // election falls through to the far members rather than leaving the trunk
+  // silent (a reader cannot tell why one boundary port is labelled and the next
+  // is not, since layer distance is not drawn). The far owner is the
+  // lex-smallest member whose ports differ in y -- a BENDING member, the same
+  // edge that carries the divergence dot, so dot and total ride one carrier --
+  // else the lex-smallest far member. It keeps `type: "item"` and its borrowed
+  // column, and gains the aggregate stamps alone: drawnEdge then seats the
+  // total on its source stub, in the gap reserve layerModel already charged for
+  // it. A BACKWARD member is never elected -- it draws no stretch the box could
+  // stand on -- so a trunk of backward members only stays ownerless.
+  const farAggOwnerByTrunk = new Map<Trunk, string>();
+  {
+    const farByTrunk = new Map<Trunk, string[]>();
+    for (const [id, side] of fanOutByEdgeId) {
+      if (side.reach !== "far") continue;
+      if (fanoutAggOwnerByTrunk.has(side.geom.trunk)) continue;
+      pushInto(farByTrunk, side.geom.trunk, id);
+    }
+    const bends = (id: string): boolean => {
+      const member = edgeById.get(id);
+      const ports = member === undefined ? null : edgePortsModel(member, byId);
+      return ports !== null && ports.sy !== ports.ty;
+    };
+    for (const [trunk, ids] of farByTrunk) {
+      const sorted = [...ids].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+      const owner = sorted.find(bends) ?? sorted[0];
+      if (owner !== undefined) farAggOwnerByTrunk.set(trunk, owner);
     }
   }
 
@@ -585,6 +617,15 @@ export function routeTrunkEdges(
     // A far member borrows one column. When it is far on BOTH sides the
     // fan-out's wins: that is the column its siblings already leave the shared
     // out-port on, and a single vertical run can only stand in one gap.
+    //
+    // The elected far owner of an otherwise ownerless fan-out also carries its
+    // trunk's aggregate stamps here. The drawn shape is unchanged -- it stays an
+    // item edge through every later pass -- and drawnEdge reads the stamps alone
+    // to seat the total on its source stub.
+    const farAggregate =
+      out?.reach === "far" && farAggOwnerByTrunk.get(out.geom.trunk) === edge.id
+        ? aggregateOf(out.geom.trunk, true)
+        : {};
     const column =
       out?.reach === "far"
         ? { bendX: out.junctionX, fanoutColumn: true as const }
@@ -594,7 +635,10 @@ export function routeTrunkEdges(
     if (Object.keys(column).length === 0 && Object.keys(rails).length === 0) {
       return edge;
     }
-    return { ...edge, data: { ...edge.data, ...rails, ...column } };
+    return {
+      ...edge,
+      data: { ...edge.data, ...rails, ...farAggregate, ...column },
+    };
   });
 }
 

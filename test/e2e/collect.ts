@@ -326,11 +326,17 @@ export function collectGeometry(): Geometry {
       // exemption; bus branch chips ("bus", out of scope for the corridor
       // invariants); and item rate chips ("label"). Only rate chips ride the
       // clear-segment anchor.
-      kind: (testId.startsWith("bus-edge-")
-        ? testId.endsWith("-drop")
-          ? "bus-drop"
-          : "bus"
-        : "label") as "label" | "bus" | "bus-drop",
+      //
+      // The -drop suffix decides the aggregate family on its own, whichever
+      // edge type drew it: a fan-out with no near member seats its total on an
+      // ITEM-shaped far owner (`item-edge-<id>-drop`), and reading the family
+      // off the prefix alone filed that chip as a rate chip, so every bus-drop
+      // audit skipped it in silence.
+      kind: (testId.endsWith("-drop")
+        ? "bus-drop"
+        : testId.startsWith("bus-edge-")
+          ? "bus"
+          : "label") as "label" | "bus" | "bus-drop",
       iconOnly: el.classList.contains("icon-only"),
       left: toGraphX(r.left),
       top: toGraphY(r.top),

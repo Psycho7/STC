@@ -75,7 +75,7 @@ function chipsOf(edge: Edge, drawn: DrawnEdge): Chip[] {
   const half = (text: Parameters<typeof chipSeatHalfW>[0]): number =>
     chipSeatHalfW(text, false);
   if (drawn.shape === "item") {
-    return [
+    const chips: Chip[] = [
       {
         edge: edge.id,
         kind: "item",
@@ -84,6 +84,19 @@ function chipsOf(edge: Edge, drawn: DrawnEdge): Chip[] {
         halfW: half(rateChipText(edge)),
       },
     ];
+    // The far owner of a fan-out trunk with no near member draws that trunk's
+    // aggregate on the item shape, one more box that must keep off every chip
+    // and every dot.
+    if (drawn.trunkAnchor !== undefined) {
+      chips.push({
+        edge: edge.id,
+        kind: "fanout aggregate",
+        x: drawn.trunkAnchor.x,
+        y: drawn.trunkAnchor.y,
+        halfW: half(aggregateChipText(edge)),
+      });
+    }
+    return chips;
   }
   const out: Chip[] = [
     {
