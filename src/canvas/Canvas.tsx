@@ -561,10 +561,12 @@ function CanvasInner({
       pushInto(edgesByNode, edge.source, edge.id);
       pushInto(edgesByNode, edge.target, edge.id);
       const trunkKey = (edge.data as BusAggregate | undefined)?.trunkKey;
-      // trunkKey is item + "|" + the trunk's shared unit (a fan-out's source,
-      // a fan-in's target), so every member of one trunk shares ONE trunkKey
-      // and they form a single hover group here. The trunk's aggregate chip
-      // shows its own total (its members' summed rate).
+      // trunkKey names the port the trunk fans through: item + "|" + the source
+      // unit for a fan-out, and item + "|" + the target unit + "|" + the target
+      // row kind ("in" or "cat") for a fan-in, whose target end can take one
+      // item on two rows. Either way every member of one trunk shares ONE
+      // trunkKey and they form a single hover group here. The trunk's aggregate
+      // chip shows its own total (its members' summed rate).
       if (edge.type === "bus" && typeof trunkKey === "string") {
         pushInto(edgesByTrunk, trunkKey, edge.id);
       }

@@ -64,12 +64,23 @@ export function edgeRate(edge: Edge): Fraction | undefined {
 
 // Key of one FLOW: the (item, source unit) pair leaving a single out-port. A
 // recipe out-port carries exactly one item, so item plus source id names the
-// port, and every edge sharing the key draws as one physical line. Trunks (routeTrunkEdges) key on it -- that is the `trunkKey` they stamp --
-// and chip seating reuses it to decide which lines a chip may legitimately sit
-// on. Built here so the callers cannot drift on the separator or on how a
-// missing item is spelled.
+// port, and every edge sharing the key draws as one physical line. A FAN-OUT
+// trunk keys on it -- that is the `trunkKey` routeTrunkEdges stamps -- and chip
+// seating reuses it to decide which lines a chip may legitimately sit on. Built
+// here so the callers cannot drift on the separator or on how a missing item is
+// spelled.
 export function flowKeyOf(item: string | undefined, source: string): string {
   return (item ?? "?") + "|" + source;
+}
+
+// Key of one FAN-IN bucket: the (item, target unit, target row kind) triple.
+// The mirror of flowKeyOf is deliberately NOT two-part, because the target end
+// has no out-port's one-item guarantee: a card can take the same item on an
+// input row and on a catalyst row, and those are two ports taking two edges.
+// Keyed on the item alone the two rows merge into one trunk, which then charges
+// one shared column and one aggregate reserve for flows that never meet.
+export function faninKeyOf(item: string | undefined, edge: Edge): string {
+  return flowKeyOf(item, edge.target) + "|" + edgeTargetSide(edge);
 }
 
 // The id -> node index every geometry accessor here takes. Last id wins on a

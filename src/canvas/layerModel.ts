@@ -52,6 +52,7 @@ import {
   absoluteLeft,
   edgeItem,
   edgeRate,
+  faninKeyOf,
   flowKeyOf,
   nodeIndexOf,
   nodeWidth,
@@ -142,7 +143,9 @@ export type GapRecord = {
 export type TrunkKind = "fanOut" | "fanIn";
 
 // One topological trunk: every edge of one item leaving a single source unit
-// (fan-out) or entering a single target unit (fan-in), N >= 2. `owner` is the
+// (fan-out) or entering one ROW KIND of a single target unit (fan-in), N >= 2.
+// The fan-in side carries the row kind because a card takes the same item on an
+// input row and a catalyst row through two ports. `owner` is the
 // lex-smallest member edge id, the same election routeTrunkEdges runs, so a
 // consumer can key per-trunk state on one member without re-electing.
 export type Trunk = {
@@ -599,12 +602,7 @@ export function classifyTrunks(
     out.members.push(edge);
     out.counterparts.add(edge.target);
 
-    const into = bucket(
-      inBuckets,
-      flowKeyOf(item, edge.target),
-      item,
-      edge.target,
-    );
+    const into = bucket(inBuckets, faninKeyOf(item, edge), item, edge.target);
     into.members.push(edge);
     into.counterparts.add(edge.source);
   }
