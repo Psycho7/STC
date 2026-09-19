@@ -1,0 +1,387 @@
+{
+  "nodes": [
+    {
+      "id": "loop:plant_grass_1",
+      "x": 1070,
+      "y": 73
+    },
+    {
+      "id": "u:class:q:10",
+      "x": 612,
+      "y": 60
+    },
+    {
+      "id": "u:class:q:7",
+      "x": 38,
+      "y": 49
+    },
+    {
+      "id": "u:class:q:8",
+      "x": 1217,
+      "y": 29
+    },
+    {
+      "id": "u:class:q:0",
+      "x": 4717.5,
+      "y": 182
+    },
+    {
+      "id": "u:class:q:1",
+      "x": 3507.5,
+      "y": 193
+    },
+    {
+      "id": "u:class:q:2",
+      "x": 4112.5,
+      "y": 313
+    },
+    {
+      "id": "u:class:q:3",
+      "x": 2886.5,
+      "y": 193
+    },
+    {
+      "id": "u:class:q:4",
+      "x": 2886.5,
+      "y": 313
+    },
+    {
+      "id": "u:class:q:5",
+      "x": 4112.5,
+      "y": 162
+    },
+    {
+      "id": "u:class:q:6",
+      "x": 3507.5,
+      "y": 42
+    },
+    {
+      "id": "u:class:q:9",
+      "x": 2886.5,
+      "y": 73
+    },
+    {
+      "id": "u:in:iron_ore",
+      "x": 517.5,
+      "y": 232
+    },
+    {
+      "id": "u:in:liquid_water",
+      "x": 12,
+      "y": 12
+    },
+    {
+      "id": "u:in:liquid_water:loop:plant_grass_1",
+      "x": 517.5,
+      "y": 73
+    },
+    {
+      "id": "u:out:bottled_food_4",
+      "x": 5291.5,
+      "y": 202
+    }
+  ],
+  "edges": [
+    {
+      "id": "e:0:u:class:q:0->u:out:bottled_food_4:bottled_food_4",
+      "type": "item",
+      "pts": [
+        [4962.5, 256],
+        [5148.5, 256],
+        [5164.5, 237.5],
+        [5287.5, 237.5]
+      ],
+      "anchors": {
+        "labelAnchor": [5055.5, 256]
+      },
+      "bendX": 5112.5,
+      "entryX": 5156.5
+    },
+    {
+      "id": "e:1:u:class:q:1->u:class:q:5:iron_bottle",
+      "type": "item",
+      "pts": [
+        [3752.5, 267],
+        [3962, 267],
+        [3978, 258],
+        [4109.5, 258]
+      ],
+      "anchors": {
+        "labelAnchor": [3857.25, 267]
+      },
+      "bendX": 3900.6666666666665,
+      "entryX": 3970
+    },
+    {
+      "id": "e:2:u:class:q:10->u:class:q:7:plant_grass_seed_1",
+      "type": "item",
+      "pts": [
+        [1927, 207],
+        [2057, 207],
+        [2065, 215],
+        [2065, 292],
+        [2057, 300],
+        [928, 300],
+        [920, 292],
+        [920, 204],
+        [928, 196],
+        [1105, 196]
+      ],
+      "anchors": {
+        "labelAnchor": [1492.5, 300]
+      },
+      "entryX": 920,
+      "railXRight": 2065,
+      "railY": 300
+    },
+    {
+      "id": "e:3:u:class:q:10->u:class:q:8:plant_grass_seed_1",
+      "type": "bus",
+      "pts": [
+        [1927, 207],
+        [2057, 207],
+        [2073, 198],
+        [2284, 198]
+      ],
+      "anchors": {
+        "junction": [2057, 207],
+        "trunkAnchor": [1994.5, 207],
+        "branchAnchor": [2209, 198]
+      }
+    },
+    {
+      "id": "e:4:u:class:q:2->u:class:q:0:iron_cmpt",
+      "type": "item",
+      "pts": [
+        [4357.5, 387],
+        [4567, 387],
+        [4575, 379],
+        [4575, 286],
+        [4583, 278],
+        [4714.5, 278]
+      ],
+      "anchors": {
+        "labelAnchor": [4462.25, 387]
+      },
+      "bendX": 4505.666666666667,
+      "entryX": 4575
+    },
+    {
+      "id": "e:5:u:class:q:3->u:class:q:1:iron_nugget",
+      "type": "item",
+      "pts": [
+        [3131.5, 267],
+        [3504.5, 267]
+      ],
+      "anchors": {
+        "labelAnchor": [3318, 267]
+      },
+      "bendX": 3305
+    },
+    {
+      "id": "e:6:u:class:q:4->u:class:q:2:iron_nugget",
+      "type": "item",
+      "pts": [
+        [3131.5, 387],
+        [4109.5, 387]
+      ],
+      "anchors": {
+        "labelAnchor": [3620.5, 387]
+      },
+      "bendX": 3327
+    },
+    {
+      "id": "e:7:u:class:q:5->u:class:q:0:iron_bottle-liquid_plant_grass_1",
+      "type": "item",
+      "pts": [
+        [4357.5, 236],
+        [4551, 236],
+        [4567, 256],
+        [4714.5, 256]
+      ],
+      "anchors": {
+        "labelAnchor": [4454.25, 236]
+      },
+      "bendX": 4524.333333333333,
+      "entryX": 4559
+    },
+    {
+      "id": "e:8:u:class:q:6->u:class:q:5:liquid_plant_grass_1",
+      "type": "item",
+      "pts": [
+        [3752.5, 116],
+        [3946, 116],
+        [3954, 124],
+        [3954, 228],
+        [3962, 236],
+        [4109.5, 236]
+      ],
+      "anchors": {
+        "labelAnchor": [3849.25, 116]
+      },
+      "bendX": 3919.3333333333335,
+      "entryX": 3954
+    },
+    {
+      "id": "e:9:u:class:q:7->u:class:q:10:plant_grass_1",
+      "type": "item",
+      "pts": [
+        [1353, 196],
+        [1495, 196],
+        [1503, 204],
+        [1503, 231],
+        [1511, 239],
+        [1539, 239],
+        [1547, 231],
+        [1547, 215],
+        [1555, 207],
+        [1679, 207]
+      ],
+      "anchors": {
+        "labelAnchor": [1424, 196]
+      },
+      "bendX": 1503,
+      "entryX": 1547,
+      "jogDescentX": 1547,
+      "legY": 239
+    },
+    {
+      "id": "e:10:u:class:q:8->u:class:q:9:plant_grass_1",
+      "type": "item",
+      "pts": [
+        [2532, 176],
+        [2736, 176],
+        [2744, 168],
+        [2744, 155],
+        [2752, 147],
+        [2883.5, 147]
+      ],
+      "anchors": {
+        "labelAnchor": [2634, 176]
+      },
+      "bendX": 2700,
+      "entryX": 2744
+    },
+    {
+      "id": "e:11:u:class:q:9->u:class:q:6:plant_grass_powder_1",
+      "type": "item",
+      "pts": [
+        [3131.5, 147],
+        [3357, 147],
+        [3373, 138],
+        [3504.5, 138]
+      ],
+      "anchors": {
+        "labelAnchor": [3244.25, 147]
+      },
+      "bendX": 3283,
+      "entryX": 3365
+    },
+    {
+      "id": "e:12:u:in:iron_ore->u:class:q:3:iron_ore",
+      "type": "item",
+      "pts": [
+        [669.5, 267.5],
+        [840, 267.5],
+        [856, 267],
+        [2883.5, 267]
+      ],
+      "anchors": {
+        "labelAnchor": [2812.25, 267]
+      },
+      "bendX": 848
+    },
+    {
+      "id": "e:13:u:in:iron_ore->u:class:q:4:iron_ore",
+      "type": "item",
+      "pts": [
+        [669.5, 267.5],
+        [840, 267.5],
+        [848, 275.5],
+        [848, 379],
+        [856, 387],
+        [2883.5, 387]
+      ],
+      "anchors": {
+        "labelAnchor": [2812.25, 387]
+      },
+      "bendX": 848,
+      "fanoutJunctionX": 840,
+      "fanoutJunctionY": 267.5
+    },
+    {
+      "id": "e:14:u:in:liquid_water->u:class:q:6:liquid_water",
+      "type": "item",
+      "pts": [
+        [164, 47.5],
+        [302.5, 47.5],
+        [318.5, 57],
+        [3341, 57],
+        [3349, 65],
+        [3349, 108],
+        [3357, 116],
+        [3504.5, 116]
+      ],
+      "anchors": {
+        "labelAnchor": [3433.25, 116]
+      },
+      "bendX": 310.5,
+      "jogDescentX": 3349,
+      "legY": 57
+    },
+    {
+      "id": "e:15:u:in:liquid_water->u:in:liquid_water:loop:plant_grass_1:liquid_water",
+      "type": "bus",
+      "pts": [
+        [164, 47.5],
+        [302.5, 47.5],
+        [310.5, 55.5],
+        [310.5, 100.5],
+        [318.5, 108.5],
+        [513.5, 108.5]
+      ],
+      "anchors": {
+        "junction": [302.5, 47.5],
+        "trunkAnchor": [235.25, 47.5],
+        "branchAnchor": [446, 108.5]
+      }
+    },
+    {
+      "id": "e:16:u:in:liquid_water:loop:plant_grass_1->u:class:q:7:liquid_water",
+      "type": "bus",
+      "pts": [
+        [669.5, 108.5],
+        [808, 108.5],
+        [816, 116.5],
+        [816, 210],
+        [824, 218],
+        [1105, 218]
+      ],
+      "anchors": {
+        "junction": [808, 108.5],
+        "trunkAnchor": [737, 108.5],
+        "branchAnchor": [1030, 218]
+      }
+    },
+    {
+      "id": "e:17:u:in:liquid_water:loop:plant_grass_1->u:class:q:8:liquid_water",
+      "type": "item",
+      "pts": [
+        [669.5, 108.5],
+        [808, 108.5],
+        [824, 106],
+        [2129, 106],
+        [2137, 114],
+        [2137, 168],
+        [2145, 176],
+        [2284, 176]
+      ],
+      "anchors": {
+        "labelAnchor": [2209, 176]
+      },
+      "bendX": 816,
+      "jogDescentX": 2137,
+      "legY": 106
+    }
+  ]
+}

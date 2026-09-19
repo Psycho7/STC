@@ -1,0 +1,153 @@
+{
+  "nodes": [
+    {
+      "id": "u:class:q:0",
+      "x": 510,
+      "y": 132
+    },
+    {
+      "id": "u:class:q:1",
+      "x": 2233,
+      "y": 112
+    },
+    {
+      "id": "u:class:q:2",
+      "x": 1084,
+      "y": 132
+    },
+    {
+      "id": "u:class:q:3",
+      "x": 1084,
+      "y": 12
+    },
+    {
+      "id": "u:class:q:4",
+      "x": 1674,
+      "y": 101
+    },
+    {
+      "id": "u:in:iron_ore",
+      "x": 12,
+      "y": 141
+    },
+    {
+      "id": "u:in:originium_ore",
+      "x": 12,
+      "y": 21
+    },
+    {
+      "id": "u:out:tundra_coupon",
+      "x": 2807,
+      "y": 121
+    }
+  ],
+  "edges": [
+    {
+      "id": "e:0:u:class:q:0->u:class:q:2:iron_nugget",
+      "type": "item",
+      "pts": [
+        [755, 206],
+        [1081, 206]
+      ],
+      "anchors": {
+        "labelAnchor": [918, 206]
+      },
+      "bendX": 917
+    },
+    {
+      "id": "e:1:u:class:q:1->u:out:tundra_coupon:tundra_coupon",
+      "type": "item",
+      "pts": [
+        [2478, 186],
+        [2664, 186],
+        [2672, 178],
+        [2672, 164.5],
+        [2680, 156.5],
+        [2803, 156.5]
+      ],
+      "anchors": {
+        "labelAnchor": [2571, 186]
+      },
+      "bendX": 2628,
+      "entryX": 2672
+    },
+    {
+      "id": "e:2:u:class:q:2->u:class:q:4:iron_cmpt",
+      "type": "item",
+      "pts": [
+        [1329, 206],
+        [1531, 206],
+        [1547, 197],
+        [1671, 197]
+      ],
+      "anchors": {
+        "labelAnchor": [1430, 206]
+      },
+      "bendX": 1469.6666666666667,
+      "entryX": 1539
+    },
+    {
+      "id": "e:3:u:class:q:3->u:class:q:4:originium_powder",
+      "type": "item",
+      "pts": [
+        [1329, 86],
+        [1515, 86],
+        [1523, 94],
+        [1523, 167],
+        [1531, 175],
+        [1671, 175]
+      ],
+      "anchors": {
+        "labelAnchor": [1422, 86]
+      },
+      "bendX": 1488.3333333333333,
+      "entryX": 1523
+    },
+    {
+      "id": "e:4:u:class:q:4->u:class:q:1:proc_battery_2",
+      "type": "item",
+      "pts": [
+        [1919, 175],
+        [2097.5, 175],
+        [2113.5, 186],
+        [2230, 186]
+      ],
+      "anchors": {
+        "labelAnchor": [2008.25, 175]
+      },
+      "bendX": 2061.5,
+      "entryX": 2105.5
+    },
+    {
+      "id": "e:5:u:in:iron_ore->u:class:q:0:iron_ore",
+      "type": "item",
+      "pts": [
+        [164, 176.5],
+        [367, 176.5],
+        [375, 184.5],
+        [375, 198],
+        [383, 206],
+        [507, 206]
+      ],
+      "anchors": {
+        "labelAnchor": [265.5, 176.5]
+      },
+      "bendX": 311,
+      "entryX": 375
+    },
+    {
+      "id": "e:6:u:in:originium_ore->u:class:q:3:originium_ore",
+      "type": "item",
+      "pts": [
+        [164, 56.5],
+        [323, 56.5],
+        [347, 86],
+        [1081, 86]
+      ],
+      "anchors": {
+        "labelAnchor": [714, 86]
+      },
+      "bendX": 335
+    }
+  ]
+}

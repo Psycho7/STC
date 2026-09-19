@@ -1,0 +1,399 @@
+{
+  "nodes": [
+    {
+      "id": "loop:plant_moss_2",
+      "x": 524,
+      "y": 12
+    },
+    {
+      "id": "u:class:q:15",
+      "x": 617,
+      "y": 38
+    },
+    {
+      "id": "u:class:q:8",
+      "x": 28,
+      "y": 38
+    },
+    {
+      "id": "u:class:q:9",
+      "x": 1222,
+      "y": 38
+    },
+    {
+      "id": "loop:plant_moss_3",
+      "x": 867,
+      "y": 180
+    },
+    {
+      "id": "u:class:q:10",
+      "x": 633,
+      "y": 148
+    },
+    {
+      "id": "u:class:q:11",
+      "x": 633,
+      "y": 28
+    },
+    {
+      "id": "u:class:q:16",
+      "x": 28,
+      "y": 28
+    },
+    {
+      "id": "u:class:q:0",
+      "x": 4835,
+      "y": 417
+    },
+    {
+      "id": "u:class:q:1",
+      "x": 3657,
+      "y": 448
+    },
+    {
+      "id": "u:class:q:12",
+      "x": 3052,
+      "y": 295
+    },
+    {
+      "id": "u:class:q:13",
+      "x": 2400,
+      "y": 50
+    },
+    {
+      "id": "u:class:q:14",
+      "x": 2400,
+      "y": 326
+    },
+    {
+      "id": "u:class:q:2",
+      "x": 4246,
+      "y": 448
+    },
+    {
+      "id": "u:class:q:3",
+      "x": 915.5,
+      "y": 468
+    },
+    {
+      "id": "u:class:q:4",
+      "x": 3052,
+      "y": 437
+    },
+    {
+      "id": "u:class:q:7",
+      "x": 2400,
+      "y": 468
+    },
+    {
+      "id": "u:in:iron_ore",
+      "x": 12,
+      "y": 477
+    },
+    {
+      "id": "u:out:bottled_food_3",
+      "x": 5409,
+      "y": 437
+    }
+  ],
+  "edges": [
+    {
+      "id": "e:0:u:class:q:0->u:out:bottled_food_3:bottled_food_3",
+      "type": "item",
+      "pts": [
+        [5080, 491],
+        [5266, 491],
+        [5282, 472.5],
+        [5405, 472.5]
+      ],
+      "anchors": {
+        "labelAnchor": [5173, 491]
+      },
+      "bendX": 5230,
+      "entryX": 5274
+    },
+    {
+      "id": "e:1:u:class:q:1->u:class:q:2:iron_enr",
+      "type": "item",
+      "pts": [
+        [3902, 522],
+        [4243, 522]
+      ],
+      "anchors": {
+        "labelAnchor": [4072.5, 522]
+      },
+      "bendX": 4071.5
+    },
+    {
+      "id": "e:2:u:class:q:10->u:class:q:16:plant_moss_3",
+      "type": "item",
+      "pts": [
+        [1745, 402],
+        [2138, 402],
+        [2146, 410],
+        [2146, 566],
+        [2138, 574],
+        [366, 574],
+        [358, 566],
+        [358, 290],
+        [366, 282],
+        [892, 282]
+      ],
+      "anchors": {
+        "labelAnchor": [1252, 574]
+      },
+      "entryX": 374,
+      "railXLeft": 358,
+      "railXRight": 2146,
+      "railY": 574
+    },
+    {
+      "id": "e:3:u:class:q:11->u:class:q:14:plant_moss_3",
+      "type": "item",
+      "pts": [
+        [1745, 282],
+        [2242, 282],
+        [2250, 290],
+        [2250, 392],
+        [2258, 400],
+        [2397, 400]
+      ],
+      "anchors": {
+        "labelAnchor": [1993.5, 282]
+      },
+      "entryX": 2250
+    },
+    {
+      "id": "e:4:u:class:q:12->u:class:q:0:plant_moss_enr_powder_2",
+      "type": "item",
+      "pts": [
+        [3297, 369],
+        [3466.5, 369],
+        [3474.5, 377],
+        [3474.5, 424],
+        [3482.5, 432],
+        [4668.5, 432],
+        [4676.5, 440],
+        [4676.5, 483],
+        [4684.5, 491],
+        [4832, 491]
+      ],
+      "anchors": {
+        "labelAnchor": [4075.5, 432]
+      },
+      "bendX": 3474.5,
+      "jogDescentX": 4676.5,
+      "legY": 432
+    },
+    {
+      "id": "e:5:u:class:q:13->u:class:q:12:plant_moss_powder_2",
+      "type": "item",
+      "pts": [
+        [2645, 124],
+        [2894, 124],
+        [2902, 132],
+        [2902, 361],
+        [2910, 369],
+        [3049, 369]
+      ],
+      "anchors": {
+        "labelAnchor": [2769.5, 124]
+      },
+      "bendX": 2864.6666666666665,
+      "entryX": 2902
+    },
+    {
+      "id": "e:6:u:class:q:14->u:class:q:12:plant_moss_powder_3",
+      "type": "bus",
+      "pts": [
+        [2645, 400],
+        [2790, 400],
+        [2806, 391],
+        [3049, 391]
+      ],
+      "anchors": {
+        "junction": [2790, 400],
+        "trunkAnchor": [2716.25, 400],
+        "branchAnchor": [2977.75, 391]
+      }
+    },
+    {
+      "id": "e:7:u:class:q:14->u:class:q:4:plant_moss_powder_3",
+      "type": "bus",
+      "pts": [
+        [2645, 400],
+        [2790, 400],
+        [2798, 408],
+        [2798, 503],
+        [2806, 511],
+        [3049, 511]
+      ],
+      "anchors": {
+        "junction": [2790, 400],
+        "trunkAnchor": [2716.25, 400],
+        "branchAnchor": [2977.75, 511]
+      }
+    },
+    {
+      "id": "e:8:u:class:q:15->u:class:q:8:plant_moss_seed_2",
+      "type": "item",
+      "pts": [
+        [1386, 124],
+        [1523.5, 124],
+        [1531.5, 116],
+        [1531.5, -36],
+        [1523.5, -44],
+        [382, -44],
+        [374, -36],
+        [374, 116],
+        [382, 124],
+        [549, 124]
+      ],
+      "anchors": {
+        "labelAnchor": [952.75, -44]
+      },
+      "entryX": 374,
+      "railXRight": 1531.5,
+      "railY": -44
+    },
+    {
+      "id": "e:9:u:class:q:15->u:class:q:9:plant_moss_seed_2",
+      "type": "bus",
+      "pts": [
+        [1386, 124],
+        [1743, 124]
+      ],
+      "anchors": {
+        "junction": [1523.5, 124],
+        "trunkAnchor": [1457.25, 124],
+        "branchAnchor": [1671.75, 124]
+      }
+    },
+    {
+      "id": "e:10:u:class:q:16->u:class:q:10:plant_moss_seed_3",
+      "type": "bus",
+      "pts": [
+        [1140, 282],
+        [1277.5, 282],
+        [1285.5, 290],
+        [1285.5, 394],
+        [1293.5, 402],
+        [1497, 402]
+      ],
+      "anchors": {
+        "junction": [1277.5, 282],
+        "trunkAnchor": [1211.25, 282],
+        "branchAnchor": [1425.75, 402]
+      }
+    },
+    {
+      "id": "e:11:u:class:q:16->u:class:q:11:plant_moss_seed_3",
+      "type": "bus",
+      "pts": [
+        [1140, 282],
+        [1497, 282]
+      ],
+      "anchors": {
+        "junction": [1277.5, 282],
+        "trunkAnchor": [1211.25, 282],
+        "branchAnchor": [1425.75, 282]
+      }
+    },
+    {
+      "id": "e:12:u:class:q:2->u:class:q:0:iron_enr_bottle",
+      "type": "item",
+      "pts": [
+        [4491, 522],
+        [4684.5, 522],
+        [4700.5, 513],
+        [4832, 513]
+      ],
+      "anchors": {
+        "labelAnchor": [4587.75, 522]
+      },
+      "bendX": 4648.5,
+      "entryX": 4692.5
+    },
+    {
+      "id": "e:13:u:class:q:3->u:class:q:7:iron_nugget",
+      "type": "item",
+      "pts": [
+        [1160.5, 542],
+        [2397, 542]
+      ],
+      "anchors": {
+        "labelAnchor": [1778.75, 542]
+      }
+    },
+    {
+      "id": "e:14:u:class:q:4->u:class:q:1:iron_enr_powder",
+      "type": "item",
+      "pts": [
+        [3297, 511],
+        [3506.5, 511],
+        [3522.5, 522],
+        [3654, 522]
+      ],
+      "anchors": {
+        "labelAnchor": [3401.75, 511]
+      },
+      "bendX": 3450.5,
+      "entryX": 3514.5
+    },
+    {
+      "id": "e:15:u:class:q:7->u:class:q:4:iron_powder",
+      "type": "item",
+      "pts": [
+        [2645, 542],
+        [2894, 542],
+        [2910, 533],
+        [3049, 533]
+      ],
+      "anchors": {
+        "labelAnchor": [2769.5, 542]
+      },
+      "bendX": 2843.3333333333335,
+      "entryX": 2902
+    },
+    {
+      "id": "e:16:u:class:q:8->u:class:q:15:plant_moss_2",
+      "type": "item",
+      "pts": [
+        [797, 124],
+        [1138, 124]
+      ],
+      "anchors": {
+        "labelAnchor": [967.5, 124]
+      }
+    },
+    {
+      "id": "e:17:u:class:q:9->u:class:q:13:plant_moss_2",
+      "type": "item",
+      "pts": [
+        [1991, 124],
+        [2397, 124]
+      ],
+      "anchors": {
+        "labelAnchor": [2194, 124]
+      },
+      "bendX": 2190
+    },
+    {
+      "id": "e:18:u:in:iron_ore->u:class:q:3:iron_ore",
+      "type": "item",
+      "pts": [
+        [164, 512.5],
+        [366, 512.5],
+        [374, 520.5],
+        [374, 534],
+        [382, 542],
+        [912.5, 542]
+      ],
+      "anchors": {
+        "labelAnchor": [647.25, 542]
+      },
+      "bendX": 330,
+      "entryX": 374
+    }
+  ]
+}
