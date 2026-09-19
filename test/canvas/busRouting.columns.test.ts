@@ -494,6 +494,35 @@ describe("assignEntryColumns", () => {
     expect(entryOf(out, eQ.id)).toBe(600 - PORT_STUB);
   });
 
+  it("interleaves a reversed from-above class with a from-below row", () => {
+    // The from-above class {p, r} straddles row q, which arrives from below. The
+    // class reverses among its own ranks only, so p takes r's offset and r takes
+    // p's, while q keeps the offset port order gave it. The three columns come
+    // out left-to-right as r, q, p: q holds its positional slot between them
+    // rather than the class being gathered onto adjacent columns.
+    const nodes: RFAnyNode[] = [
+      orderedRecipeNode("m", 600, 0, ["p", "q", "r"]),
+      recipeNode("sp", 0, -300, mkRecipe("sp", [], ["p"])),
+      recipeNode("sq", 0, 300, mkRecipe("sq", [], ["q"])),
+      recipeNode("sr", 0, -100, mkRecipe("sr", [], ["r"])),
+    ];
+    const eP = mkEdge("e:0:sp->m:p", "sp", "m", "p");
+    const eQ = mkEdge("e:1:sq->m:q", "sq", "m", "q");
+    const eR = mkEdge("e:2:sr->m:r", "sr", "m", "r");
+    const byId = nodeIndexOf(nodes);
+    const portsP = edgePortsModel(eP, byId)!;
+    const portsQ = edgePortsModel(eQ, byId)!;
+    const portsR = edgePortsModel(eR, byId)!;
+    expect(portsP.sy).toBeLessThan(portsP.ty); // p arrives from above
+    expect(portsQ.sy).toBeGreaterThan(portsQ.ty); // q arrives from below
+    expect(portsR.sy).toBeLessThan(portsR.ty); // r arrives from above
+
+    const out = assignEntryColumns(nodes, [eP, eQ, eR]);
+    expect(entryOf(out, eP.id)).toBe(600 - PORT_STUB);
+    expect(entryOf(out, eQ.id)).toBe(600 - PORT_STUB - ENTRY_SLOT_PITCH);
+    expect(entryOf(out, eR.id)).toBe(600 - PORT_STUB - 2 * ENTRY_SLOT_PITCH);
+  });
+
   it("assigns entry columns deterministically across shuffled input order", () => {
     const nodes: RFAnyNode[] = [
       orderedRecipeNode("m", 1000, 0, ["p", "q"]),
