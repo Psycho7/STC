@@ -5,7 +5,7 @@
     "sourceRepo": "https://github.com/endfield-calc/factoriolab",
     "sourceCommit": "0a3bb78eea8339177f1b3ba1d16f60ccef78902c",
     "gameVersion": "v1.5.3",
-    "extractedAt": "2026-09-19T10:06:56.671Z"
+    "extractedAt": "2026-09-19T10:18:49.692Z"
   },
   "sources": [
     {
@@ -14,17 +14,17 @@
       "sourceRepo": "https://github.com/endfield-calc/factoriolab",
       "sourceCommit": "0a3bb78eea8339177f1b3ba1d16f60ccef78902c",
       "gameVersion": "v1.5.3",
-      "extractedAt": "2026-09-19T10:06:56.671Z"
+      "extractedAt": "2026-09-19T10:18:49.692Z"
     },
     {
       "vendor": "akedata",
       "name": "NagiYume/AKEDatabase",
       "repo": "https://github.com/NagiYume/AKEDatabase",
-      "version": "1.5.3@9913107-5",
-      "hotfixVersion": "9913107-5",
-      "publishedAt": "2026-09-04T14:31:50.963743+00:00",
-      "snapshotDate": "2026-09-13",
-      "tableCfgPath": "public/1.5.3/9913107-5/TableCfg"
+      "version": "1.5.3@10024360-6",
+      "hotfixVersion": "10024360-6",
+      "publishedAt": "2026-09-08T05:34:51.667413+00:00",
+      "snapshotDate": "2026-09-19",
+      "tableCfgPath": "public/1.5.3/10024360-6/TableCfg"
     }
   ],
   "locales": [
