@@ -34,6 +34,7 @@ import {
 import { layoutSolved } from "../../src/canvas/layoutSolved";
 import {
   absoluteLeft,
+  edgeTargetSide,
   nodeIndexOf,
   nodeWidth,
 } from "../../src/canvas/nodeGeometry";
@@ -160,6 +161,47 @@ describe("layer-gap widening: width census over the exam corpus", () => {
     mkdirSync(dirname(OUT), { recursive: true });
     writeFileSync(OUT, `${JSON.stringify(report, null, 2)}\n`, "utf8");
     console.log(JSON.stringify(report, null, 2));
+  }, 600_000);
+});
+
+// A card takes one item on an input row and on a catalyst row through two
+// separate ports, so the two arrivals are two trunk candidates: a fan-in trunk
+// whose members do not all enter on one row kind would draw one merge column and
+// one aggregate total for flows that never meet (issue #154).
+describe("fan-in trunks over the exam corpus", () => {
+  it("never mixes a card's input row with its catalyst row", async () => {
+    const mixed: Array<{ plan: string; trunk: string; members: string[] }> = [];
+    let fanIns = 0;
+
+    for (const scenario of SCENARIOS) {
+      const targets: ItemTarget[] = scenario.targets.map((t) => ({
+        itemId: t.itemId,
+        ratePerSec: t.ratePerSec,
+      }));
+      const { nodes, edges } = await layoutSolved(
+        solveForRender({ targets, pack }),
+      );
+      const edgeById = new Map(edges.map((edge) => [edge.id, edge]));
+
+      for (const trunk of classifyTrunks(nodes, edges).trunks) {
+        if (trunk.kind !== "fanIn") continue;
+        fanIns += 1;
+        const sides = new Set(
+          trunk.members.map((id) => edgeTargetSide(edgeById.get(id)!)),
+        );
+        if (sides.size === 1) continue;
+        mixed.push({
+          plan: scenario.id,
+          trunk: trunk.key,
+          members: [...trunk.members],
+        });
+      }
+    }
+
+    // Premise: the corpus really does build fan-in trunks, so the empty list
+    // below is a verdict rather than an empty scan.
+    expect(fanIns).toBeGreaterThan(0);
+    expect(mixed).toEqual([]);
   }, 600_000);
 });
 

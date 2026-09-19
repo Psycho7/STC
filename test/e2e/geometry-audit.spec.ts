@@ -367,7 +367,11 @@ const CROSSING_BASELINE: Record<string, number> = {
   // CATALYST EXAM FIXES 2026-09-15 (T6): 26 -> 27. One forward horizontal takes
   // the new chip-box floor off the run it shared and crosses one more corridor
   // on its way down. UP move, listed for ruling.
-  "battery5-xiranite": 27,
+  //
+  // FAN-IN TRUNK KEY 2026-09-19 (#154): 27 -> 25. The card's catalyst row and
+  // input row of gas_xiranite stopped merging into one fan-in trunk, so gap 2
+  // drops a junction column and the layers right of it move 32 units left.
+  "battery5-xiranite": 25,
   crystal: 1,
   // CATALYST NODE 2026-09-14 (PR B): 1 -> 2. The plan's one catalyst charge
   // moved to its own card, one layer further from its consumer. UP move,
