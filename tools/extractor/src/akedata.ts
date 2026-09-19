@@ -15,9 +15,11 @@
 import { resolve } from "node:path";
 import {
   TRANSPORT_KIND,
+  type EnvironmentId,
   type Item,
   type Machine,
   type Recipe,
+  type TransportKindId,
 } from "./schema.ts";
 
 // AKEData entity tables carry bare int64 ids that exceed the JS safe-integer
@@ -52,17 +54,20 @@ const MACHINE_ALIASES: Record<string, string> = {
 };
 
 // The pack's transport phases, by FactoryItemTable.phaseType.
-const TRANSPORT_KIND_BY_PHASE: Record<number, string> = {
+const TRANSPORT_KIND_BY_PHASE: Record<number, TransportKindId> = {
   1: TRANSPORT_KIND.BELT,
   2: TRANSPORT_KIND.PIPE,
   4: TRANSPORT_KIND.GAS,
 };
 
-// The one item where the two vendors disagree on the transport phase:
-// endfield-calc calls it a belt item because it carries a stack size, the game
-// table calls it a gas. The game table is right, but adopting it changes a pack
-// field, so the correction is its own change; this exemption goes away with it.
-const TRANSPORT_KIND_EXEMPT = "activity_copper_poly_gas";
+// The atmosphere a craft demands, by FactoryMachineCraftTable.gasEnv; 0 means
+// any. FactoryVaporizerTable spells the whole enum (1 inert, 2 water, 3 acid,
+// 4 xiranite), but only these two carry a craft today and the pack has no
+// spelling for the other two, so an unlisted value throws.
+const ENVIRONMENT_BY_GAS_ENV: Record<number, EnvironmentId> = {
+  1: "stable",
+  3: "acidic",
+};
 
 // The domain that maps to the pack's jinlong location. domain_1 is tundra and
 // is carried only by buildings the pack does not ship.
@@ -122,6 +127,7 @@ export interface AkeCraft {
   machineId: string;
   formulaGroupId: string;
   progressRound: number;
+  gasEnv: number;
   ingredients: AkeCraftGroupEntry[];
   outcomes: AkeCraftGroupEntry[];
 }
@@ -256,6 +262,25 @@ export function akeMachineId(packId: string): string {
   return MACHINE_ALIASES[packId] ?? packId;
 }
 
+// The transport phase the game gives one pack item, or undefined when the
+// snapshot has no factory-item row for it. A phase the pack cannot spell throws:
+// the item would otherwise ship on a carrier the game does not put it on.
+export function akeTransportKind(
+  packId: string,
+  ake: AkeSnapshot,
+): TransportKindId | undefined {
+  const row = ake.factoryItems[akeItemId(packId)];
+  if (!row) return undefined;
+
+  const kind = TRANSPORT_KIND_BY_PHASE[row.phaseType];
+  if (!kind) {
+    throw new Error(
+      `item ${packId} has unknown akedata phaseType ${row.phaseType}`,
+    );
+  }
+  return kind;
+}
+
 // Join the built pack to the snapshot and assert every field both vendors
 // carry. Throws on the first disagreement, naming the row and both values.
 // Synthetic pack rows (the gas_pipe carrier, any __ id) have no AKEData
@@ -271,6 +296,42 @@ export function joinAndAssert(
   assertUnjoined("machines", join.unmatchedMachines, UNJOINED_MACHINES);
   assertDomainTransfer(pack.items, pack.recipes, ake);
   return join;
+}
+
+// The atmosphere requirement of every craft that declares one, keyed by pack
+// recipe id. It reads the join rather than the craft table alone, so it runs
+// after joinAndAssert; a craft demanding an atmosphere the pack cannot name, or
+// which no pack recipe matched, fails the extract rather than losing the
+// requirement silently.
+export function deriveEnvironments(
+  ake: AkeSnapshot,
+  join: AkeJoin,
+): Map<string, EnvironmentId> {
+  const recipeByCraft = new Map<string, string>();
+  for (const [recipeId, craftId] of join.crafts) {
+    recipeByCraft.set(craftId, recipeId);
+  }
+
+  const environments = new Map<string, EnvironmentId>();
+  for (const [craftId, craft] of Object.entries(ake.crafts)) {
+    if (craft.gasEnv === 0) continue;
+
+    const environment = ENVIRONMENT_BY_GAS_ENV[craft.gasEnv];
+    if (!environment) {
+      throw new Error(
+        `craft ${craftId} has unknown akedata gasEnv ${craft.gasEnv}`,
+      );
+    }
+
+    const recipeId = recipeByCraft.get(craftId);
+    if (!recipeId) {
+      throw new Error(
+        `craft ${craftId} demands a ${environment} atmosphere but matches no pack recipe`,
+      );
+    }
+    environments.set(recipeId, environment);
+  }
+  return environments;
 }
 
 function assertUnjoined(
@@ -492,13 +553,8 @@ function assertItems(items: Item[], ake: AkeSnapshot, join: AkeJoin): void {
       );
     }
 
-    const kind = TRANSPORT_KIND_BY_PHASE[factoryRow.phaseType];
-    if (!kind) {
-      throw new Error(
-        `item ${item.id} has unknown akedata phaseType ${factoryRow.phaseType}`,
-      );
-    }
-    if (item.transportKind !== kind && item.id !== TRANSPORT_KIND_EXEMPT) {
+    const kind = akeTransportKind(item.id, ake);
+    if (item.transportKind !== kind) {
       throw new Error(
         `item ${item.id} transportKind ${item.transportKind} disagrees with akedata ${kind}`,
       );

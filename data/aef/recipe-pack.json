@@ -5,7 +5,7 @@
     "sourceRepo": "https://github.com/endfield-calc/factoriolab",
     "sourceCommit": "0a3bb78eea8339177f1b3ba1d16f60ccef78902c",
     "gameVersion": "v1.5.3",
-    "extractedAt": "2026-09-19T09:14:43.941Z"
+    "extractedAt": "2026-09-19T10:06:56.671Z"
   },
   "sources": [
     {
@@ -14,7 +14,7 @@
       "sourceRepo": "https://github.com/endfield-calc/factoriolab",
       "sourceCommit": "0a3bb78eea8339177f1b3ba1d16f60ccef78902c",
       "gameVersion": "v1.5.3",
-      "extractedAt": "2026-09-19T09:14:43.941Z"
+      "extractedAt": "2026-09-19T10:06:56.671Z"
     },
     {
       "vendor": "akedata",
@@ -1246,7 +1246,7 @@
       "icon": "activity_copper_poly_gas",
       "row": 2,
       "raw": false,
-      "transportKind": "belt",
+      "transportKind": "gas",
       "stack": 50,
       "event": "v1.5"
     },

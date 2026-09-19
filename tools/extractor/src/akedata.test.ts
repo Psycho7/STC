@@ -2,6 +2,7 @@ import { describe, expect, test, beforeAll } from "bun:test";
 import {
   akeItemId,
   akeMachineId,
+  deriveEnvironments,
   joinAndAssert,
   loadAkeData,
   type AkeJoin,
@@ -229,9 +230,7 @@ describe("derivable fields disagree loudly", () => {
   });
 
   test("transport phase", () => {
-    const item = pack.items.find(
-      (i) => i.transportKind === "belt" && i.id !== "activity_copper_poly_gas",
-    )!;
+    const item = pack.items.find((i) => i.transportKind === "belt")!;
     expectThrows(
       {
         ...ake,
@@ -386,14 +385,29 @@ describe("derivable fields disagree loudly", () => {
   });
 });
 
-describe("known vendor disagreement", () => {
-  test("activity_copper_poly_gas is exempt from the transport-phase rule", () => {
-    // The game table calls it a gas, endfield-calc calls it a belt item because
-    // it carries a stack size. The table is right; correcting the pack is its
-    // own change, and it removes this exemption.
-    const item = pack.items.find((i) => i.id === "activity_copper_poly_gas")!;
-    expect(item.transportKind).toBe("belt");
-    expect(ake.factoryItems[akeItemId(item.id)]!.phaseType).toBe(4);
+describe("environment derivation", () => {
+  // The one acidic craft today; the atmosphere it demands is read off its
+  // gasEnv, so breaking that row is what the two throw paths below do.
+  const ACIDIC_RECIPE = "gas_copper_enr2";
+
+  function acidicCraftId(): string {
+    const craftId = join.crafts.get(ACIDIC_RECIPE);
+    if (!craftId)
+      throw new Error(`test fixture: ${ACIDIC_RECIPE} did not join`);
+    return craftId;
+  }
+
+  test("an unrecognised gasEnv value fails the derivation", () => {
+    const craftId = acidicCraftId();
+    const broken = { ...ake, crafts: flip(ake.crafts, craftId, { gasEnv: 2 }) };
+    expect(() => deriveEnvironments(broken, join)).toThrow(new RegExp(craftId));
+  });
+
+  test("an atmosphere craft with no pack recipe fails the derivation", () => {
+    const craftId = acidicCraftId();
+    const recipes = rows.recipes.filter((r) => r.id !== ACIDIC_RECIPE);
+    const partial = joinAndAssert({ ...rows, recipes }, ake);
+    expect(() => deriveEnvironments(ake, partial)).toThrow(new RegExp(craftId));
   });
 });
 

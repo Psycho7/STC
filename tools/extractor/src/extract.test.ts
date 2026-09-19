@@ -5,6 +5,7 @@ import {
   LOCALES,
   SCHEMA_VERSION,
   type AkedataProvenance,
+  type EnvironmentId,
   type Item,
   type Machine,
   type Recipe,
@@ -14,7 +15,6 @@ import {
 } from "./schema.ts";
 import {
   CATALYST_BY_PRODUCER,
-  ENVIRONMENT_BY_RECIPE,
   SKIP_SINK_RECIPES,
   WORLD_NODE_MACHINES,
   collapseSyntheticChains,
@@ -330,20 +330,29 @@ describe("splitCatalyst guards", () => {
 });
 
 describe("recipe environment", () => {
-  test("environment is stamped on exactly the five table recipes", () => {
-    const stamped = Object.fromEntries(
+  // The hand table the extractor used to carry. The values now come from
+  // FactoryMachineCraftTable.gasEnv, so the table survives here as the
+  // expectation the derivation is measured against.
+  const ENVIRONMENT_BY_RECIPE: Record<string, EnvironmentId> = {
+    "gas_copper_enr-gas_inert": "stable",
+    "gas_xiranite_enr-gas_inert": "stable",
+    "xiranite_powder-carbon_mtl": "stable",
+    activity_copper_poly_gas: "stable",
+    gas_copper_enr2: "acidic",
+  };
+
+  test("the derived environments are exactly the five pinned recipes", () => {
+    const derived = Object.fromEntries(
       pack.recipes
         .filter((r) => r.environment !== undefined)
         .map((r) => [r.id, r.environment]),
     );
-    expect(stamped).toEqual({
-      "gas_copper_enr-gas_inert": "stable",
-      "gas_xiranite_enr-gas_inert": "stable",
-      "xiranite_powder-carbon_mtl": "stable",
-      activity_copper_poly_gas: "stable",
-      gas_copper_enr2: "acidic",
-    });
-    expect(stamped).toEqual(ENVIRONMENT_BY_RECIPE);
+    expect(derived).toEqual(ENVIRONMENT_BY_RECIPE);
+    for (const [id, environment] of Object.entries(ENVIRONMENT_BY_RECIPE)) {
+      expect(pack.recipes.find((r) => r.id === id)?.environment).toBe(
+        environment,
+      );
+    }
   });
 });
 
@@ -845,6 +854,15 @@ describe("transport-kind classification", () => {
     expect(gas).toBeDefined();
     expect(gas!.transportKind).toBe("gas");
     expect(gas!.stack).toBeUndefined();
+  });
+
+  test("the one stackable gas item is still a gas", () => {
+    // Every other gas item is unstackable, so this is the one id where a stack
+    // size and the game's transport phase point opposite ways.
+    const gas = pack.items.find((i) => i.id === "activity_copper_poly_gas");
+    expect(gas).toBeDefined();
+    expect(gas!.transportKind).toBe("gas");
+    expect(gas!.stack).toBe(50);
   });
 
   test("the synthetic gas carrier is present so every item kind resolves", () => {
