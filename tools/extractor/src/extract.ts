@@ -1,5 +1,6 @@
 import { resolve } from "node:path";
 import Fraction from "fraction.js";
+import { joinAndAssert, loadAkeData } from "./akedata.ts";
 import {
   LOCALES,
   SCHEMA_VERSION,
@@ -127,6 +128,9 @@ async function main(opts: { write?: boolean } = {}): Promise<ExtractResult> {
   const write = opts.write ?? true;
   const upstream = (await Bun.file(INPUT_PATH).json()) as UpstreamData;
   const eventCohorts = await loadEventCohorts();
+  // Loaded up front, before any row is built, so a later pass can read a game
+  // table without the pipeline being reordered around it.
+  const akedata = await loadAkeData();
   const sourceMeta = (await Bun.file(
     resolve(REPO_ROOT, VENDOR_PATH, "SOURCE.json"),
   ).json()) as {
@@ -225,6 +229,10 @@ async function main(opts: { write?: boolean } = {}): Promise<ExtractResult> {
   classifyRawItems(items, recipes);
 
   validateReferentialIntegrity({ items, machines, transports, recipes });
+
+  // Cross-check the finished rows against the game's own tables. Reads only;
+  // a disagreement fails the extract.
+  joinAndAssert({ items, machines, recipes }, akedata);
 
   const source: SourceProvenance = {
     name: "endfield-calc/factoriolab",
