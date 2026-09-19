@@ -22,6 +22,9 @@ export type Locale = (typeof LOCALES)[number];
 export interface RecipePack {
   schemaVersion: typeof SCHEMA_VERSION;
   source: SourceProvenance;
+  // Every vendor the pack draws on, the one `source` names included. Additive:
+  // `source` stays the single record readers key provenance off.
+  sources?: VendorProvenance[];
   categories: Category[];
   locations: Location[];
   items: Item[];
@@ -40,6 +43,27 @@ export interface SourceProvenance {
   sourceCommit: string;
   gameVersion: string;
   extractedAt: string;
+}
+
+// One vendor's provenance. The two vendors do not share a key shape - AKEData
+// publishes versioned snapshots and has no commit to pin - so the record is a
+// union discriminated on `vendor` and neither side carries an empty field to
+// look like the other.
+export type VendorProvenance = EndfieldCalcProvenance | AkedataProvenance;
+
+export interface EndfieldCalcProvenance extends SourceProvenance {
+  vendor: "endfield-calc";
+}
+
+export interface AkedataProvenance {
+  vendor: "akedata";
+  name: string;
+  repo: string;
+  version: string;
+  hotfixVersion: string;
+  publishedAt: string;
+  snapshotDate: string;
+  tableCfgPath: string;
 }
 
 export interface Category {
@@ -161,6 +185,7 @@ export interface Recipe {
 export interface RecipePackI18n {
   schemaVersion: typeof SCHEMA_VERSION;
   source: SourceProvenance;
+  sources?: VendorProvenance[];
   locales: Locale[];
   names: Record<Locale, LocaleNames>;
 }

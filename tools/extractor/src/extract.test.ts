@@ -4,6 +4,8 @@ import Fraction from "fraction.js";
 import {
   LOCALES,
   SCHEMA_VERSION,
+  type AkedataProvenance,
+  type EnvironmentId,
   type Item,
   type Machine,
   type Recipe,
@@ -13,7 +15,6 @@ import {
 } from "./schema.ts";
 import {
   CATALYST_BY_PRODUCER,
-  ENVIRONMENT_BY_RECIPE,
   SKIP_SINK_RECIPES,
   WORLD_NODE_MACHINES,
   collapseSyntheticChains,
@@ -29,6 +30,7 @@ const TRANSPORT_CONFIG_PATH = resolve(
   REPO_ROOT,
   "data/aef/transport-config.json",
 );
+const AKEDATA_SOURCE_PATH = resolve(REPO_ROOT, "vendor/akedata/SOURCE.json");
 
 let pack: RecipePack;
 let i18n: RecipePackI18n;
@@ -54,6 +56,29 @@ describe("schema and source provenance", () => {
     expect(pack.source.extractedAt).toMatch(
       /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/,
     );
+  });
+
+  test("sources records both vendors, the sidecar the same two", async () => {
+    const ake = (await Bun.file(AKEDATA_SOURCE_PATH).json()) as Omit<
+      AkedataProvenance,
+      "vendor"
+    >;
+    expect(pack.sources).toHaveLength(2);
+    expect(pack.sources![0]).toEqual({
+      vendor: "endfield-calc",
+      ...pack.source,
+    });
+    expect(pack.sources![1]).toEqual({
+      vendor: "akedata",
+      name: ake.name,
+      repo: ake.repo,
+      version: ake.version,
+      hotfixVersion: ake.hotfixVersion,
+      publishedAt: ake.publishedAt,
+      snapshotDate: ake.snapshotDate,
+      tableCfgPath: ake.tableCfgPath,
+    });
+    expect(i18n.sources).toEqual(pack.sources!);
   });
 });
 
@@ -305,20 +330,29 @@ describe("splitCatalyst guards", () => {
 });
 
 describe("recipe environment", () => {
-  test("environment is stamped on exactly the five table recipes", () => {
-    const stamped = Object.fromEntries(
+  // The hand table the extractor used to carry. The values now come from
+  // FactoryMachineCraftTable.gasEnv, so the table survives here as the
+  // expectation the derivation is measured against.
+  const ENVIRONMENT_BY_RECIPE: Record<string, EnvironmentId> = {
+    "gas_copper_enr-gas_inert": "stable",
+    "gas_xiranite_enr-gas_inert": "stable",
+    "xiranite_powder-carbon_mtl": "stable",
+    activity_copper_poly_gas: "stable",
+    gas_copper_enr2: "acidic",
+  };
+
+  test("the derived environments are exactly the five pinned recipes", () => {
+    const derived = Object.fromEntries(
       pack.recipes
         .filter((r) => r.environment !== undefined)
         .map((r) => [r.id, r.environment]),
     );
-    expect(stamped).toEqual({
-      "gas_copper_enr-gas_inert": "stable",
-      "gas_xiranite_enr-gas_inert": "stable",
-      "xiranite_powder-carbon_mtl": "stable",
-      activity_copper_poly_gas: "stable",
-      gas_copper_enr2: "acidic",
-    });
-    expect(stamped).toEqual(ENVIRONMENT_BY_RECIPE);
+    expect(derived).toEqual(ENVIRONMENT_BY_RECIPE);
+    for (const [id, environment] of Object.entries(ENVIRONMENT_BY_RECIPE)) {
+      expect(pack.recipes.find((r) => r.id === id)?.environment).toBe(
+        environment,
+      );
+    }
   });
 });
 
@@ -423,10 +457,13 @@ describe("optional-field counts", () => {
     expect(pack.items.filter((i) => i.buildIcon !== undefined)).toHaveLength(4);
   });
 
-  test("21 machines carry a size, 19 carry locations, 3 carry totalRecipe", () => {
+  test("26 machines carry a size, 19 carry locations, 3 carry totalRecipe", () => {
     // v1.4 adds the four gas-system machines (gas_pump_1, gas_reactor_1,
     // phase_trans_1, phase_trans_2), all sized and jinlong-restricted.
-    expect(pack.machines.filter((m) => m.size !== undefined)).toHaveLength(21);
+    //
+    // Upstream sizes 21 of them; the five extraction machines (miner_2..4,
+    // pump_1, pump_2) take their footprint from the game's building table.
+    expect(pack.machines.filter((m) => m.size !== undefined)).toHaveLength(26);
     expect(pack.machines.filter((m) => m.locations !== undefined)).toHaveLength(
       19,
     );
@@ -819,6 +856,15 @@ describe("transport-kind classification", () => {
     expect(gas!.stack).toBeUndefined();
   });
 
+  test("the one stackable gas item is still a gas", () => {
+    // Every other gas item is unstackable, so this is the one id where a stack
+    // size and the game's transport phase point opposite ways.
+    const gas = pack.items.find((i) => i.id === "activity_copper_poly_gas");
+    expect(gas).toBeDefined();
+    expect(gas!.transportKind).toBe("gas");
+    expect(gas!.stack).toBe(50);
+  });
+
   test("the synthetic gas carrier is present so every item kind resolves", () => {
     const gasPipe = pack.transports.find((t) => t.id === "gas_pipe");
     expect(gasPipe).toBeDefined();
@@ -864,9 +910,11 @@ describe("idempotence", () => {
     const first = await runExtractor({ write: false });
     const second = await runExtractor({ write: false });
 
+    // Global: the timestamp appears once under `source` and again in the
+    // endfield-calc entry of `sources`.
     const serialize = (v: unknown) =>
       JSON.stringify(v, null, 2).replace(
-        /"extractedAt":\s*"[^"]+"/,
+        /"extractedAt":\s*"[^"]+"/g,
         '"extractedAt":"<elided>"',
       );
 
