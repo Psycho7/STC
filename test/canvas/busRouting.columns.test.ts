@@ -412,6 +412,88 @@ describe("assignEntryColumns", () => {
     expect(entryOf(out, eP.id)).toBe(600 - PORT_STUB);
   });
 
+  it("reverses only the from-above rows of a mixed card", () => {
+    // Row p is fed from above, row q from below, so the from-above class is the
+    // strict subset {p}. Reversing a one-row class is a no-op, so both rows keep
+    // the offsets port order gave them: top row leftmost, bottom row default.
+    const nodes: RFAnyNode[] = [
+      orderedRecipeNode("m", 600, 0, ["p", "q"]),
+      recipeNode("sp", 0, -300, mkRecipe("sp", [], ["p"])),
+      recipeNode("sq", 0, 300, mkRecipe("sq", [], ["q"])),
+    ];
+    const eP = mkEdge("e:0:sp->m:p", "sp", "m", "p");
+    const eQ = mkEdge("e:1:sq->m:q", "sq", "m", "q");
+    const byId = nodeIndexOf(nodes);
+    const portsP = edgePortsModel(eP, byId)!;
+    const portsQ = edgePortsModel(eQ, byId)!;
+    expect(portsP.sy).toBeLessThan(portsP.ty); // p arrives from above
+    expect(portsQ.sy).toBeGreaterThan(portsQ.ty); // q arrives from below
+
+    const out = assignEntryColumns(nodes, [eP, eQ]);
+    const xP = entryOf(out, eP.id)!;
+    const xQ = entryOf(out, eQ.id)!;
+    expect(xQ).toBe(600 - PORT_STUB); // from-below row keeps its default offset
+    expect(xP).toBe(600 - PORT_STUB - ENTRY_SLOT_PITCH);
+    expect(xP < xQ).toBe(true);
+  });
+
+  it("demotes a row fed from both sides to the default sense", () => {
+    // Row p takes a drop from above AND a rise from below, so it is not a
+    // from-above row; row q's single drop is. A one-row from-above class reverses
+    // to itself, so the card keeps the default sense and q stays rightmost. Were
+    // the merge a disjunction, p would join q and the pair would swap.
+    const nodes: RFAnyNode[] = [
+      orderedRecipeNode("m", 600, 0, ["p", "q"]),
+      recipeNode("spHigh", 0, -300, mkRecipe("spHigh", [], ["p"])),
+      recipeNode("spLow", 0, 300, mkRecipe("spLow", [], ["p"])),
+      recipeNode("sq", 0, -250, mkRecipe("sq", [], ["q"])),
+    ];
+    const eHigh = mkEdge("e:0:spHigh->m:p", "spHigh", "m", "p");
+    const eLow = mkEdge("e:1:spLow->m:p", "spLow", "m", "p");
+    const eQ = mkEdge("e:2:sq->m:q", "sq", "m", "q");
+    const byId = nodeIndexOf(nodes);
+    expect(edgePortsModel(eHigh, byId)!.sy).toBeLessThan(
+      edgePortsModel(eHigh, byId)!.ty,
+    );
+    expect(edgePortsModel(eLow, byId)!.sy).toBeGreaterThan(
+      edgePortsModel(eLow, byId)!.ty,
+    );
+
+    const out = assignEntryColumns(nodes, [eHigh, eLow, eQ]);
+    const xP = entryOf(out, eHigh.id)!;
+    expect(entryOf(out, eLow.id)).toBe(xP); // one row, one column
+    expect(entryOf(out, eQ.id)).toBe(600 - PORT_STUB);
+    expect(xP).toBe(600 - PORT_STUB - ENTRY_SLOT_PITCH);
+  });
+
+  it("keeps a fan-in member from voting its row from above", () => {
+    // m's top row is fed by a fan-in trunk member whose source sits above it, and
+    // its bottom row by a late drop from above. The member draws on its trunk's
+    // merge column, not on the row's entry column, so it does not count as a
+    // from-above arrival: the drop keeps the default rightmost column instead of
+    // swapping with a row whose slot cannot move.
+    const nodes: RFAnyNode[] = [
+      orderedRecipeNode("m", 600, 0, ["p", "q"]),
+      recipeNode("sp", 0, -300, mkRecipe("sp", [], ["p"])),
+      recipeNode("sq", 0, -250, mkRecipe("sq", [], ["q"])),
+    ];
+    const member: Edge = {
+      ...mkEdge("e:0:sp->m:p", "sp", "m", "p"),
+      type: "bus",
+      data: { item: "p", fanin: true, trunkKey: "k", junctionX: 500 },
+    };
+    const eQ = mkEdge("e:1:sq->m:q", "sq", "m", "q");
+    const byId = nodeIndexOf(nodes);
+    const portsMember = edgePortsModel(member, byId)!;
+    expect(portsMember.sy).toBeLessThan(portsMember.ty); // member comes from above
+
+    const out = assignEntryColumns(nodes, [member, eQ]);
+    // Premise: the member does hold an arrival row of its own, so the card has
+    // two rows to fan and the exclusion is what keeps the sense default.
+    expect(entryOf(out, member.id)).toBe(600 - PORT_STUB - ENTRY_SLOT_PITCH);
+    expect(entryOf(out, eQ.id)).toBe(600 - PORT_STUB);
+  });
+
   it("assigns entry columns deterministically across shuffled input order", () => {
     const nodes: RFAnyNode[] = [
       orderedRecipeNode("m", 1000, 0, ["p", "q"]),

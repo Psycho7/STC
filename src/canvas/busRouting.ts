@@ -784,8 +784,8 @@ function takesArrivalColumn(
 // catalyst row and an input row carrying the SAME item stay two rows.
 // `fromAbove` records which way the row is approached: true only when EVERY
 // edge on it is a forward step turning down from a source row above the port.
-// A row shared with a rise, a rail or a same-row arrival is not from above, as
-// one run of the pair then climbs and the reversed sense would braid it.
+// A row shared with a rise or a rail is not from above, as one run of the pair
+// then climbs and the reversed sense would braid it.
 type ArrivalRow = {
   key: string;
   targetId: string;
@@ -820,13 +820,19 @@ function arrivalRowOf(
   // is unknown here and taken as unbounded: the row then shares a slot with
   // nothing and no rail braids a drop.
   const backward = nodeGap(source, target, byId) <= 0;
+  // A fan-in member draws down its trunk's shared merge column and never reads
+  // the row's entry column, so the sense cannot move it -- and it must not vote
+  // on it either, or it would flip the rows it shares the card with.
+  const fanin =
+    edge.type === "bus" &&
+    (edge.data as BusEdgeData | undefined)?.fanin === true;
   return {
     key: arrivalRowKey(edge.target, ty),
     targetId: edge.target,
     y: ty,
     yLo: backward ? -Infinity : Math.min(sy, ty),
     yHi: backward ? Infinity : Math.max(sy, ty),
-    fromAbove: !backward && sy < ty,
+    fromAbove: !backward && !fanin && sy < ty,
   };
 }
 
