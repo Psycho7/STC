@@ -2801,6 +2801,37 @@
   outline: 2px solid var(--ak-accent-cyan);
   outline-offset: 2px;
 }
+/* The area choices (#124) as one segmented row: all areas, then a settlement
+   per pack location. Wraps rather than scrolls, so a pack with more
+   settlements still shows every option. */
+.settings-areas {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.settings-area {
+  flex: 1 1 auto;
+  background: var(--ak-bg-secondary);
+  border: 1px solid var(--ak-divider);
+  color: var(--ak-text-secondary);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  padding: 6px 12px;
+  cursor: pointer;
+}
+.settings-area:hover {
+  border-color: var(--ak-accent-cyan-soft);
+  color: var(--ak-text-primary);
+}
+.settings-area.selected {
+  border-color: var(--ak-accent-cyan);
+  color: var(--ak-accent-cyan);
+}
+.settings-area:focus-visible {
+  outline: 2px solid var(--ak-accent-cyan);
+  outline-offset: 2px;
+}
 /* One event-cohort row: header line (version / pill / switch), summary line
    (icon strip / counts / default tag), then the recipe disclosure. */
 .settings-cohort {

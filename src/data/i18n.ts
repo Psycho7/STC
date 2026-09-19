@@ -31,6 +31,7 @@ export type UiKey =
   | "app.error.infeasible"
   | "app.error.infeasible.generic"
   | "app.error.producer-unavailable.event"
+  | "app.error.producer-unavailable.area"
   | "app.error.dismiss"
   | "app.error.busy"
   | "app.error.crash"
@@ -81,6 +82,8 @@ export type UiKey =
   | "settings.title"
   | "settings.close.label"
   | "settings.locale.title"
+  | "settings.area.title"
+  | "settings.area.all"
   | "settings.events.title"
   | "settings.events.reset"
   | "settings.events.current"
@@ -145,6 +148,10 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "app.error.infeasible.generic": "当前目标与供给上限下无可行方案。",
     "app.error.producer-unavailable.event":
       "物品 {itemId} 仅由 {cohort} 活动配方生产，该活动当前未开启。",
+    // {area} is the localized settlement name, the same string the settings
+    // panel's area option carries, so the banner and the control agree.
+    "app.error.producer-unavailable.area":
+      "物品 {itemId} 的配方均无法在{area}建造。",
     "app.error.dismiss": "关闭",
     "app.error.busy": "方案正在加载，请等加载完成后再修改。",
     "app.error.crash": "规划器遇到意外错误，无法绘制当前方案。",
@@ -195,6 +202,8 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "settings.title": "设置",
     "settings.close.label": "关闭",
     "settings.locale.title": "语言",
+    "settings.area.title": "区域",
+    "settings.area.all": "全部区域",
     "settings.events.title": "活动",
     "settings.events.reset": "恢复默认",
     "settings.events.current": "当前",
@@ -251,6 +260,8 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
       "No feasible plan for the current targets and supply caps.",
     "app.error.producer-unavailable.event":
       "Item {itemId} cannot be a target right now: every recipe producing it is unavailable (the {cohort} event is switched off).",
+    "app.error.producer-unavailable.area":
+      "Item {itemId} cannot be a target right now: none of the recipes producing it can be built in {area}.",
     "app.error.dismiss": "Dismiss",
     "app.error.busy":
       "A plan is still loading. Try that change again once it lands.",
@@ -304,6 +315,8 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "settings.title": "Settings",
     "settings.close.label": "Close",
     "settings.locale.title": "Language",
+    "settings.area.title": "Area",
+    "settings.area.all": "All areas",
     "settings.events.title": "Events",
     "settings.events.reset": "Reset to defaults",
     "settings.events.current": "current",

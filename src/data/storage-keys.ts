@@ -20,3 +20,9 @@ export const LOCALE_STORAGE_KEY = "aef.locale";
 // Seeded before boot the same way when an exam or spec needs a specific cohort
 // switched off from the first solve.
 export const EVENT_COHORT_OVERRIDES_STORAGE_KEY = "aef.eventCohortOverrides";
+
+// The settlement the plan is built in (#124): a bare location id from the pack
+// ("tundra", "jinlong"). The key is ABSENT for all areas rather than holding a
+// sentinel, so a fresh browser and a browser that chose "all areas" are the
+// same state.
+export const AREA_STORAGE_KEY = "aef.area";

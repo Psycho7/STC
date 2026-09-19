@@ -13,12 +13,17 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import type { RecipePack } from "@aef/schema";
 import { SettingsPanel } from "./SettingsPanel";
 import { LocaleProvider } from "../data/i18n-context";
-import { packCohortOf, type EventCohortOverrides } from "../data/availability";
+import {
+  packCohortOf,
+  readStoredArea,
+  writeStoredArea,
+  type EventCohortOverrides,
+} from "../data/availability";
 import { pack as realPack } from "../data/load";
-import { LOCALE_STORAGE_KEY } from "../data/storage-keys";
+import { AREA_STORAGE_KEY, LOCALE_STORAGE_KEY } from "../data/storage-keys";
 
 afterEach(cleanup);
-afterEach(() => window.localStorage.removeItem(LOCALE_STORAGE_KEY));
+afterEach(() => window.localStorage.clear());
 
 // A pack whose provenance is a LATER version (v9.9) carrying a few v1.5 rows,
 // so the cohort must read "past" and default off. Slicing the shipped pack's
@@ -46,6 +51,11 @@ function renderSettings({
   function Host() {
     const [open, setOpen] = useState(false);
     const [current, setCurrent] = useState(overrides);
+    // The area is owned exactly the way App owns it: read from storage once,
+    // and every change applied to memory and storage by one writer. That is
+    // what makes the persistence assertions below about the real seam rather
+    // than about a mock the test wrote.
+    const [area, setArea] = useState(() => readStoredArea(pack));
     return (
       <>
         <button
@@ -64,6 +74,11 @@ function renderSettings({
               latest = next;
               onOverridesChange(next);
               setCurrent(next);
+            }}
+            area={area}
+            onAreaChange={(next) => {
+              setArea(next);
+              writeStoredArea(next);
             }}
             onClose={() => {
               onClose();
@@ -148,6 +163,46 @@ test("the locale control lives in the dialog and persists the choice", () => {
   expect(dialog.contains(select)).toBe(true);
   fireEvent.change(select, { target: { value: "zh" } });
   expect(window.localStorage.getItem(LOCALE_STORAGE_KEY)).toBe("zh");
+});
+
+// #124's Area section. Labels come from the pack's i18n sidecar, so the en
+// harness reads the English settlement names.
+function areaOption(name: string): HTMLElement {
+  return screen.getByRole("radio", { name });
+}
+
+test("the area group offers all areas plus one option per settlement", () => {
+  renderSettings();
+  openPanel();
+  const options = screen.getAllByRole("radio");
+  expect(options.map((o) => o.textContent)).toEqual([
+    "All areas",
+    "Valley IV",
+    "Wuling",
+  ]);
+  // Nothing stored: the plan spans every area.
+  expect(areaOption("All areas").getAttribute("aria-checked")).toBe("true");
+});
+
+test("choosing an area persists it and checks exactly that option", () => {
+  renderSettings();
+  openPanel();
+  fireEvent.click(areaOption("Valley IV"));
+  expect(window.localStorage.getItem(AREA_STORAGE_KEY)).toBe("tundra");
+  expect(areaOption("Valley IV").getAttribute("aria-checked")).toBe("true");
+  expect(areaOption("All areas").getAttribute("aria-checked")).toBe("false");
+  // Back to all areas: the key goes away rather than storing a sentinel.
+  fireEvent.click(areaOption("All areas"));
+  expect(window.localStorage.getItem(AREA_STORAGE_KEY)).toBeNull();
+  expect(areaOption("All areas").getAttribute("aria-checked")).toBe("true");
+});
+
+test("the panel opens on the stored area, not the default", () => {
+  window.localStorage.setItem(AREA_STORAGE_KEY, "jinlong");
+  renderSettings();
+  openPanel();
+  expect(areaOption("Wuling").getAttribute("aria-checked")).toBe("true");
+  expect(areaOption("All areas").getAttribute("aria-checked")).toBe("false");
 });
 
 test("the shipped pack's v1.5 row reads current, defaults on, with the default tag", () => {

@@ -29,6 +29,10 @@ type Props = {
   // it in place - every change hands back a fresh map.
   overrides: EventCohortOverrides;
   onOverridesChange: (next: EventCohortOverrides) => void;
+  // The selected settlement (#124), or undefined for all of them - owned by
+  // the parent on the same one-writer terms as the overrides above.
+  area: string | undefined;
+  onAreaChange: (next: string | undefined) => void;
   onClose: () => void;
 };
 
@@ -49,6 +53,8 @@ export function SettingsPanel({
   packCohort,
   overrides,
   onOverridesChange,
+  area,
+  onAreaChange,
   onClose,
 }: Props) {
   const i18n = useI18n();
@@ -77,6 +83,14 @@ export function SettingsPanel({
     items: pack.items.filter((i) => i.event === cohort),
     recipes: pack.recipes.filter((r) => r.event === cohort),
   }));
+
+  // The Area choices: all areas first, then one per settlement the pack lists.
+  // The labels are the sidecar's own location names (displayName flattens that
+  // bucket), so a new settlement needs no new UI string.
+  const areaOptions: { id: string | undefined; label: string }[] = [
+    { id: undefined, label: i18n.t("settings.area.all") },
+    ...pack.locations.map((l) => ({ id: l.id, label: i18n.displayName(l.id) })),
+  ];
 
   // A flip stores exactly one cohort's boolean into the parent-owned map; the
   // section reset clears every cohort's override in one write.
@@ -128,10 +142,45 @@ export function SettingsPanel({
             </div>
             <LocaleSwitcher />
           </section>
-          {/* The Events section (#144). The remaining settings rows - area
-              restriction (#124), recipe toggles (#125) - each become one more
-              .settings-section sibling in this body, ordered Locale, Area,
-              Recipes, Events. */}
+          {/* The Area section (#124). Buttons rather than radio inputs: the
+              row is styled as a segmented control, and role="radio" on a
+              button carries the same semantics to assistive tech as long as
+              aria-checked rides along. */}
+          <section
+            className="settings-section"
+            aria-label={i18n.t("settings.area.title")}
+          >
+            <div className="settings-section-head">
+              <span className="settings-section-title">
+                {i18n.t("settings.area.title")}
+              </span>
+            </div>
+            <div
+              className="settings-areas"
+              role="radiogroup"
+              aria-label={i18n.t("settings.area.title")}
+            >
+              {areaOptions.map((option) => {
+                const selected = option.id === area;
+                return (
+                  <button
+                    key={option.id ?? "all"}
+                    type="button"
+                    role="radio"
+                    aria-checked={selected}
+                    className={"settings-area" + (selected ? " selected" : "")}
+                    data-area={option.id ?? "all"}
+                    onClick={() => onAreaChange(option.id)}
+                  >
+                    {option.label}
+                  </button>
+                );
+              })}
+            </div>
+          </section>
+          {/* The Events section (#144). The remaining settings row - recipe
+              toggles (#125) - becomes one more .settings-section sibling in
+              this body, ordered Locale, Area, Recipes, Events. */}
           <section
             className="settings-section"
             aria-label={i18n.t("settings.events.title")}
