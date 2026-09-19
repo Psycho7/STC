@@ -53,31 +53,35 @@ const EPS = 1e-6;
 // forward bands, which is a root cause held for the shared-level-field
 // prototype rather than patched, so the list is frozen here and any SIXTH pair
 // reddens this test.
+//
+// Each side is `<edge id>@<level>`, the same key the report below prints, so an
+// entry names the one fusion it harvested: the same two edges fused again at
+// another level is a new finding and reddens the test too.
 const ALLOWED: ReadonlyArray<{ plan: string; a: string; b: string }> = [
   {
     plan: "battery5",
-    a: "e:4:u:class:q:10->u:class:q:5:liquid_water",
-    b: "e:16:u:class:q:5->u:surplus:copper_nugget:copper_nugget",
+    a: "e:4:u:class:q:10->u:class:q:5:liquid_water@866",
+    b: "e:16:u:class:q:5->u:surplus:copper_nugget:copper_nugget@856",
   },
   {
     plan: "battery5",
-    a: "e:6:u:class:q:12->u:class:q:14:plant_moss_3",
-    b: "e:24:u:in:originium_ore->u:class:q:1:originium_ore",
+    a: "e:6:u:class:q:12->u:class:q:14:plant_moss_3@326",
+    b: "e:24:u:in:originium_ore->u:class:q:1:originium_ore@323",
   },
   {
     plan: "battery5-xiranite",
-    a: "e:9:u:class:q:16->u:class:q:9:liquid_water",
-    b: "e:27:u:class:q:9->u:surplus:liquid_sewage:liquid_sewage",
+    a: "e:9:u:class:q:16->u:class:q:9:liquid_water@952",
+    b: "e:27:u:class:q:9->u:surplus:liquid_sewage:liquid_sewage@959.5",
   },
   {
     plan: "battery5-xiranite",
-    a: "e:13:u:class:q:24->u:class:q:26:plant_moss_3",
-    b: "e:35:u:in:originium_ore->u:class:q:4:originium_ore",
+    a: "e:13:u:class:q:24->u:class:q:26:plant_moss_3@1096",
+    b: "e:35:u:in:originium_ore->u:class:q:4:originium_ore@1093",
   },
   {
     plan: "multi6",
-    a: "e:43:u:class:q:51->u:class:q:55:plant_grass_1",
-    b: "e:79:u:in:liquid_water->u:class:q:28:liquid_water",
+    a: "e:43:u:class:q:51->u:class:q:55:plant_grass_1@1014",
+    b: "e:79:u:in:liquid_water->u:class:q:28:liquid_water@1014",
   },
 ];
 
@@ -141,6 +145,9 @@ function runsOf(edge: Edge, byId: ReturnType<typeof nodeIndexOf>): Run[] {
 const overlapOf = (a: Run, b: Run): number =>
   Math.min(a.hi, b.hi) - Math.max(a.lo, b.lo);
 
+// One run, named by the line it belongs to and the level it holds.
+const keyOf = (run: Run): string => `${run.edge}@${run.y}`;
+
 describe("two runs in one corridor keep the level floor", () => {
   it("holds on every corpus plan", async () => {
     const tight: Array<{
@@ -166,20 +173,22 @@ describe("two runs in one corridor keep the level floor", () => {
           checked += 1;
           const dy = Math.abs(a.y - b.y);
           if (dy >= ENTRY_SLOT_PITCH - EPS) continue;
+          const ka = keyOf(a);
+          const kb = keyOf(b);
           if (
             ALLOWED.some(
               (entry) =>
                 entry.plan === scenario.id &&
-                ((entry.a === a.edge && entry.b === b.edge) ||
-                  (entry.a === b.edge && entry.b === a.edge)),
+                ((entry.a === ka && entry.b === kb) ||
+                  (entry.a === kb && entry.b === ka)),
             )
           ) {
             continue;
           }
           tight.push({
             plan: scenario.id,
-            a: `${a.edge}@${a.y}`,
-            b: `${b.edge}@${b.y}`,
+            a: ka,
+            b: kb,
             dy,
             overlap: overlapOf(a, b),
           });

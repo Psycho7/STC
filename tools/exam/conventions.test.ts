@@ -142,6 +142,17 @@ describe("docs/render-conventions.md", () => {
     expect(edges).toContain("not a stroke riding the frame");
   });
 
+  // The two forward shapes the audit lets past the frame rule. An evaluator
+  // given only the rule files both of them, and neither is a placement the
+  // renderer chose.
+  test("states the forward exemptions from the frame rule", () => {
+    const intentional = flat(section(doc(), "Intentional behaviours"));
+    expect(intentional).toContain("the row its two ports share");
+    expect(intentional).toContain(
+      "a container one of its own endpoints sits inside",
+    );
+  });
+
   // Mechanisms the renderer no longer has. A doc that still describes one
   // teaches an evaluator to look for a shape the canvas cannot draw.
   test("describes no chip collapse the renderer cannot produce", () => {

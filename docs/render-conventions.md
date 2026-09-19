@@ -306,6 +306,14 @@ Do not report these as defects.
   offset is the chamfer that bevels the corner away: the dot stands on the run
   the members share, which is where the reader looks for it, not on the column
   they take.
+- A forward edge drawn as one straight horizontal, port to port with no jog at
+  all, may lie along a container border. Its level is the row its two ports
+  share, not a level any pass picked, and lifting the line off the border would
+  take it off a port.
+- A forward run may travel beside the border of a container one of its own
+  endpoints sits inside. A line leaving a card within a slab has to get past
+  that slab's edge, so the stretch beside it is the way out rather than a
+  stroke riding a frame it has no business near.
 - Mid-drag, a fan-in merge dot can vanish while the merged run still shows one
   member's rate. The dot hides as soon as its stamped x leaves the owner's live
   polyline, while a non-owner member's chip hide is pinned to the port ROW

@@ -299,7 +299,7 @@ test.describe("DOM geometry audit", () => {
 // junction dots hidden under a chip, junction dots sitting on a foreign flow's
 // stroke, and the endpoint-parity tolerance. The
 // 0.6 chip seating census below carries three more, and the reading-zoom census
-// at the bottom of this file five.
+// at the bottom of this file six.
 //
 // NOTE on all ratchet tables in this file. Baselines do NOT auto-tighten: when a
 // change improves a scenario, re-record the lower count manually (downward
@@ -951,7 +951,7 @@ test.describe("segment placement audit", () => {
       const frameRideInventory = frameRides.map(
         (v) =>
           `  ${v.edgeId} rides the ${v.border} border of ${v.target} ` +
-          `${v.distance.toFixed(1)} off it (${v.kind}), seg ${fmtSeg(v.seg)}`,
+          `${v.distance.toFixed(1)} off it (${v.direction}), seg ${fmtSeg(v.seg)}`,
       );
       const frameRideBaseline = baselineFor(
         FRAME_RIDE_BASELINE,
