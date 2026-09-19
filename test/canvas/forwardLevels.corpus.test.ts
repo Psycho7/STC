@@ -21,9 +21,9 @@
 //
 // A BACKWARD rail's horizontals are in scope too (canvas defect casebook,
 // 2026-09-19, family D): a rail fused with the forward run it passes is the
-// same smeared stroke, and the rail pass picks its level with no knowledge of
-// the forward bands. The pairs that class already draws are allow-listed below
-// rather than fixed, so a sixth one reddens this test.
+// same smeared stroke. The rail pass used to pick its level with no knowledge
+// of the forward bands; it now rescans off their floor, so that class is fixed
+// rather than allow-listed and the list below is empty.
 
 import { describe, it, expect } from "vitest";
 import type { Edge } from "@xyflow/react";
@@ -46,44 +46,18 @@ import { SCENARIOS } from "../e2e/scenarios";
 // coordinates, so a pair that holds the floor holds it well inside a pixel.
 const EPS = 1e-6;
 
-// Pairs that do not satisfy the floor. Every entry is a finding on the record,
-// not a silent pin: these five are the whole of family D of the canvas defect
-// casebook (2026-09-19), a backward rail fused with a forward run it passes for
-// the width of the graph. The rail pass places a rail without seeing the
-// forward bands, which is a root cause held for the shared-level-field
-// prototype rather than patched, so the list is frozen here and any SIXTH pair
-// reddens this test.
+// Pairs that do not satisfy the floor. The list is EMPTY, and that is the
+// verdict of family D of the canvas defect casebook (2026-09-19): the rail pass
+// now asks the level-occupancy module whether its card-clear level sits inside
+// a forward run's floor and rescans when it does, so the five fusions this list
+// used to name -- battery5 e:4 x e:16 and e:6 x e:24, battery5-xiranite e:9 x
+// e:27 and e:13 x e:35, multi6 e:43 x e:79 -- are gone rather than allowed.
+// Any pair at all now reddens this test.
 //
-// Each side is `<edge id>@<level>`, the same key the report below prints, so an
-// entry names the one fusion it harvested: the same two edges fused again at
-// another level is a new finding and reddens the test too.
-const ALLOWED: ReadonlyArray<{ plan: string; a: string; b: string }> = [
-  {
-    plan: "battery5",
-    a: "e:4:u:class:q:10->u:class:q:5:liquid_water@866",
-    b: "e:16:u:class:q:5->u:surplus:copper_nugget:copper_nugget@856",
-  },
-  {
-    plan: "battery5",
-    a: "e:6:u:class:q:12->u:class:q:14:plant_moss_3@326",
-    b: "e:24:u:in:originium_ore->u:class:q:1:originium_ore@323",
-  },
-  {
-    plan: "battery5-xiranite",
-    a: "e:9:u:class:q:16->u:class:q:9:liquid_water@952",
-    b: "e:27:u:class:q:9->u:surplus:liquid_sewage:liquid_sewage@959.5",
-  },
-  {
-    plan: "battery5-xiranite",
-    a: "e:13:u:class:q:24->u:class:q:26:plant_moss_3@1096",
-    b: "e:35:u:in:originium_ore->u:class:q:4:originium_ore@1093",
-  },
-  {
-    plan: "multi6",
-    a: "e:43:u:class:q:51->u:class:q:55:plant_grass_1@1014",
-    b: "e:79:u:in:liquid_water->u:class:q:28:liquid_water@1014",
-  },
-];
+// Each side would be `<edge id>@<level>`, the same key the report below prints,
+// so an entry names one fusion: the same two edges fused again at another level
+// is a new finding.
+const ALLOWED: ReadonlyArray<{ plan: string; a: string; b: string }> = [];
 
 type Run = {
   edge: string;
