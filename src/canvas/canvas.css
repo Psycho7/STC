@@ -2763,7 +2763,7 @@
   overflow-y: auto;
   padding: 0 18px 18px;
 }
-/* One settings row group (Events today; locale/area/presets later). */
+/* One settings row group (Locale and Events today; area/recipes later). */
 .settings-section {
   margin-top: 14px;
 }

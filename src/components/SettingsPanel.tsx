@@ -9,6 +9,7 @@ import {
 } from "../data/event-cohorts";
 import { iconSheetUrl } from "../canvas/iconSprite";
 import { Sprite } from "../canvas/RecipeNode";
+import { LocaleSwitcher } from "./LocaleSwitcher";
 import { useModalDialog } from "./useModalDialog";
 
 // Icons a cohort row's strip shows before the "+N" overflow chip.
@@ -113,9 +114,24 @@ export function SettingsPanel({
           </button>
         </div>
         <div className="settings-body">
-          {/* The Events section (#144). Later settings rows - the locale row
-              (#123), area restriction (#124), supply presets (#126) - each
-              become one more .settings-section sibling in this body. */}
+          {/* The panel portals to <body> but renders under LocaleProvider, so
+              the switcher's useLocale() still resolves here without threading
+              the locale through props. */}
+          <section
+            className="settings-section"
+            aria-label={i18n.t("settings.locale.title")}
+          >
+            <div className="settings-section-head">
+              <span className="settings-section-title">
+                {i18n.t("settings.locale.title")}
+              </span>
+            </div>
+            <LocaleSwitcher />
+          </section>
+          {/* The Events section (#144). The remaining settings rows - area
+              restriction (#124), recipe toggles (#125) - each become one more
+              .settings-section sibling in this body, ordered Locale, Area,
+              Recipes, Events. */}
           <section
             className="settings-section"
             aria-label={i18n.t("settings.events.title")}

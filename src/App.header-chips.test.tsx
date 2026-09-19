@@ -101,6 +101,14 @@ test("pickActiveSection returns null when nothing intersects", () => {
   ).toBeNull();
 });
 
+test("the header carries no locale control; it lives in the settings panel", async () => {
+  window.location.hash = await encodedDefaultHash();
+  render(<App />);
+  await screen.findAllByTestId("target-row");
+  const header = screen.getByTestId("header-strip");
+  expect(header.querySelector('[data-testid="locale-switcher"]')).toBeNull();
+});
+
 test("RECIPES chip counts distinct recipe ids, not logical nodes", async () => {
   const plan = {
     ...defaultPlan(pack),
