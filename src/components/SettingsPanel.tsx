@@ -9,7 +9,10 @@ import {
 } from "../data/availability";
 import { iconSheetUrl } from "../canvas/iconSprite";
 import { Sprite } from "../canvas/RecipeNode";
+import type { ProducerUnavailableCause } from "../data/plan";
+import type { RecipeId } from "../solver/types";
 import { LocaleSwitcher } from "./LocaleSwitcher";
+import { RecipeToggles } from "./RecipeToggles";
 import { useModalDialog } from "./useModalDialog";
 
 // Icons a cohort row's strip shows before the "+N" overflow chip.
@@ -33,6 +36,12 @@ type Props = {
   // the parent on the same one-writer terms as the overrides above.
   area: string | undefined;
   onAreaChange: (next: string | undefined) => void;
+  // The hand-disabled recipes (#125), owned by the parent on the same terms.
+  disabledRecipeIds: ReadonlySet<RecipeId>;
+  onDisabledRecipesChange: (next: ReadonlySet<RecipeId>) => void;
+  // Why each unavailable recipe is off, so the Recipes section can tell a
+  // choice the user still has from one an area or an event already took.
+  unavailableCauses: ReadonlyMap<RecipeId, ProducerUnavailableCause>;
   onClose: () => void;
 };
 
@@ -55,6 +64,9 @@ export function SettingsPanel({
   onOverridesChange,
   area,
   onAreaChange,
+  disabledRecipeIds,
+  onDisabledRecipesChange,
+  unavailableCauses,
   onClose,
 }: Props) {
   const i18n = useI18n();
@@ -178,9 +190,15 @@ export function SettingsPanel({
               })}
             </div>
           </section>
-          {/* The Events section (#144). The remaining settings row - recipe
-              toggles (#125) - becomes one more .settings-section sibling in
-              this body, ordered Locale, Area, Recipes, Events. */}
+          {/* The Recipes section (#125), which renders its own
+              .settings-section so the body stays a plain list of them. */}
+          <RecipeToggles
+            pack={pack}
+            unavailableCauses={unavailableCauses}
+            disabledRecipeIds={disabledRecipeIds}
+            onDisabledRecipesChange={onDisabledRecipesChange}
+          />
+          {/* The Events section (#144). */}
           <section
             className="settings-section"
             aria-label={i18n.t("settings.events.title")}
