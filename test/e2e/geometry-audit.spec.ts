@@ -383,7 +383,15 @@ const CROSSING_BASELINE: Record<string, number> = {
   // containers are laid out in their own scopes now, which spreads the cards
   // the supply runs cross, and the forward floor lifts two of those runs off
   // their neighbours. UP move, listed for ruling.
-  multi6: 90,
+  //
+  // CANVAS DEFECT CASEBOOK 2026-09-19 (T4, families F then D): 90 -> 95. UP
+  // move, listed for ruling. F alone measures 89 -- a jog that stops riding the
+  // plant_grass_2 frame crosses one corridor less -- and D then adds 6: the two
+  // loop-return rails that used to lie inside a forward run's floor (e:43 with
+  // e:79, e:45 with e:77) step a chip box clear of it, and their columns now
+  // cross the runs they used to be drawn on top of. Every counted crossing
+  // carries its cue.
+  multi6: 95,
   tundra: 0,
   // CATALYST NODE 2026-09-14 (PR B of the catalyst supply pools plan): every
   // catalyst charge now leaves the item's own u:cat:* boundary card instead of
@@ -586,14 +594,17 @@ const FRAME_RIDE_BASELINE: Record<string, number> = {
   // Structural zero with no bands drawn.
   default: 0,
   battery5: 0,
-  // A copper_ore supply run 22.5 under the plant_moss_3 loop box's top border,
-  // for 1400 units.
-  "battery5-xiranite": 1,
+  // CANVAS DEFECT CASEBOOK 2026-09-19 (T4, family F): 1 -> 0. The copper_ore
+  // supply run that lay 22.5 under the plant_moss_3 loop box's top border now
+  // relocates to 32 off it (e:28, 759.5 -> 711.5).
+  "battery5-xiranite": 0,
   crystal: 0,
   equip4: 0,
-  // Three supply runs along the two plant_grass loop boxes' borders, at 12, 16
-  // and 16, each for more than 1500 units.
-  multi6: 3,
+  // CANVAS DEFECT CASEBOOK 2026-09-19 (T4, family F): 3 -> 0. The three supply
+  // runs that lay 12, 16 and 16 off the two plant_grass loop boxes' borders now
+  // keep CONTAINER_JOG_GAP off them (e:67 1054 -> 1038, e:69 1393 -> 1018,
+  // e:81 1673 -> 1657).
+  multi6: 0,
   tundra: 0,
   script43: 0,
   "coupon-web": 0,
@@ -601,8 +612,12 @@ const FRAME_RIDE_BASELINE: Record<string, number> = {
   // ROUTING FINDINGS 2026-09-14: 1 -> 0. No stroke runs along a slab or band
   // border on this plan any more.
   "rot-bottled_food_3": 0,
-  // Two supply runs along the plant_grass_1 loop box's borders, at 23 and 16.
-  "rot-bottled_food_4": 2,
+  // CANVAS DEFECT CASEBOOK 2026-09-19 (T4, family F): 2 -> 1. The jogged run
+  // moved (e:14, 57 -> 41); the survivor is e:12, an unjogged port-to-port run 23 off the
+  // bottom border (its ports sit half a unit apart, so it is not straight in
+  // isStraightRun's sense and still counts); no level search ever reaches it,
+  // so it needs a jog trigger, not a gap, and is out of this task's scope.
+  "rot-bottled_food_4": 1,
   transmuters: 0,
   "copper-script43": 0,
   "script43-xiranite": 0,
@@ -1561,7 +1576,14 @@ const HIDDEN_CUE_BASELINE: Record<string, number> = {
   // The three sites the casebook names on this plan: a loop-return column, a
   // jogged leg and a fan-in source column, each crossing a chip's own run
   // inside the chip's box.
-  multi6: 3,
+  //
+  // CANVAS DEFECT CASEBOOK 2026-09-19 (T4, family F): 3 -> 4. UP move, listed
+  // for ruling. The fourth is the e:43 rail column crossing e:46's run at
+  // (2316.5, 1333) -- a crossing that was already there and is now cued --
+  // under the SAME chip that hides its own cue at (2340.5, 1333), which is
+  // family A's multi6 e:46 site. The seat is A's to fix (T5 takes this counter
+  // to 1 corpus-wide); no chip moved here.
+  multi6: 4,
   tundra: 0,
   script43: 0,
   "coupon-web": 0,
@@ -1589,7 +1611,7 @@ const READING_TOTALS: {
   faninLeg: 0,
   dotCover: 0,
   chipOverlap: 0,
-  hiddenCue: 9,
+  hiddenCue: 10,
 };
 
 test.describe("reading-zoom census", () => {

@@ -140,9 +140,23 @@ rather than flying over every card that shares its x-range. Any stroke drawn as
 one line with a slab border is a defect, a loop's return and a forward run
 alike: a horizontal running along a container's top or bottom border reads as
 the edge of the slab rather than as a line of the plan, whichever direction it
-travels. One column is still exempt: a forward tap's jog descent, dropping into
-its consumer, may share an entry-gutter line with a container border. That
-column is a tap approach, not a stroke riding the frame.
+travels.
+
+How much air the two owe that border is not the same number, because they are
+not the same line. A loop return's rail clears a container by about 56 units; a
+forward run a jog relocates clears a FOREIGN container's top or bottom border by 32. The rail is a stroke the reader follows across the whole graph and can be
+parked anywhere in the corridor, while a jog takes the nearest clear level to
+the row it is heading for, and a rail-sized moat there would push the run past
+the box or into the next layer for no gain. Each is the clearance its own family
+owes, not a single number two passes disagree about, and the pair are tuned
+separately by eye.
+
+Three things are exempt. A forward tap's jog descent, dropping into its
+consumer, may share an entry-gutter line with a container border -- that column
+is a tap approach, not a stroke riding the frame. A run inside a container one of
+its own endpoints sits in is getting out, not riding. And an unjogged port-to-port
+horizontal lies where its two ports are: it took no level from any pass, and
+lifting it off a border would lift it off a port.
 
 A forward edge between two adjacent layers drops LATE. It holds its source
 port's row from the port all the way across the gap and turns down only in the
@@ -165,6 +179,14 @@ edge, and the members of one trunk on their shared column, are exempt. The defec
 it exists to prevent is the same one: two lines a couple of units apart read as
 one thick stroke, and the two rate chips centred on them smear into one figure
 that names neither.
+
+A loop return's rail owes the same floor to those runs, and it is the side that
+moves. Forward levels are settled before any rail is placed, so a rail that
+would land inside a run's floor steps to the nearest level that is clear of the
+run and still clear of every card it spans; a forward run never moves for a
+rail. The rail keeps its columns where they were, so the price of the step is
+the crossings its two verticals make on the way to the new level -- each one
+cued like any other crossing.
 
 Where two strokes of DIFFERENT flows properly cross, the stroke passing under
 shows a gap: a short break is cut out of that stroke around the crossing, the

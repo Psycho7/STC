@@ -163,13 +163,38 @@ export function runFloorHit(
   );
 }
 
+// Does a horizontal at `y` from x0 to x1 lie within `floor` of a frame line the
+// span reaches? Unlike the run floor, ANY x-overlap counts: a frame is a border
+// the reader already follows, so a stroke drawn beside it merges with it over
+// whatever length they share rather than needing a stub's worth of company.
+// `floor` is the consumer's clearance, since the line carries none of its own.
+export function frameFloorHit(
+  frames: ReadonlyArray<FrameLine>,
+  y: number,
+  x0: number,
+  x1: number,
+  floor: number,
+): boolean {
+  const lo = Math.min(x0, x1);
+  const hi = Math.max(x0, x1);
+  return frames.some(
+    (f) => f.right > lo && f.left < hi && Math.abs(y - f.y) < floor,
+  );
+}
+
 // The levels a horizontal spanning [x0, x1] may relocate to, in acceptance
-// order: every spanned card's padded escape, and every spanned band's own edges
-// as well as those edges padded. A band already carries the clearance it wants,
-// so its own edge IS a candidate level; offering only the padded one would skip
+// order: every spanned card's padded escape, every spanned band's own edges as
+// well as those edges padded, and every spanned frame line at `frameGap` above
+// and below the raw border. A band already carries the clearance it wants, so
+// its own edge IS a candidate level; offering only the padded one would skip
 // the level that just clears a neighbouring line and land on the line past it.
 // Both are offered, since a candidate further out of a band is no less clear of
 // it.
+//
+// `frameGap` is a DISTANCE FROM THE RAW BORDER, and the consumer states it:
+// the jog and the rail owe a container frame different clearances, and each one
+// stacks its policy constant on the padding its own obstacle rects carry. The
+// module holds no clearance policy of its own.
 //
 // Sorted nearest to `anchorY` first -- the smallest vertical excursion wins --
 // with the row value as the tie-break, so the order never depends on the order
@@ -179,6 +204,8 @@ export function levelCandidates(args: {
   x0: number;
   x1: number;
   bands: ReadonlyArray<RunBand>;
+  frames: ReadonlyArray<FrameLine>;
+  frameGap: number;
   cards: ReadonlyArray<Rect>;
   pad: number;
 }): number[] {
@@ -197,6 +224,11 @@ export function levelCandidates(args: {
     levels.add(band.bottom);
     levels.add(band.top - args.pad);
     levels.add(band.bottom + args.pad);
+  }
+  for (const frame of args.frames) {
+    if (frame.right <= lo || frame.left >= hi) continue;
+    levels.add(frame.y - args.frameGap);
+    levels.add(frame.y + args.frameGap);
   }
   return [...levels].sort(
     (a, b) => Math.abs(a - args.anchorY) - Math.abs(b - args.anchorY) || a - b,
