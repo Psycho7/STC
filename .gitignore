@@ -1,6 +1,11 @@
 # Claude Code worktrees
 .claude/worktrees/
 
+# Only the conventions docs live here; plans/specs/etc. go in the parent doc repo.
+/docs/*
+!/docs/render-conventions.md
+!/docs/testing-conventions.md
+
 # Sweep / workflow scratch artifacts
 .sweep/
 .plan/
