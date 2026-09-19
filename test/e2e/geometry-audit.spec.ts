@@ -346,7 +346,14 @@ test.describe("DOM geometry audit", () => {
 // edges, at fit zoom. An upper bound that ratchets down, not a target -- a plan
 // that routes more flows through one corridor legitimately crosses more.
 const CROSSING_BASELINE: Record<string, number> = {
-  default: 2,
+  // CANVAS DEFECT CASEBOOK 2026-09-19 (family B): 2 -> 4. The gap's two fan-out
+  // columns swap, so the Cuprium Ore split dot comes off the Clean Water leg.
+  // With two trunks in one gap both orders force a crossing -- the ore column
+  // crosses the water stub whenever it stands left, the water column crosses the
+  // ore leg whenever it stands right -- and the old order hid one of them inside
+  // the dot. The four here are all cued, all clear of a chip box and of every
+  // dot's keep-off. UP move, carrying the casebook's own ruling.
+  default: 4,
   // MERGE 2026-09-13 (placement rule on the develop merge): 12 -> 14. The
   // catalyst supply edge e:23 u:in:liquid_xiranite -> u:class:q:2 runs the
   // width of the graph and crosses two more corridors.
@@ -654,9 +661,11 @@ const DOT_COVER_BASELINE: Record<string, number> = {
 // member of that merge or split -- a join the plan does not have. First pins at
 // the harvested counts.
 const DOT_FOREIGN_STROKE_BASELINE: Record<string, number> = {
-  // The Cuprium Ore split dot at (334.5, 239.5) with the Clean Water leg e:12
-  // 1.5 off its centre.
-  default: 1,
+  // CANVAS DEFECT CASEBOOK 2026-09-19 (family B): 1 -> 0. The Cuprium Ore split
+  // dot at (334.5, 239.5) had the Clean Water leg e:12 1.5 off its centre; the
+  // fan-out slot order stands the water column right of the ore one, so the leg
+  // now starts past the dot.
+  default: 0,
   battery5: 0,
   "battery5-xiranite": 0,
   crystal: 0,
@@ -1570,13 +1579,17 @@ const READING_CHIP_OVERLAP_BASELINE: Record<string, number> = {
 // every vertical stroke of another flow, so no chip box can cover a cue:
 // battery5 1 -> 0, battery5-xiranite 1 -> 0, multi6 4 -> 0 (the fourth is the
 // cue family F stamped earlier in this stack), transmuters 2 -> 0,
-// copper-script43 1 -> 0. The surviving cell is `default`'s, and it is the one
-// cue no chip hides -- see below.
+// copper-script43 1 -> 0. The cell A leaves standing is `default`'s, and it is
+// the one cue no chip hides -- see below.
+//
+// CASEBOOK FAMILY B 2026-09-19: 1 -> 0. The slot order clears that last cell,
+// so this table is zero across the corpus.
 const HIDDEN_CUE_BASELINE: Record<string, number> = {
-  // The only dot site in the corpus: the Cuprium Ore split dot stands on the
+  // The only dot site in the corpus: the Cuprium Ore split dot stood on the
   // crossing it marks, which is the one shape the cue exists to deny. A chip
-  // slide cannot reach it; family B's slot order is what clears this cell.
-  default: 1,
+  // slide could not reach it; family B's slot order moves the crossing out from
+  // under the dot.
+  default: 0,
   battery5: 0,
   "battery5-xiranite": 0,
   crystal: 0,
@@ -1616,10 +1629,11 @@ const READING_TOTALS: {
   faninLeg: 0,
   dotCover: 0,
   chipOverlap: 0,
-  // CASEBOOK FAMILY A 2026-09-19: 10 -> 1, the sum of HIDDEN_CUE_BASELINE
-  // after the foreign-vertical slide -- the four multi6 cues F leaves standing
-  // included. Arithmetic on that table, not a separate ruling.
-  hiddenCue: 1,
+  // CASEBOOK FAMILIES A AND B 2026-09-19: 10 -> 1 -> 0, the sum of
+  // HIDDEN_CUE_BASELINE after the foreign-vertical slide (the four multi6 cues
+  // F leaves standing included) and then after default's dot site cleared.
+  // Arithmetic on that table, not a separate ruling.
+  hiddenCue: 0,
 };
 
 test.describe("reading-zoom census", () => {

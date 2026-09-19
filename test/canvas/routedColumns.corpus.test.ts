@@ -43,7 +43,7 @@ import {
   routingHintsFromData,
 } from "../../src/canvas/edgePath";
 import { chipNaturalWidth, rateChipText } from "../../src/canvas/chipMetrics";
-import { ENTRY_SLOT_PITCH } from "../../src/canvas/busRouting";
+import { ENTRY_SLOT_PITCH, edgePortsModel } from "../../src/canvas/busRouting";
 import {
   buildLayerModel,
   classifyTrunks,
@@ -254,6 +254,77 @@ describe("two verticals in one gap keep the column pitch floor", () => {
     // each other in one gap, so the empty list is a verdict.
     expect(checked).toBeGreaterThan(0);
     expect(tight).toEqual([]);
+  }, 600_000);
+});
+
+// Which gaps the fan-out slot order takes off the plain port-row order.
+//
+// Fan-out columns are handed out top-to-bottom by source port row, except where
+// a trunk's near leg runs at a sibling's port row: there the leaver stands right
+// of the arriver, so its leg cannot run across the sibling's stub and under its
+// split dot. That rule fires on ONE corpus gap, and this suite is the guard that
+// it stays there -- a gap reordered on any other plan is a layout change nobody
+// measured, whichever direction it moves the columns.
+describe("only one corpus gap takes the fan-out order off plain port order", () => {
+  it("holds on every corpus plan", async () => {
+    const reordered: string[] = [];
+    let checked = 0;
+
+    for (const scenario of SCENARIOS) {
+      const targets: ItemTarget[] = scenario.targets.map((t) => ({
+        itemId: t.itemId,
+        ratePerSec: t.ratePerSec,
+      }));
+      const { nodes, edges, gaps } = await layoutSolved(
+        solveForRender({ targets, pack }),
+      );
+      const byId = nodeIndexOf(nodes);
+      const model = buildLayerModel(nodes);
+      const edgeById = new Map(edges.map((edge) => [edge.id, edge]));
+
+      // One record per fan-out trunk: the column its members drew on, the port
+      // row the plain order sorts by, and the gap the column stands in.
+      type Placed = { key: string; gap: string; x: number; portY: number };
+      const placed: Placed[] = [];
+      for (const trunk of classifyTrunks(nodes, edges).trunks) {
+        if (trunk.kind !== "fanOut") continue;
+        const member = trunk.members
+          .map((id) => edgeById.get(id))
+          .find((edge): edge is Edge => edge !== undefined);
+        if (member === undefined) continue;
+        const hints = routingHintsFromData(
+          member.data as Record<string, unknown> | undefined,
+        );
+        const x = hints.junctionX ?? hints.bendX;
+        const ports = edgePortsModel(member, byId);
+        if (x === undefined || ports === null) continue;
+        const gap = gapAt(gaps, model, member, x);
+        if (gap === undefined) continue;
+        placed.push({ key: trunk.key, gap: gapKeyOf(gap), x, portY: ports.sy });
+      }
+
+      const byGap = new Map<string, Placed[]>();
+      for (const entry of placed) {
+        byGap.set(entry.gap, [...(byGap.get(entry.gap) ?? []), entry]);
+      }
+      for (const [gap, group] of byGap) {
+        if (group.length < 2) continue;
+        checked += 1;
+        const drawn = [...group]
+          .sort((a, b) => a.x - b.x)
+          .map((entry) => entry.key);
+        const plain = [...group]
+          .sort((a, b) => a.portY - b.portY || (a.key < b.key ? -1 : 1))
+          .map((entry) => entry.key);
+        if (drawn.join("|") === plain.join("|")) continue;
+        reordered.push(`${scenario.id} ${gap}: ${plain} -> ${drawn}`);
+      }
+    }
+
+    // Premise: the corpus really does put two or more fan-out trunks in one gap,
+    // so a short list below is a verdict and not an empty scan.
+    expect(checked).toBeGreaterThan(0);
+    expect(reordered.map((entry) => entry.split(" ")[0])).toEqual(["default"]);
   }, 600_000);
 });
 
