@@ -149,7 +149,11 @@ of one card share that band and nothing else: they no longer run a row pitch
 apart the whole width of the gap. A step spanning one row is drawn as a single
 diagonal rather than a bevel-vertical-bevel. Trunk members and edges that skip a
 layer keep their old shape -- they turn where their structure says, not at the
-entry column.
+entry column. The entry columns fan in the sense of the approach: rows reached
+from below or by a backward rail put the topmost row on the leftmost column,
+while rows every edge drops into from above reverse among themselves and put the
+bottom row leftmost, so a lower row's source sitting inside the upper row's drop
+does not braid the two.
 
 Forward horizontals keep a floor off each other, the horizontal sibling of the
 column floor under Fan-out and fan-in. Where two such runs of DIFFERENT edges

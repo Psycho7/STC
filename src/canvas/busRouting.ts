@@ -782,12 +782,17 @@ function takesArrivalColumn(
 // source row, so the row's column reaches from the highest source row to the
 // port). Rows are keyed by the drawn port y rather than by port index, so a
 // catalyst row and an input row carrying the SAME item stay two rows.
+// `fromAbove` records which way the row is approached: true only when EVERY
+// edge on it is a forward step turning down from a source row above the port.
+// A row shared with a rise, a rail or a same-row arrival is not from above, as
+// one run of the pair then climbs and the reversed sense would braid it.
 type ArrivalRow = {
   key: string;
   targetId: string;
   y: number;
   yLo: number;
   yHi: number;
+  fromAbove: boolean;
 };
 
 const arrivalRowKey = (targetId: string, y: number): string =>
@@ -821,16 +826,17 @@ function arrivalRowOf(
     y: ty,
     yLo: backward ? -Infinity : Math.min(sy, ty),
     yHi: backward ? Infinity : Math.max(sy, ty),
+    fromAbove: !backward && sy < ty,
   };
 }
 
 // The arrival SLOT of every row: which of its gap's arrival columns the row's
 // drops stand on, counting 0 at the rightmost.
 //
-// Two rules, and they fight: inside one card the fan must be monotonic (the
-// topmost row takes the leftmost column) so the entering runs do not cross each
-// other in front of the card, while ACROSS the cards of one layer a slot index
-// means one absolute x -- the columns are measured off the gap, not off the card
+// Two rules, and they fight: inside one card the fan must be monotonic so the
+// entering runs do not cross each other in front of the card, while ACROSS the
+// cards of one layer a slot index means one absolute x -- the columns are
+// measured off the gap, not off the card
 // -- so two cards using index 0 draw their drops on one line wherever their
 // verticals share rows. So each card keeps its rows in port order and the card
 // as a whole is pushed to the first base offset at which none of its rows meets
@@ -838,6 +844,20 @@ function arrivalRowOf(
 // with the cards taken top to bottom and rows whose verticals miss each other in
 // y free to share a slot. The column zone is charged one pitch per forward edge
 // (gapRequirements), which is the worst case this can ask for.
+//
+// Which way "monotonic" runs depends on the SIDE the runs approach from, and
+// the derivation is two lines. A run holds its source row across the gap, turns
+// down (or up) its column, and leaves along its port row, so it crosses a
+// neighbour's column exactly where that column's vertical spans the run's own
+// y. Take two rows p above q. Fed from BELOW or by a rail, the far run climbs
+// past the near row, so the top row must turn first (leftmost) and the bottom
+// row last. Fed from ABOVE, the lower row's source can lie inside the upper
+// row's drop, and then the same sense braids them twice -- on the approach and
+// again on the port legs -- while the reverse sense (bottom row leftmost) puts
+// every vertical outside its neighbour's horizontals. So rows whose every edge
+// arrives from above take their offsets in reverse among themselves; the other
+// rows keep the old sense, and the two classes keep the offsets port order
+// gave them, which is what keeps the card's total width unchanged.
 // Beside the slots it hands back the row key of every arriving edge, by edge
 // index, so a caller placing the columns need not resolve the rows again.
 function arrivalSlots(
@@ -859,6 +879,7 @@ function arrivalSlots(
     }
     seen.yLo = Math.min(seen.yLo, row.yLo);
     seen.yHi = Math.max(seen.yHi, row.yHi);
+    seen.fromAbove = seen.fromAbove && row.fromAbove;
   }
 
   // Rows of one card, cards of one layer: the two nesting levels the colouring
@@ -886,8 +907,20 @@ function arrivalSlots(
       }))
       .sort((a, b) => a.rows[0]!.y - b.rows[0]!.y);
     for (const card of ordered) {
+      // Offsets in port order, counting 0 at the rightmost column. The default
+      // sense puts the topmost row on the leftmost column; the rows fed from
+      // above take those same offsets in reverse among themselves, so the
+      // bottom one of that group turns down first.
+      const above = card.rows.flatMap((row, rank) =>
+        row.fromAbove ? [rank] : [],
+      );
+      const offsets = card.rows.map((_, rank) => card.rows.length - 1 - rank);
+      above.forEach((rank, j) => {
+        offsets[rank] = card.rows.length - 1 - above[above.length - 1 - j]!;
+      });
+
       const slotAt = (base: number, rank: number): number =>
-        base + (card.rows.length - 1 - rank); // topmost row -> leftmost column
+        base + offsets[rank]!;
       let base = 0;
       while (
         card.rows.some((row, rank) =>
@@ -1226,10 +1259,14 @@ function zoneAccept(gap: GapRecord | undefined): (x: number) => boolean {
 // entering PORT ROW, shared by every edge on that row, so two flows into adjacent
 // rows of one card turn down two columns one ENTRY_SLOT_PITCH apart instead of
 // running a row pitch apart across the gap. Rows of one target are ordered by
-// port row so the entering runs form a monotonic fan that does not self-cross:
-// the topmost row takes the leftmost column and the bottom row the rightmost,
-// and arrivalSlots keeps the cards of one layer off each other's columns. The
-// columns themselves come from the shared arrival model above -- left of the
+// port row so the entering runs form a monotonic fan that does not self-cross,
+// and the fan runs in the sense of the approach: rows reached from below or by
+// a rail put the topmost row on the leftmost column, while rows every edge
+// drops INTO from above reverse among themselves and put the bottom row
+// leftmost, because a lower row's source can sit inside the upper row's drop
+// and the other sense would then cross it twice. arrivalSlots derives both and
+// keeps the cards of one layer off each other's columns. The columns themselves
+// come from the shared arrival model above -- left of the
 // gap's target zone with a gap record, one stub before the port without one, so
 // a single-entry node in an un-widened fixture is unchanged.
 //

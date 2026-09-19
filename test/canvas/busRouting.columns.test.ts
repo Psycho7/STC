@@ -388,6 +388,30 @@ describe("assignEntryColumns", () => {
     expect(xP! < xQ!).toBe(true);
   });
 
+  it("reverses the fan for two late drops fed from above", () => {
+    // sp and sq are stacked well above m and feed its adjacent rows p (top) and
+    // q (bottom). sq's own row sits INSIDE the drop from sp down to row p, so
+    // the topmost-row-leftmost sense would braid the two runs. Fed from above,
+    // the fan runs the other way: the bottom row takes the left column.
+    const nodes: RFAnyNode[] = [
+      orderedRecipeNode("m", 600, 0, ["p", "q"]),
+      recipeNode("sp", 0, -300, mkRecipe("sp", [], ["p"])),
+      recipeNode("sq", 0, -100, mkRecipe("sq", [], ["q"])),
+    ];
+    const eP = mkEdge("e:0:sp->m:p", "sp", "m", "p");
+    const eQ = mkEdge("e:1:sq->m:q", "sq", "m", "q");
+    const byId = nodeIndexOf(nodes);
+    const portsP = edgePortsModel(eP, byId)!;
+    const portsQ = edgePortsModel(eQ, byId)!;
+    expect(portsP.sy).toBeLessThan(portsQ.sy); // sources stacked, sp on top
+    expect(portsQ.sy).toBeLessThan(portsP.ty); // sq lies inside sp's drop
+    expect(portsP.ty).toBeLessThan(portsQ.ty); // p is the upper arrival row
+
+    const out = assignEntryColumns(nodes, [eP, eQ]);
+    expect(entryOf(out, eQ.id)).toBe(600 - PORT_STUB - ENTRY_SLOT_PITCH);
+    expect(entryOf(out, eP.id)).toBe(600 - PORT_STUB);
+  });
+
   it("assigns entry columns deterministically across shuffled input order", () => {
     const nodes: RFAnyNode[] = [
       orderedRecipeNode("m", 1000, 0, ["p", "q"]),
