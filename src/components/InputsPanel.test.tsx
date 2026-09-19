@@ -230,10 +230,11 @@ test("typing a cap does not commit; blur commits it", () => {
   ]);
 });
 
-// Blur with an empty cap uncaps a RAW override (empty means Unlimited here).
-// A raw item with no cap is unlimited boundary supply either way, so the
-// field-less override survives; the non-raw case below is the one that differs.
-test("blurring an emptied cap on a raw row keeps the field-less override", () => {
+// Blur with an empty cap uncaps the override (empty means Unlimited here).
+// This row's item is outside the assumed set, so it has no Assumed row to fall
+// back to and the field-less override survives; the case below, where the item
+// IS assumed, is the one that demotes.
+test("blurring an emptied cap outside the assumed set keeps the override", () => {
   const owner = controlledOwner<ItemOverride[]>([
     { itemId: "gas_xiranite", ratePerSec: { num: "2", denom: "1" } },
   ]);
@@ -280,61 +281,87 @@ test("removing a row with an uncommitted edit does not commit it", () => {
   expect(owner.emissions.length).toBe(1);
 });
 
-// A cap typed into an auto-row promotes it to an override on blur; when that
-// override is later removed, the reborn auto-row must be back to Unlimited, not
-// show the stale typed text.
-test("orphaned auto-row text does not resurrect after override removal", () => {
-  const updaters: Array<(cur: ItemOverride[]) => ItemOverride[]> = [];
+// A promoted row that is later removed comes back as an Assumed row with no
+// rate field at all: there is no typed text left anywhere to resurrect.
+test("a removed override returns to Assumed with no rate field", () => {
   const ui = (overrides: ItemOverride[]) => (
     <LocaleProvider locale="en">
       <InputsPanel
         itemOverrides={overrides}
-        onChange={(u) => updaters.push(u)}
+        onChange={() => {}}
         pack={PACK}
         assumedRawItemIds={["widget"]}
         supplyRateByItem={new Map()}
       />
     </LocaleProvider>
   );
-  const { rerender } = render(ui([]));
-  const input = screen.getByTestId("input-auto-row").querySelector("input")!;
-  fireEvent.change(input, { target: { value: "100" } });
-  fireEvent.blur(input);
-  // The commit emits an updater adding the override: 100/min = 5/3 per sec.
-  expect(updaters.length).toBe(1);
-  expect(updaters[0]!([])).toEqual([
-    { itemId: "widget", ratePerSec: { num: "5", denom: "3" } },
-  ]);
-  // Solve lands; the override row replaces the auto-row.
-  rerender(ui([{ itemId: "widget", ratePerSec: { num: "5", denom: "3" } }]));
-  // The override is removed elsewhere; the auto-row is reborn.
+  const { rerender } = render(
+    ui([{ itemId: "widget", ratePerSec: { num: "5", denom: "3" } }]),
+  );
+  expect(rateInputs()[0]!.value).toBe("100");
   rerender(ui([]));
-  const reborn = screen.getByTestId("input-auto-row").querySelector("input")!;
-  expect(reborn.value).toBe("");
-  expect(reborn.placeholder).toMatch(/unlimited/i);
+  const reborn = screen.getByTestId("input-auto-row");
+  expect(reborn.querySelector("input[type=text]")).toBeNull();
+  expect(
+    screen.getByTestId("inputs-section").querySelectorAll("input[type=text]")
+      .length,
+  ).toBe(0);
 });
 
-// INVALID text in an auto-row surfaces the invalid cue on Enter and stays
-// visible so the user can fix the typo; nothing is committed.
-test("Enter on invalid auto-row text shows the cue and keeps the text", () => {
+// The Assumed block is read-only in the "no rate field" sense only: the pool
+// checkbox is the one live control it keeps, alongside the promotion button.
+test("an Assumed row renders no rate field but keeps its catalyst toggle", () => {
   const onChange = vi.fn();
   render(
     <LocaleProvider locale="en">
       <InputsPanel
         itemOverrides={[]}
         onChange={onChange}
-        pack={PACK}
-        assumedRawItemIds={["widget"]}
+        pack={CATALYST_PACK}
+        assumedRawItemIds={["gas_xiranite"]}
         supplyRateByItem={new Map()}
       />
     </LocaleProvider>,
   );
-  const input = screen.getByTestId("input-auto-row").querySelector("input")!;
-  fireEvent.change(input, { target: { value: "1/" } });
-  fireEvent.keyDown(input, { key: "Enter" });
-  expect(input.value).toBe("1/");
-  expect(input.getAttribute("aria-invalid")).toBe("true");
+  const assumedBody = screen.getByTestId("inputs-assumed-body");
+  const row = screen.getByTestId("input-auto-row");
+  expect(assumedBody.contains(row)).toBe(true);
+  expect(row.querySelector("input[type=text]")).toBeNull();
+  expect(toggleIn(row)).not.toBeNull();
+  expect(
+    row
+      .querySelector('[data-testid="input-set-cap"]')
+      ?.getAttribute("aria-label"),
+  ).toBe(`Set cap for ${loadI18n("en").displayName("gas_xiranite")}`);
   expect(onChange).not.toHaveBeenCalled();
+});
+
+// Promotion is the button, and the field it opens is empty and focused: the
+// point of the redesign is that nothing is capped until the user types.
+test("set cap promotes the row into Supplies and focuses a fresh rate field", () => {
+  const owner = controlledOwner<ItemOverride[]>([]);
+  render(
+    owner.element((overrides, onChange) => (
+      <LocaleProvider locale="en">
+        <InputsPanel
+          itemOverrides={overrides}
+          onChange={onChange}
+          pack={PACK}
+          assumedRawItemIds={["widget"]}
+          supplyRateByItem={new Map()}
+        />
+      </LocaleProvider>
+    )),
+  );
+  fireEvent.click(screen.getByTestId("input-set-cap"));
+  expect(owner.latest).toEqual([{ itemId: "widget" }]);
+  // The row left the Assumed block for Supplies.
+  expect(screen.queryByTestId("input-auto-row")).toBeNull();
+  const suppliesBody = screen.getByTestId("inputs-supplies-body");
+  expect(suppliesBody.contains(screen.getByTestId("input-row"))).toBe(true);
+  const field = rateInputs()[0]!;
+  expect(field.value).toBe("");
+  expect(document.activeElement).toBe(field);
 });
 
 // Blur on an invalid cap reverts the field to the last-good value.
@@ -358,28 +385,35 @@ test("blur on invalid cap reverts an override row to its last-good value", () =>
   expect(input.getAttribute("aria-invalid")).toBeNull();
 });
 
-// An empty auto-row is the Unlimited state, not an error: blur leaves it empty
-// and un-flagged, and the placeholder explains the default.
-test("an empty auto-row stays Unlimited with no invalid cue", () => {
-  const onChange = vi.fn();
+// Clearing the cap on a RAW row sends it back to Assumed unlimited. A
+// field-less override would otherwise strand the row in Supplies, which is the
+// one state that block promises it never holds.
+test("clearing a cap on a raw row returns it to Assumed unlimited", () => {
+  const owner = controlledOwner<ItemOverride[]>([
+    { itemId: "gas_xiranite", ratePerSec: { num: "2", denom: "1" } },
+  ]);
   render(
-    <LocaleProvider locale="en">
-      <InputsPanel
-        itemOverrides={[]}
-        onChange={onChange}
-        pack={PACK}
-        assumedRawItemIds={["widget"]}
-        supplyRateByItem={new Map()}
-      />
-    </LocaleProvider>,
+    owner.element((overrides, onChange) => (
+      <LocaleProvider locale="en">
+        <InputsPanel
+          itemOverrides={overrides}
+          onChange={onChange}
+          pack={CATALYST_PACK}
+          assumedRawItemIds={["gas_xiranite"]}
+          supplyRateByItem={new Map()}
+        />
+      </LocaleProvider>
+    )),
   );
-  const input = screen.getByTestId("input-auto-row").querySelector("input")!;
-  expect(input.placeholder).toMatch(/unlimited/i);
+  const input = rateInputs()[0]!;
   fireEvent.change(input, { target: { value: "" } });
   fireEvent.blur(input);
-  expect(input.value).toBe("");
-  expect(input.getAttribute("aria-invalid")).toBeNull();
-  expect(onChange).not.toHaveBeenCalled();
+  expect(owner.latest).toEqual([]);
+  const assumedBody = screen.getByTestId("inputs-assumed-body");
+  const row = screen.getByTestId("input-auto-row");
+  expect(row.getAttribute("data-item-id")).toBe("gas_xiranite");
+  expect(assumedBody.contains(row)).toBe(true);
+  expect(screen.queryAllByTestId("input-row").length).toBe(0);
 });
 
 // Navigation remounts the panel via a plan-identity key, discarding an
@@ -470,9 +504,9 @@ test("a non-raw catalyst item renders as a plain auto-row with its draw", () => 
   expect(rows[1]!.getAttribute("data-is-raw")).toBe("false");
 });
 
-// Capping a catalyst row is the shared-cap gesture: the auto-row promotes to a
-// real override exactly as a raw row does.
-test("typing a cap on a non-raw catalyst auto-row promotes it to an override", () => {
+// Promotion is the same gesture on every Assumed row: a non-raw catalyst item
+// reaches Supplies through its own "set cap" button, like a raw one.
+test("set cap on a non-raw catalyst Assumed row promotes it to an override", () => {
   const updaters: Array<(cur: ItemOverride[]) => ItemOverride[]> = [];
   render(
     <LocaleProvider locale="en">
@@ -487,17 +521,10 @@ test("typing a cap on a non-raw catalyst auto-row promotes it to an override", (
       />
     </LocaleProvider>,
   );
-  // The row leads with the pool checkbox, so take the rate field by type.
-  const input = screen
-    .getByTestId("input-auto-row")
-    .querySelector('input[type="text"]')! as HTMLInputElement;
-  fireEvent.change(input, { target: { value: "30" } });
-  fireEvent.blur(input);
+  fireEvent.click(screen.getByTestId("input-set-cap"));
   expect(updaters.length).toBe(1);
-  // 30/min = 1/2 per sec.
-  expect(updaters[0]!([])).toEqual([
-    { itemId: "liquid_xiranite", ratePerSec: { num: "1", denom: "2" } },
-  ]);
+  // Uncapped until a number is typed into the field the promotion opens.
+  expect(updaters[0]!([])).toEqual([{ itemId: "liquid_xiranite" }]);
 });
 
 // Clearing the cap on a NON-RAW row drops the override entirely instead of

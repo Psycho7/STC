@@ -123,6 +123,9 @@
 }
 
 .ak-app-shell .side-panel-scroll {
+  /* Height of one sticky section head. The inputs head pins at exactly this
+     offset, directly under the targets head, so both stay on screen. */
+  --ak-side-head-h: 40px;
   height: 100%;
   overflow-y: auto;
   overflow-x: hidden;
@@ -149,68 +152,6 @@
 }
 .ak-app-shell .side-panel-scroll::-webkit-scrollbar-thumb:hover {
   background: var(--ak-text-decoration);
-}
-
-.ak-app-shell [data-testid="side-panel"] .side-panel-tabs {
-  display: flex;
-  gap: 4px;
-  padding: 18px 18px 0;
-  margin: 0;
-  border-bottom: 1px solid var(--ak-divider);
-  position: sticky;
-  top: 0;
-  background: var(--ak-bg-primary);
-  z-index: 2;
-}
-
-.ak-app-shell [data-testid="side-panel"] .side-panel-tab {
-  appearance: none;
-  background: transparent;
-  border: 0;
-  color: var(--ak-text-secondary);
-  font-family: var(--font-ui);
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.02em;
-  padding: 10px 20px;
-  cursor: pointer;
-  user-select: none;
-  transform: skewX(-9deg);
-  transform-origin: bottom left;
-  display: inline-flex;
-  gap: 6px;
-  align-items: baseline;
-  position: relative;
-}
-
-.ak-app-shell [data-testid="side-panel"] .side-panel-tab > span {
-  display: inline-block;
-  transform: skewX(9deg);
-}
-
-.ak-app-shell [data-testid="side-panel"] .side-panel-tab > .count {
-  font-family: var(--font-num);
-  font-size: 10px;
-  color: var(--ak-text-decoration);
-  font-weight: 700;
-  letter-spacing: 0;
-}
-
-.ak-app-shell [data-testid="side-panel"] .side-panel-tab.active {
-  background: var(--ak-accent-lime);
-  color: var(--ak-text-on-light);
-  box-shadow:
-    0 1px 0 var(--ak-accent-lime-bright) inset,
-    0 0 18px rgba(203, 255, 64, 0.18);
-}
-
-.ak-app-shell [data-testid="side-panel"] .side-panel-tab.active > .count {
-  color: var(--ak-text-on-light);
-}
-
-.ak-app-shell [data-testid="side-panel"] .side-panel-tab:not(.active):hover {
-  background: var(--ak-bg-tertiary);
-  color: var(--ak-text-primary);
 }
 
 .ak-app-shell h1,
@@ -529,13 +470,28 @@
   border-bottom: 1px solid var(--ak-divider);
 }
 
-/* Editorial micro-header, e.g. "SET 01 / TARGETS BOUNDARY / 3 / 215". */
+/* Editorial micro-header, e.g. "SET 01 / TARGETS BOUNDARY / 3 / 215". The two
+   heads are siblings inside the one scroll body and stack rather than replace
+   each other: targets pins at the top, inputs directly beneath it, so both
+   counts are readable at every scroll offset. The fixed height is what lets
+   the second offset be a constant instead of a measurement. */
 .ak-app-shell [data-testid="side-panel"] .side-section-head {
-  padding: 18px 20px 8px;
+  height: var(--ak-side-head-h);
+  box-sizing: border-box;
+  padding: 12px 20px 10px;
   display: flex;
   align-items: baseline;
   gap: 10px;
-  position: relative;
+  position: sticky;
+  z-index: 2;
+  background: var(--ak-bg-primary);
+  border-bottom: 1px solid var(--ak-divider);
+}
+.ak-app-shell [data-testid="side-panel"] .side-section-head-targets {
+  top: 0;
+}
+.ak-app-shell [data-testid="side-panel"] .side-section-head-inputs {
+  top: var(--ak-side-head-h);
 }
 .ak-app-shell [data-testid="side-panel"] .side-section-head::before {
   content: "";
@@ -584,6 +540,68 @@
   letter-spacing: 0.14em;
   text-transform: uppercase;
   border-bottom: 1px solid var(--ak-divider);
+}
+
+/* The two supply blocks: what the user declared, and what the plan assumed.
+   The amber key on the assumed block is the same one raw rows carry. */
+.ak-app-shell [data-testid="side-panel"] .block-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 12px 20px 6px;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--ak-accent-lime);
+}
+.ak-app-shell [data-testid="side-panel"] .block-head.assumed {
+  color: var(--ak-accent-amber);
+}
+.ak-app-shell [data-testid="side-panel"] .block-head .n {
+  margin-left: auto;
+  color: var(--ak-text-decoration);
+  letter-spacing: 0.14em;
+}
+.ak-app-shell [data-testid="side-panel"] .block-sub {
+  padding: 0 20px 8px;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ak-text-decoration);
+  border-bottom: 1px solid var(--ak-divider);
+}
+.ak-app-shell [data-testid="side-panel"] .assumed-body .b-row {
+  background: rgba(232, 155, 26, 0.04);
+}
+.ak-app-shell [data-testid="side-panel"] .assumed-body .b-name {
+  color: var(--ak-text-secondary);
+}
+/* The assumed row's rate cell: a greyed infinity where a field would be, and
+   the button that promotes the row into a real, editable supply. */
+.ak-app-shell [data-testid="side-panel"] .b-rate .inf {
+  font-family: var(--font-num);
+  font-size: 20px;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--ak-text-disabled);
+}
+.ak-app-shell [data-testid="side-panel"] .set-cap {
+  margin-top: 5px;
+  background: transparent;
+  border: 1px solid var(--ak-divider-strong);
+  color: var(--ak-text-secondary);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  padding: 3px 7px;
+  cursor: pointer;
+}
+.ak-app-shell [data-testid="side-panel"] .set-cap:hover {
+  border-color: var(--ak-accent-lime);
+  color: var(--ak-accent-lime);
 }
 
 /* Flat row list. The b-row class name stays so existing tests keep working, but
