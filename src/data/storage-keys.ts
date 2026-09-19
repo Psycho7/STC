@@ -25,3 +25,8 @@ export const EVENT_COHORT_OVERRIDES_STORAGE_KEY = "aef.eventCohortOverrides";
 // ("tundra", "jinlong"). ABSENT until the user picks one, which reads as the
 // pack's latest settlement.
 export const AREA_STORAGE_KEY = "aef.area";
+
+// The recipes switched off by hand (#125): a JSON array of pack recipe ids.
+// Read back against the loaded pack, so an id the pack no longer carries is
+// dropped rather than switching off whatever recipe inherits the name.
+export const DISABLED_RECIPES_STORAGE_KEY = "aef.disabledRecipes";

@@ -47,12 +47,14 @@ import { packIndex } from "./data/pack-index";
 import {
   availabilityKey,
   readStoredArea,
+  readStoredDisabledRecipes,
   readStoredEventOverrides,
   unavailableCauses,
   unavailableEventItems,
   unavailableItems,
   unavailableRecipeIds,
   writeStoredArea,
+  writeStoredDisabledRecipes,
   writeStoredEventOverrides,
   packCohortOf,
   type AvailabilitySettings,
@@ -60,6 +62,7 @@ import {
 } from "./data/availability";
 import {
   AREA_STORAGE_KEY,
+  DISABLED_RECIPES_STORAGE_KEY,
   EVENT_COHORT_OVERRIDES_STORAGE_KEY,
 } from "./data/storage-keys";
 import { SettingsPanel } from "./components/SettingsPanel";
@@ -68,6 +71,7 @@ import type { LogicalGraph } from "./canvas/layout";
 import { LpInfeasibleError } from "./solver";
 import type Fraction from "fraction.js";
 import type { CatalystAccount } from "./solver/catalyst";
+import type { RecipeId } from "./solver/types";
 import { solveFromPlan } from "./pipeline/solveForRender";
 import { deficitItemsBeyondTolerance } from "./pipeline/render/invariants";
 import type { RationalString } from "./pipeline/types";
@@ -161,11 +165,10 @@ type BannerError =
   | { kind: "solver"; error: unknown };
 
 // One banner sentence for a target the viewer's settings leave without a
-// producer. The event cause names the switched-off cohort (#144) and the area
-// cause the selected settlement (#124), both in the UI language, and the item
-// goes by its display name. The manual cause keeps its English text naming the
-// raw ids until #125 ships the toggles that can produce it. Exported so a test
-// can pin the manual wording, which no settings path reaches yet.
+// producer. The event cause names the switched-off cohort (#144), the area
+// cause the selected settlement (#124) and the manual cause the recipe toggle
+// that was flipped (#125), all in the UI language, and the item goes by its
+// display name. Exported so tests can pin every cause's wording.
 export function describeBlockedTarget(
   { itemId, cause }: BlockedTarget,
   i18n: I18nIndex,
@@ -184,7 +187,12 @@ export function describeBlockedTarget(
         area: i18n.displayName(cause.area),
       });
     case "manual":
-      return `Item ${itemId} cannot be a target right now: every recipe producing it is unavailable (recipe ${cause.recipeId} is switched off in settings).`;
+      // The recipe by the name the Recipes section puts on its checkbox, so
+      // the sentence points at the toggle the user flipped.
+      return i18n.t("app.error.producer-unavailable.manual", {
+        item: i18n.displayName(itemId),
+        recipe: i18n.displayName(cause.recipeId),
+      });
   }
 }
 
@@ -499,6 +507,12 @@ function AppInner() {
   // the overrides above; `pack` is a module-stable import, so the boot read
   // needs no dependency.
   const [area, setArea] = useState<string>(() => readStoredArea(pack));
+  // The recipes switched off by hand (#125). Same one-writer discipline, and
+  // deliberately independent of the two above: re-enabling an area or an event
+  // never clears a hand toggle.
+  const [disabledRecipeIds, setDisabledRecipeIds] = useState<
+    ReadonlySet<RecipeId>
+  >(() => readStoredDisabledRecipes(pack));
   // The pack's own cohort, handed to the settings panel so its Events rows
   // can tell current from past. `pack` is a module-stable import, so it stays
   // out of the dependency list.
@@ -532,11 +546,11 @@ function AppInner() {
       setExportingPng(false);
     }
   }, []);
-  // Everything the availability core reads. The cohort overrides and the area
-  // each have their own key and their own writer; #125 adds the last field.
+  // Everything the availability core reads. The three fields each have their
+  // own storage key and their own writer.
   const availabilitySettings = useMemo<AvailabilitySettings>(
-    () => ({ eventOverrides, area }),
-    [eventOverrides, area],
+    () => ({ eventOverrides, area, disabledRecipeIds }),
+    [eventOverrides, area, disabledRecipeIds],
   );
   // What is switched off and why: the cause map plan validation reports from,
   // the id set the solver seam takes, and the digest that decides whether any
@@ -615,6 +629,15 @@ function AppInner() {
     setArea(next);
     writeStoredArea(next);
   }, []);
+  // And the same for the hand toggles (#125): the panel's checkboxes and the
+  // cross-tab storage listener both land here.
+  const handleDisabledRecipesChange = useCallback(
+    (next: ReadonlySet<RecipeId>): void => {
+      setDisabledRecipeIds(next);
+      writeStoredDisabledRecipes(next);
+    },
+    [],
+  );
   // `pack` is a module-stable import, so its memoized index is one object for
   // the app's lifetime and the item-pack context value never changes identity.
   const itemPackValue = packIndex(pack);
@@ -959,11 +982,19 @@ function AppInner() {
       }
       if (e.key === AREA_STORAGE_KEY) {
         handleAreaChange(readStoredArea(pack));
+        return;
+      }
+      if (e.key === DISABLED_RECIPES_STORAGE_KEY) {
+        handleDisabledRecipesChange(readStoredDisabledRecipes(pack));
       }
     };
     window.addEventListener("storage", onStorage);
     return () => window.removeEventListener("storage", onStorage);
-  }, [handleEventOverridesChange, handleAreaChange]);
+  }, [
+    handleEventOverridesChange,
+    handleAreaChange,
+    handleDisabledRecipesChange,
+  ]);
 
   function handleTargetsChange(update: (current: Target[]) => Target[]): void {
     const current = planRef.current;
@@ -1061,6 +1092,9 @@ function AppInner() {
       onOverridesChange={handleEventOverridesChange}
       area={area}
       onAreaChange={handleAreaChange}
+      disabledRecipeIds={disabledRecipeIds}
+      onDisabledRecipesChange={handleDisabledRecipesChange}
+      unavailableCauses={availability.causes}
       onClose={() => setSettingsOpen(false)}
     />
   ) : null;
