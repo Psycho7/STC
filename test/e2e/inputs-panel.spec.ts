@@ -30,11 +30,16 @@ function attachConsoleListener(page: Page): ConsoleLog {
 
 // Wait for the side-panel InputsPanel to mount. PlanV2 is bootstrapped on first
 // load; until the panel exists, locators that target input rows are racy. The
-// side panel ships with the Targets tab active by default, so the Inputs tab
-// must be activated before its body becomes visible (the panel body is hidden
-// when its tab isn't active).
+// rail is one scroll body with two sticky heads, so there is nothing to click
+// to reach the inputs: scroll their section into view instead.
 async function waitForInputsPanel(page: Page): Promise<void> {
-  await page.getByTestId("side-panel-tab-inputs").click();
+  await page.getByTestId("inputs-head").waitFor({ timeout: 10_000 });
+  // Scrolled through the DOM rather than with scrollIntoViewIfNeeded: the
+  // canvas beside the rail keeps settling, and the action's stability wait
+  // would block on it.
+  await page
+    .getByTestId("inputs-section")
+    .evaluate((el) => el.scrollIntoView({ block: "start" }));
   await expect(page.getByRole("button", { name: "添加输入" })).toBeVisible({
     timeout: 10_000,
   });
@@ -349,25 +354,40 @@ test.describe("InputsPanel golden-path coverage", () => {
     await bootExamPage(page, { url: "/", readiness: "nodes", settle: "none" });
     await waitForInputsPanel(page);
 
-    // copper_ore is a raw boundary input for the default plan, so it is an
-    // auto-row and its tile is dimmed in the Add picker. Cap it by typing into
-    // the auto-row instead. The value stays well above the actual demand
-    // (roughly 270/min), which is the premise of this test.
-    const autoRow = page.locator(
+    // copper_ore is a raw boundary input for the default plan, so it sits in
+    // the Assumed unlimited block and its tile is dimmed in the Add picker.
+    // Promote it with its own "set cap" button, then cap it well above the
+    // actual demand (roughly 270/min), which is the premise of this test.
+    const assumedRow = page.locator(
       '[data-testid="input-auto-row"][data-item-id="copper_ore"]',
     );
-    await expect(autoRow).toHaveCount(1);
+    await expect(assumedRow).toHaveCount(1);
+    await expect(assumedRow.getByTestId("input-set-cap")).toBeVisible();
+    // The Assumed row offers no rate field at all: promotion is the only way
+    // in, and it is a click.
+    await expect(
+      assumedRow.getByRole("textbox", { name: TEXT.rateLabel }),
+    ).toHaveCount(0);
 
     const urlBeforeCap = page.url();
-    const rateInput = autoRow.getByRole("textbox", { name: TEXT.rateLabel });
+    await assumedRow.getByTestId("input-set-cap").click();
+
+    // The promotion moves the row into Supplies with a focused, empty field.
+    const promoted = page.locator(
+      '[data-testid="input-row"][data-item-id="copper_ore"]',
+    );
+    await expect(promoted).toHaveCount(1);
+    await expect(
+      page
+        .getByTestId("inputs-supplies-body")
+        .locator('[data-item-id="copper_ore"]'),
+    ).toHaveCount(1);
+    const rateInput = promoted.getByRole("textbox", { name: TEXT.rateLabel });
+    await expect(rateInput).toBeFocused();
+    await expect(rateInput).toHaveValue("");
     await rateInput.fill("9999");
     // fill() does not blur, and the panel commits only on blur or Enter.
     await rateInput.press("Enter");
-
-    // Typing a cap promotes the auto-row into a real override row.
-    await expect(
-      page.locator('[data-testid="input-row"][data-item-id="copper_ore"]'),
-    ).toHaveCount(1);
     await expect
       .poll(() => page.url(), { timeout: 5_000 })
       .not.toBe(urlBeforeCap);
@@ -601,6 +621,48 @@ test.describe("InputsPanel golden-path coverage", () => {
     ).toHaveValue("6");
 
     await waitForCanvasReady(page);
+    await expectNoConsoleErrors(log);
+  });
+
+  test("Test 10: both section heads keep their counts in view at every scroll offset", async ({
+    page,
+  }) => {
+    const log = attachConsoleListener(page);
+    await bootExamPage(page, { url: "/", readiness: "nodes", settle: "none" });
+    await waitForInputsPanel(page);
+
+    // The pill nav is gone; what replaces it are two stacked sticky heads, and
+    // the whole point of the stack is that neither count can scroll away.
+    await expect(page.locator('[data-testid="side-panel"] nav')).toHaveCount(0);
+
+    const rail = page.locator(".side-panel-scroll");
+    const railBox = (await rail.boundingBox())!;
+    const maxScroll = await rail.evaluate(
+      (el) => el.scrollHeight - el.clientHeight,
+    );
+    // A rail short enough not to scroll would pass the loop below for the
+    // wrong reason.
+    expect(maxScroll).toBeGreaterThan(0);
+
+    for (const offset of [0, Math.floor(maxScroll / 2), maxScroll]) {
+      await rail.evaluate((el, top) => {
+        el.scrollTop = top;
+      }, offset);
+      for (const headId of ["targets-head", "inputs-head"]) {
+        const count = page.getByTestId(headId).locator(".count .v");
+        await expect(count).toBeVisible();
+        const box = (await count.boundingBox())!;
+        expect(
+          box.y,
+          `${headId} count above the rail at scrollTop ${offset}`,
+        ).toBeGreaterThanOrEqual(railBox.y - 1);
+        expect(
+          box.y + box.height,
+          `${headId} count below the rail at scrollTop ${offset}`,
+        ).toBeLessThanOrEqual(railBox.y + railBox.height + 1);
+      }
+    }
+
     await expectNoConsoleErrors(log);
   });
 });

@@ -55,14 +55,13 @@ export type RateEdit = {
   field: (rowKey: string, fallbackText: string) => RateField;
   clearPendingEdit: (rowKey: string) => void;
   carryPendingEdit: (oldRowKey: string, newRowKey: string) => void;
-  seedCommittedText: (rowKey: string, text: string) => void;
   pruneEditsTo: (liveRowKeys: ReadonlySet<string>) => void;
 };
 
 // The edit / commit / revert / invalid protocol behind one rate input family.
 // One instance owns one disjoint family of rows: it carries its own invalid
-// set, so a caller with two families (auto rows and override rows) needs two
-// instances and must guarantee a row key is never in both at once.
+// set, so a caller with two families needs two instances and must guarantee a
+// row key is never in both at once.
 //
 // The key is whatever identifies a row to the caller and is opaque here: an
 // item id for the targets panel, an (item, pool) row key for the inputs one.
@@ -192,14 +191,7 @@ export function useRateEdit(config: RateEditConfig): RateEdit {
         return next;
       });
     },
-    // Display text handed over from elsewhere, WITHOUT marking the row dirty, so
-    // a seeded row will not re-commit on blur. One flow needs it: an auto row
-    // promoting into an override row passes on the text the user typed, so the
-    // new row shows that instead of the re-serialized Fraction.
-    seedCommittedText(rowKey, text) {
-      setTexts((prev) => new Map(prev).set(rowKey, text));
-    },
-    // Drop every pending / seeded entry whose row has left the family, whatever
+    // Drop every pending entry whose row has left the family, whatever
     // removed it: clearPendingEdit covers only the explicit remove button, but
     // a row can also disappear when its backing collection changes under the
     // panel, and a surviving entry would resurface if the same item returns.
