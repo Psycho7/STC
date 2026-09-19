@@ -15,18 +15,23 @@ import {
   eventCohortsOf,
   packCohortOf,
   readStoredArea,
+  readStoredDisabledRecipes,
   readStoredEventOverrides,
   unavailableCauses,
   unavailableEventItems,
   unavailableItems,
   unavailableRecipeIds,
   writeStoredArea,
+  writeStoredDisabledRecipes,
   writeStoredEventOverrides,
   type AvailabilitySettings,
 } from "./availability";
 import { pack as shippedPack } from "./load";
+import { solvePlanWithIntermediates } from "../solver";
+import type { ItemTarget } from "./targets";
 import {
   AREA_STORAGE_KEY,
+  DISABLED_RECIPES_STORAGE_KEY,
   EVENT_COHORT_OVERRIDES_STORAGE_KEY,
 } from "./storage-keys";
 
@@ -232,6 +237,28 @@ describe("unavailableCauses", () => {
         disabledRecipeIds: new Set(["smelt"]),
       }),
     ).toEqual(new Map([["smelt", { kind: "manual", recipeId: "smelt" }]]));
+  });
+
+  it("keeps a manual disable across an area that is switched back on", () => {
+    // The three predicates are independent (decision 4): while the area hides
+    // a recipe the area cause wins by precedence, but the hand toggle is still
+    // what remains once the area is back to all of them.
+    const disabledRecipeIds = new Set(["smelt"]);
+    const underArea = unavailableCauses(locatedPack(), {
+      eventOverrides: { "v1.2": true },
+      area: "jinlong",
+      disabledRecipeIds,
+    });
+    expect(underArea.get("smelt")).toEqual({ kind: "area", area: "jinlong" });
+
+    const allAreas = unavailableCauses(locatedPack(), {
+      eventOverrides: { "v1.2": true },
+      disabledRecipeIds,
+    });
+    expect(allAreas.get("smelt")).toEqual({
+      kind: "manual",
+      recipeId: "smelt",
+    });
   });
 
   it("prefers the area cause when area and event both fail", () => {
@@ -576,3 +603,116 @@ describe("stored area", () => {
     }
   });
 });
+
+describe("stored disabled recipes", () => {
+  it("round-trips a written set as a JSON array", () => {
+    writeStoredDisabledRecipes(new Set(["liquid_copper", "copper_bottle"]));
+    expect(window.localStorage.getItem(DISABLED_RECIPES_STORAGE_KEY)).toBe(
+      '["copper_bottle","liquid_copper"]',
+    );
+    expect(readStoredDisabledRecipes(shippedPack)).toEqual(
+      new Set(["copper_bottle", "liquid_copper"]),
+    );
+  });
+
+  it("reads an absent key as nothing disabled", () => {
+    expect(readStoredDisabledRecipes(shippedPack)).toEqual(new Set());
+  });
+
+  it("drops a stored id the pack does not carry", () => {
+    // A renamed or retired recipe comes back enabled rather than switching off
+    // whatever id the pack reuses (decision 4's accepted trade).
+    window.localStorage.setItem(
+      DISABLED_RECIPES_STORAGE_KEY,
+      '["liquid_copper","recipe_that_left_the_pack"]',
+    );
+    expect(readStoredDisabledRecipes(shippedPack)).toEqual(
+      new Set(["liquid_copper"]),
+    );
+  });
+
+  it("survives malformed, non-array and non-string stored values", () => {
+    for (const bad of [
+      '["liquid_copper"',
+      "null",
+      "5",
+      '"liquid_copper"',
+      "{}",
+    ]) {
+      window.localStorage.setItem(DISABLED_RECIPES_STORAGE_KEY, bad);
+      expect(readStoredDisabledRecipes(shippedPack)).toEqual(new Set());
+    }
+    window.localStorage.setItem(
+      DISABLED_RECIPES_STORAGE_KEY,
+      '["liquid_copper", 7, null, {"id":"copper_bottle"}]',
+    );
+    expect(readStoredDisabledRecipes(shippedPack)).toEqual(
+      new Set(["liquid_copper"]),
+    );
+  });
+});
+
+// The acceptance line for #125 at solve level: a disabled recipe never enters a
+// solution, and re-enabling reproduces the untouched solve exactly. Asserted
+// over an item with three producers, so each disable leaves the plan feasible
+// through the survivors instead of merely breaking it.
+describe("a manual disable at solve level", () => {
+  const TARGETS: ItemTarget[] = [
+    { itemId: "carbon_enr_powder", ratePerSec: { num: "1", denom: "1" } },
+  ];
+  const ALTERNATIVES = [
+    "carbon_enr_powder-carbon_powder",
+    "carbon_enr_powder-plant_moss_enr_powder_1",
+    "carbon_enr_powder-plant_moss_enr_powder_2",
+  ];
+
+  // Every recipe the solve actually funds, as id=rate strings: an exact,
+  // order-free reading of "which recipes entered this solution and at what
+  // rate", so the re-enabled run can be compared to the untouched one.
+  function runningRecipes(disabled: string[]): string[] {
+    const causes = unavailableCauses(shippedPack, {
+      eventOverrides: {},
+      disabledRecipeIds: new Set(disabled),
+    });
+    const full = solvePlanWithIntermediates(
+      TARGETS,
+      shippedPack,
+      undefined,
+      undefined,
+      unavailableRecipeIds(causes),
+    );
+    return [...full.rates]
+      .filter(([, rate]) => !rate.equals(0))
+      .map(([id, rate]) => `${id}=${rate.toFraction()}`)
+      .sort();
+  }
+
+  const untouched = runningRecipes([]);
+
+  it("solves through exactly one of the three producers untouched", () => {
+    expect(ALTERNATIVES.filter((id) => idsOf(untouched).includes(id))).toEqual([
+      "carbon_enr_powder-carbon_powder",
+    ]);
+  });
+
+  it("drops each producer in turn and solves through the survivors", () => {
+    for (const disabled of ALTERNATIVES) {
+      const ids = idsOf(runningRecipes([disabled]));
+      expect(ids).not.toContain(disabled);
+      // The plan still resolves through one of the other two, so the disable
+      // rerouted the solve rather than emptying it.
+      const used = ALTERNATIVES.filter((id) => ids.includes(id));
+      expect(used).toHaveLength(1);
+      expect(used[0]).not.toBe(disabled);
+    }
+  });
+
+  it("reproduces the untouched solution once the recipe is re-enabled", () => {
+    runningRecipes(["carbon_enr_powder-carbon_powder"]);
+    expect(runningRecipes([])).toEqual(untouched);
+  });
+});
+
+function idsOf(running: string[]): string[] {
+  return running.map((entry) => entry.slice(0, entry.lastIndexOf("=")));
+}
