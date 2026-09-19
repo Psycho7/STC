@@ -35,8 +35,26 @@ function flip<T>(
   return { ...table, [id]: { ...row, ...patch } };
 }
 
+// Remove one row of one table. Used to prove the join refuses to run with a
+// shrunken snapshot instead of quietly skipping the rows it can no longer see.
+function drop<T>(table: Record<string, T>, id: string): Record<string, T> {
+  if (!table[id]) throw new Error(`test fixture: no row ${id}`);
+  const rest = { ...table };
+  delete rest[id];
+  return rest;
+}
+
 function expectThrows(broken: AkeSnapshot, named: string): void {
   expect(() => joinAndAssert(rows, broken)).toThrow(new RegExp(named));
+}
+
+// The pack-side counterpart of flip, for the branches a snapshot edit cannot
+// reach because the assertion above them fires first.
+function packWithMachine(id: string, patch: Partial<Machine>) {
+  return {
+    ...rows,
+    machines: rows.machines.map((m) => (m.id === id ? { ...m, ...patch } : m)),
+  };
 }
 
 // The unmatched families, named by their producers: no game table carries a
@@ -114,6 +132,24 @@ describe("join shape", () => {
       "settlement-tundra",
       "settlement-tundra_coupon",
     ]);
+  });
+
+  test("an item the snapshot drops fails the join", () => {
+    const item = pack.items.find((i) => ake.items[akeItemId(i.id)])!;
+    expectThrows(
+      { ...ake, items: drop(ake.items, akeItemId(item.id)) },
+      item.id,
+    );
+  });
+
+  test("a machine the snapshot drops fails the join", () => {
+    const machine = pack.machines.find(
+      (m) => ake.buildings[akeMachineId(m.id)],
+    )!;
+    expectThrows(
+      { ...ake, buildings: drop(ake.buildings, akeMachineId(machine.id)) },
+      machine.id,
+    );
   });
 
   test("all 24 catalyst recipes match in pass 1", () => {
@@ -247,7 +283,7 @@ describe("derivable fields disagree loudly", () => {
     );
   });
 
-  test("locations", () => {
+  test("unexpected recommended domain", () => {
     const machine = pack.machines.find((m) => m.locations)!;
     expectThrows(
       {
@@ -258,6 +294,47 @@ describe("derivable fields disagree loudly", () => {
       },
       machine.id,
     );
+  });
+
+  test("locations", () => {
+    // Both domain values are ones the rule accepts, so the throw comes from the
+    // locations comparison rather than the domain check above it.
+    const machine = pack.machines.find(
+      (m) => m.locations && ake.buildings[akeMachineId(m.id)],
+    )!;
+    expect(machine.locations).toEqual(["jinlong"]);
+    expectThrows(
+      {
+        ...ake,
+        buildings: flip(ake.buildings, akeMachineId(machine.id), {
+          recommendDomains: [],
+        }),
+      },
+      machine.id,
+    );
+  });
+
+  test("burner power draw", () => {
+    // A burner's expected draw is null whatever powerConsume says, so only a
+    // pack-side value reaches that branch; needPower is left alone so the
+    // powerType check above passes.
+    const broken = packWithMachine("miner_4", { powerKw: 5 });
+    expect(ake.buildings[akeMachineId("miner_4")]!.needPower).toBe(false);
+    expect(() => joinAndAssert(broken, ake)).toThrow(/miner_4/);
+  });
+
+  test("missing footprint", () => {
+    // No carve-out: a joined machine without a size disagrees with the table.
+    const broken = {
+      ...rows,
+      machines: rows.machines.map((m) => {
+        if (m.id !== "miner_2") return m;
+        const stripped = { ...m };
+        delete stripped.size;
+        return stripped;
+      }),
+    };
+    expect(() => joinAndAssert(broken, ake)).toThrow(/miner_2/);
   });
 
   test("footprint", () => {

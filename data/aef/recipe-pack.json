@@ -5,8 +5,28 @@
     "sourceRepo": "https://github.com/endfield-calc/factoriolab",
     "sourceCommit": "0a3bb78eea8339177f1b3ba1d16f60ccef78902c",
     "gameVersion": "v1.5.3",
-    "extractedAt": "2026-09-15T03:42:18.814Z"
+    "extractedAt": "2026-09-19T09:14:43.941Z"
   },
+  "sources": [
+    {
+      "vendor": "endfield-calc",
+      "name": "endfield-calc/factoriolab",
+      "sourceRepo": "https://github.com/endfield-calc/factoriolab",
+      "sourceCommit": "0a3bb78eea8339177f1b3ba1d16f60ccef78902c",
+      "gameVersion": "v1.5.3",
+      "extractedAt": "2026-09-19T09:14:43.941Z"
+    },
+    {
+      "vendor": "akedata",
+      "name": "NagiYume/AKEDatabase",
+      "repo": "https://github.com/NagiYume/AKEDatabase",
+      "version": "1.5.3@9913107-5",
+      "hotfixVersion": "9913107-5",
+      "publishedAt": "2026-09-04T14:31:50.963743+00:00",
+      "snapshotDate": "2026-09-13",
+      "tableCfgPath": "public/1.5.3/9913107-5/TableCfg"
+    }
+  ],
   "categories": [
     {
       "id": "material",
@@ -1470,6 +1490,10 @@
       "powerType": "electric",
       "powerKw": 5,
       "hideRate": false,
+      "size": [
+        3,
+        3
+      ],
       "totalRecipe": true
     },
     {
@@ -1480,6 +1504,10 @@
       "powerType": "electric",
       "powerKw": 10,
       "hideRate": false,
+      "size": [
+        3,
+        3
+      ],
       "totalRecipe": true
     },
     {
@@ -1490,6 +1518,10 @@
       "powerType": "burner",
       "powerKw": null,
       "hideRate": false,
+      "size": [
+        3,
+        3
+      ],
       "locations": [
         "jinlong"
       ],
@@ -1593,6 +1625,10 @@
       "powerType": "electric",
       "powerKw": 10,
       "hideRate": false,
+      "size": [
+        3,
+        3
+      ],
       "locations": [
         "jinlong"
       ]
@@ -1605,6 +1641,10 @@
       "powerType": "electric",
       "powerKw": 20,
       "hideRate": false,
+      "size": [
+        3,
+        3
+      ],
       "locations": [
         "jinlong"
       ]

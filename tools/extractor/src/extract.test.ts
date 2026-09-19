@@ -4,6 +4,7 @@ import Fraction from "fraction.js";
 import {
   LOCALES,
   SCHEMA_VERSION,
+  type AkedataProvenance,
   type Item,
   type Machine,
   type Recipe,
@@ -29,6 +30,7 @@ const TRANSPORT_CONFIG_PATH = resolve(
   REPO_ROOT,
   "data/aef/transport-config.json",
 );
+const AKEDATA_SOURCE_PATH = resolve(REPO_ROOT, "vendor/akedata/SOURCE.json");
 
 let pack: RecipePack;
 let i18n: RecipePackI18n;
@@ -54,6 +56,29 @@ describe("schema and source provenance", () => {
     expect(pack.source.extractedAt).toMatch(
       /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/,
     );
+  });
+
+  test("sources records both vendors, the sidecar the same two", async () => {
+    const ake = (await Bun.file(AKEDATA_SOURCE_PATH).json()) as Omit<
+      AkedataProvenance,
+      "vendor"
+    >;
+    expect(pack.sources).toHaveLength(2);
+    expect(pack.sources![0]).toEqual({
+      vendor: "endfield-calc",
+      ...pack.source,
+    });
+    expect(pack.sources![1]).toEqual({
+      vendor: "akedata",
+      name: ake.name,
+      repo: ake.repo,
+      version: ake.version,
+      hotfixVersion: ake.hotfixVersion,
+      publishedAt: ake.publishedAt,
+      snapshotDate: ake.snapshotDate,
+      tableCfgPath: ake.tableCfgPath,
+    });
+    expect(i18n.sources).toEqual(pack.sources!);
   });
 });
 
@@ -423,10 +448,13 @@ describe("optional-field counts", () => {
     expect(pack.items.filter((i) => i.buildIcon !== undefined)).toHaveLength(4);
   });
 
-  test("21 machines carry a size, 19 carry locations, 3 carry totalRecipe", () => {
+  test("26 machines carry a size, 19 carry locations, 3 carry totalRecipe", () => {
     // v1.4 adds the four gas-system machines (gas_pump_1, gas_reactor_1,
     // phase_trans_1, phase_trans_2), all sized and jinlong-restricted.
-    expect(pack.machines.filter((m) => m.size !== undefined)).toHaveLength(21);
+    //
+    // Upstream sizes 21 of them; the five extraction machines (miner_2..4,
+    // pump_1, pump_2) take their footprint from the game's building table.
+    expect(pack.machines.filter((m) => m.size !== undefined)).toHaveLength(26);
     expect(pack.machines.filter((m) => m.locations !== undefined)).toHaveLength(
       19,
     );
@@ -864,9 +892,11 @@ describe("idempotence", () => {
     const first = await runExtractor({ write: false });
     const second = await runExtractor({ write: false });
 
+    // Global: the timestamp appears once under `source` and again in the
+    // endfield-calc entry of `sources`.
     const serialize = (v: unknown) =>
       JSON.stringify(v, null, 2).replace(
-        /"extractedAt":\s*"[^"]+"/,
+        /"extractedAt":\s*"[^"]+"/g,
         '"extractedAt":"<elided>"',
       );
 

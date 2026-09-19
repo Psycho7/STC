@@ -83,6 +83,26 @@ const DOMAIN_TRANSFER_EXCLUDED: readonly string[] = [
 
 const MS_PER_SECOND = 1000;
 
+// The only pack rows the snapshot has no counterpart for. Everything else must
+// join: a snapshot row that disappears would otherwise quietly drop its row out
+// of the stack, phase, power, location and size assertions while every count
+// below stays green, so the sets are asserted rather than reported.
+const UNJOINED_ITEMS: readonly string[] = [
+  "domain_key_tundra",
+  "jinlong_coupon",
+  "tundra_coupon",
+];
+
+const UNJOINED_MACHINES: readonly string[] = [
+  "__domain_transfer",
+  "liquid_clean_gate",
+  "liquid_recycle_gate",
+  "settlement-jinlong",
+  "settlement-jinlong_coupon",
+  "settlement-tundra",
+  "settlement-tundra_coupon",
+];
+
 export interface AkeSource {
   name: string;
   repo: string;
@@ -247,8 +267,29 @@ export function joinAndAssert(
   const join = joinRecipes(pack.recipes, ake);
   assertItems(pack.items, ake, join);
   assertMachines(pack.machines, ake, join);
+  assertUnjoined("items", join.unmatchedItems, UNJOINED_ITEMS);
+  assertUnjoined("machines", join.unmatchedMachines, UNJOINED_MACHINES);
   assertDomainTransfer(pack.items, pack.recipes, ake);
   return join;
+}
+
+function assertUnjoined(
+  kind: string,
+  actual: string[],
+  expected: readonly string[],
+): void {
+  const missing = actual.filter((id) => !expected.includes(id));
+  const joined = expected.filter((id) => !actual.includes(id));
+  if (missing.length === 0 && joined.length === 0) return;
+
+  const parts: string[] = [];
+  if (missing.length > 0) {
+    parts.push(`no akedata row for ${missing.sort().join(", ")}`);
+  }
+  if (joined.length > 0) {
+    parts.push(`unexpectedly joined ${joined.slice().sort().join(", ")}`);
+  }
+  throw new Error(`akedata ${kind} join: ${parts.join("; ")}`);
 }
 
 function joinRecipes(recipes: Recipe[], ake: AkeSnapshot): AkeJoin {
@@ -495,13 +536,17 @@ function assertMachines(
 
     assertLocations(machine, row);
 
-    if (machine.size) {
-      const size = [row.range.width, row.range.depth];
-      if (machine.size[0] !== size[0] || machine.size[1] !== size[1]) {
-        throw new Error(
-          `machine ${machine.id} size ${machine.size.join("x")} disagrees with akedata ${size.join("x")}`,
-        );
-      }
+    // Every building the table ships has a footprint, so a joined machine that
+    // lacks one is a disagreement like any other.
+    const size = [row.range.width, row.range.depth];
+    if (
+      machine.size === undefined ||
+      machine.size[0] !== size[0] ||
+      machine.size[1] !== size[1]
+    ) {
+      throw new Error(
+        `machine ${machine.id} size ${machine.size?.join("x") ?? "absent"} disagrees with akedata ${size.join("x")}`,
+      );
     }
   }
 }
