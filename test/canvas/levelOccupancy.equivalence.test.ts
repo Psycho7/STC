@@ -1,16 +1,18 @@
-// The jog frame gap and the rail floor rescan move exactly these lines.
+// The jog frame gap, the rail floor rescan and the chip slide move exactly
+// these lines.
 //
 // The fixtures are the routed corpus at the level-occupancy extraction (the
-// commit before the F and D clearance work), and they were written to prove
-// that the extraction moved nothing. They still serve: the F candidate arm and
-// the D rescan are deliberate behaviour changes, and the question this test now
-// answers is which lines they reach. Every field of every other edge and node
-// must still match the extraction byte for byte, and the set of edges that do
-// differ must be exactly the one enumerated below. The ratchet tables in the
-// e2e geometry audit cannot say that: every cell is an upper bound compared
-// with toBeLessThanOrEqual, so a relocation that lowers a count passes
-// silently. A whole-scene diff cannot say it either: the capture carries build
-// provenance and camera metadata that differ between builds.
+// commit before the F, D and A clearance work), and they were written to prove
+// that the extraction moved nothing. They still serve: the F candidate arm, the
+// D rescan and the A chip slide are deliberate behaviour changes, and the
+// question this test now answers is which lines they reach. Every field of
+// every other edge and node must still match the extraction byte for byte, and
+// the keys that do differ must be exactly the ones the two tables below
+// enumerate. The ratchet tables in the e2e geometry audit cannot say that:
+// every cell is an upper bound compared with toBeLessThanOrEqual, so a
+// relocation that lowers a count passes silently. A whole-scene diff cannot say
+// it either: the capture carries build provenance and camera metadata that
+// differ between builds.
 //
 // So the "before" side is a set of fixtures written from the base commit by the
 // same code below (LEVEL_OCCUPANCY_FIXTURES=write, then `prettier --write` over
@@ -178,8 +180,7 @@ function flatten(snapshot: Snapshot): Map<string, unknown> {
 }
 
 // The edges the jog frame gap (F) and the rail floor rescan (D) move, by plan.
-// Everything not named here is identical to the extraction, so this list is the
-// whole reach of both changes over the 17-plan corpus:
+// A listed edge may differ in any recorded field:
 //   F  relocated jog runs that were riding a foreign loop frame -- multi6 e:67,
 //      e:69 and e:81, rot-bottled_food_4 e:14, battery5-xiranite e:28 -- plus
 //      multi6 e:77 and e:79, which take the levels the moved runs vacated.
@@ -198,6 +199,43 @@ const MOVED: Readonly<Record<string, ReadonlyArray<string>>> = {
 // `edge:e:43:u:class:q:51->...plant_grass_1.railY` -> `e:43`.
 const edgeHeadOf = (key: string): string | null =>
   /^edge:(e:\d+):/.exec(key)?.[1] ?? null;
+
+// The second named delta: family A slides a 1-to-1 chip off any foreign
+// vertical crossing its box, so these edges' chip seats moved and nothing else
+// did. Keyed by the full edge id and narrower than MOVED -- only the three seat
+// fields of a listed edge may differ -- because A moves no polyline, column,
+// level or node placement, and the test should keep saying so.
+//
+// Both tables compose: an unlisted key still compares exact, the union of what
+// the two permit is the whole permitted delta, and a listed edge that stops
+// differing fails either way, so neither list can rot into a blanket waiver.
+const SEAT_FIELDS = ["chipX", "chipY", "labelAnchor"] as const;
+const CHIP_SEATS_MOVED: Readonly<Record<string, ReadonlyArray<string>>> = {
+  battery5: [
+    "e:16:u:class:q:5->u:surplus:copper_nugget:copper_nugget",
+    "e:18:u:class:q:9->u:class:q:10:liquid_xiranite_lowpoly",
+  ],
+  "battery5-xiranite": [
+    "e:6:u:class:q:14->u:class:q:16:liquid_xiranite_lowpoly",
+    "e:18:u:class:q:28->u:class:q:8:xiranite_poly",
+  ],
+  multi6: [
+    "e:26:u:class:q:27->u:class:q:18:copper_nugget",
+    "e:46:u:class:q:54->u:class:q:14:plant_grass_2",
+    "e:63:u:class:q:8->u:class:q:21:liquid_plant_grass_1",
+  ],
+  // Not one of the 12 sites: e:25's rule seat stood 6 units off a foreign
+  // vertical, inside the CHAMFER pad, so the slide clears the pad as well as
+  // the stroke.
+  "gas-web": ["e:25:u:in:liquid_water->u:class:q:9:liquid_water"],
+  transmuters: [
+    "e:3:u:cat:liquid_xiranite->u:class:q:11:liquid_xiranite",
+    "e:11:u:class:q:4->u:class:q:0:copper_nugget",
+  ],
+  "copper-script43": ["e:26:u:class:q:9->u:class:q:32:gas_xiranite_enr"],
+  "rot-bottled_rec_hp_1": ["e:4:u:class:q:4->u:class:q:5:plant_moss_1"],
+  "rot-proc_bomb_1": ["e:4:u:class:q:4->u:class:q:5:plant_bbflower_1"],
+};
 
 describe("the level-occupancy extraction routes the corpus identically", () => {
   for (const scenario of SCENARIO_LIST) {
@@ -225,23 +263,33 @@ describe("the level-occupancy extraction routes the corpus identically", () => {
       const lhs = flatten(before);
       const rhs = flatten(after);
       const moved = MOVED[scenario.id] ?? [];
+      const seats = CHIP_SEATS_MOVED[scenario.id] ?? [];
+      const seatKeys = new Map<string, string>();
+      for (const id of seats) {
+        for (const field of SEAT_FIELDS)
+          seatKeys.set(`edge:${id}.${field}`, id);
+      }
       const unexpected: string[] = [];
       const movedHeads = new Set<string>();
+      const seatsSeen = new Set<string>();
       for (const key of new Set([...lhs.keys(), ...rhs.keys()])) {
         if (Object.is(lhs.get(key), rhs.get(key))) continue;
+        // A key either table permits is permitted, and credits that table --
+        // both, where a seat field of an edge MOVED already covers differs.
+        const seat = seatKeys.get(key);
+        if (seat !== undefined) seatsSeen.add(seat);
         const head = edgeHeadOf(key);
-        if (head === null || !moved.includes(head)) {
+        if (head !== null && moved.includes(head)) movedHeads.add(head);
+        else if (seat === undefined)
           unexpected.push(`${key}: ${lhs.get(key)} -> ${rhs.get(key)}`);
-          continue;
-        }
-        movedHeads.add(head);
       }
 
-      // No node placement and no unlisted edge moved, and every listed edge
-      // really did move -- an entry that goes stale is as much a finding as a
-      // line that moves without one.
+      // No node placement and no unlisted key moved, and every listed edge
+      // really did move in the fields its table permits -- an entry that goes
+      // stale is as much a finding as a line that moves without one.
       expect(unexpected).toEqual([]);
       expect([...movedHeads].sort()).toEqual([...moved].sort());
+      expect([...seatsSeen].sort()).toEqual([...seats].sort());
     }, 600_000);
   }
 });
