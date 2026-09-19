@@ -1,0 +1,195 @@
+{
+  "nodes": [
+    {
+      "id": "loop:plant_moss_1",
+      "x": 509,
+      "y": 12
+    },
+    {
+      "id": "u:class:q:3",
+      "x": 625.5,
+      "y": 148
+    },
+    {
+      "id": "u:class:q:4",
+      "x": 625.5,
+      "y": 28
+    },
+    {
+      "id": "u:class:q:6",
+      "x": 28,
+      "y": 28
+    },
+    {
+      "id": "u:class:q:0",
+      "x": 2382.5,
+      "y": 269
+    },
+    {
+      "id": "u:class:q:1",
+      "x": 727.5,
+      "y": 300
+    },
+    {
+      "id": "u:class:q:2",
+      "x": 1777.5,
+      "y": 300
+    },
+    {
+      "id": "u:class:q:5",
+      "x": 1777.5,
+      "y": 40
+    },
+    {
+      "id": "u:in:quartz_sand",
+      "x": 12,
+      "y": 309
+    },
+    {
+      "id": "u:out:bottled_rec_hp_1",
+      "x": 2956.5,
+      "y": 289
+    }
+  ],
+  "edges": [
+    {
+      "id": "e:0:u:class:q:0->u:out:bottled_rec_hp_1:bottled_rec_hp_1",
+      "type": "item",
+      "pts": [
+        [2627.5, 343],
+        [2813.5, 343],
+        [2829.5, 324.5],
+        [2952.5, 324.5]
+      ],
+      "anchors": {
+        "labelAnchor": [2720.5, 343]
+      },
+      "bendX": 2777.5,
+      "entryX": 2821.5
+    },
+    {
+      "id": "e:1:u:class:q:1->u:class:q:2:quartz_glass",
+      "type": "item",
+      "pts": [
+        [972.5, 374],
+        [1774.5, 374]
+      ],
+      "anchors": {
+        "labelAnchor": [1373.5, 374]
+      }
+    },
+    {
+      "id": "e:2:u:class:q:2->u:class:q:0:glass_bottle",
+      "type": "item",
+      "pts": [
+        [2022.5, 374],
+        [2232, 374],
+        [2248, 365],
+        [2379.5, 365]
+      ],
+      "anchors": {
+        "labelAnchor": [2127.25, 374]
+      },
+      "bendX": 2170.6666666666665,
+      "entryX": 2240
+    },
+    {
+      "id": "e:3:u:class:q:3->u:class:q:6:plant_moss_1",
+      "type": "item",
+      "pts": [
+        [1379.5, 234],
+        [1539, 234],
+        [1547, 226],
+        [1547, -36],
+        [1539, -44],
+        [374.5, -44],
+        [366.5, -36],
+        [366.5, 106],
+        [374.5, 114],
+        [534, 114]
+      ],
+      "anchors": {
+        "labelAnchor": [956.75, -44]
+      },
+      "entryX": 366.5,
+      "railXRight": 1547,
+      "railY": -44
+    },
+    {
+      "id": "e:4:u:class:q:4->u:class:q:5:plant_moss_1",
+      "type": "item",
+      "pts": [
+        [1379.5, 114],
+        [1774.5, 114]
+      ],
+      "anchors": {
+        "labelAnchor": [1577, 114]
+      },
+      "bendX": 1595
+    },
+    {
+      "id": "e:5:u:class:q:5->u:class:q:0:plant_moss_powder_1",
+      "type": "item",
+      "pts": [
+        [2022.5, 114],
+        [2216, 114],
+        [2224, 122],
+        [2224, 335],
+        [2232, 343],
+        [2379.5, 343]
+      ],
+      "anchors": {
+        "labelAnchor": [2119.25, 114]
+      },
+      "bendX": 2189.3333333333335,
+      "entryX": 2224
+    },
+    {
+      "id": "e:6:u:class:q:6->u:class:q:3:plant_moss_seed_1",
+      "type": "bus",
+      "pts": [
+        [782, 114],
+        [919.5, 114],
+        [927.5, 122],
+        [927.5, 226],
+        [935.5, 234],
+        [1131.5, 234]
+      ],
+      "anchors": {
+        "junction": [919.5, 114],
+        "trunkAnchor": [853.25, 114],
+        "branchAnchor": [1064, 234]
+      }
+    },
+    {
+      "id": "e:7:u:class:q:6->u:class:q:4:plant_moss_seed_1",
+      "type": "bus",
+      "pts": [
+        [782, 114],
+        [1131.5, 114]
+      ],
+      "anchors": {
+        "junction": [919.5, 114],
+        "trunkAnchor": [853.25, 114],
+        "branchAnchor": [1064, 114]
+      }
+    },
+    {
+      "id": "e:8:u:in:quartz_sand->u:class:q:1:quartz_sand",
+      "type": "item",
+      "pts": [
+        [164, 344.5],
+        [358.5, 344.5],
+        [366.5, 352.5],
+        [366.5, 366],
+        [374.5, 374],
+        [724.5, 374]
+      ],
+      "anchors": {
+        "labelAnchor": [549.5, 374]
+      },
+      "bendX": 322.5,
+      "entryX": 366.5
+    }
+  ]
+}

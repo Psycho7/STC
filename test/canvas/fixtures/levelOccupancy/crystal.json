@@ -1,0 +1,219 @@
+{
+  "nodes": [
+    {
+      "id": "loop:plant_moss_3",
+      "x": 12,
+      "y": 12
+    },
+    {
+      "id": "u:class:q:4",
+      "x": 618,
+      "y": 148
+    },
+    {
+      "id": "u:class:q:5",
+      "x": 618,
+      "y": 28
+    },
+    {
+      "id": "u:class:q:7",
+      "x": 28,
+      "y": 28
+    },
+    {
+      "id": "u:class:q:0",
+      "x": 3026,
+      "y": 60
+    },
+    {
+      "id": "u:class:q:1",
+      "x": 2452,
+      "y": 60
+    },
+    {
+      "id": "u:class:q:2",
+      "x": 1878,
+      "y": 49
+    },
+    {
+      "id": "u:class:q:3",
+      "x": 1273,
+      "y": 291
+    },
+    {
+      "id": "u:class:q:6",
+      "x": 1273,
+      "y": 40
+    },
+    {
+      "id": "u:in:originium_ore",
+      "x": 533,
+      "y": 300
+    },
+    {
+      "id": "u:out:crystal_enr",
+      "x": 3600,
+      "y": 69
+    }
+  ],
+  "edges": [
+    {
+      "id": "e:0:u:class:q:0->u:out:crystal_enr:crystal_enr",
+      "type": "item",
+      "pts": [
+        [3271, 134],
+        [3457, 134],
+        [3465, 126],
+        [3465, 112.5],
+        [3473, 104.5],
+        [3596, 104.5]
+      ],
+      "anchors": {
+        "labelAnchor": [3364, 134]
+      },
+      "bendX": 3421,
+      "entryX": 3465
+    },
+    {
+      "id": "e:1:u:class:q:1->u:class:q:0:crystal_enr_powder",
+      "type": "item",
+      "pts": [
+        [2697, 134],
+        [3023, 134]
+      ],
+      "anchors": {
+        "labelAnchor": [2860, 134]
+      },
+      "bendX": 2859
+    },
+    {
+      "id": "e:2:u:class:q:2->u:class:q:1:originium_enr_powder",
+      "type": "item",
+      "pts": [
+        [2123, 123],
+        [2309, 123],
+        [2325, 134],
+        [2449, 134]
+      ],
+      "anchors": {
+        "labelAnchor": [2216, 123]
+      },
+      "bendX": 2273,
+      "entryX": 2317
+    },
+    {
+      "id": "e:3:u:class:q:3->u:class:q:2:originium_powder",
+      "type": "item",
+      "pts": [
+        [1518, 365],
+        [1727.5, 365],
+        [1735.5, 357],
+        [1735.5, 153],
+        [1743.5, 145],
+        [1875, 145]
+      ],
+      "anchors": {
+        "labelAnchor": [1622.75, 365]
+      },
+      "bendX": 1666.1666666666667,
+      "entryX": 1735.5
+    },
+    {
+      "id": "e:4:u:class:q:4->u:class:q:7:plant_moss_3",
+      "type": "item",
+      "pts": [
+        [875, 234],
+        [1034.5, 234],
+        [1042.5, 242],
+        [1042.5, 379],
+        [1034.5, 387],
+        [36, 387],
+        [28, 379],
+        [28, 122],
+        [36, 114],
+        [37, 114]
+      ],
+      "anchors": {
+        "labelAnchor": [535.25, 387]
+      },
+      "entryX": 16,
+      "railXLeft": 28,
+      "railXRight": 1042.5,
+      "railY": 387
+    },
+    {
+      "id": "e:5:u:class:q:5->u:class:q:6:plant_moss_3",
+      "type": "item",
+      "pts": [
+        [875, 114],
+        [1270, 114]
+      ],
+      "anchors": {
+        "labelAnchor": [1072.5, 114]
+      },
+      "bendX": 1078.5
+    },
+    {
+      "id": "e:6:u:class:q:6->u:class:q:2:plant_moss_powder_3",
+      "type": "item",
+      "pts": [
+        [1518, 114],
+        [1711.5, 114],
+        [1727.5, 123],
+        [1875, 123]
+      ],
+      "anchors": {
+        "labelAnchor": [1614.75, 114]
+      },
+      "bendX": 1684.8333333333333,
+      "entryX": 1719.5
+    },
+    {
+      "id": "e:7:u:class:q:7->u:class:q:4:plant_moss_seed_3",
+      "type": "bus",
+      "pts": [
+        [285, 114],
+        [415, 114],
+        [423, 122],
+        [423, 226],
+        [431, 234],
+        [627, 234]
+      ],
+      "anchors": {
+        "junction": [415, 114],
+        "trunkAnchor": [352.5, 114],
+        "branchAnchor": [559.5, 234]
+      }
+    },
+    {
+      "id": "e:8:u:class:q:7->u:class:q:5:plant_moss_seed_3",
+      "type": "bus",
+      "pts": [
+        [285, 114],
+        [627, 114]
+      ],
+      "anchors": {
+        "junction": [415, 114],
+        "trunkAnchor": [352.5, 114],
+        "branchAnchor": [559.5, 114]
+      }
+    },
+    {
+      "id": "e:9:u:in:originium_ore->u:class:q:3:originium_ore",
+      "type": "item",
+      "pts": [
+        [685, 335.5],
+        [1122.5, 335.5],
+        [1130.5, 343.5],
+        [1130.5, 357],
+        [1138.5, 365],
+        [1270, 365]
+      ],
+      "anchors": {
+        "labelAnchor": [903.75, 335.5]
+      },
+      "bendX": 1078.5,
+      "entryX": 1130.5
+    }
+  ]
+}

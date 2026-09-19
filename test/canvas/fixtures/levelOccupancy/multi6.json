@@ -1,0 +1,1898 @@
+{
+  "nodes": [
+    {
+      "id": "loop:plant_grass_1",
+      "x": 1261,
+      "y": 1689
+    },
+    {
+      "id": "u:class:q:51",
+      "x": 643,
+      "y": 47
+    },
+    {
+      "id": "u:class:q:52",
+      "x": 643,
+      "y": 189
+    },
+    {
+      "id": "u:class:q:55",
+      "x": 38,
+      "y": 38
+    },
+    {
+      "id": "loop:plant_grass_2",
+      "x": 1261,
+      "y": 1070
+    },
+    {
+      "id": "u:class:q:53",
+      "x": 643,
+      "y": 47
+    },
+    {
+      "id": "u:class:q:54",
+      "x": 643,
+      "y": 189
+    },
+    {
+      "id": "u:class:q:56",
+      "x": 38,
+      "y": 38
+    },
+    {
+      "id": "loop:plant_moss_3",
+      "x": 1268,
+      "y": 2150
+    },
+    {
+      "id": "u:class:q:57",
+      "x": 633,
+      "y": 148
+    },
+    {
+      "id": "u:class:q:58",
+      "x": 633,
+      "y": 28
+    },
+    {
+      "id": "u:class:q:60",
+      "x": 28,
+      "y": 28
+    },
+    {
+      "id": "u:class:q:0",
+      "x": 4842,
+      "y": 1508
+    },
+    {
+      "id": "u:class:q:1",
+      "x": 4842,
+      "y": 804
+    },
+    {
+      "id": "u:class:q:10",
+      "x": 3424,
+      "y": 2187
+    },
+    {
+      "id": "u:class:q:11",
+      "x": 1482,
+      "y": 2438
+    },
+    {
+      "id": "u:class:q:12",
+      "x": 3424,
+      "y": 230
+    },
+    {
+      "id": "u:class:q:13",
+      "x": 2643,
+      "y": 1889
+    },
+    {
+      "id": "u:class:q:14",
+      "x": 2643,
+      "y": 1291
+    },
+    {
+      "id": "u:class:q:15",
+      "x": 5495,
+      "y": 2059
+    },
+    {
+      "id": "u:class:q:16",
+      "x": 1482,
+      "y": 2558
+    },
+    {
+      "id": "u:class:q:17",
+      "x": 3424,
+      "y": 1508
+    },
+    {
+      "id": "u:class:q:18",
+      "x": 3424,
+      "y": 896
+    },
+    {
+      "id": "u:class:q:19",
+      "x": 4157,
+      "y": 1488
+    },
+    {
+      "id": "u:class:q:2",
+      "x": 2643,
+      "y": 1430
+    },
+    {
+      "id": "u:class:q:20",
+      "x": 4157,
+      "y": 784
+    },
+    {
+      "id": "u:class:q:21",
+      "x": 4157,
+      "y": 1608
+    },
+    {
+      "id": "u:class:q:22",
+      "x": 2643,
+      "y": 581
+    },
+    {
+      "id": "u:class:q:23",
+      "x": 2643,
+      "y": 439
+    },
+    {
+      "id": "u:class:q:24",
+      "x": 1482,
+      "y": 1430
+    },
+    {
+      "id": "u:class:q:25",
+      "x": 1482,
+      "y": 2030
+    },
+    {
+      "id": "u:class:q:26",
+      "x": 2643,
+      "y": 1007
+    },
+    {
+      "id": "u:class:q:27",
+      "x": 2643,
+      "y": 865
+    },
+    {
+      "id": "u:class:q:28",
+      "x": 2643,
+      "y": 1149
+    },
+    {
+      "id": "u:class:q:29",
+      "x": 2643,
+      "y": 723
+    },
+    {
+      "id": "u:class:q:3",
+      "x": 4842,
+      "y": 97
+    },
+    {
+      "id": "u:class:q:30",
+      "x": 4157,
+      "y": 905
+    },
+    {
+      "id": "u:class:q:31",
+      "x": 6100,
+      "y": 29
+    },
+    {
+      "id": "u:class:q:32",
+      "x": 3424,
+      "y": 383
+    },
+    {
+      "id": "u:class:q:33",
+      "x": 1482,
+      "y": 1550
+    },
+    {
+      "id": "u:class:q:36",
+      "x": 4157,
+      "y": 256
+    },
+    {
+      "id": "u:class:q:39",
+      "x": 2643,
+      "y": 2030
+    },
+    {
+      "id": "u:class:q:4",
+      "x": 4842,
+      "y": 2538
+    },
+    {
+      "id": "u:class:q:45",
+      "x": 5495,
+      "y": 12
+    },
+    {
+      "id": "u:class:q:49",
+      "x": 3424,
+      "y": 77
+    },
+    {
+      "id": "u:class:q:5",
+      "x": 4157,
+      "y": 2050
+    },
+    {
+      "id": "u:class:q:59",
+      "x": 2643,
+      "y": 2178
+    },
+    {
+      "id": "u:class:q:6",
+      "x": 4842,
+      "y": 2050
+    },
+    {
+      "id": "u:class:q:61",
+      "x": 4157,
+      "y": 2538
+    },
+    {
+      "id": "u:class:q:62",
+      "x": 3424,
+      "y": 2527
+    },
+    {
+      "id": "u:class:q:65",
+      "x": 2643,
+      "y": 2558
+    },
+    {
+      "id": "u:class:q:7",
+      "x": 3424,
+      "y": 2039
+    },
+    {
+      "id": "u:class:q:8",
+      "x": 3424,
+      "y": 1628
+    },
+    {
+      "id": "u:class:q:9",
+      "x": 3424,
+      "y": 1327
+    },
+    {
+      "id": "u:in:copper_ore",
+      "x": 525,
+      "y": 905
+    },
+    {
+      "id": "u:in:gas_inert",
+      "x": 525,
+      "y": 378
+    },
+    {
+      "id": "u:in:gas_xiranite",
+      "x": 525,
+      "y": 277
+    },
+    {
+      "id": "u:cat:gas_xiranite",
+      "x": 525,
+      "y": 16
+    },
+    {
+      "id": "u:in:iron_ore",
+      "x": 525,
+      "y": 1817
+    },
+    {
+      "id": "u:in:liquid_water",
+      "x": 12,
+      "y": 964
+    },
+    {
+      "id": "u:in:liquid_water:loop:plant_grass_1",
+      "x": 525,
+      "y": 1918
+    },
+    {
+      "id": "u:in:liquid_water:loop:plant_grass_2",
+      "x": 525,
+      "y": 1172
+    },
+    {
+      "id": "u:in:originium_ore",
+      "x": 525,
+      "y": 2019
+    },
+    {
+      "id": "u:in:quartz_sand",
+      "x": 525,
+      "y": 2567
+    },
+    {
+      "id": "u:out:bottled_food_5",
+      "x": 6721,
+      "y": 1528
+    },
+    {
+      "id": "u:out:bottled_rec_hp_5",
+      "x": 6721,
+      "y": 824
+    },
+    {
+      "id": "u:out:copper_enr_cmpt",
+      "x": 6721,
+      "y": 38
+    },
+    {
+      "id": "u:out:equip_script_2",
+      "x": 6721,
+      "y": 1427
+    },
+    {
+      "id": "u:out:glass_enr_cmpt",
+      "x": 6721,
+      "y": 2547
+    },
+    {
+      "id": "u:out:proc_battery_3",
+      "x": 6721,
+      "y": 2079
+    },
+    {
+      "id": "u:surplus:liquid_sewage",
+      "x": 6721,
+      "y": 723
+    }
+  ],
+  "edges": [
+    {
+      "id": "e:0:u:cat:gas_xiranite->u:class:q:12:gas_xiranite",
+      "type": "item",
+      "pts": [
+        [677, 51.5],
+        [823, 51.5],
+        [831, 59.5],
+        [831, 329],
+        [839, 337],
+        [3421, 337]
+      ],
+      "anchors": {
+        "labelAnchor": [3353.5, 337]
+      },
+      "bendX": 831,
+      "fanoutJunctionX": 823,
+      "fanoutJunctionY": 51.5
+    },
+    {
+      "id": "e:1:u:cat:gas_xiranite->u:class:q:45:gas_xiranite",
+      "type": "item",
+      "pts": [
+        [677, 51.5],
+        [823, 51.5],
+        [839, 66],
+        [5328.5, 66],
+        [5336.5, 74],
+        [5336.5, 111],
+        [5344.5, 119],
+        [5492, 119]
+      ],
+      "anchors": {
+        "labelAnchor": [5424.5, 119]
+      },
+      "bendX": 831,
+      "jogDescentX": 5336.5,
+      "legY": 66
+    },
+    {
+      "id": "e:2:u:cat:gas_xiranite->u:class:q:49:gas_xiranite",
+      "type": "item",
+      "pts": [
+        [677, 51.5],
+        [823, 51.5],
+        [831, 59.5],
+        [831, 176],
+        [839, 184],
+        [3421, 184]
+      ],
+      "anchors": {
+        "labelAnchor": [3353.5, 184]
+      },
+      "bendX": 831
+    },
+    {
+      "id": "e:3:u:class:q:0->u:out:bottled_food_5:bottled_food_5",
+      "type": "item",
+      "pts": [
+        [5087, 1582],
+        [5268.5, 1582],
+        [5284.5, 1563.5],
+        [6717, 1563.5]
+      ],
+      "anchors": {
+        "labelAnchor": [6000.75, 1563.5]
+      },
+      "bendX": 5276.5
+    },
+    {
+      "id": "e:4:u:class:q:1->u:out:bottled_rec_hp_5:bottled_rec_hp_5",
+      "type": "item",
+      "pts": [
+        [5087, 878],
+        [5288.5, 878],
+        [5304.5, 859.5],
+        [6717, 859.5]
+      ],
+      "anchors": {
+        "labelAnchor": [6010.75, 859.5]
+      },
+      "bendX": 5296.5
+    },
+    {
+      "id": "e:5:u:class:q:10->u:class:q:15:originium_enr_powder",
+      "type": "item",
+      "pts": [
+        [3669, 2261],
+        [3873.77, 2261],
+        [3882.14, 2252.64],
+        [3882.14, 2163.36],
+        [3890.5, 2155],
+        [5492, 2155]
+      ],
+      "anchors": {
+        "labelAnchor": [4691.25, 2155]
+      },
+      "bendX": 3882.1363636363635
+    },
+    {
+      "id": "e:6:u:class:q:11->u:class:q:10:originium_powder",
+      "type": "item",
+      "pts": [
+        [1727, 2512],
+        [2566, 2512],
+        [2574, 2504],
+        [2574, 2291],
+        [2582, 2283],
+        [3421, 2283]
+      ],
+      "anchors": {
+        "labelAnchor": [2146.5, 2512]
+      }
+    },
+    {
+      "id": "e:7:u:class:q:12->u:class:q:36:xiranite_powder",
+      "type": "item",
+      "pts": [
+        [3669, 304],
+        [3990.5, 304],
+        [3998.5, 312],
+        [3998.5, 322],
+        [4006.5, 330],
+        [4154, 330]
+      ],
+      "anchors": {
+        "labelAnchor": [3829.75, 304]
+      },
+      "bendX": 3965.772727272727,
+      "entryX": 3998.5
+    },
+    {
+      "id": "e:8:u:class:q:13->u:class:q:8:plant_grass_powder_1",
+      "type": "item",
+      "pts": [
+        [2888, 1963],
+        [3273.5, 1963],
+        [3281.5, 1955],
+        [3281.5, 1732],
+        [3289.5, 1724],
+        [3421, 1724]
+      ],
+      "anchors": {
+        "labelAnchor": [3080.75, 1963]
+      },
+      "bendX": 3217.5,
+      "entryX": 3281.5
+    },
+    {
+      "id": "e:9:u:class:q:14->u:class:q:9:plant_grass_powder_2",
+      "type": "item",
+      "pts": [
+        [2888, 1365],
+        [3273.5, 1365],
+        [3281.5, 1373],
+        [3281.5, 1393],
+        [3289.5, 1401],
+        [3421, 1401]
+      ],
+      "anchors": {
+        "labelAnchor": [3080.75, 1365]
+      },
+      "bendX": 3233.5,
+      "entryX": 3281.5
+    },
+    {
+      "id": "e:10:u:class:q:15->u:out:proc_battery_3:proc_battery_3",
+      "type": "item",
+      "pts": [
+        [5740, 2133],
+        [5885.5, 2133],
+        [5901.5, 2114.5],
+        [6717, 2114.5]
+      ],
+      "anchors": {
+        "labelAnchor": [6309.25, 2114.5]
+      },
+      "bendX": 5893.5
+    },
+    {
+      "id": "e:11:u:class:q:16->u:class:q:65:quartz_glass",
+      "type": "item",
+      "pts": [
+        [1727, 2632],
+        [2640, 2632]
+      ],
+      "anchors": {
+        "labelAnchor": [2183.5, 2632]
+      }
+    },
+    {
+      "id": "e:12:u:class:q:17->u:class:q:21:copper_bottle",
+      "type": "item",
+      "pts": [
+        [3669, 1582],
+        [3807.23, 1582],
+        [3815.23, 1590],
+        [3815.23, 1714],
+        [3823.23, 1722],
+        [3974.5, 1722],
+        [3982.5, 1714],
+        [3982.5, 1690],
+        [3990.5, 1682],
+        [4154, 1682]
+      ],
+      "anchors": {
+        "labelAnchor": [4072.25, 1682]
+      },
+      "bendX": 3815.2272727272725,
+      "entryX": 4014.5,
+      "jogDescentX": 3982.5,
+      "legY": 1722
+    },
+    {
+      "id": "e:13:u:class:q:18->u:class:q:30:copper_bottle",
+      "type": "item",
+      "pts": [
+        [3669, 970],
+        [3823.95, 970],
+        [3831.95, 962],
+        [3831.95, 949],
+        [3839.95, 941],
+        [3990.5, 941],
+        [3998.5, 949],
+        [3998.5, 971],
+        [4006.5, 979],
+        [4154, 979]
+      ],
+      "anchors": {
+        "labelAnchor": [3746.48, 970]
+      },
+      "bendX": 3831.9545454545455,
+      "entryX": 3998.5,
+      "jogDescentX": 3998.5,
+      "legY": 941
+    },
+    {
+      "id": "e:14:u:class:q:19->u:class:q:0:copper_cmpt",
+      "type": "item",
+      "pts": [
+        [4402, 1562],
+        [4675.5, 1562],
+        [4691.5, 1582],
+        [4839, 1582]
+      ],
+      "anchors": {
+        "labelAnchor": [4538.75, 1562]
+      },
+      "bendX": 4548.5,
+      "entryX": 4683.5
+    },
+    {
+      "id": "e:15:u:class:q:2->u:out:equip_script_2:equip_script_2",
+      "type": "item",
+      "pts": [
+        [2888, 1504],
+        [3065.5, 1504],
+        [3073.5, 1496],
+        [3073.5, 1470.5],
+        [3081.5, 1462.5],
+        [6717, 1462.5]
+      ],
+      "anchors": {
+        "labelAnchor": [4899.25, 1462.5]
+      },
+      "bendX": 3073.5
+    },
+    {
+      "id": "e:16:u:class:q:20->u:class:q:1:copper_cmpt",
+      "type": "item",
+      "pts": [
+        [4402, 858],
+        [4675.5, 858],
+        [4691.5, 878],
+        [4839, 878]
+      ],
+      "anchors": {
+        "labelAnchor": [4538.75, 858]
+      },
+      "bendX": 4565.5,
+      "entryX": 4683.5
+    },
+    {
+      "id": "e:17:u:class:q:21->u:class:q:0:copper_bottle-liquid_plant_grass_1",
+      "type": "item",
+      "pts": [
+        [4402, 1682],
+        [4691.5, 1682],
+        [4699.5, 1674],
+        [4699.5, 1612],
+        [4707.5, 1604],
+        [4839, 1604]
+      ],
+      "anchors": {
+        "labelAnchor": [4546.75, 1682]
+      },
+      "bendX": 4582.5,
+      "entryX": 4699.5
+    },
+    {
+      "id": "e:18:u:class:q:22->u:class:q:32:copper_nugget",
+      "type": "item",
+      "pts": [
+        [2888, 655],
+        [3257.5, 655],
+        [3265.5, 647],
+        [3265.5, 487],
+        [3273.5, 479],
+        [3421, 479]
+      ],
+      "anchors": {
+        "labelAnchor": [3072.75, 655]
+      },
+      "bendX": 3089.5,
+      "entryX": 3265.5
+    },
+    {
+      "id": "e:19:u:class:q:22->u:surplus:liquid_sewage:liquid_sewage",
+      "type": "item",
+      "pts": [
+        [2888, 677],
+        [6555, 677],
+        [6563, 685],
+        [6563, 750.5],
+        [6571, 758.5],
+        [6717, 758.5]
+      ],
+      "anchors": {
+        "labelAnchor": [2959.25, 677]
+      },
+      "bendX": 6563,
+      "faninJunctionX": 6571,
+      "faninJunctionY": 758.5
+    },
+    {
+      "id": "e:20:u:class:q:23->u:class:q:49:copper_nugget",
+      "type": "item",
+      "pts": [
+        [2888, 513],
+        [3273.5, 513],
+        [3281.5, 505],
+        [3281.5, 159],
+        [3289.5, 151],
+        [3421, 151]
+      ],
+      "anchors": {
+        "labelAnchor": [3080.75, 513]
+      },
+      "bendX": 3105.5,
+      "entryX": 3281.5
+    },
+    {
+      "id": "e:21:u:class:q:23->u:surplus:liquid_sewage:liquid_sewage",
+      "type": "item",
+      "pts": [
+        [2888, 535],
+        [6555, 535],
+        [6563, 543],
+        [6563, 750.5],
+        [6571, 758.5],
+        [6717, 758.5]
+      ],
+      "anchors": {
+        "labelAnchor": [2959.25, 535]
+      },
+      "bendX": 6563
+    },
+    {
+      "id": "e:22:u:class:q:24->u:class:q:2:iron_nugget",
+      "type": "item",
+      "pts": [
+        [1727, 1504],
+        [2640, 1504]
+      ],
+      "anchors": {
+        "labelAnchor": [2183.5, 1504]
+      }
+    },
+    {
+      "id": "e:23:u:class:q:25->u:class:q:39:iron_nugget",
+      "type": "item",
+      "pts": [
+        [1727, 2104],
+        [2640, 2104]
+      ],
+      "anchors": {
+        "labelAnchor": [2183.5, 2104]
+      }
+    },
+    {
+      "id": "e:24:u:class:q:26->u:class:q:17:copper_nugget",
+      "type": "item",
+      "pts": [
+        [2888, 1081],
+        [3257.5, 1081],
+        [3265.5, 1089],
+        [3265.5, 1574],
+        [3273.5, 1582],
+        [3421, 1582]
+      ],
+      "anchors": {
+        "labelAnchor": [3072.75, 1081]
+      },
+      "bendX": 3121.5,
+      "entryX": 3265.5
+    },
+    {
+      "id": "e:25:u:class:q:26->u:surplus:liquid_sewage:liquid_sewage",
+      "type": "item",
+      "pts": [
+        [2888, 1103],
+        [6555, 1103],
+        [6563, 1095],
+        [6563, 766.5],
+        [6571, 758.5],
+        [6717, 758.5]
+      ],
+      "anchors": {
+        "labelAnchor": [2959.25, 1103]
+      },
+      "bendX": 6563
+    },
+    {
+      "id": "e:26:u:class:q:27->u:class:q:18:copper_nugget",
+      "type": "item",
+      "pts": [
+        [2888, 939],
+        [3273.5, 939],
+        [3281.5, 947],
+        [3281.5, 962],
+        [3289.5, 970],
+        [3421, 970]
+      ],
+      "anchors": {
+        "labelAnchor": [3080.75, 939]
+      },
+      "bendX": 3137.5,
+      "entryX": 3281.5
+    },
+    {
+      "id": "e:27:u:class:q:27->u:surplus:liquid_sewage:liquid_sewage",
+      "type": "item",
+      "pts": [
+        [2888, 961],
+        [3041.5, 961],
+        [3049.5, 953],
+        [3049.5, 766.5],
+        [3057.5, 758.5],
+        [6717, 758.5]
+      ],
+      "anchors": {
+        "labelAnchor": [2959.25, 961]
+      },
+      "bendX": 6563,
+      "srcColX": 3049.5
+    },
+    {
+      "id": "e:28:u:class:q:28->u:class:q:19:copper_nugget",
+      "type": "item",
+      "pts": [
+        [2888, 1223],
+        [3145.5, 1223],
+        [3153.5, 1231],
+        [3153.5, 1602],
+        [3161.5, 1610],
+        [3791.23, 1610],
+        [3799.23, 1602],
+        [3799.23, 1570],
+        [3807.23, 1562],
+        [4154, 1562]
+      ],
+      "anchors": {
+        "labelAnchor": [3476.37, 1610]
+      },
+      "bendX": 3153.5,
+      "jogDescentX": 3799.2272727272725,
+      "legY": 1610
+    },
+    {
+      "id": "e:29:u:class:q:28->u:surplus:liquid_sewage:liquid_sewage",
+      "type": "item",
+      "pts": [
+        [2888, 1245],
+        [6555, 1245],
+        [6563, 1237],
+        [6563, 766.5],
+        [6571, 758.5],
+        [6717, 758.5]
+      ],
+      "anchors": {
+        "labelAnchor": [2959.25, 1245]
+      },
+      "bendX": 6563
+    },
+    {
+      "id": "e:30:u:class:q:29->u:class:q:20:copper_nugget",
+      "type": "item",
+      "pts": [
+        [2888, 797],
+        [3161.5, 797],
+        [3169.5, 805],
+        [3169.5, 850],
+        [3177.5, 858],
+        [4154, 858]
+      ],
+      "anchors": {
+        "labelAnchor": [3665.75, 858]
+      },
+      "bendX": 3169.5
+    },
+    {
+      "id": "e:31:u:class:q:29->u:surplus:liquid_sewage:liquid_sewage",
+      "type": "item",
+      "pts": [
+        [2888, 819],
+        [3241.5, 819],
+        [3249.5, 811],
+        [3249.5, 766.5],
+        [3257.5, 758.5],
+        [6717, 758.5]
+      ],
+      "anchors": {
+        "labelAnchor": [2959.25, 819]
+      },
+      "bendX": 6563,
+      "srcColX": 3249.5
+    },
+    {
+      "id": "e:32:u:class:q:3->u:class:q:45:gas_copper_enr",
+      "type": "item",
+      "pts": [
+        [5087, 189],
+        [5344.5, 189],
+        [5352.5, 181],
+        [5352.5, 94],
+        [5360.5, 86],
+        [5492, 86]
+      ],
+      "anchors": {
+        "labelAnchor": [5215.75, 189]
+      },
+      "bendX": 5236.5,
+      "entryX": 5352.5
+    },
+    {
+      "id": "e:33:u:class:q:30->u:class:q:1:copper_bottle-liquid_plant_grass_2",
+      "type": "item",
+      "pts": [
+        [4402, 979],
+        [4691.5, 979],
+        [4699.5, 971],
+        [4699.5, 908],
+        [4707.5, 900],
+        [4839, 900]
+      ],
+      "anchors": {
+        "labelAnchor": [4546.75, 979]
+      },
+      "bendX": 4599.5,
+      "entryX": 4699.5
+    },
+    {
+      "id": "e:34:u:class:q:31->u:out:copper_enr_cmpt:copper_enr_cmpt",
+      "type": "item",
+      "pts": [
+        [6345, 103],
+        [6539, 103],
+        [6547, 95],
+        [6547, 81.5],
+        [6555, 73.5],
+        [6717, 73.5]
+      ],
+      "anchors": {
+        "labelAnchor": [6442, 103]
+      },
+      "bendX": 6499,
+      "entryX": 6547
+    },
+    {
+      "id": "e:35:u:class:q:32->u:class:q:36:copper_jar",
+      "type": "item",
+      "pts": [
+        [3669, 457],
+        [4006.5, 457],
+        [4014.5, 449],
+        [4014.5, 360],
+        [4022.5, 352],
+        [4154, 352]
+      ],
+      "anchors": {
+        "labelAnchor": [3837.75, 457]
+      },
+      "bendX": 3848.681818181818,
+      "entryX": 4014.5
+    },
+    {
+      "id": "e:36:u:class:q:33->u:class:q:2:crystal_shell",
+      "type": "item",
+      "pts": [
+        [1727, 1624],
+        [2492.5, 1624],
+        [2500.5, 1616],
+        [2500.5, 1534],
+        [2508.5, 1526],
+        [2640, 1526]
+      ],
+      "anchors": {
+        "labelAnchor": [2109.75, 1624]
+      },
+      "entryX": 2500.5
+    },
+    {
+      "id": "e:37:u:class:q:36->u:class:q:3:filter_core",
+      "type": "item",
+      "pts": [
+        [4402, 330],
+        [4691.5, 330],
+        [4699.5, 322],
+        [4699.5, 219],
+        [4707.5, 211],
+        [4839, 211]
+      ],
+      "anchors": {
+        "labelAnchor": [4546.75, 330]
+      },
+      "bendX": 4616.5,
+      "entryX": 4699.5
+    },
+    {
+      "id": "e:38:u:class:q:39->u:class:q:7:iron_powder",
+      "type": "item",
+      "pts": [
+        [2888, 2104],
+        [3273.5, 2104],
+        [3289.5, 2113],
+        [3421, 2113]
+      ],
+      "anchors": {
+        "labelAnchor": [3080.75, 2104]
+      },
+      "bendX": 3185.5,
+      "entryX": 3281.5
+    },
+    {
+      "id": "e:39:u:class:q:4->u:out:glass_enr_cmpt:glass_enr_cmpt",
+      "type": "item",
+      "pts": [
+        [5087, 2612],
+        [5246.5, 2612],
+        [5256.5, 2602],
+        [5256.5, 2592.5],
+        [5266.5, 2582.5],
+        [6717, 2582.5]
+      ],
+      "anchors": {
+        "labelAnchor": [5991.75, 2582.5]
+      },
+      "bendX": 5256.5
+    },
+    {
+      "id": "e:40:u:class:q:45->u:class:q:31:copper_enr",
+      "type": "item",
+      "pts": [
+        [5740, 86],
+        [5949.5, 86],
+        [5965.5, 103],
+        [6097, 103]
+      ],
+      "anchors": {
+        "labelAnchor": [5844.75, 86]
+      },
+      "bendX": 5917.5,
+      "entryX": 5957.5
+    },
+    {
+      "id": "e:41:u:class:q:49->u:class:q:3:gas_copper",
+      "type": "item",
+      "pts": [
+        [3669, 151],
+        [3857.05, 151],
+        [3865.41, 159.36],
+        [3865.41, 180.64],
+        [3873.77, 189],
+        [4839, 189]
+      ],
+      "anchors": {
+        "labelAnchor": [4356.39, 189]
+      },
+      "bendX": 3865.409090909091
+    },
+    {
+      "id": "e:42:u:class:q:5->u:class:q:6:iron_enr",
+      "type": "item",
+      "pts": [
+        [4402, 2124],
+        [4839, 2124]
+      ],
+      "anchors": {
+        "labelAnchor": [4620.5, 2124]
+      },
+      "bendX": 4633.5
+    },
+    {
+      "id": "e:43:u:class:q:51->u:class:q:55:plant_grass_1",
+      "type": "item",
+      "pts": [
+        [2149, 1810],
+        [2308.5, 1810],
+        [2316.5, 1802],
+        [2316.5, 1022],
+        [2308.5, 1014],
+        [1119, 1014],
+        [1111, 1022],
+        [1111, 1793],
+        [1119, 1801],
+        [1296, 1801]
+      ],
+      "anchors": {
+        "labelAnchor": [1713.75, 1014]
+      },
+      "entryX": 1111,
+      "railXRight": 2316.5,
+      "railY": 1014
+    },
+    {
+      "id": "e:44:u:class:q:52->u:class:q:13:plant_grass_1",
+      "type": "item",
+      "pts": [
+        [2149, 1952],
+        [2492.5, 1952],
+        [2508.5, 1963],
+        [2640, 1963]
+      ],
+      "anchors": {
+        "labelAnchor": [2320.75, 1952]
+      },
+      "bendX": 2372.5,
+      "entryX": 2500.5
+    },
+    {
+      "id": "e:45:u:class:q:53->u:class:q:56:plant_grass_2",
+      "type": "item",
+      "pts": [
+        [2149, 1191],
+        [2348.5, 1191],
+        [2356.5, 1183],
+        [2356.5, 994],
+        [2348.5, 986],
+        [1103, 986],
+        [1095, 994],
+        [1095, 1174],
+        [1103, 1182],
+        [1296, 1182]
+      ],
+      "anchors": {
+        "labelAnchor": [1725.75, 986]
+      },
+      "entryX": 1111,
+      "railXLeft": 1095,
+      "railXRight": 2356.5,
+      "railY": 986
+    },
+    {
+      "id": "e:46:u:class:q:54->u:class:q:14:plant_grass_2",
+      "type": "item",
+      "pts": [
+        [2149, 1333],
+        [2492.5, 1333],
+        [2500.5, 1341],
+        [2500.5, 1357],
+        [2508.5, 1365],
+        [2640, 1365]
+      ],
+      "anchors": {
+        "labelAnchor": [2320.75, 1333]
+      },
+      "bendX": 2428.5,
+      "entryX": 2500.5
+    },
+    {
+      "id": "e:47:u:class:q:55->u:class:q:51:plant_grass_seed_1",
+      "type": "bus",
+      "pts": [
+        [1544, 1801],
+        [1674, 1801],
+        [1690, 1810],
+        [1901, 1810]
+      ],
+      "anchors": {
+        "junction": [1674, 1801],
+        "trunkAnchor": [1611.5, 1801],
+        "branchAnchor": [1826, 1810]
+      }
+    },
+    {
+      "id": "e:48:u:class:q:55->u:class:q:52:plant_grass_seed_1",
+      "type": "bus",
+      "pts": [
+        [1544, 1801],
+        [1674, 1801],
+        [1682, 1809],
+        [1682, 1944],
+        [1690, 1952],
+        [1901, 1952]
+      ],
+      "anchors": {
+        "junction": [1674, 1801],
+        "trunkAnchor": [1611.5, 1801],
+        "branchAnchor": [1826, 1952]
+      }
+    },
+    {
+      "id": "e:49:u:class:q:56->u:class:q:53:plant_grass_seed_2",
+      "type": "bus",
+      "pts": [
+        [1544, 1182],
+        [1674, 1182],
+        [1690, 1191],
+        [1901, 1191]
+      ],
+      "anchors": {
+        "junction": [1674, 1182],
+        "trunkAnchor": [1611.5, 1182],
+        "branchAnchor": [1826, 1191]
+      }
+    },
+    {
+      "id": "e:50:u:class:q:56->u:class:q:54:plant_grass_seed_2",
+      "type": "bus",
+      "pts": [
+        [1544, 1182],
+        [1674, 1182],
+        [1682, 1190],
+        [1682, 1325],
+        [1690, 1333],
+        [1901, 1333]
+      ],
+      "anchors": {
+        "junction": [1674, 1182],
+        "trunkAnchor": [1611.5, 1182],
+        "branchAnchor": [1826, 1333]
+      }
+    },
+    {
+      "id": "e:51:u:class:q:57->u:class:q:60:plant_moss_3",
+      "type": "item",
+      "pts": [
+        [2146, 2372],
+        [2308.5, 2372],
+        [2316.5, 2380],
+        [2316.5, 2656],
+        [2308.5, 2664],
+        [1103, 2664],
+        [1095, 2656],
+        [1095, 2260],
+        [1103, 2252],
+        [1293, 2252]
+      ],
+      "anchors": {
+        "labelAnchor": [1705.75, 2664]
+      },
+      "entryX": 1111,
+      "railXLeft": 1095,
+      "railXRight": 2316.5,
+      "railY": 2664
+    },
+    {
+      "id": "e:52:u:class:q:58->u:class:q:59:plant_moss_3",
+      "type": "item",
+      "pts": [
+        [2146, 2252],
+        [2640, 2252]
+      ],
+      "anchors": {
+        "labelAnchor": [2393, 2252]
+      },
+      "bendX": 2400.5
+    },
+    {
+      "id": "e:53:u:class:q:59->u:class:q:10:plant_moss_powder_3",
+      "type": "bus",
+      "pts": [
+        [2888, 2252],
+        [3025.5, 2252],
+        [3041.5, 2261],
+        [3421, 2261]
+      ],
+      "anchors": {
+        "junction": [3025.5, 2252],
+        "trunkAnchor": [2959.25, 2252],
+        "branchAnchor": [3349.75, 2261]
+      }
+    },
+    {
+      "id": "e:54:u:class:q:59->u:class:q:62:plant_moss_powder_3",
+      "type": "bus",
+      "pts": [
+        [2888, 2252],
+        [3025.5, 2252],
+        [3033.5, 2260],
+        [3033.5, 2593],
+        [3041.5, 2601],
+        [3421, 2601]
+      ],
+      "anchors": {
+        "junction": [3025.5, 2252],
+        "trunkAnchor": [2959.25, 2252],
+        "branchAnchor": [3353.5, 2601]
+      }
+    },
+    {
+      "id": "e:55:u:class:q:59->u:class:q:7:plant_moss_powder_3",
+      "type": "bus",
+      "pts": [
+        [2888, 2252],
+        [3025.5, 2252],
+        [3033.5, 2244],
+        [3033.5, 2143],
+        [3041.5, 2135],
+        [3421, 2135]
+      ],
+      "anchors": {
+        "junction": [3025.5, 2252],
+        "trunkAnchor": [2959.25, 2252],
+        "branchAnchor": [3349.75, 2135]
+      }
+    },
+    {
+      "id": "e:56:u:class:q:6->u:class:q:15:iron_enr_cmpt",
+      "type": "item",
+      "pts": [
+        [5087, 2124],
+        [5344.5, 2124],
+        [5360.5, 2133],
+        [5492, 2133]
+      ],
+      "anchors": {
+        "labelAnchor": [5215.75, 2124]
+      },
+      "bendX": 5316.5,
+      "entryX": 5352.5
+    },
+    {
+      "id": "e:57:u:class:q:60->u:class:q:57:plant_moss_seed_3",
+      "type": "bus",
+      "pts": [
+        [1541, 2252],
+        [1678.5, 2252],
+        [1686.5, 2260],
+        [1686.5, 2364],
+        [1694.5, 2372],
+        [1898, 2372]
+      ],
+      "anchors": {
+        "junction": [1678.5, 2252],
+        "trunkAnchor": [1612.25, 2252],
+        "branchAnchor": [1826.75, 2372]
+      }
+    },
+    {
+      "id": "e:58:u:class:q:60->u:class:q:58:plant_moss_seed_3",
+      "type": "bus",
+      "pts": [
+        [1541, 2252],
+        [1898, 2252]
+      ],
+      "anchors": {
+        "junction": [1678.5, 2252],
+        "trunkAnchor": [1612.25, 2252],
+        "branchAnchor": [1826.75, 2252]
+      }
+    },
+    {
+      "id": "e:59:u:class:q:61->u:class:q:4:quartz_enr",
+      "type": "item",
+      "pts": [
+        [4402, 2612],
+        [4839, 2612]
+      ],
+      "anchors": {
+        "labelAnchor": [4620.5, 2612]
+      },
+      "bendX": 4650.5
+    },
+    {
+      "id": "e:60:u:class:q:62->u:class:q:61:quartz_enr_powder",
+      "type": "item",
+      "pts": [
+        [3669, 2601],
+        [4006.5, 2601],
+        [4022.5, 2612],
+        [4154, 2612]
+      ],
+      "anchors": {
+        "labelAnchor": [3837.75, 2601]
+      },
+      "bendX": 3898.8636363636365,
+      "entryX": 4014.5
+    },
+    {
+      "id": "e:61:u:class:q:65->u:class:q:62:quartz_powder",
+      "type": "item",
+      "pts": [
+        [2888, 2632],
+        [3273.5, 2632],
+        [3289.5, 2623],
+        [3421, 2623]
+      ],
+      "anchors": {
+        "labelAnchor": [3080.75, 2632]
+      },
+      "bendX": 3201.5,
+      "entryX": 3281.5
+    },
+    {
+      "id": "e:62:u:class:q:7->u:class:q:5:iron_enr_powder",
+      "type": "item",
+      "pts": [
+        [3669, 2113],
+        [4006.5, 2113],
+        [4022.5, 2124],
+        [4154, 2124]
+      ],
+      "anchors": {
+        "labelAnchor": [3837.75, 2113]
+      },
+      "bendX": 3915.590909090909,
+      "entryX": 4014.5
+    },
+    {
+      "id": "e:63:u:class:q:8->u:class:q:21:liquid_plant_grass_1",
+      "type": "item",
+      "pts": [
+        [3669, 1702],
+        [3990.5, 1702],
+        [4006.5, 1704],
+        [4154, 1704]
+      ],
+      "anchors": {
+        "labelAnchor": [3829.75, 1702]
+      },
+      "bendX": 3932.318181818182,
+      "entryX": 3998.5
+    },
+    {
+      "id": "e:64:u:class:q:9->u:class:q:30:liquid_plant_grass_2",
+      "type": "item",
+      "pts": [
+        [3669, 1401],
+        [4006.5, 1401],
+        [4014.5, 1393],
+        [4014.5, 1009],
+        [4022.5, 1001],
+        [4154, 1001]
+      ],
+      "anchors": {
+        "labelAnchor": [3837.75, 1401]
+      },
+      "bendX": 3949.0454545454545,
+      "entryX": 4014.5
+    },
+    {
+      "id": "e:65:u:in:copper_ore->u:class:q:22:copper_ore",
+      "type": "item",
+      "pts": [
+        [677, 940.5],
+        [855, 940.5],
+        [863, 932.5],
+        [863, 685],
+        [871, 677],
+        [2640, 677]
+      ],
+      "anchors": {
+        "labelAnchor": [2568.75, 677]
+      },
+      "bendX": 863,
+      "fanoutJunctionX": 855,
+      "fanoutJunctionY": 940.5
+    },
+    {
+      "id": "e:66:u:in:copper_ore->u:class:q:23:copper_ore",
+      "type": "item",
+      "pts": [
+        [677, 940.5],
+        [855, 940.5],
+        [863, 932.5],
+        [863, 543],
+        [871, 535],
+        [2640, 535]
+      ],
+      "anchors": {
+        "labelAnchor": [2568.75, 535]
+      },
+      "bendX": 863
+    },
+    {
+      "id": "e:67:u:in:copper_ore->u:class:q:26:copper_ore",
+      "type": "item",
+      "pts": [
+        [677, 940.5],
+        [855, 940.5],
+        [863, 948.5],
+        [863, 1046],
+        [871, 1054],
+        [2476.5, 1054],
+        [2484.5, 1062],
+        [2484.5, 1073],
+        [2492.5, 1081],
+        [2640, 1081]
+      ],
+      "anchors": {
+        "labelAnchor": [2568.75, 1081]
+      },
+      "bendX": 863,
+      "jogDescentX": 2484.5,
+      "legY": 1054
+    },
+    {
+      "id": "e:68:u:in:copper_ore->u:class:q:27:copper_ore",
+      "type": "item",
+      "pts": [
+        [677, 940.5],
+        [855, 940.5],
+        [871, 961],
+        [2640, 961]
+      ],
+      "anchors": {
+        "labelAnchor": [2568.75, 961]
+      },
+      "bendX": 863
+    },
+    {
+      "id": "e:69:u:in:copper_ore->u:class:q:28:copper_ore",
+      "type": "item",
+      "pts": [
+        [677, 940.5],
+        [855, 940.5],
+        [863, 948.5],
+        [863, 1385],
+        [871, 1393],
+        [2460.5, 1393],
+        [2468.5, 1385],
+        [2468.5, 1231],
+        [2476.5, 1223],
+        [2640, 1223]
+      ],
+      "anchors": {
+        "labelAnchor": [2568.75, 1223]
+      },
+      "bendX": 863,
+      "jogDescentX": 2468.5,
+      "legY": 1393
+    },
+    {
+      "id": "e:70:u:in:copper_ore->u:class:q:29:copper_ore",
+      "type": "item",
+      "pts": [
+        [677, 940.5],
+        [855, 940.5],
+        [863, 932.5],
+        [863, 805],
+        [871, 797],
+        [2640, 797]
+      ],
+      "anchors": {
+        "labelAnchor": [2568.75, 797]
+      },
+      "bendX": 863
+    },
+    {
+      "id": "e:71:u:in:gas_inert->u:class:q:32:gas_inert",
+      "type": "item",
+      "pts": [
+        [677, 413.5],
+        [1027, 413.5],
+        [1043, 423],
+        [3009.5, 423],
+        [3017.5, 431],
+        [3017.5, 449],
+        [3025.5, 457],
+        [3421, 457]
+      ],
+      "anchors": {
+        "labelAnchor": [2026.25, 423]
+      },
+      "bendX": 1035,
+      "jogDescentX": 3017.5,
+      "legY": 423
+    },
+    {
+      "id": "e:72:u:in:gas_xiranite->u:class:q:12:gas_xiranite",
+      "type": "item",
+      "pts": [
+        [677, 312.5],
+        [1047, 312.5],
+        [1063, 304],
+        [3421, 304]
+      ],
+      "anchors": {
+        "labelAnchor": [2242, 304]
+      },
+      "bendX": 1055
+    },
+    {
+      "id": "e:73:u:in:iron_ore->u:class:q:24:iron_ore",
+      "type": "bus",
+      "pts": [
+        [677, 1852.5],
+        [919, 1852.5],
+        [927, 1844.5],
+        [927, 1512],
+        [935, 1504],
+        [1479, 1504]
+      ],
+      "anchors": {
+        "junction": [919, 1852.5],
+        "trunkAnchor": [748.25, 1852.5],
+        "branchAnchor": [1407.75, 1504]
+      }
+    },
+    {
+      "id": "e:74:u:in:iron_ore->u:class:q:25:iron_ore",
+      "type": "bus",
+      "pts": [
+        [677, 1852.5],
+        [919, 1852.5],
+        [927, 1860.5],
+        [927, 2096],
+        [935, 2104],
+        [1479, 2104]
+      ],
+      "anchors": {
+        "junction": [919, 1852.5],
+        "trunkAnchor": [748.25, 1852.5],
+        "branchAnchor": [1407.75, 2104]
+      }
+    },
+    {
+      "id": "e:75:u:in:liquid_water->u:class:q:22:liquid_water",
+      "type": "item",
+      "pts": [
+        [164, 999.5],
+        [310, 999.5],
+        [318, 991.5],
+        [318, 663],
+        [326, 655],
+        [2640, 655]
+      ],
+      "anchors": {
+        "labelAnchor": [2568.75, 655]
+      },
+      "bendX": 318,
+      "fanoutJunctionX": 310,
+      "fanoutJunctionY": 999.5
+    },
+    {
+      "id": "e:76:u:in:liquid_water->u:class:q:23:liquid_water",
+      "type": "item",
+      "pts": [
+        [164, 999.5],
+        [310, 999.5],
+        [318, 991.5],
+        [318, 521],
+        [326, 513],
+        [2640, 513]
+      ],
+      "anchors": {
+        "labelAnchor": [2568.75, 513]
+      },
+      "bendX": 318
+    },
+    {
+      "id": "e:77:u:in:liquid_water->u:class:q:26:liquid_water",
+      "type": "item",
+      "pts": [
+        [164, 999.5],
+        [310, 999.5],
+        [318, 1007.5],
+        [318, 1026],
+        [326, 1034],
+        [2444.5, 1034],
+        [2452.5, 1042],
+        [2452.5, 1095],
+        [2460.5, 1103],
+        [2640, 1103]
+      ],
+      "anchors": {
+        "labelAnchor": [2568.75, 1103]
+      },
+      "bendX": 318,
+      "jogDescentX": 2452.5,
+      "legY": 1034
+    },
+    {
+      "id": "e:78:u:in:liquid_water->u:class:q:27:liquid_water",
+      "type": "item",
+      "pts": [
+        [164, 999.5],
+        [310, 999.5],
+        [318, 991.5],
+        [318, 897],
+        [326, 889],
+        [2348.5, 889],
+        [2356.5, 897],
+        [2356.5, 931],
+        [2364.5, 939],
+        [2640, 939]
+      ],
+      "anchors": {
+        "labelAnchor": [2568.75, 939]
+      },
+      "bendX": 318,
+      "jogDescentX": 2356.5,
+      "legY": 889
+    },
+    {
+      "id": "e:79:u:in:liquid_water->u:class:q:28:liquid_water",
+      "type": "item",
+      "pts": [
+        [164, 999.5],
+        [310, 999.5],
+        [326, 1014],
+        [2332.5, 1014],
+        [2340.5, 1022],
+        [2340.5, 1237],
+        [2348.5, 1245],
+        [2640, 1245]
+      ],
+      "anchors": {
+        "labelAnchor": [2568.75, 1245]
+      },
+      "bendX": 318,
+      "jogDescentX": 2340.5,
+      "legY": 1014
+    },
+    {
+      "id": "e:80:u:in:liquid_water->u:class:q:29:liquid_water",
+      "type": "item",
+      "pts": [
+        [164, 999.5],
+        [310, 999.5],
+        [318, 991.5],
+        [318, 827],
+        [326, 819],
+        [2640, 819]
+      ],
+      "anchors": {
+        "labelAnchor": [2568.75, 819]
+      },
+      "bendX": 318
+    },
+    {
+      "id": "e:81:u:in:liquid_water->u:class:q:8:liquid_water",
+      "type": "item",
+      "pts": [
+        [164, 999.5],
+        [310, 999.5],
+        [318, 1007.5],
+        [318, 1665],
+        [326, 1673],
+        [3241.5, 1673],
+        [3249.5, 1681],
+        [3249.5, 1694],
+        [3257.5, 1702],
+        [3421, 1702]
+      ],
+      "anchors": {
+        "labelAnchor": [3349.75, 1702]
+      },
+      "bendX": 318,
+      "jogDescentX": 3249.5,
+      "legY": 1673
+    },
+    {
+      "id": "e:82:u:in:liquid_water->u:class:q:9:liquid_water",
+      "type": "item",
+      "pts": [
+        [164, 999.5],
+        [310, 999.5],
+        [318, 1007.5],
+        [318, 1415],
+        [326, 1423],
+        [3421, 1423]
+      ],
+      "anchors": {
+        "labelAnchor": [3349.75, 1423]
+      },
+      "bendX": 318
+    },
+    {
+      "id": "e:83:u:in:liquid_water->u:in:liquid_water:loop:plant_grass_1:liquid_water",
+      "type": "bus",
+      "pts": [
+        [164, 999.5],
+        [310, 999.5],
+        [318, 1007.5],
+        [318, 1945.5],
+        [326, 1953.5],
+        [521, 1953.5]
+      ],
+      "anchors": {
+        "junction": [310, 999.5],
+        "trunkAnchor": [239, 999.5],
+        "branchAnchor": [453.5, 1953.5]
+      }
+    },
+    {
+      "id": "e:84:u:in:liquid_water->u:in:liquid_water:loop:plant_grass_2:liquid_water",
+      "type": "bus",
+      "pts": [
+        [164, 999.5],
+        [310, 999.5],
+        [318, 1007.5],
+        [318, 1199.5],
+        [326, 1207.5],
+        [521, 1207.5]
+      ],
+      "anchors": {
+        "junction": [310, 999.5],
+        "trunkAnchor": [239, 999.5],
+        "branchAnchor": [453.5, 1207.5]
+      }
+    },
+    {
+      "id": "e:85:u:in:liquid_water:loop:plant_grass_1->u:class:q:51:liquid_water",
+      "type": "bus",
+      "pts": [
+        [677, 1953.5],
+        [951, 1953.5],
+        [959, 1945.5],
+        [959, 1840],
+        [967, 1832],
+        [1901, 1832]
+      ],
+      "anchors": {
+        "junction": [951, 1953.5],
+        "trunkAnchor": [744.5, 1953.5],
+        "branchAnchor": [1826, 1832]
+      }
+    },
+    {
+      "id": "e:86:u:in:liquid_water:loop:plant_grass_1->u:class:q:52:liquid_water",
+      "type": "bus",
+      "pts": [
+        [677, 1953.5],
+        [951, 1953.5],
+        [967, 1974],
+        [1901, 1974]
+      ],
+      "anchors": {
+        "junction": [951, 1953.5],
+        "trunkAnchor": [744.5, 1953.5],
+        "branchAnchor": [1826, 1974]
+      }
+    },
+    {
+      "id": "e:87:u:in:liquid_water:loop:plant_grass_2->u:class:q:53:liquid_water",
+      "type": "bus",
+      "pts": [
+        [677, 1207.5],
+        [887, 1207.5],
+        [903, 1213],
+        [1901, 1213]
+      ],
+      "anchors": {
+        "junction": [887, 1207.5],
+        "trunkAnchor": [744.5, 1207.5],
+        "branchAnchor": [1826, 1213]
+      }
+    },
+    {
+      "id": "e:88:u:in:liquid_water:loop:plant_grass_2->u:class:q:54:liquid_water",
+      "type": "bus",
+      "pts": [
+        [677, 1207.5],
+        [887, 1207.5],
+        [895, 1215.5],
+        [895, 1347],
+        [903, 1355],
+        [1901, 1355]
+      ],
+      "anchors": {
+        "junction": [887, 1207.5],
+        "trunkAnchor": [744.5, 1207.5],
+        "branchAnchor": [1826, 1355]
+      }
+    },
+    {
+      "id": "e:89:u:in:originium_ore->u:class:q:11:originium_ore",
+      "type": "bus",
+      "pts": [
+        [677, 2054.5],
+        [983, 2054.5],
+        [991, 2062.5],
+        [991, 2504],
+        [999, 2512],
+        [1479, 2512]
+      ],
+      "anchors": {
+        "junction": [983, 2054.5],
+        "trunkAnchor": [752, 2054.5],
+        "branchAnchor": [1407.75, 2512]
+      }
+    },
+    {
+      "id": "e:90:u:in:originium_ore->u:class:q:33:originium_ore",
+      "type": "bus",
+      "pts": [
+        [677, 2054.5],
+        [983, 2054.5],
+        [991, 2046.5],
+        [991, 1632],
+        [999, 1624],
+        [1479, 1624]
+      ],
+      "anchors": {
+        "junction": [983, 2054.5],
+        "trunkAnchor": [752, 2054.5],
+        "branchAnchor": [1407.75, 1624]
+      }
+    },
+    {
+      "id": "e:91:u:in:quartz_sand->u:class:q:16:quartz_sand",
+      "type": "item",
+      "pts": [
+        [677, 2602.5],
+        [1103, 2602.5],
+        [1111, 2610.5],
+        [1111, 2624],
+        [1119, 2632],
+        [1479, 2632]
+      ],
+      "anchors": {
+        "labelAnchor": [890, 2602.5]
+      },
+      "bendX": 1075,
+      "entryX": 1111
+    }
+  ]
+}

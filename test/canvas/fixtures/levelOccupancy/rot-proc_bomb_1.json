@@ -1,0 +1,195 @@
+{
+  "nodes": [
+    {
+      "id": "loop:plant_bbflower_1",
+      "x": 509,
+      "y": 12
+    },
+    {
+      "id": "u:class:q:3",
+      "x": 618,
+      "y": 148
+    },
+    {
+      "id": "u:class:q:4",
+      "x": 618,
+      "y": 28
+    },
+    {
+      "id": "u:class:q:6",
+      "x": 28,
+      "y": 28
+    },
+    {
+      "id": "u:class:q:0",
+      "x": 2375,
+      "y": 269
+    },
+    {
+      "id": "u:class:q:1",
+      "x": 727.5,
+      "y": 300
+    },
+    {
+      "id": "u:class:q:2",
+      "x": 1770,
+      "y": 300
+    },
+    {
+      "id": "u:class:q:5",
+      "x": 1770,
+      "y": 40
+    },
+    {
+      "id": "u:in:quartz_sand",
+      "x": 12,
+      "y": 309
+    },
+    {
+      "id": "u:out:proc_bomb_1",
+      "x": 2949,
+      "y": 289
+    }
+  ],
+  "edges": [
+    {
+      "id": "e:0:u:class:q:0->u:out:proc_bomb_1:proc_bomb_1",
+      "type": "item",
+      "pts": [
+        [2620, 343],
+        [2806, 343],
+        [2822, 324.5],
+        [2945, 324.5]
+      ],
+      "anchors": {
+        "labelAnchor": [2713, 343]
+      },
+      "bendX": 2770,
+      "entryX": 2814
+    },
+    {
+      "id": "e:1:u:class:q:1->u:class:q:2:quartz_glass",
+      "type": "item",
+      "pts": [
+        [972.5, 374],
+        [1767, 374]
+      ],
+      "anchors": {
+        "labelAnchor": [1369.75, 374]
+      }
+    },
+    {
+      "id": "e:2:u:class:q:2->u:class:q:0:glass_cmpt",
+      "type": "item",
+      "pts": [
+        [2015, 374],
+        [2224.5, 374],
+        [2240.5, 365],
+        [2372, 365]
+      ],
+      "anchors": {
+        "labelAnchor": [2119.75, 374]
+      },
+      "bendX": 2163.1666666666665,
+      "entryX": 2232.5
+    },
+    {
+      "id": "e:3:u:class:q:3->u:class:q:6:plant_bbflower_1",
+      "type": "item",
+      "pts": [
+        [1372, 234],
+        [1531.5, 234],
+        [1539.5, 226],
+        [1539.5, -36],
+        [1531.5, -44],
+        [374.5, -44],
+        [366.5, -36],
+        [366.5, 106],
+        [374.5, 114],
+        [534, 114]
+      ],
+      "anchors": {
+        "labelAnchor": [953, -44]
+      },
+      "entryX": 366.5,
+      "railXRight": 1539.5,
+      "railY": -44
+    },
+    {
+      "id": "e:4:u:class:q:4->u:class:q:5:plant_bbflower_1",
+      "type": "item",
+      "pts": [
+        [1372, 114],
+        [1767, 114]
+      ],
+      "anchors": {
+        "labelAnchor": [1569.5, 114]
+      },
+      "bendX": 1587.5
+    },
+    {
+      "id": "e:5:u:class:q:5->u:class:q:0:plant_bbflower_powder_1",
+      "type": "item",
+      "pts": [
+        [2015, 114],
+        [2208.5, 114],
+        [2216.5, 122],
+        [2216.5, 335],
+        [2224.5, 343],
+        [2372, 343]
+      ],
+      "anchors": {
+        "labelAnchor": [2111.75, 114]
+      },
+      "bendX": 2181.8333333333335,
+      "entryX": 2216.5
+    },
+    {
+      "id": "e:6:u:class:q:6->u:class:q:3:plant_bbflower_seed_1",
+      "type": "bus",
+      "pts": [
+        [782, 114],
+        [912, 114],
+        [920, 122],
+        [920, 226],
+        [928, 234],
+        [1124, 234]
+      ],
+      "anchors": {
+        "junction": [912, 114],
+        "trunkAnchor": [849.5, 114],
+        "branchAnchor": [1056.5, 234]
+      }
+    },
+    {
+      "id": "e:7:u:class:q:6->u:class:q:4:plant_bbflower_seed_1",
+      "type": "bus",
+      "pts": [
+        [782, 114],
+        [1124, 114]
+      ],
+      "anchors": {
+        "junction": [912, 114],
+        "trunkAnchor": [849.5, 114],
+        "branchAnchor": [1056.5, 114]
+      }
+    },
+    {
+      "id": "e:8:u:in:quartz_sand->u:class:q:1:quartz_sand",
+      "type": "item",
+      "pts": [
+        [164, 344.5],
+        [358.5, 344.5],
+        [366.5, 352.5],
+        [366.5, 366],
+        [374.5, 374],
+        [724.5, 374]
+      ],
+      "anchors": {
+        "labelAnchor": [549.5, 374]
+      },
+      "bendX": 322.5,
+      "entryX": 366.5
+    }
+  ]
+}
