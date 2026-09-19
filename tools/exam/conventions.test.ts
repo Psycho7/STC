@@ -111,6 +111,48 @@ describe("docs/render-conventions.md", () => {
     expect(chips).toContain("no chip is hidden for lack of room");
   });
 
+  // The two marks that say "this is a merge" and "this is not one". An
+  // evaluator that has not been told they must stay legible reads a dot with a
+  // foreign line through it, or a crossing whose gap a chip swallowed, as a
+  // rendering it is not supposed to file.
+  test("states that a dot and a crossing gap must stay legible", () => {
+    const edges = flat(section(doc(), "Edges"));
+    expect(edges).toContain("inside a junction dot's disc is a defect");
+    expect(edges).toContain(
+      "covered by a chip box or a junction dot is a defect",
+    );
+  });
+
+  // Where a junction dot stands. It is offset from its column by a chamfer, so
+  // an evaluator told only "a dot marks the split" reads the offset as a stray
+  // dot beside the line.
+  test("states where a junction dot stands", () => {
+    const fans = flat(section(doc(), "Fan-out and fan-in"));
+    expect(fans).toContain("one chamfer before the column");
+    expect(flat(section(doc(), "Intentional behaviours"))).toContain(
+      "sits 8 units beside its column",
+    );
+  });
+
+  // The frame rule covers every stroke, not only a loop's return: a forward run
+  // along a slab border is the same defect, and only the tap descent is exempt.
+  test("states the frame rule for every stroke, not only loop returns", () => {
+    const edges = flat(section(doc(), "Edges"));
+    expect(edges).toContain("a loop's return and a forward run alike");
+    expect(edges).toContain("not a stroke riding the frame");
+  });
+
+  // The two forward shapes the audit lets past the frame rule. An evaluator
+  // given only the rule files both of them, and neither is a placement the
+  // renderer chose.
+  test("states the forward exemptions from the frame rule", () => {
+    const intentional = flat(section(doc(), "Intentional behaviours"));
+    expect(intentional).toContain("the row its two ports share");
+    expect(intentional).toContain(
+      "a container one of its own endpoints sits inside",
+    );
+  });
+
   // Mechanisms the renderer no longer has. A doc that still describes one
   // teaches an evaluator to look for a shape the canvas cannot draw.
   test("describes no chip collapse the renderer cannot produce", () => {

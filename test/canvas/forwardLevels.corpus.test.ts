@@ -1,5 +1,5 @@
-// Every forward horizontal run of every corpus plan keeps the level floor off
-// the forward runs of the OTHER edges it shares a corridor with.
+// Every horizontal run of every corpus plan keeps the level floor off the runs
+// of the OTHER edges it shares a corridor with.
 //
 // The column passes have kept a pitch floor on the x axis for a long time: two
 // verticals of different edges standing a few units apart read as one thick
@@ -18,6 +18,12 @@
 // arriving on one input row draws. Sharing the card is not enough, because a
 // recipe fed the same item as a raw input and as a catalyst charge takes it on
 // two different rows.
+//
+// A BACKWARD rail's horizontals are in scope too (canvas defect casebook,
+// 2026-09-19, family D): a rail fused with the forward run it passes is the
+// same smeared stroke, and the rail pass picks its level with no knowledge of
+// the forward bands. The pairs that class already draws are allow-listed below
+// rather than fixed, so a sixth one reddens this test.
 
 import { describe, it, expect } from "vitest";
 import type { Edge } from "@xyflow/react";
@@ -40,9 +46,44 @@ import { SCENARIOS } from "../e2e/scenarios";
 // coordinates, so a pair that holds the floor holds it well inside a pixel.
 const EPS = 1e-6;
 
-// Plans that cannot satisfy the floor. Empty: every corpus plan holds it. An
-// entry here is a finding to report, not a silent pin.
-const ALLOWED: ReadonlyArray<{ plan: string; a: string; b: string }> = [];
+// Pairs that do not satisfy the floor. Every entry is a finding on the record,
+// not a silent pin: these five are the whole of family D of the canvas defect
+// casebook (2026-09-19), a backward rail fused with a forward run it passes for
+// the width of the graph. The rail pass places a rail without seeing the
+// forward bands, which is a root cause held for the shared-level-field
+// prototype rather than patched, so the list is frozen here and any SIXTH pair
+// reddens this test.
+//
+// Each side is `<edge id>@<level>`, the same key the report below prints, so an
+// entry names the one fusion it harvested: the same two edges fused again at
+// another level is a new finding and reddens the test too.
+const ALLOWED: ReadonlyArray<{ plan: string; a: string; b: string }> = [
+  {
+    plan: "battery5",
+    a: "e:4:u:class:q:10->u:class:q:5:liquid_water@866",
+    b: "e:16:u:class:q:5->u:surplus:copper_nugget:copper_nugget@856",
+  },
+  {
+    plan: "battery5",
+    a: "e:6:u:class:q:12->u:class:q:14:plant_moss_3@326",
+    b: "e:24:u:in:originium_ore->u:class:q:1:originium_ore@323",
+  },
+  {
+    plan: "battery5-xiranite",
+    a: "e:9:u:class:q:16->u:class:q:9:liquid_water@952",
+    b: "e:27:u:class:q:9->u:surplus:liquid_sewage:liquid_sewage@959.5",
+  },
+  {
+    plan: "battery5-xiranite",
+    a: "e:13:u:class:q:24->u:class:q:26:plant_moss_3@1096",
+    b: "e:35:u:in:originium_ore->u:class:q:4:originium_ore@1093",
+  },
+  {
+    plan: "multi6",
+    a: "e:43:u:class:q:51->u:class:q:55:plant_grass_1@1014",
+    b: "e:79:u:in:liquid_water->u:class:q:28:liquid_water@1014",
+  },
+];
 
 type Run = {
   edge: string;
@@ -74,23 +115,18 @@ async function layoutOf(id: string): Promise<Plan> {
   return layoutSolved(solveForRender({ targets, pack }));
 }
 
-// The drawn shape of one edge, or null where its ports cannot be resolved or it
-// is a backward detour (whose level is clampBackwardRails' business).
-function forwardDrawn(
+// The drawn shape of one edge, or null where its ports cannot be resolved.
+function drawnOf(
   edge: Edge,
   byId: ReturnType<typeof nodeIndexOf>,
 ): DrawnEdge | null {
   const ends = drawnPortsOf(edge, byId);
   if (ends === null) return null;
-  if (ends.targetX <= ends.sourceX) return null;
   return drawnEdge(ends, edge.type, edge.data);
 }
 
-function forwardRunsOf(
-  edge: Edge,
-  byId: ReturnType<typeof nodeIndexOf>,
-): Run[] {
-  const drawn = forwardDrawn(edge, byId);
+function runsOf(edge: Edge, byId: ReturnType<typeof nodeIndexOf>): Run[] {
+  const drawn = drawnOf(edge, byId);
   if (drawn === null) return [];
   const ends = drawnPortsOf(edge, byId)!;
   return horizontalRuns(drawn.pts).map((run) => ({
@@ -109,7 +145,10 @@ function forwardRunsOf(
 const overlapOf = (a: Run, b: Run): number =>
   Math.min(a.hi, b.hi) - Math.max(a.lo, b.lo);
 
-describe("two forward runs in one corridor keep the level floor", () => {
+// One run, named by the line it belongs to and the level it holds.
+const keyOf = (run: Run): string => `${run.edge}@${run.y}`;
+
+describe("two runs in one corridor keep the level floor", () => {
   it("holds on every corpus plan", async () => {
     const tight: Array<{
       plan: string;
@@ -123,7 +162,7 @@ describe("two forward runs in one corridor keep the level floor", () => {
     for (const scenario of SCENARIOS) {
       const { nodes, edges } = await layoutOf(scenario.id);
       const byId = nodeIndexOf(nodes);
-      const runs = edges.flatMap((edge) => forwardRunsOf(edge, byId));
+      const runs = edges.flatMap((edge) => runsOf(edge, byId));
       for (let i = 0; i < runs.length; i += 1) {
         for (let j = i + 1; j < runs.length; j += 1) {
           const a = runs[i]!;
@@ -134,20 +173,22 @@ describe("two forward runs in one corridor keep the level floor", () => {
           checked += 1;
           const dy = Math.abs(a.y - b.y);
           if (dy >= ENTRY_SLOT_PITCH - EPS) continue;
+          const ka = keyOf(a);
+          const kb = keyOf(b);
           if (
             ALLOWED.some(
               (entry) =>
                 entry.plan === scenario.id &&
-                ((entry.a === a.edge && entry.b === b.edge) ||
-                  (entry.a === b.edge && entry.b === a.edge)),
+                ((entry.a === ka && entry.b === kb) ||
+                  (entry.a === kb && entry.b === ka)),
             )
           ) {
             continue;
           }
           tight.push({
             plan: scenario.id,
-            a: `${a.edge}@${a.y}`,
-            b: `${b.edge}@${b.y}`,
+            a: ka,
+            b: kb,
             dy,
             overlap: overlapOf(a, b),
           });
@@ -155,8 +196,8 @@ describe("two forward runs in one corridor keep the level floor", () => {
       }
     }
 
-    // Premise: the corpus really does draw forward runs of different edges
-    // beside each other, so the empty list below is a verdict.
+    // Premise: the corpus really does draw runs of different edges beside each
+    // other, so the empty list below is a verdict.
     expect(checked).toBeGreaterThan(0);
     expect(tight).toEqual([]);
   }, 600_000);
@@ -202,8 +243,8 @@ describe("the raw and catalyst supplies of one recipe stay apart", () => {
       const tight: string[] = [];
       const buried: string[] = [];
       for (const pair of pairs) {
-        const rawRuns = forwardRunsOf(pair.raw, byId);
-        const catRuns = forwardRunsOf(pair.catalyst, byId);
+        const rawRuns = runsOf(pair.raw, byId);
+        const catRuns = runsOf(pair.catalyst, byId);
         for (const a of rawRuns) {
           for (const b of catRuns) {
             if (overlapOf(a, b) <= PORT_STUB) continue;
@@ -213,8 +254,8 @@ describe("the raw and catalyst supplies of one recipe stay apart", () => {
         }
         // The catalyst supply's own junction dot, where it draws one, must not
         // land on the raw supply's stroke.
-        const drawn = forwardDrawn(pair.catalyst, byId);
-        const rawDrawn = forwardDrawn(pair.raw, byId);
+        const drawn = drawnOf(pair.catalyst, byId);
+        const rawDrawn = drawnOf(pair.raw, byId);
         if (drawn === null || rawDrawn === null) continue;
         if (drawn.shape === "item") continue;
         for (let i = 1; i < rawDrawn.pts.length; i += 1) {

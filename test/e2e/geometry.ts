@@ -407,27 +407,41 @@ export function auditOwnCardPierces(
   return out;
 }
 
-// Frame rides: segments of a BACKWARD item edge (target at or left of the
-// source, mirroring clampBackwardRails' nodeGap test) that run ALONG a
-// container slab's border, close enough that the stroke and the border read as
-// one line (the loop-backedge-braids-container family, #29 follow-on): a
-// vertical segment within `tol` of a container's left/right border (overlapping
-// the border's y-run by more than two port stubs, so a legitimate perpendicular
-// crossing or a short corner never counts), or a horizontal segment within `tol`
-// of a container's top/bottom border with the same overlap rule. Diagonal
-// chamfers never ride a frame.
-// Forward edges are out of scope: a forward tap's jog descent
-// may share an entry-gutter line with a container border (the convention
-// doc's stated exception), and the forward column passes take no container
-// clearance, so counting them would pin a shape the doctrine declares legal
-// with no routing lever behind it.
-// Deliberately NOT exempting the endpoints' own containers: a return between
-// two members of one slab is exactly the shape whose columns may hug the frame,
-// and the routing now keeps them CONTAINER_COLUMN_GAP off it (Task 7). The
-// tolerance matches that constant. Pure and deterministic.
+// Frame rides: segments that run ALONG a container slab's border, close enough
+// that the stroke and the border read as one line (the
+// loop-backedge-braids-container family, #29 follow-on, and the forward jog
+// hugging a frame the casebook re-reports). A ride needs a parallel run, so a
+// near-border segment counts only when it overlaps the border's own extent by
+// more than two port stubs -- a perpendicular crossing or a short corner never
+// does. Diagonal chamfers never ride a frame.
+//
+// The two directions are scored under different rules, because different
+// routing levers stand behind them:
+//
+//   BACKWARD (target at or left of the source, mirroring clampBackwardRails'
+//     nodeGap test): both axes, at `tol`. The rail pass keeps a return's
+//     verticals CONTAINER_COLUMN_GAP off the side borders (Task 7) and the
+//     tolerance matches that constant. The endpoints' own containers are
+//     deliberately NOT exempt: a return between two members of one slab is
+//     exactly the shape whose columns may hug the frame.
+//
+//   FORWARD: HORIZONTALS only, at the wider `forwardTol` -- no forward pass
+//     takes any container clearance, so what a run holds off a border is
+//     whatever the level search left it, and the band at which the two read as
+//     one edge of the slab is the whole port stub. Forward VERTICALS stay out:
+//     a tap's jog descent may share an entry-gutter line with a container
+//     border by convention, so counting them would pin a shape the doctrine
+//     declares legal. Two more forward exemptions: the endpoints' own
+//     containers (a run leaving a card inside a slab has to travel beside that
+//     slab's border), and an edge drawn as ONE straight horizontal from port to
+//     port (its level is the row its two ports share, not a choice any pass
+//     made).
+//
+// Pure and deterministic.
 export type FrameRideHit = {
   edgeId: string;
   kind: "frame";
+  direction: "forward" | "backward";
   // The container node id whose border is ridden.
   target: string;
   border: "left" | "right" | "top" | "bottom";
@@ -437,15 +451,27 @@ export type FrameRideHit = {
 
 export const FRAME_RIDE_TOL = 16;
 
+// The band a FORWARD horizontal has to hold off a container border. A port stub
+// is the shortest run the canvas draws, so a stroke nearer than that to a
+// border has no visible corridor of its own between the two.
+export const FORWARD_FRAME_RIDE_TOL = PORT_STUB;
+
 // Minimum parallel overlap before a near-border run counts as riding it: two
 // port stubs. Port stubs and corner chamfers legitimately touch a border zone
 // briefly while crossing or turning; a ride is a long parallel run.
 const FRAME_RIDE_MIN_OVERLAP = 2 * PORT_STUB;
 
+// Is the whole polyline one horizontal line? Then both its endpoints are ports
+// on that row (an edge starts and ends at a port), so its level is the ports'.
+function isStraightRun(pts: ReadonlyArray<Pt>): boolean {
+  return pts.length > 1 && pts.every((p) => p[1] === pts[0]![1]);
+}
+
 export function auditFrameRides(
   edges: ReadonlyArray<RawEdge>,
   nodes: ReadonlyArray<NodeRect>,
   tol = FRAME_RIDE_TOL,
+  forwardTol = FORWARD_FRAME_RIDE_TOL,
   eps = 0.5,
 ): FrameRideHit[] {
   const nodeById = new Map<string, NodeRect>();
@@ -453,31 +479,48 @@ export function auditFrameRides(
   const containers = nodes.filter(
     (n) => n.type === "group" || n.type === "loop",
   );
-  const limit = tol - eps;
   const out: FrameRideHit[] = [];
-  const push = (
-    edgeId: string,
-    kind: "frame",
-    target: string,
-    border: FrameRideHit["border"],
-    p0: Pt,
-    p1: Pt,
-    distance: number,
-  ): void => {
-    out.push({ edgeId, kind, target, border, seg: [p0, p1], distance });
-  };
   for (const edge of edges) {
     const pts = parsePath(edge.d);
     if (pts.length === 0) continue;
     const s = nodeById.get(edge.source);
     const t = nodeById.get(edge.target);
     const backward = s !== undefined && t !== undefined && t.left <= s.right;
-    if (!backward) continue;
+    const direction = backward ? "backward" : "forward";
+    if (!backward && isStraightRun(pts)) continue;
+    const limit = (backward ? tol : forwardTol) - eps;
+
+    const exempt = new Set<string>();
+    if (!backward) {
+      exempt.add(edge.source);
+      exempt.add(edge.target);
+      for (const c of containersAt(pts[0]!, nodes)) exempt.add(c);
+      for (const c of containersAt(pts[pts.length - 1]!, nodes)) exempt.add(c);
+    }
+    const push = (
+      target: string,
+      border: FrameRideHit["border"],
+      p0: Pt,
+      p1: Pt,
+      distance: number,
+    ): void => {
+      out.push({
+        edgeId: edge.id,
+        kind: "frame",
+        direction,
+        target,
+        border,
+        seg: [p0, p1],
+        distance,
+      });
+    };
+
     for (const [p0, p1] of segmentsOf(pts)) {
       const vertical = p0[0] === p1[0];
       const horizontal = p0[1] === p1[1];
       if (!vertical && !horizontal) continue; // a chamfer diagonal
       if (vertical) {
+        if (!backward) continue; // tap-descent exception
         const yLo = Math.min(p0[1], p1[1]);
         const yHi = Math.max(p0[1], p1[1]);
         const overlapY = (r: { top: number; bottom: number }): number =>
@@ -486,8 +529,8 @@ export function auditFrameRides(
           if (overlapY(c) <= FRAME_RIDE_MIN_OVERLAP) continue;
           const dl = Math.abs(p0[0] - c.left);
           const dr = Math.abs(p0[0] - c.right);
-          if (dl < limit) push(edge.id, "frame", c.nodeId, "left", p0, p1, dl);
-          if (dr < limit) push(edge.id, "frame", c.nodeId, "right", p0, p1, dr);
+          if (dl < limit) push(c.nodeId, "left", p0, p1, dl);
+          if (dr < limit) push(c.nodeId, "right", p0, p1, dr);
         }
         continue;
       }
@@ -496,11 +539,12 @@ export function auditFrameRides(
       const overlapX = (r: { left: number; right: number }): number =>
         Math.max(0, Math.min(xHi, r.right) - Math.max(xLo, r.left));
       for (const c of containers) {
+        if (exempt.has(c.nodeId)) continue;
         if (overlapX(c) <= FRAME_RIDE_MIN_OVERLAP) continue;
         const dt = Math.abs(p0[1] - c.top);
         const db = Math.abs(p0[1] - c.bottom);
-        if (dt < limit) push(edge.id, "frame", c.nodeId, "top", p0, p1, dt);
-        if (db < limit) push(edge.id, "frame", c.nodeId, "bottom", p0, p1, db);
+        if (dt < limit) push(c.nodeId, "top", p0, p1, dt);
+        if (db < limit) push(c.nodeId, "bottom", p0, p1, db);
       }
     }
   }
@@ -801,6 +845,9 @@ export type DotRect = RawRect & { testId: string; family: string };
 // divergence dot of a fan-out, the convergence dot of a fan-in.
 const BUS_JUNCTION_PREFIX = "bus-junction-";
 const FANIN_JUNCTION_PREFIX = "fanin-junction-";
+// The third drawn family: the declined-fan-out divergence dot an ItemEdge owner
+// draws where coincident same-flow edges leave their shared out-port run.
+const FANOUT_JUNCTION_PREFIX = "fanout-junction-";
 
 // The data-family each of those dots carries.
 const FANOUT_FAMILY = "fanout";
@@ -1210,6 +1257,147 @@ export function auditDotsUnderChips(
         });
         break;
       }
+    }
+  }
+  return out;
+}
+
+// Half the widest stroke the canvas draws, in SCREEN pixels: ItemEdge clamps a
+// zoom-compensated edge width to 3 physical px. A stroke whose centreline sits
+// just outside a dot's disc still paints ink inside it, so the reach of a disc
+// is its radius plus this.
+const HALF_STROKE_PX = 1.5;
+
+// One junction dot with a foreign flow's stroke inside its disc.
+export type DotStrokeHit = {
+  dotId: string;
+  // The dot's centre, so a report can name WHERE it is.
+  at: Pt;
+  // Every foreign edge whose polyline reaches into the disc, and the nearest
+  // one's distance from the centre.
+  strokes: string[];
+  distance: number;
+};
+
+// The edge a dot is drawn for, and the side of the flow its trunk is keyed by.
+// A split dot (the fan-out column's, the declined fan-out's divergence dot) is
+// shared by every edge leaving the same port, so the trunk is item + source; a
+// merge dot is shared by every edge reaching one port, so it is item + target.
+const DOT_TRUNK_SIDE: ReadonlyArray<readonly [string, "source" | "target"]> = [
+  [BUS_JUNCTION_PREFIX, "source"],
+  [FANOUT_JUNCTION_PREFIX, "source"],
+  [FANIN_JUNCTION_PREFIX, "target"],
+];
+
+function dotTrunkOf(
+  dot: DotRect,
+  edgeById: ReadonlyMap<string, RawEdge>,
+): { edge: RawEdge; side: "source" | "target" } | null {
+  for (const [prefix, side] of DOT_TRUNK_SIDE) {
+    if (!dot.testId.startsWith(prefix)) continue;
+    const edge = edgeById.get(dot.testId.slice(prefix.length));
+    if (edge === undefined) return null;
+    return { edge, side };
+  }
+  return null;
+}
+
+// Every junction dot with a stroke of a DIFFERENT flow inside its disc. A dot
+// says "these lines are one flow meeting": a foreign stroke passing through it
+// is read as a member of the merge or the split it marks, which is a join the
+// plan does not have. The dot's own trunk is exempt by construction -- the
+// lines it marks are what it is drawn on.
+//
+// The disc is measured AS DRAWN (collected from the DOM), so it already carries
+// the zoom-clamped radius at this camera; `fitZoom` only converts the
+// half-stroke allowance into the graph frame the rects live in. COINCIDENT dots
+// count once: every member of one trunk draws the same split point, and the
+// reader sees one dot there.
+export function auditDotsOnForeignStrokes(
+  dots: ReadonlyArray<DotRect>,
+  edges: ReadonlyArray<RawEdge>,
+  fitZoom: number,
+  halfStrokePx = HALF_STROKE_PX,
+): DotStrokeHit[] {
+  const edgeById = new Map<string, RawEdge>();
+  for (const e of edges) edgeById.set(e.id, e);
+  const halfStroke = halfStrokePx / fitZoom;
+  const out: DotStrokeHit[] = [];
+  const seen = new Set<string>();
+  for (const dot of dots) {
+    const centre = centreOf(dot);
+    const key = `${Math.round(centre[0])}|${Math.round(centre[1])}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const trunk = dotTrunkOf(dot, edgeById);
+    if (trunk === null) continue;
+    const reach = (dot.right - dot.left) / 2 + halfStroke;
+
+    const strokes: string[] = [];
+    let nearest = Infinity;
+    for (const edge of edges) {
+      if (
+        edge.item === trunk.edge.item &&
+        edge[trunk.side] === trunk.edge[trunk.side]
+      ) {
+        continue; // the dot's own trunk
+      }
+      const pts = parsePath(edge.d);
+      if (pts.length === 0) continue;
+      const d = pointToPolylineDistance(centre, pts);
+      if (d > reach) continue;
+      strokes.push(edge.id);
+      nearest = Math.min(nearest, d);
+    }
+    if (strokes.length > 0) {
+      out.push({ dotId: dot.testId, at: centre, strokes, distance: nearest });
+    }
+  }
+  return out;
+}
+
+// One crossing cue the reader cannot see.
+export type HiddenCueHit = {
+  // The edge group the cue's circle lives in.
+  edgeId: string;
+  at: Pt;
+  // What covers it, chip testid or dot testid.
+  hiddenBy: string;
+};
+
+// Every drawn crossing cue whose centre lies under a chip box or inside a
+// junction dot's disc. The cue is the gap that says "crossing, not a merge";
+// both chips and dots paint over it (they are opaque boxes in the
+// edgelabel-renderer layer, above the edge SVGs), so a cue under one leaves a
+// bare X -- or worse, a dot exactly where the two flows cross, which reads as
+// the merge the cue exists to deny. This is the measurement the #131 "cue mask
+// stays" ruling assumed and never had.
+export function auditHiddenCues(
+  cues: ReadonlyArray<CrossingCue>,
+  chips: ReadonlyArray<ChipRect>,
+  dots: ReadonlyArray<DotRect>,
+): HiddenCueHit[] {
+  const out: HiddenCueHit[] = [];
+  for (const cue of cues) {
+    const at: Pt = [cue.x, cue.y];
+    const chip = chips.find((c) => centreInRect(at, c));
+    if (chip !== undefined) {
+      out.push({
+        edgeId: cue.edgeId,
+        at,
+        hiddenBy: `chip ${chip.testId} ("${chip.label}")`,
+      });
+      continue;
+    }
+    const dot = dots.find((d) => {
+      const centre = centreOf(d);
+      return (
+        Math.hypot(at[0] - centre[0], at[1] - centre[1]) <=
+        (d.right - d.left) / 2
+      );
+    });
+    if (dot !== undefined) {
+      out.push({ edgeId: cue.edgeId, at, hiddenBy: `dot ${dot.testId}` });
     }
   }
   return out;
