@@ -18,7 +18,9 @@ import Fraction from "fraction.js";
 import type { Edge } from "@xyflow/react";
 
 import { ROUTING_PASSES } from "../../src/canvas/layout";
-import { routeTrunkEdges } from "../../src/canvas/busRouting";
+import { edgePortsModel, routeTrunkEdges } from "../../src/canvas/busRouting";
+import { FORWARD_LEVEL_FLOOR } from "../../src/canvas/levelOccupancy";
+import { widenLayerGaps } from "../../src/canvas/layerModel";
 import {
   drawnPortsOf,
   nodeWidth,
@@ -318,6 +320,114 @@ describe("routeTrunkEdges: the shared column and its neighbours", () => {
       (id) => dataOf(routed, id).busChipOwner === true,
     );
     expect(owners).toEqual(["e:2"]);
+  });
+});
+
+describe("routeTrunkEdges: the slot order of two trunks in one gap", () => {
+  // Two producers of one item in the source layer, each fanning out to its own
+  // pair of consumers one layer over, so both trunks take a column in the same
+  // gap. A leaves ABOVE B, so the plain port-row order puts A's column left.
+  //
+  // `alignedRows` is the whole fixture: it puts one of A's target rows on B's
+  // own out-port row, so A's leg and B's stub share that row. Left of B, A's leg
+  // runs right across B's stub and B's split dot lands on it; right of B there
+  // is no shared stretch at all.
+  const SRC_A_Y = 0;
+  const SRC_B_Y = 300;
+  const OFF_ROW_1 = 900;
+  const OFF_ROW_2 = 1200;
+
+  // The card y that puts a consumer's IN-port row on `row`.
+  const targetYFor = (row: number): number =>
+    row - portOffsetY(consumer("probe", 0, 0), ITEM, "in");
+  // The out-port row of a producer card placed at y.
+  const sourceRowOf = (y: number): number =>
+    y + portOffsetY(producer("probe", 0, 0), ITEM, "out");
+
+  // Both trunks' columns come from the gap record, so the fixture routes with a
+  // ctx: without one every trunk falls back to its own corridor midpoint and
+  // the slot order has nothing to hand out.
+  const columnsOf = (
+    nodes: RFAnyNode[],
+    edges: Edge[],
+  ): { a: number; b: number } => {
+    const widened = widenLayerGaps(nodes, edges);
+    const routed = routeTrunkEdges(widened.nodes, edges, {
+      gaps: widened.gaps,
+    });
+    const columnOf = (id: string): number => {
+      const data = dataOf(routed, id);
+      return (data.junctionX ?? data.bendX) as number;
+    };
+    // Premise: every member is a NEAR member, drawn as the trunk shape, so both
+    // trunks really did take a slot in the gap.
+    for (const id of ["a:1", "a:2", "b:1", "b:2"]) {
+      expect(typeOf(routed, id), id).toBe("bus");
+    }
+    expect(columnOf("a:1")).toBe(columnOf("a:2"));
+    expect(columnOf("b:1")).toBe(columnOf("b:2"));
+    return { a: columnOf("a:1"), b: columnOf("b:1") };
+  };
+
+  it("stands the trunk whose leg leaves right of the one whose stub arrives", () => {
+    const nodes: RFAnyNode[] = [
+      producer("srcA", 0, SRC_A_Y),
+      producer("srcB", 0, SRC_B_Y),
+      // A's coincident target: its in-port row IS srcB's out-port row.
+      consumer("a1", LAYER_PITCH, targetYFor(sourceRowOf(SRC_B_Y))),
+      consumer("a2", LAYER_PITCH, targetYFor(OFF_ROW_1)),
+      consumer("b1", LAYER_PITCH, targetYFor(OFF_ROW_2)),
+      consumer("b2", LAYER_PITCH, targetYFor(OFF_ROW_2 + 300)),
+    ];
+    const edges = [
+      edge("a:1", "srcA", "a1"),
+      edge("a:2", "srcA", "a2"),
+      edge("b:1", "srcB", "b1"),
+      edge("b:2", "srcB", "b2"),
+    ];
+    const byId = new Map<string, RFAnyNode>(nodes.map((n) => [n.id, n]));
+
+    // Premise: A hangs off the HIGHER port row, so the plain slot order puts it
+    // left, and its leg really does land within the forward level floor of B's
+    // port row -- the coincidence the rule is about.
+    const portsA = edgePortsModel(edges[0]!, byId)!;
+    const portsB = edgePortsModel(edges[2]!, byId)!;
+    expect(portsA.sy).toBeLessThan(portsB.sy);
+    expect(Math.abs(portsA.ty - portsB.sy)).toBeLessThan(FORWARD_LEVEL_FLOOR);
+
+    const { a, b } = columnsOf(nodes, edges);
+    expect(b).toBeLessThan(a);
+  });
+
+  it("restores the plain port order when the constraints form a cycle", () => {
+    // The mirror added: B also has a target on A's out-port row, so each trunk
+    // leaves on the other's arriving row. No order satisfies both, and the sort
+    // falls back to the plain one -- A's higher port row takes the left column.
+    const nodes: RFAnyNode[] = [
+      producer("srcA", 0, SRC_A_Y),
+      producer("srcB", 0, SRC_B_Y),
+      consumer("a1", LAYER_PITCH, targetYFor(sourceRowOf(SRC_B_Y))),
+      consumer("a2", LAYER_PITCH, targetYFor(OFF_ROW_1)),
+      consumer("b1", LAYER_PITCH, targetYFor(sourceRowOf(SRC_A_Y))),
+      consumer("b2", LAYER_PITCH, targetYFor(OFF_ROW_2)),
+    ];
+    const edges = [
+      edge("a:1", "srcA", "a1"),
+      edge("a:2", "srcA", "a2"),
+      edge("b:1", "srcB", "b1"),
+      edge("b:2", "srcB", "b2"),
+    ];
+    const byId = new Map<string, RFAnyNode>(nodes.map((n) => [n.id, n]));
+
+    // Premise: the cycle really is there -- each trunk's leg lands on the
+    // other's port row.
+    const portsA = edgePortsModel(edges[0]!, byId)!;
+    const portsB = edgePortsModel(edges[2]!, byId)!;
+    expect(Math.abs(portsA.ty - portsB.sy)).toBeLessThan(FORWARD_LEVEL_FLOOR);
+    expect(Math.abs(portsB.ty - portsA.sy)).toBeLessThan(FORWARD_LEVEL_FLOOR);
+
+    const { a, b } = columnsOf(nodes, edges);
+    expect(a).toBeLessThan(b);
   });
 });
 
