@@ -100,7 +100,7 @@ function chipsOf(plan: string, edge: Edge, drawn: DrawnEdge): Chip[] {
   const half = (text: Parameters<typeof chipSeatHalfW>[0]): number =>
     chipSeatHalfW(text, false);
   if (drawn.shape === "item") {
-    return [
+    const chips: Chip[] = [
       {
         plan,
         edge: edge.id,
@@ -110,6 +110,20 @@ function chipsOf(plan: string, edge: Edge, drawn: DrawnEdge): Chip[] {
         halfW: half(rateChipText(edge)),
       },
     ];
+    // The far owner of a fan-out trunk with no near member draws that trunk's
+    // aggregate on the item shape, seated on its source stub. It is appended,
+    // so the member-seat suite below still reads this edge's own chip at [0].
+    if (drawn.trunkAnchor !== undefined) {
+      chips.push({
+        plan,
+        edge: edge.id,
+        kind: "fanout aggregate",
+        x: drawn.trunkAnchor.x,
+        y: drawn.trunkAnchor.y,
+        halfW: half(aggregateChipText(edge)),
+      });
+    }
+    return chips;
   }
   const out: Chip[] = [
     {

@@ -510,9 +510,8 @@ export function deconflictChipAnchors(
   // edge -- the counterpart of the fan-in merge dot above, and of the dot a real
   // fan-out trunk draws from BusEdge. Bus-typed members never reach here (they
   // have no item geometry), so an accepted trunk is not double-marked. No
-  // aggregate chip rides along: a total would sit a few pixels from the source
-  // card's own output row, which already states it (#39), and a declined
-  // fan-out's shared prefix is too short to hold the box anyway. Presentational
+  // aggregate chip rides along: a declined fan-out's gap was never widened for
+  // one, and its shared prefix is too short to hold the box. Presentational
   // only -- no edge is retyped.
   const fanoutJunctionByIndex = new Map<number, { x: number; y: number }>();
   type DivergenceMember = {
@@ -840,6 +839,18 @@ export function seatedChipBoxes(
         drawn.labelAnchor.y,
         chipSeatHalfW(rateChipText(edge), false),
       );
+      // The far owner of a fan-out trunk with no near member draws its trunk's
+      // aggregate on the item shape too, seated on its source stub, so the
+      // camera fit and the seat suites frame it like any other trunk chip.
+      if (drawn.trunkAnchor !== undefined) {
+        push(
+          edge,
+          "fanout-agg",
+          drawn.trunkAnchor.x,
+          drawn.trunkAnchor.y,
+          chipSeatHalfW(aggregateChipText(edge), false),
+        );
+      }
       continue;
     }
     // Every trunk draws one aggregate chip, on its owner, and every member its

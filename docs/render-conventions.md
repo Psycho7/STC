@@ -223,13 +223,29 @@ source port and the split dot, and it states the whole port's total. Each
 member draws its own rate on its own leg, never on the shared column: the
 column belongs to every member, so a chip parked there names none of them.
 
+Every fan-out states its total, whatever its members' reach. Where one member
+heads to the next layer over it carries the aggregate on the shared trunk. Where
+they all reach further, the owner is a far member instead -- the first that bends
+away from the source row, so the total and the split dot ride one line -- and it
+draws the total on its own source stub, in the same reserve the trunk chip would
+have taken. Without it a reader sees one boundary port labelled and the next one
+silent, with nothing on the canvas to say why: layer distance is not drawn.
+
 Fan-in merges are the mirror image. Several same-item edges joining one target
 port reach a shared column, turn onto the target row, and run one shared leg
 into the port, marked with a dot where they converge. Each member keeps its own
 rate chip on its own source stub, left of the column, and the aggregate chip
-rides the shared leg right of the dot. A merge whose members all reach it from
-further back draws no aggregate at all -- there is no near member to carry it,
-and the target card states the total.
+rides the shared leg right of the dot.
+
+The two sides are deliberately asymmetric: a fan-in may draw no aggregate at
+all. Three cases leave one ownerless, and six merges across the corpus fall
+under them. All members reach the port from two or more layers back, so no
+shared leg is drawn for a total to ride, and the target card's own row states it
+instead. Every near member is DUAL -- each is already a fan-out member drawing
+its own source's total on the same chip -- so a merge total would restate a
+figure standing beside it. Or the member is backward, arriving on a detour rail
+with no merge dot to bind a total to. The fan-out side has none of these: an
+elected far owner always has a source stub of its own to carry the box.
 
 The columns of one corridor are spread apart so that no two dots' keep-offs
 overlap, and the gap they run in is widened before routing to hold them plus
