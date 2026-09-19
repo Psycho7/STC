@@ -270,7 +270,10 @@ and the rule is one per chip kind:
 
 - a plain item edge's chip stands at the centre of the longest horizontal run of
   its own polyline, slid along that run to the nearest position whose box clears
-  every card;
+  every card and every vertical stroke of another flow. A foreign column may
+  cross the run; it may not cross the box, because the chip draws above every
+  stroke and would swallow the crossing cue with it. Where no seat on the line
+  clears both, the cards win the seat and the column stays in the box;
 - a trunk's aggregate chip stands one port stub out of the port it labels, on
   the shared stretch;
 - a trunk member's chip stands one port stub in from its own end of the stretch

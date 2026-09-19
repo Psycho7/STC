@@ -34,7 +34,12 @@ import {
   portKeepOutRect,
   type CardRect,
 } from "../../src/canvas/chipSeating";
-import { drawnPortsOf, nodeIndexOf } from "../../src/canvas/nodeGeometry";
+import {
+  drawnPortsOf,
+  edgeItem,
+  flowKeyOf,
+  nodeIndexOf,
+} from "../../src/canvas/nodeGeometry";
 import {
   RESERVE_COLUMN_PAD,
   buildLayerModel,
@@ -55,6 +60,7 @@ import { solveForRender } from "../../src/pipeline/solveForRender";
 import type { ItemTarget } from "../../src/data/targets";
 import type { RFAnyNode } from "../../src/canvas/layout";
 import { SCENARIOS } from "../e2e/scenarios";
+import { segmentEntersRect, segmentsOf } from "../e2e/geometry";
 
 // Floating-point slack: the anchors and the zone bounds are sums of the same
 // fractional layout coordinates, so they agree well inside a pixel.
@@ -263,6 +269,64 @@ describe("every trunk chip's box stands in its gap's chip reserve", () => {
     expect(checked).toBeGreaterThan(0);
     expect(outside).toEqual([]);
     expect(onDot).toEqual([]);
+  }, 600_000);
+});
+
+// The eps the e2e chip census shrinks a box by before asking what enters it
+// (auditChipForeignStrokes): a stroke grazing the boundary is not inside.
+const STROKE_EPS = 0.5;
+
+describe("no seated 1-to-1 chip box holds a foreign vertical", () => {
+  it("holds on every corpus plan", async () => {
+    // A chip renders in the label layer, above every stroke, so a vertical of
+    // ANOTHER flow crossing the run under the box disappears into it -- and
+    // with it the crossing cue that would have told the reader the two lines
+    // pass rather than join. The seating pass slides the box clear of every
+    // foreign vertical, so a foreign column may cross the run but never the
+    // box. Same-flow strokes are exempt: one flow is one visual line, and a
+    // trunk's own column under its member's chip reads as that line.
+    const through: Array<Chip & { stroke: string }> = [];
+    let checked = 0;
+
+    for (const scenario of SCENARIOS) {
+      const { nodes, edges } = await layOut(scenario.id);
+      const byId = nodeIndexOf(nodes);
+      // Every drawn polyline of the plan, with the flow that drew it.
+      const drawnByEdge: Array<{
+        edge: Edge;
+        flowKey: string;
+        drawn: DrawnEdge;
+      }> = [];
+      for (const edge of edges) {
+        if (edge.type !== "item" && edge.type !== "bus") continue;
+        const ends = drawnPortsOf(edge, byId);
+        if (ends === null) continue;
+        drawnByEdge.push({
+          edge,
+          flowKey: flowKeyOf(edgeItem(edge), edge.source),
+          drawn: drawnEdge(ends, edge.type, edge.data),
+        });
+      }
+
+      for (const own of drawnByEdge) {
+        if (own.edge.type !== "item" || own.drawn.shape !== "item") continue;
+        const chip = chipsOf(scenario.id, own.edge, own.drawn)[0]!;
+        const box = chipBoxAt(chip.x, chip.y, chip.halfW);
+        checked += 1;
+        for (const other of drawnByEdge) {
+          if (other.flowKey === own.flowKey) continue;
+          for (const [a, b] of segmentsOf(other.drawn.pts)) {
+            if (a[0] !== b[0] || a[1] === b[1]) continue;
+            if (!segmentEntersRect(a, b, box, STROKE_EPS)) continue;
+            through.push({ ...chip, stroke: `${other.edge.id} @x${a[0]}` });
+          }
+        }
+      }
+    }
+
+    // Premise: the corpus really does seat 1-to-1 chips.
+    expect(checked).toBeGreaterThan(0);
+    expect(through).toEqual([]);
   }, 600_000);
 });
 

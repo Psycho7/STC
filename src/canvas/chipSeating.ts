@@ -646,6 +646,17 @@ export function deconflictChipAnchors(
   // of ONE layer standing a few dozen units apart, a pair no gap was ever
   // charged for -- no seat on the run clears the strips, and the slide falls
   // back to the cards alone rather than giving up and leaving the box on a card.
+  //
+  // The surface also carries every FOREIGN VERTICAL: a vertical stroke of
+  // another flow -- a rail column, a fan-out junction column, a staggered bend
+  // -- crossing the run the box sits on. The chip renders in the label layer
+  // above every stroke, so a box seated on that crossing covers the crossing
+  // cue and the reader sees a line entering a labelled box. A foreign column
+  // may cross the run; it may not cross the box. The blocker is the stroke's x
+  // padded by CHAMFER either side, the same budget the drawn bevel takes, over
+  // the stroke's own y span. Tiers: furniture + verticals, then furniture, then
+  // cards -- the vertical is the weakest claim on the seat, because a covered
+  // cue is a misread and a buried card label is worse.
   const chipSeatByIndex = new Map<number, { x: number; y: number }>();
   {
     const cards = cardRectsFor(
@@ -663,6 +674,25 @@ export function deconflictChipAnchors(
       halfW: number,
       blockers: ReadonlyArray<PortZoneRect>,
     ): boolean => !chipBoxClearsCards(x, y, halfW, blockers);
+    // Every vertical stroke the reconstruction above drew, tagged with the flow
+    // that drew it: which of them are foreign is a question each chip answers
+    // against its own flow key.
+    const verticalsByFlow: Array<{ flowKey: string; rect: PortZoneRect }> = [];
+    for (const other of edgeSegments) {
+      for (const seg of other.segs) {
+        const [x0, y0, x1, y1] = seg;
+        if (x0 !== x1 || y0 === y1) continue;
+        verticalsByFlow.push({
+          flowKey: other.flowKey,
+          rect: {
+            left: x0 - CHAMFER,
+            right: x0 + CHAMFER,
+            top: Math.min(y0, y1),
+            bottom: Math.max(y0, y1),
+          },
+        });
+      }
+    }
     edges.forEach((edge, index) => {
       if (edge.type !== "item") return;
       const pts = itemPtsById.get(edge.id);
@@ -676,7 +706,14 @@ export function deconflictChipAnchors(
         ports.sourceX,
         ports.targetX,
       );
-      if (!boxHits(ruleX, ruleY, halfW, withFurniture)) return;
+      const ownFlow = flowKeyOf(edge);
+      const withVerticals: PortZoneRect[] = [
+        ...withFurniture,
+        ...verticalsByFlow
+          .filter((vertical) => vertical.flowKey !== ownFlow)
+          .map((vertical) => vertical.rect),
+      ];
+      if (!boxHits(ruleX, ruleY, halfW, withVerticals)) return;
       // The slide against one obstacle tier, or nothing when no run of this
       // polyline can hold a box clear of it.
       const slide = (
@@ -685,7 +722,7 @@ export function deconflictChipAnchors(
         const [x, y] = cardClearRunAnchor(pts, halfW, blockers);
         return boxHits(x, y, halfW, blockers) ? undefined : { x, y };
       };
-      const seat = slide(withFurniture) ?? slide(cards);
+      const seat = slide(withVerticals) ?? slide(withFurniture) ?? slide(cards);
       if (seat === undefined) return;
       if (seat.x === ruleX && seat.y === ruleY) return;
       chipSeatByIndex.set(index, seat);
