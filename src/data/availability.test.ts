@@ -14,14 +14,20 @@ import {
   effectiveCohortEnabled,
   eventCohortsOf,
   packCohortOf,
+  readStoredArea,
   readStoredEventOverrides,
   unavailableCauses,
   unavailableItems,
   unavailableRecipeIds,
+  writeStoredArea,
   writeStoredEventOverrides,
   type AvailabilitySettings,
 } from "./availability";
-import { EVENT_COHORT_OVERRIDES_STORAGE_KEY } from "./storage-keys";
+import { pack as shippedPack } from "./load";
+import {
+  AREA_STORAGE_KEY,
+  EVENT_COHORT_OVERRIDES_STORAGE_KEY,
+} from "./storage-keys";
 
 // The settings the app hands the core, with only the cohort overrides set:
 // area and manual toggles have no source until #124/#125 ship theirs.
@@ -247,6 +253,63 @@ describe("unavailableCauses", () => {
   });
 });
 
+// The area rule against the pack we actually ship (#124). The counts are the
+// measured fallout of decision 3 and are meant to move only when the pack does:
+// a bump that changes them is a fact about the game, to be re-measured and
+// re-stated here rather than loosened into an inequality.
+describe("unavailableCauses - area over the shipped pack", () => {
+  const TOTAL_RECIPES = 256;
+
+  function survivingIds(area?: string): string[] {
+    const causes = unavailableCauses(shippedPack, {
+      eventOverrides: {},
+      ...(area !== undefined ? { area } : {}),
+    });
+    return shippedPack.recipes.map((r) => r.id).filter((id) => !causes.has(id));
+  }
+
+  it("keeps 180 of 256 recipes in the tundra and 242 in jinlong", () => {
+    expect(shippedPack.recipes).toHaveLength(TOTAL_RECIPES);
+    expect(survivingIds("tundra")).toHaveLength(180);
+    expect(survivingIds("jinlong")).toHaveLength(242);
+    // No area selected is a distinct "all" state, not the union of the two.
+    expect(survivingIds()).toHaveLength(TOTAL_RECIPES);
+  });
+
+  it("lets no settlement's coupon exchanges survive the other settlement", () => {
+    // The acceptance line, asserted as both prefixes rather than inferred from
+    // the counts: a count can hold while the wrong 14 recipes are the ones cut.
+    expect(
+      survivingIds("tundra").filter((id) => id.startsWith("jinlong_coupon-")),
+    ).toEqual([]);
+    expect(
+      survivingIds("jinlong").filter((id) => id.startsWith("tundra_coupon-")),
+    ).toEqual([]);
+    // Control: each settlement does keep its own, so the emptiness above is
+    // the rule biting and not both families vanishing everywhere.
+    expect(
+      survivingIds("tundra").filter((id) => id.startsWith("tundra_coupon-")),
+    ).toHaveLength(14);
+    expect(
+      survivingIds("jinlong").filter((id) => id.startsWith("jinlong_coupon-")),
+    ).toHaveLength(14);
+  });
+
+  it("excludes a jinlong-tagged recipe sitting on an untagged machine", () => {
+    // copper_nugget is tagged for jinlong; its furnace exists everywhere. Only
+    // the recipe carrier can cut it.
+    expect(survivingIds("tundra")).not.toContain("copper_nugget");
+    expect(survivingIds("jinlong")).toContain("copper_nugget");
+  });
+
+  it("excludes an untagged recipe whose machines are all jinlong-only", () => {
+    // liquid_plant_grass_1 carries no locations; both mix pools are jinlong.
+    // Only the machine carrier can cut it.
+    expect(survivingIds("tundra")).not.toContain("liquid_plant_grass_1");
+    expect(survivingIds("jinlong")).toContain("liquid_plant_grass_1");
+  });
+});
+
 describe("unavailableRecipeIds", () => {
   const idsFor = (
     pack: RecipePack,
@@ -373,5 +436,33 @@ describe("stored overrides", () => {
       '{"v1.5": false, "v1.2": "yes", "v1.1": 1, "v1.0": null}',
     );
     expect(readStoredEventOverrides()).toEqual({ "v1.5": false });
+  });
+});
+
+describe("stored area", () => {
+  it("round-trips an area the pack lists", () => {
+    writeStoredArea("tundra");
+    expect(window.localStorage.getItem(AREA_STORAGE_KEY)).toBe("tundra");
+    expect(readStoredArea(shippedPack)).toBe("tundra");
+  });
+
+  it("reads an absent key as all areas", () => {
+    expect(readStoredArea(shippedPack)).toBeUndefined();
+  });
+
+  it("clears the key when writing all areas", () => {
+    writeStoredArea("jinlong");
+    writeStoredArea(undefined);
+    expect(window.localStorage.getItem(AREA_STORAGE_KEY)).toBeNull();
+    expect(readStoredArea(shippedPack)).toBeUndefined();
+  });
+
+  it("falls back to all areas for a value the pack does not list", () => {
+    // Hand-edited storage, or an area a pack bump retired: filtering against
+    // an area no machine names would hide every recipe behind an empty canvas.
+    for (const bad of ["", "atlantis", "TUNDRA", "[]"]) {
+      window.localStorage.setItem(AREA_STORAGE_KEY, bad);
+      expect(readStoredArea(shippedPack)).toBeUndefined();
+    }
   });
 });

@@ -18,7 +18,10 @@
 import type { Recipe, RecipePack } from "@aef/schema";
 import type { RecipeId } from "../solver/types";
 import type { ProducerUnavailableCause } from "./plan";
-import { EVENT_COHORT_OVERRIDES_STORAGE_KEY as STORAGE_KEY } from "./storage-keys";
+import {
+  AREA_STORAGE_KEY,
+  EVENT_COHORT_OVERRIDES_STORAGE_KEY as STORAGE_KEY,
+} from "./storage-keys";
 
 // User override per cohort: true = forced on, false = forced off, absent =
 // follow the default rule (on iff the cohort matches the pack's own version).
@@ -255,5 +258,35 @@ export function writeStoredEventOverrides(next: EventCohortOverrides): void {
   } catch {
     // If we can't persist the choice it's no big deal; the in-memory state
     // still drives the rest of the session.
+  }
+}
+
+// The stored settlement (#124), validated against the pack's own location list.
+// An unknown id - hand-edited storage, or an area a pack bump retired - reads
+// as all areas: filtering against a location no machine names would leave the
+// user staring at an empty canvas with no way to tell why.
+export function readStoredArea(pack: RecipePack): string | undefined {
+  if (typeof window === "undefined") return undefined;
+  try {
+    const raw = window.localStorage?.getItem(AREA_STORAGE_KEY);
+    if (raw && pack.locations.some((l) => l.id === raw)) return raw;
+  } catch {
+    // Same private-mode fall-through as the overrides read above.
+  }
+  return undefined;
+}
+
+// All areas is the absence of the key, so choosing it removes rather than
+// writes; see AREA_STORAGE_KEY.
+export function writeStoredArea(next: string | undefined): void {
+  if (typeof window === "undefined") return;
+  try {
+    if (next === undefined) {
+      window.localStorage?.removeItem(AREA_STORAGE_KEY);
+      return;
+    }
+    window.localStorage?.setItem(AREA_STORAGE_KEY, next);
+  } catch {
+    // As above: an unpersisted choice still drives this session.
   }
 }

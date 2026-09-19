@@ -2,6 +2,7 @@
 // Usage:
 //   bun run tools/exam/capture.ts --base-url <url> --hash <planHash> --plan-id <id> --out <dir>
 //                                 [--target-zoom 0.75] [--locale en]
+//                                 [--area tundra]
 //                                 [--max-tiles 64] [--seam-margin 64]
 //
 // Drives a real browser against an already-running preview server, walks a
@@ -145,6 +146,9 @@ type Options = {
   out: string;
   targetZoom: number;
   locale: string;
+  // The settlement to seed (#124), or undefined for all areas - the default
+  // every capture taken so far was shot under.
+  area: string | undefined;
   maxTiles: number;
   seamMargin: number;
 };
@@ -166,6 +170,7 @@ function parseArgs(argv: string[]): Options | string {
   // Passing --target-zoom breaks that join for the capture that passes it.
   let targetZoom = READING_ZOOM;
   let locale = "en";
+  let area: string | undefined;
   let maxTiles = 64;
   let seamMargin = 64;
 
@@ -207,6 +212,10 @@ function parseArgs(argv: string[]): Options | string {
         if (v === null) return "error: --locale requires a value";
         locale = argv[++i]!;
         break;
+      case "--area":
+        if (v === null) return "error: --area requires a value";
+        area = argv[++i]!;
+        break;
       case "--max-tiles": {
         if (v === null) return "error: --max-tiles requires a value";
         const n = Number(argv[++i]);
@@ -240,6 +249,7 @@ function parseArgs(argv: string[]): Options | string {
     out,
     targetZoom,
     locale,
+    area,
     maxTiles,
     seamMargin,
   };
@@ -249,7 +259,14 @@ function parseArgs(argv: string[]): Options | string {
 // Boot
 // ---------------------------------------------------------------------------
 
-export type BootOptions = { baseUrl: string; hash: string; locale: string };
+export type BootOptions = {
+  baseUrl: string;
+  hash: string;
+  locale: string;
+  // Optional so the probe CLI, which has no area flag of its own, still
+  // satisfies this shape: an absent area is the all-areas default.
+  area?: string | undefined;
+};
 
 // Open a page on the plan and wait until it is examinable. The context, the
 // device scale and the console listener are this CLI's; the seeding and the
@@ -276,13 +293,15 @@ export async function bootPage(
     consoleErrors.push(`pageerror: ${err.message}`);
   });
 
-  // --locale is a free string on the CLI, and the app ignores a stored value
-  // outside the two it ships: seeding nothing for one of those leaves the page
+  // --locale and --area are free strings on the CLI, and the app ignores a
+  // stored value outside the ones it ships (the locales it has, the settlements
+  // the pack lists): seeding nothing, or seeding an unknown one, leaves the page
   // on the app's own default, which is what it does today.
   await bootExamPage(page, {
     url: examUrl(opts.baseUrl, opts.hash),
     locale:
       opts.locale === "en" || opts.locale === "zh" ? opts.locale : undefined,
+    area: opts.area,
     readiness: "ready",
     settle: "both",
   });

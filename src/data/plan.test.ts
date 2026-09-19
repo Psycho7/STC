@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { pack } from "./load";
+import { unavailableCauses } from "./availability";
 import {
   decodeItemOverrideKey,
   defaultPlan,
@@ -397,6 +398,38 @@ describe("validatePlan - unavailable producers", () => {
     const message = describePlanLoadError(error);
     expect(message).toContain("activity_xiranite_lung");
     expect(message).toContain("tundra");
+  });
+
+  it("rejects a target the selected area has no producer for, end to end", () => {
+    // Not a hand-built cause map: the real area rule over the shipped pack.
+    // liquid_copper's two producers both sit in jinlong, so the tundra leaves
+    // the item untargetable and the message has to name the area.
+    const error = validatePlan(
+      targeting("liquid_copper"),
+      pack,
+      unavailableCauses(pack, { eventOverrides: {}, area: "tundra" }),
+    )!;
+    expect(error).toEqual({
+      kind: "producer-unavailable",
+      itemId: "liquid_copper",
+      cause: { kind: "area", area: "tundra" },
+    });
+    expect(describePlanLoadError(error)).toContain("tundra");
+    // The same target under jinlong, and under no area at all, is fine.
+    expect(
+      validatePlan(
+        targeting("liquid_copper"),
+        pack,
+        unavailableCauses(pack, { eventOverrides: {}, area: "jinlong" }),
+      ),
+    ).toBeNull();
+    expect(
+      validatePlan(
+        targeting("liquid_copper"),
+        pack,
+        unavailableCauses(pack, { eventOverrides: {} }),
+      ),
+    ).toBeNull();
   });
 
   it("carries a manual cause naming the recipe the user switched off", () => {
