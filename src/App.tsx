@@ -934,7 +934,10 @@ function AppInner() {
     </button>
   );
   // Portals to <body>; the opener button (topbar or splash gear) is the focus
-  // the panel hands back on close.
+  // the panel hands back on close. The target ids it forwards are the COMMITTED
+  // plan's: `targetItemIds` is derived from the `plan` state, which moves in
+  // lockstep with planRef.current, so a row being typed in the side rail can
+  // never reach the Recipes section's stranded-target notice.
   const settingsMount = settingsOpen ? (
     <SettingsPanel
       pack={pack}
@@ -946,6 +949,8 @@ function AppInner() {
       disabledRecipeIds={disabledRecipeIds}
       onDisabledRecipesChange={handleDisabledRecipesChange}
       unavailableCauses={availability.causes}
+      committedTargetItemIds={targetItemIds}
+      unavailableItemCauses={unavailableItemCauses}
       onClose={() => setSettingsOpen(false)}
     />
   ) : null;

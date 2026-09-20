@@ -8,6 +8,12 @@
 // built" case. A recipe with two producer machines appears under each of them
 // and the checkbox is keyed on the recipe id, so the two seats share one state.
 //
+// Switching off the last producer of a committed target is allowed - the plan
+// keeps the target and never silently turns it into external supply - so the
+// section names the stranded target in a live region instead of refusing the
+// toggle. The modal covers the plan banner, and this is the feedback while it
+// is open.
+//
 // A recipe an area or an event already hides is not a choice the user has, so
 // it renders as a disabled row stating the reason instead of a live toggle.
 // Its stored manual state is left alone: the three predicates are independent,
@@ -32,6 +38,13 @@ type Props = {
   // other sections use. Every change hands back a fresh set.
   disabledRecipeIds: ReadonlySet<RecipeId>;
   onDisabledRecipesChange: (next: ReadonlySet<RecipeId>) => void;
+  // The COMMITTED plan's target items, in plan order, and the item-level cause
+  // map behind the pickers' dimmed tiles. Switching off a target's last
+  // producer is allowed and the target is kept, so the notice below is the only
+  // feedback while the modal still covers the banner: these two together say
+  // which committed target the toggles just stranded.
+  committedTargetItemIds: ReadonlySet<string>;
+  unavailableItemCauses: ReadonlyMap<string, ProducerUnavailableCause>;
 };
 
 type ItemGroup = { itemId: string; recipes: Recipe[] };
@@ -104,6 +117,8 @@ export function RecipeToggles({
   unavailableCauses,
   disabledRecipeIds,
   onDisabledRecipesChange,
+  committedTargetItemIds,
+  unavailableItemCauses,
 }: Props) {
   const i18n = useI18n();
   const [query, setQuery] = useState("");
@@ -161,6 +176,13 @@ export function RecipeToggles({
 
   const empty = shownItems.length === 0 && matchedMachines.length === 0;
 
+  // Committed targets nothing can make any more, in plan order. The cause map
+  // covers area and event reasons too, which is right: the line states the
+  // outcome, and the rows below it state which predicate took each recipe.
+  const strandedTargets = [...committedTargetItemIds].filter((itemId) =>
+    unavailableItemCauses.has(itemId),
+  );
+
   return (
     <section
       className="settings-section"
@@ -171,6 +193,22 @@ export function RecipeToggles({
           {i18n.t("settings.recipes.title")}
         </span>
       </div>
+      {/* Mounted even while it says nothing: a live region that enters the DOM
+          together with its first text is not announced. */}
+      <p
+        className="settings-recipe-notice"
+        data-testid="settings-recipe-notice"
+        role="status"
+        aria-live="polite"
+      >
+        {strandedTargets.length === 0
+          ? ""
+          : i18n.t("settings.recipes.notice", {
+              items: strandedTargets
+                .map((itemId) => i18n.displayName(itemId))
+                .join(" · "),
+            })}
+      </p>
       <input
         type="search"
         className="settings-recipe-filter"

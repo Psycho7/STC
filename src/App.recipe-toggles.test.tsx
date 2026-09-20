@@ -45,12 +45,46 @@ const BOTTLE_PLAN: Plan = {
   targets: [{ itemId: "copper_bottle", ratePerSec: { num: "1", denom: "1" } }],
 };
 
+// The blue-iron nugget has two producers, so one toggle leaves the target
+// buildable and the second one strands it: the two halves of the notice rule.
+const IRON_PLAN: Plan = {
+  ...defaultPlan(pack),
+  targets: [{ itemId: "iron_nugget", ratePerSec: { num: "1", denom: "1" } }],
+};
+const IRON_PRODUCERS = ["iron_nugget-iron_ore", "iron_nugget-iron_powder"];
+
 const i18n = loadI18n("zh");
 // The localized banner: the item by id, the toggle by the name the panel shows.
 const zhManualError = i18n.t("app.error.producer-unavailable.manual", {
   itemId: "copper_bottle",
   recipe: i18n.displayName("copper_bottle"),
 });
+
+function zhNotice(...itemIds: string[]): string {
+  return i18n.t("settings.recipes.notice", {
+    items: itemIds.map((id) => i18n.displayName(id)).join(" · "),
+  });
+}
+
+function openSettings(): HTMLElement {
+  fireEvent.click(screen.getByRole("button", { name: "打开设置" }));
+  return screen.getByRole("dialog");
+}
+
+function recipeCheckbox(recipeId: string): HTMLInputElement {
+  const row = screen
+    .getByRole("dialog")
+    .querySelector<HTMLElement>(
+      `[data-testid="settings-recipe-toggle"][data-recipe="${recipeId}"]`,
+    )!;
+  return row.querySelector<HTMLInputElement>(
+    '[data-testid="settings-recipe-checkbox"]',
+  )!;
+}
+
+function noticeText(): string {
+  return screen.getByTestId("settings-recipe-notice").textContent ?? "";
+}
 
 // Another tab flipping the set: same-document writes fire no `storage` event,
 // so the test writes the key and dispatches the event the browser would have
@@ -151,4 +185,53 @@ test("a toggle flipped in the panel lands in storage and survives a remount", as
   expect((await screen.findByRole("alert")).textContent).toContain(
     zhManualError,
   );
+});
+
+// The notice (R1): switching off the last producer of a committed target is
+// allowed, so the Recipes section says which target it just stranded while the
+// modal is still open. The line reads off the COMMITTED plan, so an unrelated
+// toggle leaves it empty.
+test("disabling a committed target's last producer names it in the panel notice", async () => {
+  window.location.hash = "#" + (await encodePlan(BOTTLE_PLAN));
+  render(<App />);
+  await screen.findAllByTestId("target-row");
+  await waitFor(() => expect(canvasSpy.status).toBe("READY"));
+
+  openSettings();
+  expect(noticeText()).toBe("");
+  fireEvent.click(
+    screen.getByRole("button", { name: i18n.t("settings.recipes.showAll") }),
+  );
+  fireEvent.click(recipeCheckbox("copper_bottle"));
+
+  expect(noticeText()).toBe(zhNotice("copper_bottle"));
+  // The target is still in the plan: the toggle was allowed, not refused.
+  expect(screen.getAllByTestId("target-row")).toHaveLength(1);
+});
+
+test("disabling one of several producers leaves the notice empty", async () => {
+  window.location.hash = "#" + (await encodePlan(IRON_PLAN));
+  render(<App />);
+  await screen.findAllByTestId("target-row");
+  await waitFor(() => expect(canvasSpy.status).toBe("READY"));
+
+  openSettings();
+  fireEvent.click(recipeCheckbox(IRON_PRODUCERS[0]!));
+
+  expect(noticeText()).toBe("");
+});
+
+test("re-enabling a producer clears the notice", async () => {
+  window.location.hash = "#" + (await encodePlan(IRON_PLAN));
+  render(<App />);
+  await screen.findAllByTestId("target-row");
+  await waitFor(() => expect(canvasSpy.status).toBe("READY"));
+
+  openSettings();
+  fireEvent.click(recipeCheckbox(IRON_PRODUCERS[0]!));
+  fireEvent.click(recipeCheckbox(IRON_PRODUCERS[1]!));
+  expect(noticeText()).toBe(zhNotice("iron_nugget"));
+
+  fireEvent.click(recipeCheckbox(IRON_PRODUCERS[1]!));
+  expect(noticeText()).toBe("");
 });
