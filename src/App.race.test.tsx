@@ -10,12 +10,17 @@
 // edit sitting in another row survives. A fourth covers the reverse ordering:
 // an edit or a view-toggle started while a hash navigation is still landing is
 // refused outright rather than winning the race and rewriting the URL back to
-// the plan the user just navigated away from.
+// the plan the user just navigated away from. A fifth pair covers the other
+// rejection site: when an availability flip (from another tab or from this
+// tab's settings panel) rejects the committed plan, the solve already in flight
+// for that plan must not land - it would clear the banner and rewrite the URL
+// to a plan that fails to load.
 //
 // The solve window is made deterministic by mocking layoutRenderPlan with a
 // manually resolved deferred, so no real-timing race window is involved.
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -42,8 +47,15 @@ vi.mock("./canvas/layout", async (importOriginal) => {
 });
 
 import App from "./App";
-import { defaultPlan, encodePlan, loadPlan, validatePlan } from "./data/plan";
+import {
+  defaultPlan,
+  encodePlan,
+  loadPlan,
+  validatePlan,
+  type Plan,
+} from "./data/plan";
 import { pack } from "./data/load";
+import { EVENT_COHORT_OVERRIDES_STORAGE_KEY } from "./data/storage-keys";
 
 // Plan B: the default plan minus its last target, distinguishable by row count.
 async function encodePlanB(): Promise<string> {
@@ -51,6 +63,66 @@ async function encodePlanB(): Promise<string> {
   const b = { ...a, targets: a.targets.slice(0, a.targets.length - 1) };
   if (validatePlan(b, pack)) throw new Error("plan B unexpectedly invalid");
   return "#" + (await encodePlan(b));
+}
+
+// The lung is v1.5 event content whose only producer is the event recipe of the
+// same id, so switching the cohort off is a plan-rejecting availability change.
+const LUNG_PLAN: Plan = {
+  ...defaultPlan(pack),
+  targets: [
+    { itemId: "activity_xiranite_lung", ratePerSec: { num: "1", denom: "1" } },
+  ],
+};
+
+// Another tab flipping a cohort: a same-document write fires no `storage`
+// event, so write the key and dispatch the event the browser would deliver.
+function flipStoredOverridesInAnotherTab(json: string): void {
+  window.localStorage.setItem(EVENT_COHORT_OVERRIDES_STORAGE_KEY, json);
+  fireEvent(
+    window,
+    new StorageEvent("storage", { key: EVENT_COHORT_OVERRIDES_STORAGE_KEY }),
+  );
+}
+
+// The header status chip, read off the one chip whose whole text is a status.
+function statusChip(): string {
+  const chip = Array.from(document.querySelectorAll(".stat-chip")).find((c) =>
+    /^(READY|SOLVING|ERROR)$/.test(c.textContent ?? ""),
+  );
+  if (!chip) throw new Error("no status chip rendered");
+  return chip.textContent!;
+}
+
+// Commit a rate edit on the single-target lung plan and leave its solve held by
+// the layout gate. Returns the hash as it stood before the edit.
+async function commitHeldRateEdit(): Promise<string> {
+  const hashBeforeEdit = window.location.hash;
+  const input = within(screen.getByTestId("targets-section")).getByLabelText(
+    /rate/i,
+  ) as HTMLInputElement;
+  fireEvent.change(input, { target: { value: "600" } });
+  fireEvent.blur(input);
+  await waitFor(() => expect(layoutGate.pending.length).toBe(1));
+  return hashBeforeEdit;
+}
+
+// Release the held solve and assert it was dropped. The drain gives the stale
+// generation every turn it needs to encode and write its hash, so the negative
+// assertions below are not just winning a race: on the unfixed app the solve
+// lands inside this window.
+async function releaseAndExpectInvalidated(
+  hashBeforeEdit: string,
+): Promise<void> {
+  await act(async () => {
+    layoutGate.pending.shift()!();
+    for (let i = 0; i < 10; i++) {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+  });
+
+  expect(window.location.hash).toBe(hashBeforeEdit);
+  expect(statusChip()).toBe("ERROR");
+  expect(screen.getByRole("alert")).toBeTruthy();
 }
 
 beforeEach(() => {
@@ -67,6 +139,9 @@ beforeEach(() => {
   window.location.hash = "";
   // Pin the locale; App's LocaleProvider defaults to zh otherwise.
   window.localStorage.setItem("aef.locale", "en");
+  // The availability cases below store cohort overrides; start from the pack's
+  // own defaults so a leftover key cannot reject another test's plan at boot.
+  window.localStorage.removeItem(EVENT_COHORT_OVERRIDES_STORAGE_KEY);
 });
 
 afterEach(() => {
@@ -258,4 +333,50 @@ test("an edit made while a hash navigation is landing is refused", async () => {
     outcome.plan.targets.map((t) => [t.itemId, t.ratePerSec]),
   );
   expect(byId.get("copper_bottle")).toEqual({ num: "2", denom: "1" });
+});
+
+// The availability rejection is not a refusal like the one above: the edit has
+// already committed and its solve is running. Letting it land would clear the
+// banner the rejection just raised and write the URL of a plan that no longer
+// validates, so reloading that URL errors.
+test("a cross-tab availability flip invalidates the in-flight solve", async () => {
+  window.location.hash = "#" + (await encodePlan(LUNG_PLAN));
+  render(<App />);
+
+  await waitFor(() => expect(layoutGate.pending.length).toBe(1));
+  layoutGate.pending.shift()!();
+  await screen.findAllByTestId("target-row");
+  await waitFor(() => expect(statusChip()).toBe("READY"));
+
+  const hashBeforeEdit = await commitHeldRateEdit();
+
+  // Another tab switches the cohort the committed target depends on off. The
+  // re-validation rejects the plan while its solve is still held.
+  flipStoredOverridesInAnotherTab('{"v1.5": false}');
+  await screen.findByRole("alert");
+
+  await releaseAndExpectInvalidated(hashBeforeEdit);
+});
+
+test("a settings-panel availability flip invalidates the in-flight solve", async () => {
+  window.location.hash = "#" + (await encodePlan(LUNG_PLAN));
+  render(<App />);
+
+  await waitFor(() => expect(layoutGate.pending.length).toBe(1));
+  layoutGate.pending.shift()!();
+  await screen.findAllByTestId("target-row");
+  await waitFor(() => expect(statusChip()).toBe("READY"));
+
+  const hashBeforeEdit = await commitHeldRateEdit();
+
+  // Same tab, no storage event: the gear's own switch writes the override.
+  fireEvent.click(screen.getByRole("button", { name: "Open settings" }));
+  fireEvent.click(
+    screen.getByRole("switch", { name: "Toggle the v1.5 event" }),
+  );
+  await screen.findByRole("alert");
+  fireEvent.keyDown(document, { key: "Escape" });
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+
+  await releaseAndExpectInvalidated(hashBeforeEdit);
 });
