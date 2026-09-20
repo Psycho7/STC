@@ -33,8 +33,9 @@ export interface RecipePack {
   recipes: Recipe[];
 }
 
-// The atmosphere a recipe has to run in. Upstream ships no field for it, so the
-// values come from a hand table in the extractor.
+// The atmosphere a recipe has to run in. Upstream ships no field for it; the
+// extractor reads it off the AKEData craft row (FactoryMachineCraftTable.gasEnv,
+// 1 stable and 3 acidic) of the craft the recipe joined.
 export type EnvironmentId = "stable" | "acidic";
 
 export interface SourceProvenance {
@@ -91,9 +92,9 @@ export interface Item {
   // Whether this item is a raw input boundary in the production graph.
   // Computed by the extractor after synthetic-chain collapse.
   raw: boolean;
-  // Transport phase this item flows on. Computed by the extractor: a stack size
-  // means belt, an unstackable gas_-prefixed id means gas, and any other
-  // unstackable item means pipe.
+  // Transport phase this item flows on. Read off the AKEData item row
+  // (FactoryItemTable.phaseType, 1 belt, 2 pipe, 4 gas). The few items with no
+  // row there fall back to belt.
   transportKind: TransportKindId;
   // The event cohort this row belongs to: the v<major>.<minor> of the AKEData
   // game version that first shipped the item. Absent = not event-bound.

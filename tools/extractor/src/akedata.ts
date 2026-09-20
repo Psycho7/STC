@@ -200,6 +200,10 @@ export interface AkeSnapshot {
 export interface AkeJoin {
   // pack recipe id -> craft id, matched on the exact (producer, out, in) key.
   crafts: Map<string, string>;
+  // pack recipe id -> one craft id per producer, for the multi-producer rows
+  // stage 2 resolves. Those ids are absent from `crafts`, which holds the
+  // single-producer matches only.
+  producerCrafts: Map<string, string[]>;
   // pack recipe id -> the table that resolved it, for the rows stage 1 leaves.
   sideTable: Map<string, string>;
   // Recipes no table models: domain transfer, coupon exchange, purification gate.
@@ -311,27 +315,55 @@ export function deriveEnvironments(
   for (const [recipeId, craftId] of join.crafts) {
     recipeByCraft.set(craftId, recipeId);
   }
+  for (const [recipeId, craftIds] of join.producerCrafts) {
+    for (const craftId of craftIds) recipeByCraft.set(craftId, recipeId);
+  }
 
   const environments = new Map<string, EnvironmentId>();
+  // The craft this recipe's atmosphere was read off, so a second craft that
+  // disagrees can name it.
+  const readFrom = new Map<string, string>();
+
   for (const [craftId, craft] of Object.entries(ake.crafts)) {
-    if (craft.gasEnv === 0) continue;
-
-    const environment = ENVIRONMENT_BY_GAS_ENV[craft.gasEnv];
-    if (!environment) {
-      throw new Error(
-        `craft ${craftId} has unknown akedata gasEnv ${craft.gasEnv}`,
-      );
-    }
-
+    const environment = craftEnvironment(craftId, craft);
     const recipeId = recipeByCraft.get(craftId);
     if (!recipeId) {
+      if (!environment) continue;
       throw new Error(
         `craft ${craftId} demands a ${environment} atmosphere but matches no pack recipe`,
       );
     }
-    environments.set(recipeId, environment);
+
+    // A multi-producer recipe matches one craft per producer, and the pack
+    // carries a single environment per recipe, so the crafts have to agree.
+    const first = readFrom.get(recipeId);
+    if (first === undefined) {
+      readFrom.set(recipeId, craftId);
+      if (environment) environments.set(recipeId, environment);
+      continue;
+    }
+    if (environments.get(recipeId) !== environment) {
+      throw new Error(
+        `recipe ${recipeId} joins crafts ${first} and ${craftId} with different atmospheres`,
+      );
+    }
   }
   return environments;
+}
+
+function craftEnvironment(
+  craftId: string,
+  craft: AkeCraft,
+): EnvironmentId | undefined {
+  if (craft.gasEnv === 0) return undefined;
+
+  const environment = ENVIRONMENT_BY_GAS_ENV[craft.gasEnv];
+  if (!environment) {
+    throw new Error(
+      `craft ${craftId} has unknown akedata gasEnv ${craft.gasEnv}`,
+    );
+  }
+  return environment;
 }
 
 function assertUnjoined(
@@ -357,6 +389,7 @@ function joinRecipes(recipes: Recipe[], ake: AkeSnapshot): AkeJoin {
   const craftIndex = indexCrafts(ake);
   const join: AkeJoin = {
     crafts: new Map(),
+    producerCrafts: new Map(),
     sideTable: new Map(),
     unmatchedRecipes: [],
     unmatchedItems: [],
@@ -387,6 +420,10 @@ function joinRecipes(recipes: Recipe[], ake: AkeSnapshot): AkeJoin {
     );
     if (producers.length > 1 && perProducer.every((h) => h.length === 1)) {
       for (const hits of perProducer) assertCraftTime(r, hits[0]!, ake);
+      join.producerCrafts.set(
+        r.id,
+        perProducer.map((hits) => hits[0]!),
+      );
       join.sideTable.set(r.id, "FactoryMachineCraftTable");
       continue;
     }

@@ -397,6 +397,62 @@ describe("environment derivation", () => {
     return craftId;
   }
 
+  // One recipe of each join shape, both stamped with no atmosphere today: the
+  // flip tests below give them one and expect it to reach the pack recipe.
+  const SINGLE_PRODUCER_RECIPE = "plant_moss_powder_1";
+  const MIX_POOL_RECIPE = "copper_enr";
+  const STABLE_GAS_ENV = 1;
+
+  function mixPoolCraftIds(): string[] {
+    const craftIds = join.producerCrafts.get(MIX_POOL_RECIPE);
+    if (!craftIds)
+      throw new Error(`test fixture: ${MIX_POOL_RECIPE} is not multi-producer`);
+    return craftIds;
+  }
+
+  test("an atmosphere on a single-producer craft reaches its recipe", () => {
+    const craftId = join.crafts.get(SINGLE_PRODUCER_RECIPE);
+    if (!craftId)
+      throw new Error(`test fixture: ${SINGLE_PRODUCER_RECIPE} did not join`);
+
+    const flipped = {
+      ...ake,
+      crafts: flip(ake.crafts, craftId, { gasEnv: STABLE_GAS_ENV }),
+    };
+    expect(deriveEnvironments(flipped, join).get(SINGLE_PRODUCER_RECIPE)).toBe(
+      "stable",
+    );
+  });
+
+  test("an atmosphere on every craft of a mix-pool recipe reaches its recipe", () => {
+    let crafts = ake.crafts;
+    for (const craftId of mixPoolCraftIds()) {
+      crafts = flip(crafts, craftId, { gasEnv: STABLE_GAS_ENV });
+    }
+
+    expect(
+      deriveEnvironments({ ...ake, crafts }, join).get(MIX_POOL_RECIPE),
+    ).toBe("stable");
+  });
+
+  test("mix-pool crafts that disagree on the atmosphere fail the derivation", () => {
+    const craftIds = mixPoolCraftIds();
+    const broken = {
+      ...ake,
+      crafts: flip(ake.crafts, craftIds[0]!, { gasEnv: STABLE_GAS_ENV }),
+    };
+
+    // The crafts are named in table order, which is not the join's order.
+    let message = "";
+    try {
+      deriveEnvironments(broken, join);
+    } catch (e) {
+      message = (e as Error).message;
+    }
+    expect(message).toContain(MIX_POOL_RECIPE);
+    for (const craftId of craftIds) expect(message).toContain(craftId);
+  });
+
   test("an unrecognised gasEnv value fails the derivation", () => {
     const craftId = acidicCraftId();
     const broken = { ...ake, crafts: flip(ake.crafts, craftId, { gasEnv: 2 }) };

@@ -885,6 +885,16 @@ describe("transport-kind classification", () => {
     }
   });
 
+  test("the items with no factory-item row fall back to belt", () => {
+    // The game table has no phase for the two coupons and the domain key, so
+    // the extractor picks one. Changing that fallback changes the pack.
+    for (const id of ["tundra_coupon", "jinlong_coupon", "domain_key_tundra"]) {
+      const item = pack.items.find((i) => i.id === id);
+      expect(item).toBeDefined();
+      expect(item!.transportKind).toBe("belt");
+    }
+  });
+
   test("every unstackable item splits cleanly between gas and pipe", () => {
     const unstackable = pack.items.filter((i) => i.stack === undefined);
     const byKind = {
