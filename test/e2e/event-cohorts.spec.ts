@@ -198,14 +198,7 @@ test("a rejected event link recovers through the settings panel on the splash", 
 
   // The lung is v1.5 event content whose only producer is the event recipe of
   // the same id, so with the cohort seeded off the link cannot validate.
-  const hash = await planHash({
-    targets: [
-      {
-        itemId: "activity_xiranite_lung",
-        ratePerSec: { num: "1", denom: "2" },
-      },
-    ],
-  });
+  const hash = await planHash({ targets: LUNG_TARGETS });
   // readiness "none": this boot is expected to land on the splash, where no
   // canvas node ever appears for waitForCanvasReady to gate on.
   await bootExamPage(page, {

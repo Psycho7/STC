@@ -7,7 +7,7 @@ import type { KeyboardEvent as ReactKeyboardEvent, RefObject } from "react";
 function tabbables(root: HTMLElement): HTMLElement[] {
   return [
     ...root.querySelectorAll<HTMLElement>(
-      "button:not([disabled]), input:not([disabled])",
+      "button:not([disabled]), input:not([disabled]), select:not([disabled])",
     ),
   ].filter((el) => el.tabIndex >= 0);
 }

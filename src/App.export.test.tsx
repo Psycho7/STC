@@ -120,7 +120,7 @@ async function renderReadyApp(): Promise<HTMLButtonElement> {
   return screen.getByTestId("export-png") as HTMLButtonElement;
 }
 
-test("the export button sits between the locale switcher and the settings gear", async () => {
+test("the export button sits just before the settings gear", async () => {
   const button = await renderReadyApp();
   const actions = button.closest(".actions")!;
   const order = [...actions.children];
