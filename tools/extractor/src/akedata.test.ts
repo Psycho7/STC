@@ -153,6 +153,30 @@ describe("join shape", () => {
     );
   });
 
+  test("a craft the snapshot drops fails the join", () => {
+    const [recipeId, craftId] = [...join.crafts.entries()][0]!;
+    expectThrows({ ...ake, crafts: drop(ake.crafts, craftId) }, recipeId);
+  });
+
+  test("an ordinary craft whose ingredients drift fails the join", () => {
+    // The stoichiometry is the join key, so a drifted ingredient count does not
+    // report a disagreement - it stops the recipe matching at all. Only the
+    // unmatched-set assertion catches that.
+    const [recipeId, craftId] = [...join.crafts.entries()].find(
+      ([, id]) => (ake.crafts[id]!.ingredients[0]?.group.length ?? 0) > 0,
+    )!;
+    const craft = ake.crafts[craftId]!;
+    const [first, ...rest] = craft.ingredients[0]!.group;
+    const ingredients = [
+      { group: [{ ...first!, count: first!.count + 1 }, ...rest] },
+      ...craft.ingredients.slice(1),
+    ];
+    expectThrows(
+      { ...ake, crafts: flip(ake.crafts, craftId, { ingredients }) },
+      recipeId,
+    );
+  });
+
   test("all 24 catalyst recipes match in pass 1", () => {
     // The extractor lifts the transmuter charge off `in` before the join runs,
     // which is the shape the craft table already has, so the catalyst rows need
