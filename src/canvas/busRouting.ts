@@ -69,10 +69,14 @@ import { CHIP_HALF_H } from "./chipMetrics";
 // levels a relocated run may take.
 import {
   FORWARD_LEVEL_FLOOR,
+  chooseLevel,
+  containerFrameLines,
+  frameFloorHit,
   levelCandidates,
   runBandsOfEdge,
   runFloorHit,
   sharesPortRow,
+  type FrameLine,
   type LevelPorts,
   type RunBand,
 } from "./levelOccupancy";
@@ -1582,6 +1586,17 @@ export const OBSTACLE_PAD_Y = CHAMFER;
 // visual check on the battery5-xiranite / crystal evidence plans.
 export const CONTAINER_RAIL_GAP = 48;
 
+// Vertical clearance a forward jog's RELOCATED run keeps off a FOREIGN
+// container's raw border, on top of the OBSTACLE_PAD_Y already baked into the
+// padded rect: the run lands 32 units off the border where the rail lands ~56.
+// The two numbers are two policies, not one policy two passes disagree about
+// (ADR STC-0009): the jog scan takes the nearest clear level to the target row,
+// and a 48 moat on a 311-tall loop box pushes that level past the box or into
+// the next layer, while 24 clears every site with no cascade. Left at the
+// padded gap the jog treats a frame as a plain card and rides it ~16 units off,
+// which at reading zoom draws as a second border.
+export const CONTAINER_JOG_GAP = 24;
+
 // Horizontal clearance a loop return's two VERTICALS keep off a container
 // slab's side borders, the column analog of CONTAINER_RAIL_GAP. A loop member
 // sits 10-36 units off its container's border (the ELK child inset), so the
@@ -2117,6 +2132,24 @@ export function clampBackwardRails(
   // The rail-level field: every card / gutter obstacle, plus the level each
   // rail resolved before this one occupies.
   const levelObstacles: ObstacleRect[] = [...obstacles];
+  // The forward runs this pass yields to. Every forward level is final by now
+  // (the jog pass settled its legY), and the rail is the family resolved last,
+  // so the priority is one-directional: a rail moves off a run's floor and a
+  // run never moves for a rail. Folded once, because nothing below changes a
+  // forward edge.
+  //
+  // These bands are NOT obstacles and never join levelObstacles: a band that
+  // could merge with a card into one connected escape band sends the escape
+  // hundreds of units away (the measured variant hoisted a multi6 rail by
+  // 1650). They are a floor predicate and a candidate source, which is the
+  // no-chaining rule of ADR STC-0009.
+  const runBands: RunBand[] = [];
+  for (const edge of edges) runBands.push(...runBandsOfEdge(edge, byId));
+  // Container borders, as candidate sources at the rail's own container gap:
+  // CONTAINER_RAIL_GAP off the padded rect is the level clearRailY escapes a
+  // container to, so a candidate anywhere else near a frame is not a fixed
+  // point and the rescan would have nowhere to land beside a loop box.
+  const frameLines = containerFrameLines(nodes);
 
   const railYByIndex = new Map<number, number>();
   const railXRightByIndex = new Map<number, number>();
@@ -2153,7 +2186,7 @@ export function clampBackwardRails(
     const preferredY = defaults.railY;
     const xrDesired = pinnedRight ?? clampToZone(defaults.xr, sourceGap);
     const xlDesired = pinnedLeft ?? clampToZone(defaults.xl, targetGap);
-    const railY = clearRailY(
+    let railY = clearRailY(
       preferredY,
       xlDesired,
       xrDesired,
@@ -2161,6 +2194,52 @@ export function clampBackwardRails(
       CHAMFER,
       CONTAINER_RAIL_GAP,
     );
+    // Family D: a card-clear level is not final while it sits inside a forward
+    // run's floor. All seven such rails on the corpus were ones clearRailY had
+    // already moved off their preferred midpoint, so it is the ESCAPE that
+    // lands on the run, and the pair then draws as one stroke carrying two rate
+    // chips for the width of the graph.
+    //
+    // The rescan takes the module's candidate levels nearest-first and accepts
+    // the first that is both floor-clear and a FIXED POINT of the card
+    // clearance -- a level clearRailY hands back unchanged, so the move cannot
+    // buy floor clearance at the price of a card. No candidate qualifies -> the
+    // card-clear level stands, which is exactly the pre-rescan answer.
+    const self: LevelPorts = {
+      source: edge.source,
+      target: edge.target,
+      sy,
+      ty,
+    };
+    const railLo = Math.min(xlDesired, xrDesired);
+    const railHi = Math.max(xlDesired, xrDesired);
+    const nearBands = runBands.filter(
+      (b) => b.right > railLo && b.left < railHi,
+    );
+    if (runFloorHit(nearBands, self, railY, railLo, railHi)) {
+      railY = chooseLevel(
+        railY,
+        levelCandidates({
+          anchorY: railY,
+          x0: railLo,
+          x1: railHi,
+          bands: nearBands,
+          frames: frameLines,
+          frameGap: CONTAINER_RAIL_GAP + OBSTACLE_PAD_Y,
+          cards: levelObstacles,
+          pad: CHAMFER,
+        }),
+        (y) =>
+          clearRailY(
+            y,
+            xlDesired,
+            xrDesired,
+            levelObstacles,
+            CHAMFER,
+            CONTAINER_RAIL_GAP,
+          ) === y && !runFloorHit(nearBands, self, y, railLo, railHi),
+      );
+    }
     if (railY !== preferredY) railYByIndex.set(index, railY);
 
     // Clamp the two verticals out of any foreign card / gutter they pierce. The
@@ -2462,6 +2541,12 @@ export function jogForwardLegs(
   for (const edge of edges) {
     levelBands.set(edge.id, runBandsOfEdge(edge, byId));
   }
+  // Every container's raw top / bottom border. A frame is not an obstacle -- a
+  // forward run crosses one whenever it enters or leaves a group -- but a run
+  // drawn ALONG one reads as a second border, so a relocated run owes a foreign
+  // frame CONTAINER_JOG_GAP and takes its candidate levels from the frames the
+  // same way it takes them from the cards.
+  const frameLines = containerFrameLines(nodes);
 
   const legYByIndex = new Map<number, number>();
   const descentXByIndex = new Map<number, number>();
@@ -2576,6 +2661,12 @@ export function jogForwardLegs(
         if (band.right > sx && band.left < tx) foreignBands.push(band);
       }
     }
+    // The frames this edge's corridor spans, minus its own containers (a group
+    // background the edge legitimately runs inside, the same waiver `exempt`
+    // applies to the cards).
+    const foreignFrames: FrameLine[] = frameLines.filter(
+      (f) => !exempt.has(f.nodeId) && f.right > sx && f.left < tx,
+    );
     const srcNear =
       srcStretch && runFloorHit(foreignBands, self, sy, bx, dropX);
     const tgtNear =
@@ -2650,9 +2741,10 @@ export function jogForwardLegs(
     //   "off"  none of it, the shape this pass chose before the floor existed.
     type BandMode = "all" | "rail" | "off";
     // The candidate levels, from the level-occupancy module: the cards this
-    // edge's corridor spans and, where the bands have a say, their runs. The
-    // list depends only on the obstacle tier and on whether the bands are
-    // admitted, so the tier chain below builds each one once per edge.
+    // edge's corridor spans and, where the bands have a say, their runs and the
+    // foreign frames at the jog's own container gap. The list depends only on
+    // the obstacle tier and on whether the bands are admitted, so the tier
+    // chain below builds each one once per edge.
     const railsByTier = new Map<
       ReadonlyArray<PaddedObstacle>,
       Map<string, number[]>
@@ -2672,6 +2764,10 @@ export function jogForwardLegs(
         x0: sx,
         x1: tx,
         bands: withBands ? foreignBands : [],
+        frames: withBands ? foreignFrames : [],
+        // Measured from the RAW border the reader sees, so the run lands
+        // CONTAINER_JOG_GAP clear of the padded rect the card scan works in.
+        frameGap: CONTAINER_JOG_GAP + OBSTACLE_PAD_Y,
         cards: cardSet,
         pad,
       });
@@ -2688,10 +2784,15 @@ export function jogForwardLegs(
     ): Jog | null => {
       const radius = relaxed ? Infinity : CLEAR_COLUMN_RADIUS;
       // Is a horizontal run dirty? The run at R answers for the bands in every
-      // mode but "off"; the residual stubs answer for them only in "all".
+      // mode but "off"; the residual stubs answer for them only in "all". The
+      // frame floor rides with the bands and applies to the RELOCATED run
+      // alone: the stubs at sy and ty are where they were whatever level comes
+      // out, so holding them to it would only veto jogs that cannot fix them.
       const railBlocked = (y: number, x0: number, x1: number): boolean =>
         legBlockedIn(cardSet, y, x0, x1) ||
-        (bands !== "off" && runFloorHit(foreignBands, self, y, x0, x1));
+        (bands !== "off" &&
+          (runFloorHit(foreignBands, self, y, x0, x1) ||
+            frameFloorHit(foreignFrames, y, x0, x1, CONTAINER_JOG_GAP)));
       const stubBlocked = (y: number, x0: number, x1: number): boolean =>
         legBlockedIn(cardSet, y, x0, x1) ||
         (bands === "all" && runFloorHit(foreignBands, self, y, x0, x1));

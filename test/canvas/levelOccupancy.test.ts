@@ -15,6 +15,7 @@ import {
   runBandsOfEdge,
   runFloorHit,
   sharesPortRow,
+  type FrameLine,
   type LevelPorts,
   type RunBand,
 } from "../../src/canvas/levelOccupancy";
@@ -185,6 +186,10 @@ describe("the run floor", () => {
 
 describe("candidate levels", () => {
   const card = { left: 0, right: 500, top: 200, bottom: 300 };
+  // The frame arm is off unless a case asks for it. The gap is a distance from
+  // the raw border and belongs to the consumer, so it is only meaningful where
+  // frames are actually handed in.
+  const NO_FRAMES = { frames: [] as FrameLine[], frameGap: 0 };
 
   it("offers each spanned card its padded escapes", () => {
     expect(
@@ -193,10 +198,51 @@ describe("candidate levels", () => {
         x0: 0,
         x1: 500,
         bands: [],
+        ...NO_FRAMES,
         cards: [card],
         pad: 8,
       }),
     ).toEqual([192, 308]);
+  });
+
+  it("offers a frame line the consumer's gap above and below the raw border", () => {
+    // The F family's candidate arm: a jog asking for CONTAINER_JOG_GAP (24) on
+    // top of the OBSTACLE_PAD_Y (8) its card rects carry gets levels 32 off the
+    // border the reader sees, on both sides, and nothing closer.
+    const frame: FrameLine = { nodeId: "loop", y: 1000, left: 0, right: 500 };
+    expect(
+      levelCandidates({
+        anchorY: 1010,
+        x0: 0,
+        x1: 500,
+        bands: [],
+        frames: [frame],
+        frameGap: 32,
+        cards: [],
+        pad: 8,
+      }),
+    ).toEqual([1032, 968]);
+  });
+
+  it("skips a frame line the span does not reach", () => {
+    const elsewhere: FrameLine = {
+      nodeId: "loop",
+      y: 1000,
+      left: 900,
+      right: 1200,
+    };
+    expect(
+      levelCandidates({
+        anchorY: 1010,
+        x0: 0,
+        x1: 500,
+        bands: [],
+        frames: [elsewhere],
+        frameGap: 32,
+        cards: [],
+        pad: 8,
+      }),
+    ).toEqual([]);
   });
 
   it("offers a band its own edges and those edges padded", () => {
@@ -207,6 +253,7 @@ describe("candidate levels", () => {
         x0: 0,
         x1: 500,
         bands: [band],
+        ...NO_FRAMES,
         cards: [],
         pad: 8,
       }),
@@ -225,6 +272,7 @@ describe("candidate levels", () => {
       x0: 0,
       x1: 500,
       bands: [],
+      ...NO_FRAMES,
       cards: [far, card],
       pad: 8,
     });
@@ -240,6 +288,7 @@ describe("candidate levels", () => {
       x0: 0,
       x1: 500,
       bands: [],
+      ...NO_FRAMES,
       pad: 8,
     };
     expect(levelCandidates({ ...args, cards: [symmetric] })).toEqual([
@@ -258,6 +307,7 @@ describe("candidate levels", () => {
         x0: 0,
         x1: 500,
         bands: [],
+        ...NO_FRAMES,
         cards: [card, twin],
         pad: 8,
       }),
@@ -272,6 +322,7 @@ describe("candidate levels", () => {
         x0: 0,
         x1: 500,
         bands: [bandAt(100, 900, 1200)],
+        ...NO_FRAMES,
         cards: [elsewhere],
         pad: 8,
       }),
@@ -282,6 +333,23 @@ describe("candidate levels", () => {
 describe("choosing a level", () => {
   it("takes the first candidate the consumer accepts", () => {
     expect(chooseLevel(50, [10, 20, 30], (y) => y >= 20)).toBe(20);
+  });
+
+  it("skips a candidate the consumer's own clearance would move again", () => {
+    // The rail rescan's acceptance, in miniature: a candidate is taken only
+    // where it is floor-clear AND a fixed point of the card clearance. 120 is
+    // clear of the floor around 60 but stands in a card the clearance escapes
+    // to 208, so the rescan walks past it to the next floor-clear level. The
+    // module supplies the order and decides nothing else.
+    const cardClear = (y: number): number => (y > 100 && y < 200 ? 208 : y);
+    const floorClear = (y: number): boolean => Math.abs(y - 60) >= 20;
+    expect(
+      chooseLevel(
+        60,
+        [120, 40, 300],
+        (y) => cardClear(y) === y && floorClear(y),
+      ),
+    ).toBe(40);
   });
 
   it("keeps the preferred level when no candidate is accepted", () => {

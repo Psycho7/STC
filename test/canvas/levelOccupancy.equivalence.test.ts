@@ -1,12 +1,15 @@
-// The level-occupancy extraction changes no routed geometry.
+// The jog frame gap and the rail floor rescan move exactly these lines.
 //
-// Moving the run bands, the floor predicate, the port-row waiver and the
-// candidate generation out of busRouting.ts into levelOccupancy.ts is a move,
-// not a rewrite, and the only way to say that with a straight face is to route
-// the whole corpus twice and compare the answers field by field. The ratchet
-// tables in the e2e geometry audit cannot do it: every cell is an upper bound
-// compared with toBeLessThanOrEqual, so a relocation that lowers a count passes
-// silently. A whole-scene diff cannot do it either: the capture carries build
+// The fixtures are the routed corpus at the level-occupancy extraction (the
+// commit before the F and D clearance work), and they were written to prove
+// that the extraction moved nothing. They still serve: the F candidate arm and
+// the D rescan are deliberate behaviour changes, and the question this test now
+// answers is which lines they reach. Every field of every other edge and node
+// must still match the extraction byte for byte, and the set of edges that do
+// differ must be exactly the one enumerated below. The ratchet tables in the
+// e2e geometry audit cannot say that: every cell is an upper bound compared
+// with toBeLessThanOrEqual, so a relocation that lowers a count passes
+// silently. A whole-scene diff cannot say it either: the capture carries build
 // provenance and camera metadata that differ between builds.
 //
 // So the "before" side is a set of fixtures written from the base commit by the
@@ -174,6 +177,28 @@ function flatten(snapshot: Snapshot): Map<string, unknown> {
   return out;
 }
 
+// The edges the jog frame gap (F) and the rail floor rescan (D) move, by plan.
+// Everything not named here is identical to the extraction, so this list is the
+// whole reach of both changes over the 17-plan corpus:
+//   F  relocated jog runs that were riding a foreign loop frame -- multi6 e:67,
+//      e:69 and e:81, rot-bottled_food_4 e:14, battery5-xiranite e:28 -- plus
+//      multi6 e:77 and e:79, which take the levels the moved runs vacated.
+//   D  loop-return rails that sat inside a forward run's floor: battery5 e:4
+//      and e:6, battery5-xiranite e:9 and e:13, multi6 e:43 and e:45.
+//      battery5 e:11 is a knock-on: a rail keeps its level off the rails
+//      resolved before it, and e:4 moved.
+// An edge key is the short `e:NN` head of the routed edge id.
+const MOVED: Readonly<Record<string, ReadonlyArray<string>>> = {
+  battery5: ["e:4", "e:6", "e:11"],
+  "battery5-xiranite": ["e:9", "e:13", "e:28"],
+  multi6: ["e:43", "e:45", "e:67", "e:69", "e:77", "e:79", "e:81"],
+  "rot-bottled_food_4": ["e:14"],
+};
+
+// `edge:e:43:u:class:q:51->...plant_grass_1.railY` -> `e:43`.
+const edgeHeadOf = (key: string): string | null =>
+  /^edge:(e:\d+):/.exec(key)?.[1] ?? null;
+
 describe("the level-occupancy extraction routes the corpus identically", () => {
   for (const scenario of SCENARIO_LIST) {
     it(`matches the base fixture on ${scenario.id}`, async () => {
@@ -199,12 +224,24 @@ describe("the level-occupancy extraction routes the corpus identically", () => {
 
       const lhs = flatten(before);
       const rhs = flatten(after);
-      const differing: string[] = [];
+      const moved = MOVED[scenario.id] ?? [];
+      const unexpected: string[] = [];
+      const movedHeads = new Set<string>();
       for (const key of new Set([...lhs.keys(), ...rhs.keys()])) {
         if (Object.is(lhs.get(key), rhs.get(key))) continue;
-        differing.push(`${key}: ${lhs.get(key)} -> ${rhs.get(key)}`);
+        const head = edgeHeadOf(key);
+        if (head === null || !moved.includes(head)) {
+          unexpected.push(`${key}: ${lhs.get(key)} -> ${rhs.get(key)}`);
+          continue;
+        }
+        movedHeads.add(head);
       }
-      expect(differing).toEqual([]);
+
+      // No node placement and no unlisted edge moved, and every listed edge
+      // really did move -- an entry that goes stale is as much a finding as a
+      // line that moves without one.
+      expect(unexpected).toEqual([]);
+      expect([...movedHeads].sort()).toEqual([...moved].sort());
     }, 600_000);
   }
 });
