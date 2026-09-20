@@ -214,7 +214,12 @@ export function TargetsPanel({
                 <input
                   type="text"
                   inputMode="decimal"
-                  aria-label={i18n.t("targets.rate.label")}
+                  // The row's item goes in the accessible NAME: a column of
+                  // fields all announcing "rate" leaves a screen-reader user
+                  // unable to tell which target they are editing.
+                  aria-label={i18n.t("targets.rate.forItem", {
+                    name: i18n.displayName(t.itemId),
+                  })}
                   aria-describedby={
                     rate.invalid ? `t-rate-err-${t.itemId}` : undefined
                   }
@@ -230,13 +235,26 @@ export function TargetsPanel({
                   >
                     {i18n.t("rate.invalid")}
                   </span>
+                ) : rate.reverted ? (
+                  // A status, not an error: the field holds a valid rate again,
+                  // so it carries no aria-invalid and nothing describes it -
+                  // role="status" announces the line on its own.
+                  <span
+                    className="b-rate-err"
+                    role="status"
+                    data-testid="rate-reverted"
+                  >
+                    {i18n.t("rate.reverted")}
+                  </span>
                 ) : null}
               </div>
               <button
                 className="b-remove"
                 data-testid="remove-target"
                 onClick={() => handleRemove(t.itemId)}
-                aria-label={i18n.t("targets.remove.label")}
+                aria-label={i18n.t("targets.remove.forItem", {
+                  name: i18n.displayName(t.itemId),
+                })}
               >
                 ×
               </button>

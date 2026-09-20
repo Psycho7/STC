@@ -402,7 +402,7 @@ describe("InputsPanel", () => {
           pack={fixturePack}
         />,
       );
-      const input = screen.getAllByLabelText("速率")[0]!;
+      const input = screen.getAllByLabelText(/速率/)[0]!;
       fireEvent.change(input, { target: { value: "" } });
       expect(onChange).not.toHaveBeenCalled();
       fireEvent.blur(input);
@@ -433,7 +433,7 @@ describe("InputsPanel", () => {
         pack={fixturePack}
       />,
     );
-    const input = screen.getAllByLabelText("速率")[0]!;
+    const input = screen.getAllByLabelText(/速率/)[0]!;
     fireEvent.change(input, { target: { value: "120" } });
     fireEvent.blur(input);
     expect(onChange).toHaveBeenCalledTimes(1);
@@ -469,7 +469,7 @@ describe("InputsPanel", () => {
         assumedRawItemIds={["copper_ore"]}
       />,
     );
-    const rate = screen.getAllByLabelText("速率")[0]!;
+    const rate = screen.getAllByLabelText(/速率/)[0]!;
     fireEvent.change(rate, { target: { value: "60" } });
     fireEvent.blur(rate);
     expect(onChange).toHaveBeenCalledTimes(1);
@@ -522,7 +522,7 @@ describe("InputsPanel", () => {
           pack={fixturePack}
         />,
       );
-      const input = screen.getAllByLabelText("速率")[0]! as HTMLInputElement;
+      const input = screen.getAllByLabelText(/速率/)[0]! as HTMLInputElement;
       fireEvent.change(input, { target: { value: "-5" } });
       vi.advanceTimersByTime(150);
       expect(onChange).not.toHaveBeenCalled();
@@ -613,7 +613,7 @@ describe("InputsPanel", () => {
     // itself, and its rows offer promotion instead of a place to type.
     expect(screen.queryByTestId("input-unlimited")).toBeNull();
     expect(screen.queryByText(/^RAW$/)).toBeNull();
-    expect(screen.queryAllByLabelText("速率").length).toBe(0);
+    expect(screen.queryAllByLabelText(/速率/).length).toBe(0);
     expect(screen.getAllByTestId("input-set-cap").length).toBe(2);
   });
 
@@ -732,7 +732,7 @@ describe("InputsPanel", () => {
     expect(neededLine.className).toContain("b-needed");
     expect(neededLine.textContent).toContain("120");
     expect(neededLine.textContent).toMatch(/需求|needed/);
-    expect(screen.getByLabelText("速率").getAttribute("placeholder")).toBe(
+    expect(screen.getByLabelText(/速率/).getAttribute("placeholder")).toBe(
       "无限",
     );
   });
@@ -892,7 +892,7 @@ describe("InputsPanel", () => {
         pack={fixturePack}
       />,
     );
-    const rate = screen.getAllByLabelText("速率")[0]!;
+    const rate = screen.getAllByLabelText(/速率/)[0]!;
     await user.click(rate);
     await user.keyboard("60");
     expect(onChange).not.toHaveBeenCalled();
