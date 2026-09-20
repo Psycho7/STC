@@ -3,10 +3,10 @@
 // App.tsx makes one call.
 //
 // The final stage folds parallel replicas of the same recipe into one unit with
-// a rational multiplicity. We keep the full machine-graph data (MachineGraph,
-// MachineVertex with its stampIndex, MachineEdge) between expansion and
-// rendering so the render policy still sees the per-replica edges before they
-// fold together.
+// a rational multiplicity. We keep the machine-graph data (MachineGraph,
+// MachineVertex, MachineEdge) between expansion and rendering so the render
+// policy still sees the per-replica vertices and edges, plus the container
+// tagging, before they fold together.
 
 import type { ItemOverride } from "../data/plan";
 import type { ItemTarget } from "../data/targets";
@@ -16,7 +16,7 @@ import { packIndex } from "../data/pack-index";
 import type { SccId } from "../solver/types";
 import { buildSupplyTable } from "../solver/effectiveSupply";
 import { PillarsOnly } from "./cluster";
-import { expandMultipliers } from "./expand";
+import { expandAggregate, expandMultipliers } from "./expand";
 import { computeEdgeRates } from "./expand/edge-rates";
 import { AlwaysFoldRender } from "./render";
 import { assertRenderInvariants } from "./render/invariants";
@@ -31,6 +31,17 @@ import type {
   MachineVertex,
   RenderPlan,
 } from "./types";
+
+/**
+ * Which materialisation the run uses. "aggregate" is the shipped one: one
+ * machine vertex per replica. "stamped" is the retained per-machine stamp path
+ * (src/pipeline/expand/materialize.ts), driven only by the parity sweep in
+ * src/pipeline/render/render-corpus.test.ts, which renders both and asserts the
+ * two RenderPlans are equal as exact rationals.
+ */
+export type RenderPipelineOptions = {
+  expansion?: "aggregate" | "stamped";
+};
 
 export type RenderPipelineOutput = {
   plan: RenderPlan;
@@ -58,6 +69,7 @@ export function renderPlanFromSolve(
   pack: RawPack,
   targets: ReadonlyArray<ItemTarget>,
   itemOverrides: ReadonlyArray<ItemOverride>,
+  options: RenderPipelineOptions = {},
 ): RenderPipelineOutput {
   const {
     logical,
@@ -102,7 +114,9 @@ export function renderPlanFromSolve(
     boundaryShare,
   });
 
-  const machineGraph = expandMultipliers({
+  const expand =
+    options.expansion === "stamped" ? expandMultipliers : expandAggregate;
+  const machineGraph = expand({
     logical,
     replicas: surviving,
     edgeRatesByLogicalEdgeId,

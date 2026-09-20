@@ -25,17 +25,22 @@ import type {
 } from "../types";
 
 /**
- * Input shape for ExpandMultipliers. The stage consumes the post-assembly
- * LogicalGraph plus enough solver metadata to decide paired vs shared
- * distribution per producer replica, the per-logical-edge total rate, and
+ * Input shape both materialisation stages take: the post-assembly LogicalGraph
+ * plus enough solver metadata to size every replica and every logical edge, and
  * an optional SCC stand-in declaration for logical nodes that represent a
- * non-trivial SCC (those materialize to a single typed vertex). The shape
- * is internal to the pipeline; upstream stages assemble it before calling.
+ * non-trivial SCC (those materialize to a single typed vertex). The shape is
+ * internal to the pipeline; upstream stages assemble it before calling.
  */
 export type ExpandMultipliersInput = {
   logical: LogicalGraph;
   replicas: ReadonlyArray<Replica>;
   edgeRatesByLogicalEdgeId: ReadonlyMap<string, Fraction>;
+  // The SCC stand-in route: a logical node declared here materializes to one
+  // MachineSccVertex, which AlwaysFoldRender draws as a LoopNode stating net I/O
+  // instead of its member recipes. Preserved deliberately and exercised by tests
+  // only -- the shipped driver never passes this map, so no plan takes the route
+  // today. Active loop rendering is the loop-box CONTAINER over ordinary recipe
+  // units, which is a different mechanism and unaffected by this field.
   sccByLogicalNodeId?: ReadonlyMap<
     string,
     { sccId: SccId; netIO: ReadonlyArray<NetIOPort> }
@@ -44,13 +49,203 @@ export type ExpandMultipliersInput = {
   // Referential integrity is the pack's job (every edge item is in
   // pack.items); the stage throws if an item is missing.
   itemById: ReadonlyMap<ItemId, Item>;
-  /** Rational ideal count per replica; decomposed into N_full + partial. */
+  /** Rational machine count per replica, paired with machineById. */
   idealCount?: ReadonlyMap<string, Fraction>;
-  /** Needed to compute per-stamp max executionRate = machine.speed / recipe.time. */
+  /** Needed for one machine's execution rate = machine.speed / recipe.time. */
   machineById?: ReadonlyMap<string, { speed: number }>;
 };
 
 const STAMP_SEP = "~~m";
+
+/**
+ * Per-machine catalyst charge for a vertex holding `machines` machines, or
+ * undefined when the recipe has no catalyst or the caller has no machine to
+ * compute a speed from (the legacy materialisation path). catalystChargeOf
+ * ceils the machine count, so the charge is always a whole machine's worth;
+ * zero charges are dropped so a vertex only carries the field when it actually
+ * draws something.
+ */
+function catalystChargeAt(
+  node: LogicalRecipeNode,
+  producerMachine: { speed: number } | undefined,
+  machines: Fraction,
+): ReadonlyArray<{ item: ItemId; rate: Fraction }> | undefined {
+  const catalyst = node.recipe.catalyst;
+  if (!catalyst || catalyst.length === 0) return undefined;
+  if (!producerMachine) return undefined;
+  const charges: { item: ItemId; rate: Fraction }[] = [];
+  for (const stoich of catalyst) {
+    const rate = catalystChargeOf(
+      machines,
+      stoich,
+      node.recipe,
+      producerMachine,
+    );
+    if (rate.compare(0) <= 0) continue;
+    charges.push({ item: stoich.item, rate });
+  }
+  return charges.length > 0 ? charges : undefined;
+}
+
+// Shared index both materialisation paths build from the same input: the
+// logical recipe nodes, the replica behind each of their ids, and the SCC
+// stand-in declarations.
+type LogicalIndex = {
+  recipeNodes: LogicalRecipeNode[];
+  replicaByLogicalId: Map<string, Replica>;
+  sccMap: ReadonlyMap<
+    string,
+    { sccId: SccId; netIO: ReadonlyArray<NetIOPort> }
+  >;
+};
+
+function indexLogical(input: ExpandMultipliersInput): LogicalIndex {
+  // idealCount and machineById together gate the rational machine count, so
+  // either both must be present or both absent. Accepting one without the other
+  // would silently fall back to the integer-multiplier path, which throws off
+  // per-vertex rates for any caller that believed it had wired both.
+  if ((input.idealCount === undefined) !== (input.machineById === undefined)) {
+    throw new Error(
+      "expandMultipliers: idealCount and machineById must be provided together (or both omitted); one without the other silently disables N_full + partial decomposition",
+    );
+  }
+
+  const recipeNodes: LogicalRecipeNode[] = input.logical.nodes.filter(
+    (n): n is LogicalRecipeNode => n.kind === "recipe",
+  );
+  const replicaByLogicalId = new Map<string, Replica>();
+  for (const r of input.replicas) {
+    replicaByLogicalId.set(logicalNodeIdForReplica(r.id), r);
+  }
+  return {
+    recipeNodes,
+    replicaByLogicalId,
+    sccMap:
+      input.sccByLogicalNodeId ??
+      new Map<string, { sccId: SccId; netIO: ReadonlyArray<NetIOPort> }>(),
+  };
+}
+
+// Resolve the transport kind for `item`. Because the pack guarantees every edge
+// item exists, a missing item is a programming error rather than bad user
+// input, so we throw instead of silently emitting an empty kind.
+function transportKindOf(
+  itemById: ReadonlyMap<ItemId, Item>,
+  item: ItemId,
+): TransportKindId {
+  const entry = itemById.get(item);
+  if (!entry) {
+    throw new Error(
+      `expandMultipliers: item ${item} missing from itemById; pack referential integrity broken`,
+    );
+  }
+  return entry.transportKind;
+}
+
+/**
+ * ExpandAggregate: the shipped materialisation. One MachineRecipeVertex per
+ * surviving replica carrying the replica's whole execution rate, one
+ * MachineSccVertex per SCC stand-in, and one MachineEdge per (source vertex,
+ * target vertex, item) carrying the logical edge's total rate.
+ *
+ * This is what the render draws. AlwaysFoldRender folds a replica's vertices
+ * into one unit whose badge comes from idealCount and sums every edge of a
+ * (fromUnit, toUnit, item) triple, so the per-machine stamps the legacy
+ * expandMultipliers emitted were unobservable in the shipped plan: their
+ * execution rates sum to idealCount * speed, their per-stamp catalyst charges
+ * sum to the charge of ceil(idealCount) machines (catalystChargeOf ceils), and
+ * their fanned-out edge rates sum back to the logical edge's total.
+ *
+ * Pure: same input yields the same MachineGraph; output arrays are sorted by
+ * stable keys for deterministic iteration.
+ */
+export function expandAggregate(input: ExpandMultipliersInput): MachineGraph {
+  const { logical, itemById } = input;
+  const { recipeNodes, replicaByLogicalId, sccMap } = indexLogical(input);
+
+  const vertices: MachineVertex[] = [];
+  const vertexByNodeId = new Map<string, MachineVertexId>();
+
+  for (const n of recipeNodes) {
+    const scc = sccMap.get(n.id);
+    if (scc) {
+      const v: MachineSccVertex = {
+        kind: "scc-box",
+        id: n.id,
+        sccId: scc.sccId,
+        netIO: scc.netIO,
+      };
+      vertices.push(v);
+      vertexByNodeId.set(n.id, v.id);
+      continue;
+    }
+
+    const replica = replicaByLogicalId.get(n.id);
+    const replicaId: ReplicaId = replica ? replica.id : n.id;
+    const ideal = input.idealCount?.get(replicaId);
+    const producerMachine = replica
+      ? input.machineById?.get(n.recipe.producers[0] ?? "")
+      : undefined;
+    const machineSpeed = producerMachine
+      ? executionsPerMachine(n.recipe, producerMachine)
+      : undefined;
+
+    // With a rational machine count the rate is ideal * speed; without one
+    // (idealCount and machineById both omitted) the replica's own solved rate
+    // is all there is, and the catalyst charge cannot be computed at all.
+    const rational = ideal !== undefined && machineSpeed !== undefined;
+    const executionRate = rational
+      ? ideal.mul(machineSpeed)
+      : (replica?.executionRate ?? new Fraction(0));
+    const catalystCharge = rational
+      ? catalystChargeAt(n, producerMachine, ideal)
+      : undefined;
+
+    const v: MachineRecipeVertex = {
+      kind: "machine",
+      id: n.id,
+      replicaId,
+      recipeId: n.recipe.id,
+      executionRate,
+      ...(catalystCharge ? { catalystCharge } : {}),
+    };
+    vertices.push(v);
+    vertexByNodeId.set(n.id, v.id);
+  }
+
+  // One edge per (source vertex, target vertex, item). Parallel logical edges
+  // of the same triple sum, matching the aggregation AlwaysFoldRender applies
+  // to the class graph. An edge whose endpoint is not a recipe node has no
+  // vertex to attach to and is dropped, as in the legacy path.
+  const edgeAccum = new Map<string, MachineEdge>();
+  for (const e of logical.edges) {
+    const from = vertexByNodeId.get(e.source);
+    const to = vertexByNodeId.get(e.target);
+    if (from === undefined || to === undefined) continue;
+    const item: ItemId = itemOfPort(e.sourcePort, ["out"]);
+    const rate = input.edgeRatesByLogicalEdgeId.get(e.id) ?? new Fraction(0);
+    const key = `${from}\0${to}\0${item}`;
+    const existing = edgeAccum.get(key);
+    if (existing) {
+      existing.rate = existing.rate.add(rate);
+      continue;
+    }
+    edgeAccum.set(key, {
+      from,
+      to,
+      item,
+      rate,
+      transportKind: transportKindOf(itemById, item),
+    });
+  }
+
+  const sortedVertices = [...vertices].sort((a, b) =>
+    a.id < b.id ? -1 : a.id > b.id ? 1 : 0,
+  );
+  const sortedEdges = [...edgeAccum.values()].sort(compareEdges);
+
+  return { vertices: sortedVertices, edges: sortedEdges };
+}
 
 // Ceiling on the full stamps one replica materializes into. Stamp count is
 // unobservable in the shipped render: AlwaysFoldRender folds every stamp of a
@@ -87,57 +282,25 @@ function compareEdges(a: MachineEdge, b: MachineEdge): number {
  * shared-at-articulation producers, and parallel edges preserved one-for-one
  * per logical edge.
  *
+ * RETAINED DELIBERATELY: this path has no production caller. expandAggregate
+ * above materializes what the render draws; this one is kept as the
+ * differential parity oracle for it. The sweep in
+ * src/pipeline/render/render-corpus.test.ts renders every corpus plan through
+ * both paths and asserts the two RenderPlans are equal field by field as exact
+ * rationals, which is the evidence that folding per-machine stamps was
+ * unobservable. `expansion: "stamped"` on renderPlanFromSolve is the seam the
+ * sweep drives it through, and MachineRecipeVertex.stampIndex / .partial exist
+ * for this path only.
+ *
  * Pure: same input yields the same MachineGraph; output arrays are sorted by
  * stable keys for deterministic iteration.
  */
 export function expandMultipliers(input: ExpandMultipliersInput): MachineGraph {
-  const {
-    logical,
-    replicas,
-    edgeRatesByLogicalEdgeId,
-    sccByLogicalNodeId,
-    itemById,
-  } = input;
-  const sccMap =
-    sccByLogicalNodeId ??
-    new Map<string, { sccId: SccId; netIO: ReadonlyArray<NetIOPort> }>();
+  const { logical, edgeRatesByLogicalEdgeId, itemById } = input;
+  const { recipeNodes, replicaByLogicalId, sccMap } = indexLogical(input);
 
-  // idealCount and machineById together gate the N_full + partial
-  // decomposition, so either both must be present or both absent. Accepting one
-  // without the other would silently disable fractional emission, which throws
-  // off stamp counts and per-stamp rates for any caller that believed it had
-  // wired both.
-  if ((input.idealCount === undefined) !== (input.machineById === undefined)) {
-    throw new Error(
-      "expandMultipliers: idealCount and machineById must be provided together (or both omitted); one without the other silently disables N_full + partial decomposition",
-    );
-  }
-
-  // Resolve the transport kind for `item`. Because the pack guarantees every
-  // edge item exists, a missing item is a programming error rather than bad
-  // user input, so we throw instead of silently emitting an empty kind.
-  function transportKindFor(item: ItemId): TransportKindId {
-    const entry = itemById.get(item);
-    if (!entry) {
-      throw new Error(
-        `expandMultipliers: item ${item} missing from itemById; pack referential integrity broken`,
-      );
-    }
-    return entry.transportKind;
-  }
-
-  // Index logical recipe nodes by id, and replicas by their logical-node-id
-  // form so we can recover consumerPath/sharedAtArticulation from a
-  // logical-node id.
-  const recipeNodes: LogicalRecipeNode[] = logical.nodes.filter(
-    (n): n is LogicalRecipeNode => n.kind === "recipe",
-  );
-  const nodeById = new Map<string, LogicalRecipeNode>();
-  for (const n of recipeNodes) nodeById.set(n.id, n);
-
-  const replicaByLogicalId = new Map<string, Replica>();
-  for (const r of replicas)
-    replicaByLogicalId.set(logicalNodeIdForReplica(r.id), r);
+  const transportKindFor = (item: ItemId): TransportKindId =>
+    transportKindOf(itemById, item);
 
   // Build vertices. SCC stand-in nodes become a single MachineSccVertex; other
   // nodes materialize into `multiplier` MachineRecipeVertex stamps.
@@ -179,22 +342,12 @@ export function expandMultipliers(input: ExpandMultipliersInput): MachineGraph {
     const catalystChargeFor = (
       executionRate: Fraction,
     ): ReadonlyArray<{ item: ItemId; rate: Fraction }> | undefined => {
-      const catalyst = n.recipe.catalyst;
-      if (!catalyst || catalyst.length === 0) return undefined;
-      if (!machineSpeed || !producerMachine) return undefined;
-      const machines = executionRate.div(machineSpeed);
-      const charges: { item: ItemId; rate: Fraction }[] = [];
-      for (const stoich of catalyst) {
-        const rate = catalystChargeOf(
-          machines,
-          stoich,
-          n.recipe,
-          producerMachine,
-        );
-        if (rate.compare(0) <= 0) continue;
-        charges.push({ item: stoich.item, rate });
-      }
-      return charges.length > 0 ? charges : undefined;
+      if (!machineSpeed) return undefined;
+      return catalystChargeAt(
+        n,
+        producerMachine,
+        executionRate.div(machineSpeed),
+      );
     };
 
     const stamps: MachineVertexId[] = [];

@@ -20,14 +20,18 @@ import { rationalToString } from "./rational";
 import { unitIdForClass, unitIdForScc } from "./unit-ids";
 
 /**
- * Always-fold render policy. Groups MachineRecipeVertex by replicaId and emits
- * one RenderUnitRecipe per equivalence class, carrying a rational
- * `multiplicity` badge sourced from `idealCount`. SCC vertices collapse by
- * sccId the same way the legacy policy does. Machine edges are aggregated by
+ * Always-fold render policy, the only one that ships. Groups
+ * MachineRecipeVertex by replicaId and emits one RenderUnitRecipe per
+ * equivalence class, carrying a rational `multiplicity` badge sourced from
+ * `idealCount`. SCC vertices collapse by sccId. Machine edges are aggregated by
  * (fromUnit, toUnit, item) and self-edges within a class are suppressed.
- * Boundary product units and their edges come from the shared
- * `deriveBoundaryProducts` helper, so AlwaysFoldRender and NoFoldRender emit
- * identical boundary units for the same input.
+ * Boundary product units and their edges come from `deriveBoundaryProducts`.
+ *
+ * The shipped materialisation (expandAggregate) already hands over one vertex
+ * per replica, so the grouping here is a no-op on the production path. It stays
+ * because the retained stamp path (expandMultipliers) hands over several
+ * vertices per replica, and folding them is what makes the two paths produce the
+ * same plan -- the parity evidence the corpus sweep asserts.
  */
 export const AlwaysFoldRender: RenderPolicy = (input): RenderPlan => {
   const { containers, machineGraph, idealCount } = input;

@@ -1,7 +1,6 @@
 import { describe, it, expect } from "vitest";
 import Fraction from "fraction.js";
 import { AlwaysFoldRender } from "../../../src/pipeline/render/always-fold";
-import { NoFoldRender } from "../../../src/pipeline/render/policy";
 import type {
   MachineEdge,
   MachineGraph,
@@ -331,8 +330,8 @@ describe("AlwaysFoldRender - self-edge suppression", () => {
   });
 });
 
-describe("AlwaysFoldRender - boundary products parity with NoFoldRender", () => {
-  it("emits identical inputProduct / outputProduct units as NoFoldRender for the same input", () => {
+describe("AlwaysFoldRender - boundary products for a dual-emission fixture", () => {
+  it("emits the overridden item's inputProduct and the target's outputProduct", () => {
     // Fixture lifted from policy-product-units.test.ts dual-emission setup:
     // one in-graph producer + one consumer + a finite ratePerSec override on
     // the shared item. Exercises both an inputProduct (override -> rateCap)
@@ -435,26 +434,31 @@ describe("AlwaysFoldRender - boundary products parity with NoFoldRender", () => 
         itemOverrides,
       ),
       idealCount,
-      boundaryShare: new Map(),
+      // Half of `shared`'s demand is covered in-graph, so the boundary supplies
+      // the other half: the realized draw is nonzero and the import is emitted.
+      boundaryShare: new Map([["shared", new Fraction(1, 2)]]),
     };
 
     const fold = AlwaysFoldRender(input);
-    const noFold = NoFoldRender(input);
 
-    const kindOf = (
-      plan: { units: ReadonlyArray<{ id: string; kind: string }> },
-      k: string,
-    ) =>
-      plan.units
+    const unitsOfKind = (k: string) =>
+      fold.units
         .filter((u) => u.kind === k)
-        .map((u) => ({ id: u.id, kind: u.kind }))
         .sort((a, b) => a.id.localeCompare(b.id));
 
-    expect(kindOf(fold, "inputProduct")).toEqual(
-      kindOf(noFold, "inputProduct"),
-    );
-    expect(kindOf(fold, "outputProduct")).toEqual(
-      kindOf(noFold, "outputProduct"),
-    );
+    // The finite override makes `shared` dual-render: the boundary import
+    // carries the LP-drawn portion, 1 - share of the consumer's demand, beside
+    // the in-graph producer's edge, and the declared target gets its output
+    // product.
+    const inputs = unitsOfKind("inputProduct");
+    expect(inputs.map((u) => u.id)).toEqual(["u:in:shared"]);
+    expect(inputs[0]).toMatchObject({
+      itemId: "shared",
+      rate: { num: "1", denom: "2" },
+      rateCap: { num: "1", denom: "2" },
+    });
+    expect(unitsOfKind("outputProduct").map((u) => u.id)).toEqual([
+      "u:out:out",
+    ]);
   });
 });

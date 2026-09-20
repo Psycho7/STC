@@ -44,38 +44,36 @@ export type ContainerSet = {
   containerByMember: ReadonlyMap<ReplicaId, ContainerId>;
 };
 
-// One machine vertex per stamp. A replica materializes into its full stamps
-// plus at most one partial stamp, and `stampIndex` orders them within the
-// replica. The shipped AlwaysFoldRender policy folds every stamp of a replica
-// back into one unit, so the index only has to stay stable inside a class.
+// One machine vertex per surviving replica: the shipped materialisation
+// (expandAggregate) emits the replica's whole execution rate on a single
+// vertex. `stampIndex` and `partial` belong to the retained per-machine stamp
+// path (expandMultipliers), which materializes a replica into its full stamps
+// plus at most one partial one and orders them by index inside the replica;
+// nothing the render draws reads either field.
 export type MachineRecipeVertex = {
   kind: "machine";
   id: MachineVertexId;
   replicaId: ReplicaId;
   recipeId: RecipeId;
-  stampIndex: number;
-  // Execution rate carried by this stamp. One full machine's rate normally,
-  // the leftover fraction on a partial stamp, and the whole run of full
-  // machines on the single aggregate stamp a replica past the stamp cap
-  // materializes into. The render policy uses it to figure out boundary edge
-  // rates for raw inputs that end the solver walk. Those items never appear in
-  // the logical graph, so they have no MachineEdge, and the policy has to
-  // compute their rate itself as perVertexRate = executionRate *
-  // recipe.in[item].qty.
+  stampIndex?: number;
+  // Execution rate carried by this vertex: the replica's whole rate
+  // (idealCount * machine speed) on the shipped path, one machine's share of it
+  // on a stamp. The render policy uses it to figure out boundary edge rates for
+  // raw inputs that end the solver walk. Those items never appear in the
+  // logical graph, so they have no MachineEdge, and the policy has to compute
+  // their rate itself as perVertexRate = executionRate * recipe.in[item].qty.
   executionRate: Fraction;
   containerId?: ContainerId;
-  // True only when this stamp is the leftover fraction from splitting
-  // idealCount into N full machines plus a partial one. Nothing in the shipped
-  // render reads it: AlwaysFoldRender folds every stamp of a class into one
-  // unit whose badge comes from idealCount. The exam coverage tool counts
-  // partial stamps straight off the machine graph.
+  // Stamp path only: true on the leftover fraction from splitting idealCount
+  // into N full machines plus a partial one. The exam counts partial machine
+  // counts off the render plan's multiplicity badges instead.
   partial?: boolean;
-  // Catalyst draw of this stamp, in items per second, one entry per catalyst
+  // Catalyst draw of this vertex, in items per second, one entry per catalyst
   // item of the recipe. A catalyst is held per machine rather than consumed
-  // per cycle, so the rate comes from the stamp's machine count ceiled to a
+  // per cycle, so the rate comes from the vertex's machine count ceiled to a
   // whole machine, not from executionRate. Absent - never an empty array - on
-  // a recipe without a catalyst and on the legacy materialisation path, which
-  // has no machine speed to compute it from.
+  // a recipe without a catalyst and when no machine speed is available to
+  // compute it from.
   catalystCharge?: ReadonlyArray<{ item: ItemId; rate: Fraction }>;
 };
 
@@ -268,8 +266,9 @@ export type RenderPolicyInput = {
   // deriveBoundaryProducts; nothing here reads the pack itself.
   supply: import("../solver/effectiveSupply").SupplyTable;
   // The per-replica rational machine count from assignIdealMultipliers. The
-  // always-fold policy reads it to set RenderUnitRecipe.multiplicity, giving one
-  // rational badge per equivalence class instead of N separate stamp vertices.
+  // always-fold policy reads it to set RenderUnitRecipe.multiplicity: one
+  // rational badge per equivalence class, so machine count is stated rather than
+  // counted off the vertices.
   idealCount: ReadonlyMap<ReplicaId, Fraction>;
   // Per finite-capped item the LP drew from the boundary: the fraction of its
   // consumption in-graph producers cover (boundaryResidualShare). Missing

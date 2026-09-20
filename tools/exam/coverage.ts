@@ -109,6 +109,7 @@ export type FeatureCounts = {
   loopMembers: number;
   fanoutInputs: number;
   aggregateInputs: number;
+  /** Replica classes whose machine count is not a whole number. */
   partialStamps: number;
   multiplicityTotal: string;
 };
@@ -202,20 +203,26 @@ function isLoopBox(c: Container): boolean {
   return c.kind === "loop-box";
 }
 
-function featuresOf(plan: RenderPlan, partialStamps: number): FeatureCounts {
+function featuresOf(plan: RenderPlan): FeatureCounts {
   const loopBoxIds = new Set(
     plan.containers.filter(isLoopBox).map((c) => c.id),
   );
   let loopMembers = 0;
   let fanoutInputs = 0;
   let aggregateInputs = 0;
+  let partialStamps = 0;
   let multiplicity = new Fraction(0);
 
   for (const u of plan.units) {
     if (isRecipeUnit(u)) {
       if (u.containerId !== undefined && loopBoxIds.has(u.containerId))
         loopMembers += 1;
-      multiplicity = multiplicity.add(rationalFromString(u.multiplicity));
+      const count = rationalFromString(u.multiplicity);
+      // A non-integral machine count is what used to materialize as a partial
+      // stamp on the machine graph. The render plan states the same fact in its
+      // multiplicity badge, one per replica class, so the figure is unchanged.
+      if (!count.equals(count.floor(0))) partialStamps += 1;
+      multiplicity = multiplicity.add(count);
     } else if (isInputProductUnit(u)) {
       if (u.isFanout) fanoutInputs += 1;
       if (u.isAggregate) aggregateInputs += 1;
@@ -260,17 +267,13 @@ async function coverOne(
     if (isSelfConsumingRecipe(recipe)) selfConsuming.add(recipe.id);
   }
 
-  const partialStamps = out.machineGraph.vertices.filter(
-    (v) => v.kind === "machine" && v.partial === true,
-  ).length;
-
   return {
     id: scenario.id,
     hash,
     recipeIds: sorted(recipeIds),
     machineIds: sorted(machineIds),
     selfConsumingRecipeIds: sorted(selfConsuming),
-    features: featuresOf(out.plan, partialStamps),
+    features: featuresOf(out.plan),
   };
 }
 
