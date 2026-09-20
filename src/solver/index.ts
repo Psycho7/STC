@@ -29,6 +29,7 @@ import type {
   RecipeId,
   Replica,
   ReplicaId,
+  Scc,
   TornEdge,
 } from "./types";
 
@@ -95,6 +96,56 @@ function runBisim(g: RecipeGraph, rawReplicas: Replica[]): Replica[] {
     emitEdges: false,
   });
   return quotientReplicas;
+}
+
+/**
+ * Dev-only check on the augmented LP-support seeds, run on the raw replicas.
+ *
+ * Membership in a multi-member SCC is not itself a problem: the seeding loop in
+ * replicate.ts mints each augmented node once at its full LP rate and registers
+ * it in `targetSeeded`, which `processProducer` and `seedTargetProducer` consult
+ * before they hand a producer to the SCC machinery, so the seed wins over
+ * `sccApportionment` even inside a cycle. What would be broken is the outcome:
+ * an augmented recipe carried into the SCC path anyway and apportioned across
+ * the cycle, leaving every replica at a split rate. Assert that instead - for
+ * each augmented member of a multi-member SCC, some replica runs at the LP rate.
+ *
+ * Run on `rawReplicas` before runBisim only for locality; bisim pins every
+ * `sharedAtArticulation` replica, and the seeds all carry that flag, so the
+ * quotient cannot fold a seed away.
+ */
+export function assertAugmentedSeeds(input: {
+  sccs: ReadonlyArray<Scc>;
+  augmented: ReadonlySet<RecipeId>;
+  rates: ReadonlyMap<RecipeId, Fraction>;
+  replicas: ReadonlyArray<Replica>;
+}): void {
+  const { sccs, augmented, rates, replicas } = input;
+  const offenders: string[] = [];
+
+  for (const scc of sccs) {
+    if (scc.recipeIds.length <= 1) {
+      continue;
+    }
+    for (const recipeId of scc.recipeIds) {
+      if (!augmented.has(recipeId)) {
+        continue;
+      }
+      const lpRate = rates.get(recipeId) ?? new Fraction(0);
+      const seeded = replicas.some(
+        (r) => r.recipeId === recipeId && r.executionRate.equals(lpRate),
+      );
+      if (!seeded) {
+        offenders.push(`${recipeId} inside multi-member SCC ${scc.id}`);
+      }
+    }
+  }
+
+  if (offenders.length > 0) {
+    throw new Error(
+      `augmented LP-support recipe has no replica at its LP rate: ${offenders.join("; ")}`,
+    );
+  }
 }
 
 /**
@@ -225,20 +276,6 @@ function runSolvePipeline(
   );
   const sccs = tarjanScc(g);
   const c = condense(g, sccs);
-  if (devAsserts() && augmented.size > 0) {
-    // The seeding path treats augmented nodes as singleton SCCs. A mutual cycle
-    // among augmented nodes would route them into the SCC machinery unseeded;
-    // fail loud instead of replicating it wrong.
-    for (const scc of sccs) {
-      if (scc.recipeIds.length <= 1) continue;
-      const hit = scc.recipeIds.find((id) => augmented.has(id));
-      if (hit !== undefined) {
-        throw new Error(
-          `augmented LP-support recipe ${hit} inside multi-member SCC ${scc.id}`,
-        );
-      }
-    }
-  }
   const aps = articulationPoints(g);
   const { replicas: rawReplicas, supplyShares } = replicatePerConsumer({
     g,
@@ -249,6 +286,9 @@ function runSolvePipeline(
     augmented,
     boundaryShare,
   });
+  if (devAsserts() && augmented.size > 0) {
+    assertAugmentedSeeds({ sccs, augmented, rates, replicas: rawReplicas });
+  }
   const replicas = runBisim(g, rawReplicas);
   const idealCount = assignIdealMultipliers(replicas, machineById, recipeById);
   // The integer machine count is the ceiling of the exact rational ideal.
