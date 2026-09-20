@@ -81,11 +81,23 @@ export const MAX_RATIONAL_DIGITS = 400;
 
 const CURRENT_VERSION = 1;
 
-// Why a target item's producers are all unavailable (#144). An extensible
-// discriminated union: today the only cause is an event cohort switched off;
-// #124 (area restrictions) and #125 (manual recipe toggles) add their own
-// kinds to the same union.
-export type ProducerUnavailableCause = { kind: "event"; cohort: string };
+// Why a target item's producers are all unavailable: an event cohort switched
+// off (#144), the selected settlement not having them (#124), or a hand toggle
+// (#125). The manual kind carries the recipe id because that is what names the
+// switch the user flipped; the other two name the setting instead.
+export type ProducerUnavailableCause =
+  | { kind: "event"; cohort: string }
+  | { kind: "area"; area: string }
+  | { kind: "manual"; recipeId: string };
+
+// Order the causes are reported in when an item's producers are off for
+// different reasons: the outermost setting first. Kept next to the union so a
+// new kind has to pick its rank here.
+const CAUSE_PRECEDENCE: ProducerUnavailableCause["kind"][] = [
+  "area",
+  "event",
+  "manual",
+];
 
 export type PlanLoadError =
   | { kind: "malformed-hash"; reason: string }
@@ -127,6 +139,19 @@ export function defaultPlan(pack: RecipePack): Plan {
   };
 }
 
+// The parenthetical a producer-unavailable message carries: which setting is
+// hiding the producers. Each kind names the control the user would go flip.
+function describeCause(cause: ProducerUnavailableCause): string {
+  switch (cause.kind) {
+    case "event":
+      return `event ${cause.cohort} is switched off`;
+    case "area":
+      return `none of them can be built in ${cause.area}`;
+    case "manual":
+      return `recipe ${cause.recipeId} is switched off in settings`;
+  }
+}
+
 export function describePlanLoadError(error: PlanLoadError): string {
   switch (error.kind) {
     case "malformed-hash":
@@ -144,7 +169,7 @@ export function describePlanLoadError(error: PlanLoadError): string {
     case "target-not-producible":
       return `Item ${error.itemId} cannot be a target: no non-internal, non-input-supply recipe produces it.`;
     case "producer-unavailable":
-      return `Item ${error.itemId} cannot be a target right now: every recipe producing it is unavailable (event ${error.cause.cohort} is switched off).`;
+      return `Item ${error.itemId} cannot be a target right now: every recipe producing it is unavailable (${describeCause(error.cause)}).`;
     case "unknown-recipe-cost":
       return `Recipe cost references unknown recipe ${error.recipeId}.`;
     case "unknown-item-override":
@@ -196,7 +221,7 @@ function isValidRational(r: RationalString): boolean {
 export async function loadPlan(
   hash: string,
   pack: RecipePack,
-  unavailableRecipeIds?: ReadonlySet<string>,
+  unavailableCauses?: ReadonlyMap<string, ProducerUnavailableCause>,
 ): Promise<LoadOutcome> {
   if (!hash || hash === "#") {
     return { kind: "seeded", plan: defaultPlan(pack) };
@@ -251,7 +276,7 @@ export async function loadPlan(
     };
   }
   const plan = fromWire(wire);
-  const error = validatePlan(plan, pack, unavailableRecipeIds);
+  const error = validatePlan(plan, pack, unavailableCauses);
   if (error) return { kind: "error", error };
   return { kind: "loaded", plan };
 }
@@ -264,7 +289,7 @@ export async function encodePlan(plan: Plan): Promise<string> {
 export function validatePlan(
   plan: Plan,
   pack: RecipePack,
-  unavailableRecipeIds?: ReadonlySet<string>,
+  unavailableCauses?: ReadonlyMap<string, ProducerUnavailableCause>,
 ): PlanLoadError | null {
   if (plan.pack.schemaVersion !== pack.schemaVersion) {
     return {
@@ -304,28 +329,26 @@ export function validatePlan(
     if (!producible.has(itemId)) {
       return { kind: "target-not-producible", itemId };
     }
-    // Availability seam (#144): an item WITH producers can still be
-    // untargetable when every one of them is switched off. Same producer
-    // notion as the producible set above (producersOfItem shares its
-    // predicate), so the two errors partition: no producers at all ->
-    // target-not-producible; producers, all unavailable -> here.
-    if (unavailableRecipeIds && unavailableRecipeIds.size > 0) {
+    // Availability seam: an item WITH producers can still be untargetable when
+    // every one of them is switched off. Same producer notion as the producible
+    // set above (producersOfItem shares its predicate), so the two errors
+    // partition: no producers at all -> target-not-producible; producers, all
+    // unavailable -> here.
+    if (unavailableCauses && unavailableCauses.size > 0) {
       const producers = producersOfItem(pack.recipes, itemId);
-      if (
-        producers.length > 0 &&
-        producers.every((r) => unavailableRecipeIds.has(r.id))
-      ) {
-        // The extractor's mixed-cohort guard means the unavailable producers
-        // of one item share a single cohort. If a future producer set ever
-        // splits cohorts, take the first tagged producer's cohort; #124
-        // (areas) and #125 (manual toggles) will generalize cause derivation
-        // into their own kinds anyway.
-        const tagged = producers.find((r) => r.event !== undefined);
-        return {
-          kind: "producer-unavailable",
-          itemId,
-          cause: { kind: "event", cohort: tagged?.event ?? "" },
-        };
+      const causes = producers.flatMap((r) => {
+        const cause = unavailableCauses.get(r.id);
+        return cause ? [cause] : [];
+      });
+      if (producers.length > 0 && causes.length === producers.length) {
+        // Producers can be off for different reasons; report the outermost
+        // one, so the message points at the setting to flip first.
+        const cause = causes.reduce((best, c) =>
+          CAUSE_PRECEDENCE.indexOf(c.kind) < CAUSE_PRECEDENCE.indexOf(best.kind)
+            ? c
+            : best,
+        );
+        return { kind: "producer-unavailable", itemId, cause };
       }
     }
   }

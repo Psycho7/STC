@@ -13,7 +13,7 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import type { RecipePack } from "@aef/schema";
 import { SettingsPanel } from "./SettingsPanel";
 import { LocaleProvider } from "../data/i18n-context";
-import { packCohortOf, type EventCohortOverrides } from "../data/event-cohorts";
+import { packCohortOf, type EventCohortOverrides } from "../data/availability";
 import { pack as realPack } from "../data/load";
 import { LOCALE_STORAGE_KEY } from "../data/storage-keys";
 

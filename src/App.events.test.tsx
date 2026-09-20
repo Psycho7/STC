@@ -29,6 +29,29 @@ vi.mock("./canvas/layout", async (importOriginal) => {
   };
 });
 
+// A seam for the reason-only transition below: the core is left alone until a
+// test arms `recast`, at which point every derived cause keeps its recipe id
+// and swaps its kind. Nothing in the app can produce an area or manual cause
+// yet (#124/#125 own the settings that would), and the point of the case is
+// precisely that the ids do not move.
+const availabilitySpy = vi.hoisted(() => ({
+  recast: null as null | { kind: "manual"; recipeId: string },
+  lastIds: [] as string[],
+}));
+vi.mock("./data/availability", async (importOriginal) => {
+  const orig = await importOriginal<typeof import("./data/availability")>();
+  return {
+    ...orig,
+    unavailableCauses: (...args: Parameters<typeof orig.unavailableCauses>) => {
+      const causes = orig.unavailableCauses(...args);
+      availabilitySpy.lastIds = [...causes.keys()].sort();
+      const recast = availabilitySpy.recast;
+      if (recast === null) return causes;
+      return new Map([...causes.keys()].map((id) => [id, recast]));
+    },
+  };
+});
+
 const canvasSpy = vi.hoisted(() => ({ status: "" }));
 vi.mock("./canvas/Canvas", () => ({
   default: (props: { status?: string }) => {
@@ -87,6 +110,7 @@ beforeEach(() => {
   // test would silently switch them to English.
   window.localStorage.clear();
   canvasSpy.status = "";
+  availabilitySpy.recast = null;
 });
 
 afterEach(() => {
@@ -218,6 +242,39 @@ test("a mid-session flip off banners without clearing the render; flipping back 
   await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
   await waitFor(() => expect(canvasSpy.status).toBe("READY"));
   expect(screen.getAllByTestId("target-row")).toHaveLength(1);
+});
+
+// Revalidation keys on the cause map, not on the id set: the same recipes can
+// become unavailable for a different reason, and the banner has to follow the
+// reason. Stabilizing on set membership alone would leave the event wording up
+// after the switch behind it changed.
+test("a reason-only availability change with an unchanged id set updates the banner", async () => {
+  window.location.hash = "#" + (await encodePlan(LUNG_PLAN));
+  render(<App />);
+  await screen.findAllByTestId("target-row");
+  await waitFor(() => expect(canvasSpy.status).toBe("READY"));
+
+  flipStoredOverrides('{"v1.5": false}');
+  const banner = await screen.findByRole("alert");
+  expect(banner.textContent).toContain(zhCohortError);
+  const idsUnderEvent = availabilitySpy.lastIds;
+
+  // Same recipes, different reason. The flip that triggers the re-derivation
+  // touches a cohort the pack does not carry, so the id set cannot move.
+  availabilitySpy.recast = {
+    kind: "manual",
+    recipeId: "activity_xiranite_lung",
+  };
+  flipStoredOverrides('{"v1.5": false, "v1.1": true}');
+
+  await waitFor(() =>
+    expect(screen.getByRole("alert").textContent).toContain(
+      "activity_xiranite_lung is switched off in settings",
+    ),
+  );
+  expect(screen.getByRole("alert").textContent).not.toContain(zhCohortError);
+  expect(availabilitySpy.lastIds).toEqual(idsUnderEvent);
+  expect(idsUnderEvent.length).toBeGreaterThan(0);
 });
 
 // The settings panel (T5) is the in-app writer for those overrides: the header

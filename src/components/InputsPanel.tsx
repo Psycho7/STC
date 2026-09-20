@@ -6,6 +6,7 @@ import {
   encodeItemOverrideKey,
   type ItemOverride,
   type ItemOverrideKey,
+  type ProducerUnavailableCause,
 } from "../data/plan";
 import { catalystItemIds } from "../data/recipe-category";
 import { packIndex } from "../data/pack-index";
@@ -57,11 +58,11 @@ type Props = {
   // (same reference) so the owner can skip a no-op commit.
   onChange: (update: (current: ItemOverride[]) => ItemOverride[]) => void;
   pack: RecipePack;
-  // Event items of effectively-off cohorts (#144's T6), itemId -> cohort, as
-  // derived by unavailableEventItems(pack, overrides) in the owner. The picker
-  // dims these tiles and the hint names the cohort(s). Optional with an empty
-  // default so callers that model no cohorts render every tile enabled.
-  eventOffItems?: ReadonlyMap<string, string> | undefined;
+  // Unavailable items, each mapped to the cause behind it, as derived by
+  // unavailableItems(pack, settings) in the owner. The picker dims these tiles
+  // and the hint names the cause. Optional with an empty default so callers
+  // that model no availability render every tile enabled.
+  unavailableItems?: ReadonlyMap<string, ProducerUnavailableCause> | undefined;
   targetItemIds?: ReadonlySet<string>;
   // Boundary supply per ROW KEY (encodeItemOverrideKey): the realized demand of the
   // latest render pass, read off the boundary nodes, with the ordinary node
@@ -101,14 +102,14 @@ export function displayedInputCount(
   return ids.size;
 }
 
-// Default for the optional eventOffItems prop: nothing is off-cohort.
-const NO_EVENT_OFF: ReadonlyMap<string, string> = new Map();
+// Default for the optional unavailableItems prop: nothing is unavailable.
+const NO_UNAVAILABLE: ReadonlyMap<string, ProducerUnavailableCause> = new Map();
 
 export function InputsPanel({
   itemOverrides,
   onChange,
   pack,
-  eventOffItems = NO_EVENT_OFF,
+  unavailableItems = NO_UNAVAILABLE,
   targetItemIds,
   supplyRateByItem,
   catalystAccount,
@@ -126,7 +127,7 @@ export function InputsPanel({
   const flow = usePickerFlow<
     { kind: "row"; key: RowKey } | { kind: "add" },
     { override: ItemOverride }
-  >(pack, pack.items, eventOffItems);
+  >(pack, pack.items, unavailableItems);
   const { pickerFor, prompt, closePicker, focusOnMount } = flow;
   // The row's item name plus, when present, the message under its rate field.
   // The name is a description rather than a label so the accessible NAME stays
@@ -800,7 +801,7 @@ export function InputsPanel({
     // Off-cohort event items (#144's T6) dim on top of the listed ones, so the
     // listed count has to be read before they go in.
     const listedCount = disabledIds.size;
-    for (const id of eventOffItems.keys()) disabledIds.add(id);
+    for (const id of unavailableItems.keys()) disabledIds.add(id);
     // Accurate for every reason a tile is dimmed here, one sentence per cause:
     // a sibling row already claims the item's pool, it has an auto-row this
     // popup cannot usefully take over, or (on a catalyst row) it has no
@@ -812,7 +813,7 @@ export function InputsPanel({
     // nothing is dimmed and the hint would explain an absence.
     const hintSentences = [
       ...(listedCount > 0 ? [i18n.t("inputs.picker.listed")] : []),
-      ...(flow.eventOffHint !== undefined ? [flow.eventOffHint] : []),
+      ...(flow.unavailableHint !== undefined ? [flow.unavailableHint] : []),
     ];
     return (
       <ItemPickerPopup

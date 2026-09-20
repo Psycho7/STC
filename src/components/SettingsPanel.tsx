@@ -6,7 +6,7 @@ import {
   effectiveCohortEnabled,
   eventCohortsOf,
   type EventCohortOverrides,
-} from "../data/event-cohorts";
+} from "../data/availability";
 import { iconSheetUrl } from "../canvas/iconSprite";
 import { Sprite } from "../canvas/RecipeNode";
 import { LocaleSwitcher } from "./LocaleSwitcher";

@@ -20,6 +20,8 @@ export type UiKey =
   | "picker.empty"
   | "picker.close.label"
   | "picker.event.off"
+  | "picker.area.off"
+  | "picker.manual.off"
   | "app.loading"
   | "app.error.load"
   | "app.error.edit"
@@ -127,6 +129,11 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     // must name a cohort identically in every locale.
     "picker.event.off":
       "灰显的物品来自未开启的活动（{cohorts}）— 可在设置中开启",
+    // The area and manual sentences carry no parameter: one dimmed tile may
+    // stand for several recipes, so the hint names the setting to open rather
+    // than a single area or recipe.
+    "picker.area.off": "灰显的物品无法在当前区域生产 — 可在设置中切换区域",
+    "picker.manual.off": "灰显的物品的配方已被关闭 — 可在设置中重新开启",
     "app.loading": "正在加载布局...",
     "app.error.load": "加载方案失败: {message}",
     "app.error.edit": "无法应用此更改: {message}",
@@ -226,6 +233,11 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     // producer-unavailable validation error interpolates.
     "picker.event.off":
       "Dimmed items belong to a switched-off event ({cohorts}) — switch it on in Settings",
+    // See the zh entries: neither sentence takes a parameter.
+    "picker.area.off":
+      "Dimmed items cannot be produced in the selected area — change it in Settings",
+    "picker.manual.off":
+      "Dimmed items come from switched-off recipes — switch them on in Settings",
     "app.loading": "Loading layout...",
     "app.error.load": "Failed to load plan: {message}",
     "app.error.edit": "Cannot apply this change: {message}",

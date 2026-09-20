@@ -13,8 +13,9 @@ import { TargetsPanel } from "./TargetsPanel";
 import { makePack } from "../solver/closed-form-fixtures";
 import { LocaleProvider } from "../data/i18n-context";
 import { loadI18n } from "../data/i18n";
-import { unavailableEventItems } from "../data/event-cohorts";
+import { unavailableItems } from "../data/availability";
 import type { Target } from "../data/targets";
+import type { ProducerUnavailableCause } from "../data/plan";
 import {
   controlledOwner,
   pickerTile,
@@ -627,7 +628,9 @@ test("a target whose icon id is not its item id still draws its sprite", () => {
 // The shipped pack's v1.5 cohort forced off through the real helper - the same
 // map App derives from its stored overrides, so what these tests dim is what a
 // flipped settings switch dims.
-const V15_OFF = unavailableEventItems(realPack, { "v1.5": false });
+const V15_OFF = unavailableItems(realPack, {
+  eventOverrides: { "v1.5": false },
+});
 
 function pickerHintText(): string | null {
   return (
@@ -636,11 +639,11 @@ function pickerHintText(): string | null {
 }
 
 // Open the add-target picker under the given locale: one click on Add target
-// opens the picker directly (R4). eventOffItems undefined models a caller with
+// opens the picker directly (R4). unavailableItems undefined models a caller with
 // no cohort model at all (the prop's default).
 function openAddPicker(
   locale: "en" | "zh",
-  eventOffItems?: ReadonlyMap<string, string>,
+  unavailableItems?: ReadonlyMap<string, ProducerUnavailableCause>,
 ) {
   render(
     <LocaleProvider locale={locale}>
@@ -648,7 +651,7 @@ function openAddPicker(
         targets={[]}
         onChange={() => {}}
         pack={realPack}
-        eventOffItems={eventOffItems}
+        unavailableItems={unavailableItems}
       />
     </LocaleProvider>,
   );
@@ -662,7 +665,8 @@ function openAddPicker(
 // The cohort token the hint must carry is the same raw string the validation
 // error interpolates - that parity is the acceptance, so derive it from the map
 // rather than re-typing "v1.5" everywhere.
-const COHORT = V15_OFF.values().next().value!;
+const firstCause = V15_OFF.values().next().value!;
+const COHORT = firstCause.kind === "event" ? firstCause.cohort : "";
 
 test("off-cohort event items render as disabled tiles with the cohort hint (add-target picker)", () => {
   openAddPicker("en", V15_OFF);
@@ -704,7 +708,7 @@ test("the cohort hint localizes under zh with the same token parity", () => {
 
 // Without the map the panel has no cohort model: every tile is enabled and the
 // popup renders no hint line at all (the prop defaults empty).
-test("without eventOffItems every event tile stays enabled and no hint renders", () => {
+test("without unavailableItems every event tile stays enabled and no hint renders", () => {
   openAddPicker("en");
   expect(pickerTile("activity_xiranite_lung")!.disabled).toBe(false);
   expect(document.querySelector('[data-testid="picker-hint"]')).toBeNull();
@@ -722,7 +726,7 @@ test("the row-swap picker also disables off-cohort event items", () => {
         ]}
         onChange={() => {}}
         pack={realPack}
-        eventOffItems={V15_OFF}
+        unavailableItems={V15_OFF}
       />
     </LocaleProvider>,
   );

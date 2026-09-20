@@ -9,7 +9,7 @@ import type { CatalystAccount } from "../solver/catalyst";
 import { LocaleProvider } from "../data/i18n-context";
 import { loadI18n } from "../data/i18n";
 import { pack as realPack } from "../data/load";
-import { unavailableEventItems } from "../data/event-cohorts";
+import { unavailableItems } from "../data/availability";
 import type { ItemOverride } from "../data/plan";
 import { controlledOwner, pickerTile, rateInputs } from "./panel.testkit";
 
@@ -588,8 +588,11 @@ test("clearing the cap on a non-raw row outside the auto-row set keeps the overr
 
 // The shipped pack's v1.5 cohort forced off through the real helper - the same
 // map App derives from its stored overrides.
-const V15_OFF = unavailableEventItems(realPack, { "v1.5": false });
-const COHORT = V15_OFF.values().next().value!;
+const V15_OFF = unavailableItems(realPack, {
+  eventOverrides: { "v1.5": false },
+});
+const firstCause = V15_OFF.values().next().value!;
+const COHORT = firstCause.kind === "event" ? firstCause.cohort : "";
 
 function pickerHintText(): string | null {
   return (
@@ -620,7 +623,7 @@ function openAddPicker(
 }
 
 test("off-cohort event items render as disabled tiles with the cohort hint (inputs picker)", () => {
-  openAddPicker("en", { eventOffItems: V15_OFF });
+  openAddPicker("en", { unavailableItems: V15_OFF });
   for (const id of V15_OFF.keys()) {
     expect(pickerTile(id)).not.toBeNull();
     expect(pickerTile(id)!.disabled).toBe(true);
@@ -639,7 +642,7 @@ test("off-cohort event items render as disabled tiles with the cohort hint (inpu
 });
 
 test("the inputs picker's cohort hint localizes under zh with the same token parity", () => {
-  openAddPicker("zh", { eventOffItems: V15_OFF });
+  openAddPicker("zh", { unavailableItems: V15_OFF });
   const hint = pickerHintText();
   expect(hint).toBe(loadI18n("zh").t("picker.event.off", { cohorts: COHORT }));
   expect(hint).not.toBe(
@@ -655,7 +658,7 @@ test("the inputs picker's cohort hint localizes under zh with the same token par
 
 // Without the map no tile dims for cohort reasons and the hint line is absent
 // (the prop defaults empty), which is what every pre-T6 caller still sees.
-test("without eventOffItems the inputs picker shows no hint", () => {
+test("without unavailableItems the inputs picker shows no hint", () => {
   openAddPicker("en");
   expect(pickerTile("activity_xiranite_lung")!.disabled).toBe(false);
   expect(document.querySelector('[data-testid="picker-hint"]')).toBeNull();
@@ -671,7 +674,9 @@ test("the hint joins the listed and event sentences when both causes apply", () 
         itemOverrides={[{ itemId: "widget" }]}
         onChange={() => {}}
         pack={PACK3}
-        eventOffItems={new Map([["gadget", "v1.5"]])}
+        unavailableItems={
+          new Map([["gadget", { kind: "event", cohort: "v1.5" } as const]])
+        }
       />
     </LocaleProvider>,
   );
@@ -712,7 +717,9 @@ test("the hint is the event sentence alone when only event items are dimmed", ()
         itemOverrides={[]}
         onChange={() => {}}
         pack={PACK3}
-        eventOffItems={new Map([["gadget", "v1.5"]])}
+        unavailableItems={
+          new Map([["gadget", { kind: "event", cohort: "v1.5" } as const]])
+        }
       />
     </LocaleProvider>,
   );

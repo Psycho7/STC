@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { Item, RecipePack } from "@aef/schema";
 import { useI18n } from "../data/i18n-context";
 import { computeItemDepths } from "../data/recipe-depth";
+import type { ProducerUnavailableCause } from "../data/plan";
 
 // A focus target armed by a pick and consumed by the row that renders on the
 // very next commit. The kind matters: both consumers live on the same row and
@@ -18,26 +19,42 @@ type PendingFocus = { rowKey: string; kind: "rate" | "trigger" };
 // key for inputs).
 export function usePickerFlow<PickerFor, Prompt>(
   pack: RecipePack,
-  // The pickable catalogue, which only gates the event-off hint below.
+  // The pickable catalogue, which only gates the unavailable hint below.
   catalogue: readonly Item[],
-  eventOffItems: ReadonlyMap<string, string>,
+  unavailableItems: ReadonlyMap<string, ProducerUnavailableCause>,
 ) {
   const i18n = useI18n();
   // Availability depth per item id, used by the picker popup to group tiles.
   // computeItemDepths seeds every pack item; ones no recipe can reach land in
   // the unranked bucket, which on the shipped pack is empty.
   const tierByItemId = useMemo(() => computeItemDepths(pack), [pack]);
-  // The picker hint for off-cohort event items (#144's T6): the raw cohort
+  // The picker hint for dimmed items: one sentence per cause kind present, in
+  // the cause precedence order. The event sentence carries the raw cohort
   // tokens ("v1.2 · v1.5"), the same ones the producer-unavailable validation
   // error interpolates, so both surfaces name a cohort identically. Gated on at
-  // least one of the items being in the catalogue, so a cohort whose every item
+  // least one of the items being in the catalogue, so a cause whose every item
   // the grid never shows explains nothing.
-  const eventOffHint = useMemo(() => {
-    if (eventOffItems.size === 0) return undefined;
-    if (!catalogue.some((it) => eventOffItems.has(it.id))) return undefined;
-    const cohorts = [...new Set(eventOffItems.values())].sort().join(" · ");
-    return i18n.t("picker.event.off", { cohorts });
-  }, [eventOffItems, catalogue, i18n]);
+  const unavailableHint = useMemo(() => {
+    if (unavailableItems.size === 0) return undefined;
+    if (!catalogue.some((it) => unavailableItems.has(it.id))) return undefined;
+    const causes = [...unavailableItems.values()];
+    const sentences: string[] = [];
+    if (causes.some((c) => c.kind === "area")) {
+      sentences.push(i18n.t("picker.area.off"));
+    }
+    const cohorts = [
+      ...new Set(causes.flatMap((c) => (c.kind === "event" ? [c.cohort] : []))),
+    ].sort();
+    if (cohorts.length > 0) {
+      sentences.push(
+        i18n.t("picker.event.off", { cohorts: cohorts.join(" · ") }),
+      );
+    }
+    if (causes.some((c) => c.kind === "manual")) {
+      sentences.push(i18n.t("picker.manual.off"));
+    }
+    return sentences.join(" ");
+  }, [unavailableItems, catalogue, i18n]);
 
   // Which row the picker popup is open for, or that Add opened it, plus the
   // trigger button that opened it so focus can return there on close.
@@ -74,7 +91,7 @@ export function usePickerFlow<PickerFor, Prompt>(
 
   return {
     tierByItemId,
-    eventOffHint,
+    unavailableHint,
     pickerFor,
     prompt,
     openPicker(trigger: HTMLButtonElement, openFor: PickerFor) {
