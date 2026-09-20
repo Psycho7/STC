@@ -36,7 +36,10 @@ import App, { describeBlockedTarget } from "./App";
 import { defaultPlan, encodePlan, type Plan } from "./data/plan";
 import { pack } from "./data/load";
 import { loadI18n } from "./data/i18n";
-import { DISABLED_RECIPES_STORAGE_KEY } from "./data/storage-keys";
+import {
+  DISABLED_RECIPES_STORAGE_KEY,
+  LOCALE_STORAGE_KEY,
+} from "./data/storage-keys";
 
 // The bottle has exactly one producer, the recipe of the same id, so the
 // toggle below is the only thing standing between the plan and a blocked
@@ -45,6 +48,14 @@ const BOTTLE_PLAN: Plan = {
   ...defaultPlan(pack),
   targets: [{ itemId: "copper_bottle", ratePerSec: { num: "1", denom: "1" } }],
 };
+
+// The blue-iron nugget has two producers, so one toggle leaves the target
+// buildable and the second one strands it: the two halves of the notice rule.
+const IRON_PLAN: Plan = {
+  ...defaultPlan(pack),
+  targets: [{ itemId: "iron_nugget", ratePerSec: { num: "1", denom: "1" } }],
+};
+const IRON_PRODUCERS = ["iron_nugget-iron_ore", "iron_nugget-iron_powder"];
 
 const i18n = loadI18n("zh");
 // The localized banner sentence: the item and the toggle both by the names the
@@ -86,6 +97,32 @@ function clickBottleToggle(): void {
       '[data-testid="settings-recipe-checkbox"]',
     )!,
   );
+}
+
+function zhNotice(...itemIds: string[]): string {
+  return i18n.t("settings.recipes.notice", {
+    items: itemIds.map((id) => i18n.displayName(id)).join(" · "),
+  });
+}
+
+function openSettings(): HTMLElement {
+  fireEvent.click(screen.getByRole("button", { name: "打开设置" }));
+  return screen.getByRole("dialog");
+}
+
+function recipeCheckbox(recipeId: string): HTMLInputElement {
+  const row = screen
+    .getByRole("dialog")
+    .querySelector<HTMLElement>(
+      `[data-testid="settings-recipe-toggle"][data-recipe="${recipeId}"]`,
+    )!;
+  return row.querySelector<HTMLInputElement>(
+    '[data-testid="settings-recipe-checkbox"]',
+  )!;
+}
+
+function noticeText(): string {
+  return screen.getByTestId("settings-recipe-notice").textContent ?? "";
 }
 
 // Another tab flipping the set: same-document writes fire no `storage` event,
@@ -139,6 +176,27 @@ test("a stored disable boots the bottle plan adopted under the blocked banner", 
   // Nothing was solved for it: the empty canvas reads as stale.
   await waitFor(() => expect(canvasSpy.status).toBe("ERROR"));
 });
+
+// The banner's closing advice follows the cause: a manual toggle points back
+// at the Recipes section, not at the area or events a manual block never
+// involves.
+test.each(["en", "zh"] as const)(
+  "a manual block advises re-enabling the recipe, not the area or events (%s)",
+  async (locale) => {
+    const t = loadI18n(locale);
+    window.localStorage.setItem(LOCALE_STORAGE_KEY, locale);
+    window.localStorage.setItem(
+      DISABLED_RECIPES_STORAGE_KEY,
+      '["copper_bottle"]',
+    );
+    window.location.hash = "#" + (await encodePlan(BOTTLE_PLAN));
+    render(<App />);
+
+    const text = (await screen.findByRole("alert")).textContent ?? "";
+    expect(text).toContain(t.t("app.error.blocked.recipes"));
+    expect(text).not.toContain(t.t("app.error.blocked.settings"));
+  },
+);
 
 test("a cross-tab flip banners the committed plan, and flipping back re-solves", async () => {
   window.location.hash = "#" + (await encodePlan(BOTTLE_PLAN));
@@ -195,7 +253,10 @@ test("disabling the last producer in the panel banners the adopted plan; re-enab
   expect(banner.textContent).toContain(zhManualError);
   expect(banner.textContent).toContain(i18n.displayName("copper_bottle"));
   expect(banner.textContent).not.toContain("copper_bottle");
-  expect(banner.textContent).toContain(i18n.t("app.error.blocked.settings"));
+  expect(banner.textContent).toContain(i18n.t("app.error.blocked.recipes"));
+  expect(banner.textContent).not.toContain(
+    i18n.t("app.error.blocked.settings"),
+  );
   expect(screen.getAllByTestId("target-row")).toHaveLength(1);
   expectNoRejection();
   await waitFor(() => expect(canvasSpy.status).toBe("ERROR"));
@@ -205,4 +266,58 @@ test("disabling the last producer in the panel banners the adopted plan; re-enab
   await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
   await waitFor(() => expect(canvasSpy.status).toBe("READY"));
   expect(window.localStorage.getItem(DISABLED_RECIPES_STORAGE_KEY)).toBe("[]");
+});
+
+// The notice (R1): switching off the last producer of a committed target is
+// allowed, so the Recipes section says which target it just stranded while the
+// modal is still open. The line reads off the COMMITTED plan, so an unrelated
+// toggle leaves it empty.
+test("disabling a committed target's last producer names it in the panel notice", async () => {
+  window.location.hash = "#" + (await encodePlan(BOTTLE_PLAN));
+  render(<App />);
+  await screen.findAllByTestId("target-row");
+  await waitFor(() => expect(canvasSpy.status).toBe("READY"));
+
+  openSettings();
+  expect(noticeText()).toBe("");
+  fireEvent.click(
+    screen.getByRole("button", { name: i18n.t("settings.recipes.showAll") }),
+  );
+  fireEvent.click(recipeCheckbox("copper_bottle"));
+
+  expect(noticeText()).toBe(zhNotice("copper_bottle"));
+  // The target is still in the plan: the toggle was allowed, not refused, and
+  // the plan stays adopted under the blocked banner behind the modal.
+  expect(screen.getAllByTestId("target-row")).toHaveLength(1);
+  expect((await screen.findByRole("alert")).textContent).toContain(
+    zhManualError,
+  );
+  expect(noticeText()).toBe(zhNotice("copper_bottle"));
+});
+
+test("disabling one of several producers leaves the notice empty", async () => {
+  window.location.hash = "#" + (await encodePlan(IRON_PLAN));
+  render(<App />);
+  await screen.findAllByTestId("target-row");
+  await waitFor(() => expect(canvasSpy.status).toBe("READY"));
+
+  openSettings();
+  fireEvent.click(recipeCheckbox(IRON_PRODUCERS[0]!));
+
+  expect(noticeText()).toBe("");
+});
+
+test("re-enabling a producer clears the notice", async () => {
+  window.location.hash = "#" + (await encodePlan(IRON_PLAN));
+  render(<App />);
+  await screen.findAllByTestId("target-row");
+  await waitFor(() => expect(canvasSpy.status).toBe("READY"));
+
+  openSettings();
+  fireEvent.click(recipeCheckbox(IRON_PRODUCERS[0]!));
+  fireEvent.click(recipeCheckbox(IRON_PRODUCERS[1]!));
+  expect(noticeText()).toBe(zhNotice("iron_nugget"));
+
+  fireEvent.click(recipeCheckbox(IRON_PRODUCERS[1]!));
+  expect(noticeText()).toBe("");
 });

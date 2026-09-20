@@ -36,6 +36,7 @@ export type UiKey =
   | "app.error.producer-unavailable.area"
   | "app.error.producer-unavailable.manual"
   | "app.error.blocked.settings"
+  | "app.error.blocked.recipes"
   | "app.error.dismiss"
   | "app.error.busy"
   | "app.error.crash"
@@ -116,6 +117,7 @@ export type UiKey =
   | "settings.recipes.toggle.label"
   | "settings.recipes.off.area"
   | "settings.recipes.off.event"
+  | "settings.recipes.notice"
   | "settings.recipes.empty"
   | "settings.events.title"
   | "settings.events.reset"
@@ -197,6 +199,8 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     // Closes the banner of a plan adopted with blocked targets: the header
     // gear is the way out that keeps the plan.
     "app.error.blocked.settings": "可在设置中更改区域或活动。",
+    // The manual-cause counterpart: the way out is the Recipes section.
+    "app.error.blocked.recipes": "可在设置的「配方」中重新启用该配方。",
     "app.error.dismiss": "关闭",
     "app.error.busy": "方案正在加载，请等加载完成后再修改。",
     "app.error.crash": "规划器遇到意外错误，无法绘制当前方案。",
@@ -288,6 +292,8 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "settings.recipes.toggle.label": "启用配方 {recipe}",
     "settings.recipes.off.area": "无法在{area}建造",
     "settings.recipes.off.event": "属于未开启的 {cohort} 活动",
+    "settings.recipes.notice":
+      "{items} 已没有可用配方。目标仍在方案中，但无法生产。",
     "settings.recipes.empty": "没有匹配的配方",
     "settings.events.title": "活动",
     "settings.events.reset": "恢复默认",
@@ -355,6 +361,7 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "app.error.producer-unavailable.manual":
       "Item {item} cannot be a target right now: its recipe {recipe} is switched off in Settings.",
     "app.error.blocked.settings": "Change the area or events in Settings.",
+    "app.error.blocked.recipes": "Re-enable the recipe in Settings > Recipes.",
     "app.error.dismiss": "Dismiss",
     "app.error.busy":
       "A plan is still loading. Try that change again once it lands.",
@@ -447,6 +454,8 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "settings.recipes.toggle.label": "Enable the {recipe} recipe",
     "settings.recipes.off.area": "Cannot be built in {area}",
     "settings.recipes.off.event": "Belongs to the switched-off {cohort} event",
+    "settings.recipes.notice":
+      "No recipe left for {items}. The target stays in the plan, but nothing builds it.",
     "settings.recipes.empty": "No recipe matches that name",
     "settings.events.title": "Events",
     "settings.events.reset": "Reset to defaults",

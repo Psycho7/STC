@@ -197,7 +197,9 @@ export function describeBlockedTarget(
 }
 
 // Banner copy for a plan adopted with blocked targets: one sentence per target
-// naming the setting that blocks it, then the pointer to Settings.
+// naming the setting that blocks it, then the pointer to Settings for each
+// kind of cause present: area/event blocks point at those settings, manual
+// blocks at the Recipes section.
 function describeBlocked(
   targets: readonly BlockedTarget[],
   i18n: I18nIndex,
@@ -205,7 +207,12 @@ function describeBlocked(
   const sentences = targets.map((target) =>
     describeBlockedTarget(target, i18n),
   );
-  sentences.push(i18n.t("app.error.blocked.settings"));
+  if (targets.some((target) => target.cause.kind !== "manual")) {
+    sentences.push(i18n.t("app.error.blocked.settings"));
+  }
+  if (targets.some((target) => target.cause.kind === "manual")) {
+    sentences.push(i18n.t("app.error.blocked.recipes"));
+  }
   return joinSentences(i18n.locale, sentences);
 }
 
@@ -552,14 +559,14 @@ function AppInner() {
     () => ({ eventOverrides, area, disabledRecipeIds }),
     [eventOverrides, area, disabledRecipeIds],
   );
-  // What is switched off and why: the cause map plan validation reports from,
+  // What is switched off and why: the cause map the blocked-target check reads,
   // the id set the solver seam takes, and the digest that decides whether any
   // of it actually changed. `pack` is a module-stable import, so it stays out
   // of the dependency list; only a settings change re-derives. A change that
   // leaves the map saying the same thing keeps the previous object, so the
-  // validate / solve / layout work keyed on it does not re-run - and unlike the
-  // old set-identity check, a same-ids-different-reason change does re-run,
-  // because the digest carries the cause kind and its detail.
+  // blocked-target / solve / layout work keyed on it does not re-run - and
+  // unlike the old set-identity check, a same-ids-different-reason change does
+  // re-run, because the digest carries the cause kind and its detail.
   const derivedAvailability = useMemo(() => {
     const causes = unavailableCauses(pack, availabilitySettings);
     return {
@@ -1083,7 +1090,10 @@ function AppInner() {
     </button>
   );
   // Portals to <body>; the opener button (topbar or splash gear) is the focus
-  // the panel hands back on close.
+  // the panel hands back on close. The target ids it forwards are the COMMITTED
+  // plan's: `targetItemIds` is derived from the `plan` state, which moves in
+  // lockstep with planRef.current, so a row being typed in the side rail can
+  // never reach the Recipes section's stranded-target notice.
   const settingsMount = settingsOpen ? (
     <SettingsPanel
       pack={pack}
@@ -1095,6 +1105,8 @@ function AppInner() {
       disabledRecipeIds={disabledRecipeIds}
       onDisabledRecipesChange={handleDisabledRecipesChange}
       unavailableCauses={availability.causes}
+      committedTargetItemIds={targetItemIds}
+      unavailableItemCauses={unavailableItemCauses}
       onClose={() => setSettingsOpen(false)}
     />
   ) : null;

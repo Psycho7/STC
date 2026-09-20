@@ -25,6 +25,7 @@ import {
   readStoredArea,
   readStoredDisabledRecipes,
   unavailableCauses,
+  unavailableItems,
   writeStoredArea,
   writeStoredDisabledRecipes,
   type EventCohortOverrides,
@@ -44,6 +45,8 @@ afterEach(() => window.localStorage.clear());
 // so the cohort must read "past" and default off. Slicing the shipped pack's
 // v1.5 items/recipes keeps icons and names valid without hand-writing entity
 // literals; the shipped pack itself stays the "current" fixture.
+const NO_TARGETS: ReadonlySet<string> = new Set<string>();
+
 const pastPack: RecipePack = {
   ...realPack,
   source: { ...realPack.source, gameVersion: "v9.9" },
@@ -108,6 +111,14 @@ function renderSettings({
               writeStoredDisabledRecipes(next);
             }}
             unavailableCauses={unavailableCauses(pack, {
+              eventOverrides: current,
+              ...(area !== undefined ? { area } : {}),
+              disabledRecipeIds: disabled,
+            })}
+            // No committed plan behind this harness, so the stranded-target
+            // notice has nothing to name; App.recipe-toggles covers that line.
+            committedTargetItemIds={NO_TARGETS}
+            unavailableItemCauses={unavailableItems(pack, {
               eventOverrides: current,
               ...(area !== undefined ? { area } : {}),
               disabledRecipeIds: disabled,
@@ -355,13 +366,15 @@ function filterRecipes(value: string): void {
   });
 }
 
-test("the panel's sections read Locale, Area, Recipes, Events", () => {
+// Recipes reads last: it is the longest section by far, and the three short
+// controls above it stay reachable without scrolling past 98 producer rows.
+test("the panel's sections read Locale, Area, Events, Recipes", () => {
   renderSettings();
   openPanel();
   const labels = [
     ...document.querySelectorAll<HTMLElement>(".settings-section"),
   ].map((s) => s.getAttribute("aria-label"));
-  expect(labels).toEqual(["Language", "Area", "Recipes", "Events"]);
+  expect(labels).toEqual(["Language", "Area", "Events", "Recipes"]);
 });
 
 test("the default recipe view is the multi-producer items, one row per producer", () => {
