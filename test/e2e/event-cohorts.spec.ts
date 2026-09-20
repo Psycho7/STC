@@ -1,6 +1,7 @@
 import { test, expect, type ConsoleMessage, type Page } from "@playwright/test";
 import { bootExamPage, waitForCanvasReady } from "./viewport";
 import { planHash } from "./plan-hash";
+import { EVENT_COHORT_OVERRIDES_STORAGE_KEY } from "../../src/data/storage-keys";
 
 test.use({ viewport: { width: 1600, height: 1000 } });
 
@@ -46,6 +47,149 @@ const TEXT = {
   lungCohortError:
     "物品 activity_xiranite_lung 仅由 v1.5 活动配方生产，该活动当前未开启。",
 } as const;
+
+// The lung target, shared by the chain check and the rejection story below.
+const LUNG_TARGETS = [
+  { itemId: "activity_xiranite_lung", ratePerSec: { num: "1", denom: "2" } },
+];
+
+// The two event recipes the lung is built from. With the cohort on, both have
+// to be on the canvas: that is #144's first acceptance line, and the DOM is
+// where the solve becomes observable (every recipe card carries its id).
+const LUNG_CHAIN = [
+  "activity_xiranite_lung",
+  "activity_xiranite_box",
+  "activity_copper_xiranite_tool",
+] as const;
+
+async function recipeIdsOnCanvas(page: Page): Promise<string[]> {
+  return page
+    .locator("[data-recipe-id]")
+    .evaluateAll((els) =>
+      els
+        .map((el) => el.getAttribute("data-recipe-id"))
+        .filter((id): id is string => id !== null),
+    );
+}
+
+test("with the v1.5 cohort on, the lung target solves through its event chain", async ({
+  page,
+}) => {
+  const log = attachConsoleListener(page);
+  const hash = await planHash({ targets: LUNG_TARGETS });
+
+  await bootExamPage(page, {
+    url: `/#${hash}`,
+    readiness: "nodes",
+    settle: "none",
+    eventOverrides: { "v1.5": true },
+  });
+  await waitForCanvasReady(page);
+
+  const drawn = await recipeIdsOnCanvas(page);
+  for (const id of LUNG_CHAIN) expect(drawn).toContain(id);
+  await expect(page.getByRole("alert")).toHaveCount(0);
+
+  expect(
+    log.errors,
+    `unexpected console errors:\n${log.errors.join("\n")}`,
+  ).toEqual([]);
+});
+
+// The coupon target is the one shipped plan that reaches event content without
+// being event content: with the cohort on the LP buys coupons through the
+// event chain, so it is the plan where a leak would show.
+const COUPON_TARGETS = [
+  { itemId: "jinlong_coupon", ratePerSec: { num: "1", denom: "1" } },
+];
+
+test("with the v1.5 cohort off, no activity_ recipe reaches the canvas", async ({
+  page,
+}) => {
+  const log = attachConsoleListener(page);
+  const hash = await planHash({ targets: COUPON_TARGETS });
+
+  await bootExamPage(page, {
+    url: `/#${hash}`,
+    readiness: "nodes",
+    settle: "none",
+    eventOverrides: { "v1.5": false },
+  });
+  await waitForCanvasReady(page);
+
+  const drawn = await recipeIdsOnCanvas(page);
+  expect(drawn.length).toBeGreaterThan(0);
+  expect(drawn.filter((id) => id.includes("activity_"))).toEqual([]);
+
+  expect(
+    log.errors,
+    `unexpected console errors:\n${log.errors.join("\n")}`,
+  ).toEqual([]);
+});
+
+// The control for the check above: the same plan with the cohort on DOES draw
+// event recipes, so the empty list there is the switch working, not the plan
+// never wanting one.
+test("with the v1.5 cohort on, the same coupon plan does draw activity_ recipes", async ({
+  page,
+}) => {
+  const hash = await planHash({ targets: COUPON_TARGETS });
+
+  await bootExamPage(page, {
+    url: `/#${hash}`,
+    readiness: "nodes",
+    settle: "none",
+    eventOverrides: { "v1.5": true },
+  });
+  await waitForCanvasReady(page);
+
+  const drawn = await recipeIdsOnCanvas(page);
+  expect(drawn.filter((id) => id.includes("activity_")).length).toBeGreaterThan(
+    0,
+  );
+});
+
+// #144's last acceptance line: the switch writes localStorage, and a reload
+// comes back in the flipped state rather than the version-rule default.
+test("a flipped cohort round-trips through localStorage and survives a reload", async ({
+  page,
+}) => {
+  await bootExamPage(page, {
+    url: "/",
+    readiness: "nodes",
+    settle: "none",
+  });
+  await waitForCanvasReady(page);
+
+  // Fresh browser: nothing stored, so the pack's own cohort is on.
+  await page.getByRole("button", { name: TEXT.openSettings }).click();
+  const cohortSwitch = page
+    .getByRole("dialog")
+    .getByRole("switch", { name: TEXT.switchV15 });
+  await expect(cohortSwitch).toBeChecked();
+
+  await cohortSwitch.click();
+  await expect(cohortSwitch).not.toBeChecked();
+  const stored = await page.evaluate(
+    (key) => window.localStorage.getItem(key),
+    EVENT_COHORT_OVERRIDES_STORAGE_KEY,
+  );
+  expect(JSON.parse(stored ?? "null")).toEqual({ "v1.5": false });
+
+  await page.reload();
+  await waitForCanvasReady(page);
+  const afterReload = await page.evaluate(
+    (key) => window.localStorage.getItem(key),
+    EVENT_COHORT_OVERRIDES_STORAGE_KEY,
+  );
+  expect(JSON.parse(afterReload ?? "null")).toEqual({ "v1.5": false });
+
+  // And the panel reads the stored state back, not the default.
+  await page.getByRole("button", { name: TEXT.openSettings }).click();
+  await expect(
+    page.getByRole("dialog").getByRole("switch", { name: TEXT.switchV15 }),
+  ).not.toBeChecked();
+});
 
 test("a rejected event link recovers through the settings panel on the splash", async ({
   page,

@@ -53,7 +53,6 @@ import type { CatalystAccount } from "./solver/catalyst";
 import { solveFromPlan } from "./pipeline/solveForRender";
 import { LocaleProvider, useI18n } from "./data/i18n-context";
 import type { I18nIndex } from "./data/i18n";
-import { LocaleSwitcher } from "./components/LocaleSwitcher";
 import { ItemPackProvider } from "./canvas/itemPackContext";
 import StatsStrip from "./canvas/StatsStrip";
 import { displayedInputCount } from "./components/InputsPanel";
@@ -969,7 +968,6 @@ function AppInner() {
             >
               {status}
             </span>
-            <LocaleSwitcher />
             <button
               type="button"
               className="export-png"

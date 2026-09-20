@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 //
-// The settings modal shell (#123's surface) with the Events section (#144):
+// The settings modal shell (#123's surface) with the Locale row (#123) and the
+// Events section (#144):
 // open and close paths (Escape, overlay, close button, focus return), the
 // per-cohort switch storing exactly one override, the section reset clearing
 // all, the current/past pill following the pack's own version, and the
@@ -14,8 +15,10 @@ import { SettingsPanel } from "./SettingsPanel";
 import { LocaleProvider } from "../data/i18n-context";
 import { packCohortOf, type EventCohortOverrides } from "../data/event-cohorts";
 import { pack as realPack } from "../data/load";
+import { LOCALE_STORAGE_KEY } from "../data/storage-keys";
 
 afterEach(cleanup);
+afterEach(() => window.localStorage.removeItem(LOCALE_STORAGE_KEY));
 
 // A pack whose provenance is a LATER version (v9.9) carrying a few v1.5 rows,
 // so the cohort must read "past" and default off. Slicing the shipped pack's
@@ -135,6 +138,16 @@ test("focus returns to the opener button on close", () => {
   fireEvent.keyDown(document, { key: "Escape" });
   expect(screen.queryByRole("dialog")).toBeNull();
   expect(document.activeElement).toBe(opener);
+});
+
+test("the locale control lives in the dialog and persists the choice", () => {
+  renderSettings();
+  openPanel();
+  const dialog = screen.getByRole("dialog");
+  const select = screen.getByTestId("locale-switcher") as HTMLSelectElement;
+  expect(dialog.contains(select)).toBe(true);
+  fireEvent.change(select, { target: { value: "zh" } });
+  expect(window.localStorage.getItem(LOCALE_STORAGE_KEY)).toBe("zh");
 });
 
 test("the shipped pack's v1.5 row reads current, defaults on, with the default tag", () => {
