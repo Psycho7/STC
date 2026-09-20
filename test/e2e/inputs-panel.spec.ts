@@ -372,19 +372,19 @@ test.describe("InputsPanel golden-path coverage", () => {
     const urlBeforeCap = page.url();
     await assumedRow.getByTestId("input-set-cap").click();
 
-    // The promotion moves the row into Supplies with a focused, empty field.
-    const promoted = page.locator(
-      '[data-testid="input-row"][data-item-id="copper_ore"]',
-    );
-    await expect(promoted).toHaveCount(1);
+    // The promotion opens a focused, empty field on the Assumed row itself.
+    // Nothing is committed yet, so the plan and its hash are untouched: the
+    // item keeps the unlimited supply this block advertises.
+    const rateInput = assumedRow.getByTestId("input-pending-cap");
+    await expect(rateInput).toBeFocused();
+    await expect(rateInput).toHaveValue("");
     await expect(
       page
         .getByTestId("inputs-supplies-body")
         .locator('[data-item-id="copper_ore"]'),
-    ).toHaveCount(1);
-    const rateInput = promoted.getByRole("textbox", { name: TEXT.rateLabel });
-    await expect(rateInput).toBeFocused();
-    await expect(rateInput).toHaveValue("");
+    ).toHaveCount(0);
+    expect(page.url()).toBe(urlBeforeCap);
+
     await rateInput.fill("9999");
     // fill() does not blur, and the panel commits only on blur or Enter.
     await rateInput.press("Enter");

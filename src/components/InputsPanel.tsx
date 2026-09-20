@@ -16,6 +16,7 @@ import { rationalFromString, type RationalString } from "../data/targets";
 import {
   formatFractionPerMin,
   formatRatePerMin,
+  parsePerMinToRatePerSec,
   ratePerSecToPerMin,
 } from "../data/rate-format";
 import {
@@ -261,16 +262,51 @@ export function InputsPanel({
     // rowEdit is rebuilt every render; the prune depends only on the live keys.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [overrideKeys]);
-  // The Assumed block's promotion. It adds a bare (uncapped) override, so the
-  // plan's supply for the item is unchanged until a number is typed, and arms
-  // the focus token the new row's rate field consumes on mount: an empty field
-  // the user has to fill is the whole point of making promotion explicit.
+  // The Assumed block's promotion in flight: the item whose row has opened a
+  // rate field, the text in it, and whether the last commit attempt failed to
+  // parse. It is UI state on purpose. A bare override appended on the click
+  // would read as unlimited boundary supply for a non-raw item - 0 per second
+  // becomes Infinity - and the owner would re-solve and rewrite the hash
+  // before any number was typed. So the row keeps its assumed-unlimited supply
+  // and only a committed rate turns it into an override.
+  const [pendingCap, setPendingCap] = useState<{
+    itemId: string;
+    text: string;
+    invalid: boolean;
+  } | null>(null);
+
+  // Opens the field and arms the focus token the row's input consumes on
+  // mount: an empty field the user has to fill is the whole point of making
+  // promotion explicit.
   function handleSetCap(itemId: string) {
     flow.armFocus(encodeItemOverrideKey({ itemId }), "rate");
+    setPendingCap({ itemId, text: "", invalid: false });
+  }
+
+  // Enter (revert=false) or blur (revert=true) on the pending field. A parsed
+  // rate appends the capped override in one update; empty text cancels,
+  // because the only override this path could otherwise append is the bare,
+  // uncapped one it exists to avoid. Bad text keeps the field open with the
+  // invalid cue on Enter and cancels on blur, as an override row's field does.
+  function commitPendingCap(itemId: string, text: string, revert: boolean) {
+    if (text.trim() === "") {
+      setPendingCap(null);
+      return;
+    }
+    const parsed = parsePerMinToRatePerSec(text);
+    if (parsed === undefined) {
+      setPendingCap(revert ? null : { itemId, text, invalid: true });
+      return;
+    }
+    // The commit unmounts this field and mounts the new Supplies row's one;
+    // hand focus over, but only on Enter, since a blur commit means the user
+    // has already moved on.
+    if (!revert) flow.armFocus(encodeItemOverrideKey({ itemId }), "rate");
+    setPendingCap(null);
     onChange((current) =>
       current.some((o) => isRow(o, { itemId }))
         ? current
-        : [...current, { itemId }],
+        : [...current, { itemId, ratePerSec: parsed }],
     );
   }
 
@@ -680,13 +716,19 @@ export function InputsPanel({
             const iconPos = iconPosition(iconIdForItem(itemId));
             const realizedPerMin = generalRateText(itemId);
             const partText = catalystPartText(itemId);
-            const shortage = shortageText(key);
+            const pending =
+              pendingCap?.itemId === itemId ? pendingCap : undefined;
+            // Same rule as an override row: a field the user has to fix owns
+            // the message slot, so the two never claim the one id at once.
+            const shortage =
+              pending?.invalid === true ? undefined : shortageText(key);
             return (
               <div
                 key={`auto:${itemId}`}
                 className="b-row"
                 data-testid="input-auto-row"
                 data-item-id={itemId}
+                data-pending-cap={pending === undefined ? undefined : "true"}
                 data-is-raw={item?.raw === true ? "true" : "false"}
                 data-is-also-target={isAlsoTarget ? "true" : "false"}
               >
@@ -740,24 +782,69 @@ export function InputsPanel({
                   )}
                 </div>
                 <div className="b-rate">
-                  <span className="inf" aria-hidden="true">
-                    ∞
-                  </span>
+                  {pending === undefined ? (
+                    <span className="inf" aria-hidden="true">
+                      ∞
+                    </span>
+                  ) : (
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      data-testid="input-pending-cap"
+                      ref={(el) =>
+                        focusOnMount(el, encodeItemOverrideKey(key), "rate")
+                      }
+                      aria-label={i18n.t("inputs.rate.label")}
+                      aria-describedby={rateDescribedBy(key, pending.invalid)}
+                      placeholder={i18n.t("inputs.rate.placeholder")}
+                      value={pending.text}
+                      aria-invalid={pending.invalid ? true : undefined}
+                      className={pending.invalid ? "invalid" : undefined}
+                      onChange={(e) =>
+                        setPendingCap({
+                          itemId,
+                          text: e.target.value,
+                          invalid: false,
+                        })
+                      }
+                      onBlur={() =>
+                        commitPendingCap(itemId, pending.text, true)
+                      }
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          commitPendingCap(itemId, pending.text, false);
+                        } else if (e.key === "Escape") {
+                          setPendingCap(null);
+                        }
+                      }}
+                    />
+                  )}
                   <span className="unit">{i18n.t("inputs.rate.unit")}</span>
-                  <button
-                    type="button"
-                    className="set-cap"
-                    data-testid="input-set-cap"
-                    // The item goes in the accessible NAME: a rail of buttons all
-                    // announcing "Set cap" tells a screen-reader user nothing
-                    // about which row they are about to promote.
-                    aria-label={i18n.t("inputs.setCap.label", {
-                      name: i18n.displayName(itemId),
-                    })}
-                    onClick={() => handleSetCap(itemId)}
-                  >
-                    {i18n.t("inputs.setCap")}
-                  </button>
+                  {pending === undefined ? (
+                    <button
+                      type="button"
+                      className="set-cap"
+                      data-testid="input-set-cap"
+                      // The item goes in the accessible NAME: a rail of buttons all
+                      // announcing "Set cap" tells a screen-reader user nothing
+                      // about which row they are about to promote.
+                      aria-label={i18n.t("inputs.setCap.label", {
+                        name: i18n.displayName(itemId),
+                      })}
+                      onClick={() => handleSetCap(itemId)}
+                    >
+                      {i18n.t("inputs.setCap")}
+                    </button>
+                  ) : null}
+                  {pending?.invalid === true ? (
+                    <span
+                      className="b-rate-err"
+                      id={`i-rate-err-${itemId}`}
+                      data-testid="rate-invalid"
+                    >
+                      {i18n.t("rate.invalid")}
+                    </span>
+                  ) : null}
                   {shortage !== undefined ? (
                     <span
                       className="b-rate-err"

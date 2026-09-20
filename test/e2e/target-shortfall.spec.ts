@@ -76,9 +76,9 @@ test("a raw cap below demand warns instead of reporting READY", async ({
   const urlBeforeCap = page.url();
   await assumedRow.getByTestId("input-set-cap").click();
 
-  const rateInput = page
-    .locator('[data-testid="input-row"][data-item-id="iron_ore"]')
-    .getByRole("textbox", { name: TEXT.rateLabel });
+  // The promotion opens its field on the Assumed row; the typed rate is what
+  // turns the row into a capped override.
+  const rateInput = assumedRow.getByTestId("input-pending-cap");
   await rateInput.fill("5");
   // fill() does not blur, and the panel commits only on blur or Enter.
   await rateInput.press("Enter");

@@ -381,7 +381,14 @@ test("an Assumed row renders no rate field but keeps its catalyst toggle", () =>
 
 // Promotion is the button, and the field it opens is empty and focused: the
 // point of the redesign is that nothing is capped until the user types.
-test("set cap promotes the row into Supplies and focuses a fresh rate field", () => {
+function promotedField(): HTMLInputElement {
+  return screen.getByTestId("input-pending-cap") as HTMLInputElement;
+}
+
+// The click is a UI gesture only. It opens the field on the row where it
+// stands and leaves the plan alone, so the item keeps the assumed-unlimited
+// supply its block advertises until a rate lands.
+test("set cap opens an empty focused rate field and commits nothing", () => {
   const owner = controlledOwner<ItemOverride[]>([]);
   render(
     owner.element((overrides, onChange) => (
@@ -397,14 +404,111 @@ test("set cap promotes the row into Supplies and focuses a fresh rate field", ()
     )),
   );
   fireEvent.click(screen.getByTestId("input-set-cap"));
-  expect(owner.latest).toEqual([{ itemId: "widget" }]);
-  // The row left the Assumed block for Supplies.
-  expect(screen.queryByTestId("input-auto-row")).toBeNull();
-  const suppliesBody = screen.getByTestId("inputs-supplies-body");
-  expect(suppliesBody.contains(screen.getByTestId("input-row"))).toBe(true);
-  const field = rateInputs()[0]!;
+  expect(owner.emissions).toEqual([]);
+  expect(owner.latest).toEqual([]);
+  const row = screen.getByTestId("input-auto-row");
+  expect(screen.getByTestId("inputs-assumed-body").contains(row)).toBe(true);
+  expect(screen.queryAllByTestId("input-row").length).toBe(0);
+  const field = promotedField();
   expect(field.value).toBe("");
   expect(document.activeElement).toBe(field);
+  // The button is gone while its own field is open.
+  expect(row.querySelector('[data-testid="input-set-cap"]')).toBeNull();
+});
+
+// The committed rate is the one thing that reaches the plan, and it arrives
+// as a capped override in a single emission: one commit, one solve.
+test("committing a rate on a promoted row appends exactly one capped override", () => {
+  const owner = controlledOwner<ItemOverride[]>([]);
+  render(
+    owner.element((overrides, onChange) => (
+      <LocaleProvider locale="en">
+        <InputsPanel
+          itemOverrides={overrides}
+          onChange={onChange}
+          pack={PACK}
+          assumedRawItemIds={["widget"]}
+          supplyRateByItem={new Map()}
+        />
+      </LocaleProvider>
+    )),
+  );
+  fireEvent.click(screen.getByTestId("input-set-cap"));
+  fireEvent.change(promotedField(), { target: { value: "60" } });
+  fireEvent.keyDown(promotedField(), { key: "Enter" });
+  expect(owner.emissions.length).toBe(1);
+  expect(owner.latest).toEqual([
+    { itemId: "widget", ratePerSec: { num: "1", denom: "1" } },
+  ]);
+  // Only now does the row move to Supplies, carrying the committed text.
+  expect(screen.queryByTestId("input-pending-cap")).toBeNull();
+  expect(screen.queryByTestId("input-auto-row")).toBeNull();
+  const promoted = screen.getByTestId("input-row");
+  expect(screen.getByTestId("inputs-supplies-body").contains(promoted)).toBe(
+    true,
+  );
+  expect(rateInputs()[0]!.value).toBe("60");
+});
+
+// Both ways out of a promotion that never got a number: an empty commit and
+// Escape. Either one drops the field and leaves the plan untouched.
+test("a promotion abandoned without a rate leaves the overrides alone", () => {
+  const owner = controlledOwner<ItemOverride[]>([]);
+  render(
+    owner.element((overrides, onChange) => (
+      <LocaleProvider locale="en">
+        <InputsPanel
+          itemOverrides={overrides}
+          onChange={onChange}
+          pack={PACK}
+          assumedRawItemIds={["widget"]}
+          supplyRateByItem={new Map()}
+        />
+      </LocaleProvider>
+    )),
+  );
+  fireEvent.click(screen.getByTestId("input-set-cap"));
+  fireEvent.blur(promotedField());
+  expect(owner.emissions).toEqual([]);
+  expect(owner.latest).toEqual([]);
+  expect(screen.queryByTestId("input-pending-cap")).toBeNull();
+
+  fireEvent.click(screen.getByTestId("input-set-cap"));
+  fireEvent.change(promotedField(), { target: { value: "60" } });
+  fireEvent.keyDown(promotedField(), { key: "Escape" });
+  expect(owner.emissions).toEqual([]);
+  expect(owner.latest).toEqual([]);
+  expect(screen.queryByTestId("input-pending-cap")).toBeNull();
+  expect(screen.getByTestId("input-set-cap")).not.toBeNull();
+});
+
+// The live case the pending state exists for. liquid_xiranite is not raw and
+// the shipped pack produces it, so a bare override would read as unlimited
+// boundary supply (0 per second becomes Infinity) and let the solve replace
+// that production with a free import, before any rate was typed.
+test("set cap on a producible non-raw item appends no override", () => {
+  const item = realPack.items.find((it) => it.id === "liquid_xiranite");
+  expect(item?.raw).not.toBe(true);
+  expect(
+    realPack.recipes.some((r) =>
+      r.out.some((o) => o.item === "liquid_xiranite"),
+    ),
+  ).toBe(true);
+  const onChange = vi.fn();
+  render(
+    <LocaleProvider locale="en">
+      <InputsPanel
+        itemOverrides={[]}
+        onChange={onChange}
+        pack={realPack}
+        assumedRawItemIds={["liquid_xiranite"]}
+        supplyRateByItem={new Map()}
+      />
+    </LocaleProvider>,
+  );
+  fireEvent.click(screen.getByTestId("input-set-cap"));
+  expect(onChange).not.toHaveBeenCalled();
+  expect(promotedField().value).toBe("");
 });
 
 // Blur on an invalid cap reverts the field to the last-good value.
@@ -548,8 +652,9 @@ test("a non-raw catalyst item renders as a plain auto-row with its draw", () => 
 });
 
 // Promotion is the same gesture on every Assumed row: a non-raw catalyst item
-// reaches Supplies through its own "set cap" button, like a raw one.
-test("set cap on a non-raw catalyst Assumed row promotes it to an override", () => {
+// reaches Supplies through its own "set cap" button, like a raw one, and on
+// the same terms - the typed rate is what commits.
+test("set cap on a non-raw catalyst Assumed row commits its typed rate", () => {
   const updaters: Array<(cur: ItemOverride[]) => ItemOverride[]> = [];
   render(
     <LocaleProvider locale="en">
@@ -565,9 +670,14 @@ test("set cap on a non-raw catalyst Assumed row promotes it to an override", () 
     </LocaleProvider>,
   );
   fireEvent.click(screen.getByTestId("input-set-cap"));
+  expect(updaters.length).toBe(0);
+  const field = promotedField();
+  fireEvent.change(field, { target: { value: "30" } });
+  fireEvent.blur(field);
   expect(updaters.length).toBe(1);
-  // Uncapped until a number is typed into the field the promotion opens.
-  expect(updaters[0]!([])).toEqual([{ itemId: "liquid_xiranite" }]);
+  expect(updaters[0]!([])).toEqual([
+    { itemId: "liquid_xiranite", ratePerSec: { num: "1", denom: "2" } },
+  ]);
 });
 
 // Clearing the cap on a NON-RAW row drops the override entirely instead of

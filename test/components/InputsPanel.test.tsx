@@ -671,7 +671,7 @@ describe("InputsPanel", () => {
     expect(neededLine.textContent).toMatch(/需求|needed/);
   });
 
-  it("auto-rows: set cap materialises an uncapped ItemOverride entry", () => {
+  it("auto-rows: set cap materialises an ItemOverride only once a rate is committed", () => {
     const onChange = vi.fn();
     render(
       <InputsPanel
@@ -682,10 +682,15 @@ describe("InputsPanel", () => {
       />,
     );
     fireEvent.click(screen.getByTestId("input-set-cap"));
+    // The click only opens the field: nothing reaches the plan yet.
+    expect(onChange).not.toHaveBeenCalled();
+    const field = screen.getByTestId("input-pending-cap");
+    fireEvent.change(field, { target: { value: "120" } });
+    fireEvent.blur(field);
     expect(onChange).toHaveBeenCalledTimes(1);
-    // The promotion moves the row; the number arrives when the user types one
-    // into the field it opens.
-    expect(firstUpdater(onChange)([])).toEqual([{ itemId: "copper_ore" }]);
+    expect(firstUpdater(onChange)([])).toEqual([
+      { itemId: "copper_ore", ratePerSec: { num: "2", denom: "1" } },
+    ]);
   });
 
   it("auto-rows: nothing but the button can promote a row", () => {
