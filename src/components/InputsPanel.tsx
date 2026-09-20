@@ -298,10 +298,15 @@ export function InputsPanel({
       setPendingCap(revert ? null : { itemId, text, invalid: true });
       return;
     }
+    const rowKey = encodeItemOverrideKey({ itemId });
     // The commit unmounts this field and mounts the new Supplies row's one;
     // hand focus over, but only on Enter, since a blur commit means the user
     // has already moved on.
-    if (!revert) flow.armFocus(encodeItemOverrideKey({ itemId }), "rate");
+    if (!revert) flow.armFocus(rowKey, "rate");
+    // The new row derives its field from the committed rational, which would
+    // re-serialize a typed "1/3" as 0.3333333333333333; hand the text over as
+    // the row's own committed value instead.
+    rowEdit.seedCommittedText(rowKey, text);
     setPendingCap(null);
     onChange((current) =>
       current.some((o) => isRow(o, { itemId }))
@@ -795,7 +800,10 @@ export function InputsPanel({
                         focusOnMount(el, encodeItemOverrideKey(key), "rate")
                       }
                       aria-label={i18n.t("inputs.rate.label")}
-                      aria-describedby={rateDescribedBy(key, pending.invalid)}
+                      aria-describedby={rateDescribedBy(
+                        key,
+                        pending.invalid || shortage !== undefined,
+                      )}
                       placeholder={i18n.t("inputs.rate.placeholder")}
                       value={pending.text}
                       aria-invalid={pending.invalid ? true : undefined}
@@ -814,6 +822,11 @@ export function InputsPanel({
                         if (e.key === "Enter") {
                           commitPendingCap(itemId, pending.text, false);
                         } else if (e.key === "Escape") {
+                          // Abandoning the field unmounts the element focus is
+                          // on, and the button that replaces it does not exist
+                          // yet, so hand focus over with the row's token
+                          // rather than dropping it on the body.
+                          flow.armFocus(encodeItemOverrideKey(key), "setCap");
                           setPendingCap(null);
                         }
                       }}
@@ -825,6 +838,9 @@ export function InputsPanel({
                       type="button"
                       className="set-cap"
                       data-testid="input-set-cap"
+                      ref={(el) =>
+                        focusOnMount(el, encodeItemOverrideKey(key), "setCap")
+                      }
                       // The item goes in the accessible NAME: a rail of buttons all
                       // announcing "Set cap" tells a screen-reader user nothing
                       // about which row they are about to promote.

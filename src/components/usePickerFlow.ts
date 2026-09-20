@@ -9,7 +9,10 @@ import type { ProducerUnavailableCause } from "../data/plan";
 // React attaches refs in tree order, so the trigger inside .info completes
 // before the rate input inside .b-rate. A bare row key would let the trigger
 // ref swallow every token and the add path's rate focus would never fire.
-type PendingFocus = { rowKey: string; kind: "rate" | "trigger" };
+// "setCap" is the inputs panel's promotion button, which the row swaps for its
+// pending rate field: abandoning the field has to give the button back, and it
+// is a different element from the picker "trigger" the same row may carry.
+type PendingFocus = { rowKey: string; kind: "rate" | "trigger" | "setCap" };
 
 // The picker -> amount prompt flow a boundary panel runs: which row (or Add)
 // the item picker is open for, the prompt a pick in the add picker opens, the

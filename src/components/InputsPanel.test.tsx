@@ -15,7 +15,12 @@ import {
   type AvailabilitySettings,
 } from "../data/availability";
 import type { ItemOverride } from "../data/plan";
-import { controlledOwner, pickerTile, rateInputs } from "./panel.testkit";
+import {
+  controlledOwner,
+  pickerTile,
+  rateInputs,
+  type ControlledOwner,
+} from "./panel.testkit";
 
 afterEach(cleanup);
 afterEach(() => vi.useRealTimers());
@@ -480,6 +485,159 @@ test("a promotion abandoned without a rate leaves the overrides alone", () => {
   expect(owner.latest).toEqual([]);
   expect(screen.queryByTestId("input-pending-cap")).toBeNull();
   expect(screen.getByTestId("input-set-cap")).not.toBeNull();
+});
+
+// The promotion fixture the pending-cap cases below share: one drawn item, no
+// overrides, and a real owner that applies the updater so a commit comes back
+// as a prop.
+function renderAssumedWidget(owner: ControlledOwner<ItemOverride[]>) {
+  render(
+    owner.element((overrides, onChange) => (
+      <LocaleProvider locale="en">
+        <InputsPanel
+          itemOverrides={overrides}
+          onChange={onChange}
+          pack={PACK}
+          assumedRawItemIds={["widget"]}
+          supplyRateByItem={new Map()}
+        />
+      </LocaleProvider>
+    )),
+  );
+}
+
+// Zero is a rate like any other, and a meaningful one: "import none of this".
+// It must not take the empty-text cancel path.
+test("committing a zero cap promotes the row with a zero-rate override", () => {
+  const owner = controlledOwner<ItemOverride[]>([]);
+  renderAssumedWidget(owner);
+  fireEvent.click(screen.getByTestId("input-set-cap"));
+  fireEvent.change(promotedField(), { target: { value: "0" } });
+  fireEvent.keyDown(promotedField(), { key: "Enter" });
+  expect(owner.emissions.length).toBe(1);
+  expect(owner.latest).toEqual([
+    { itemId: "widget", ratePerSec: { num: "0", denom: "1" } },
+  ]);
+  expect(screen.queryByTestId("input-auto-row")).toBeNull();
+  expect(rateInputs()[0]!.value).toBe("0");
+});
+
+// The promoted row shows the text that was typed. Deriving the field from the
+// committed rational instead would print 1/3 per minute as 0.3333333333333333
+// and the next blur would commit that rounded value.
+test("a fraction cap survives promotion as the text that was typed", () => {
+  const owner = controlledOwner<ItemOverride[]>([]);
+  renderAssumedWidget(owner);
+  fireEvent.click(screen.getByTestId("input-set-cap"));
+  fireEvent.change(promotedField(), { target: { value: "1/3" } });
+  fireEvent.keyDown(promotedField(), { key: "Enter" });
+  expect(owner.emissions.length).toBe(1);
+  // 1/3 per minute is 1/180 per second, exactly.
+  expect(owner.latest).toEqual([
+    { itemId: "widget", ratePerSec: { num: "1", denom: "180" } },
+  ]);
+  expect(rateInputs()[0]!.value).toBe("1/3");
+});
+
+// The seeded text is committed, not an edit in flight: re-blurring the promoted
+// field must not fire a second update.
+test("blurring a promoted row's untouched field commits nothing further", () => {
+  const owner = controlledOwner<ItemOverride[]>([]);
+  renderAssumedWidget(owner);
+  fireEvent.click(screen.getByTestId("input-set-cap"));
+  fireEvent.change(promotedField(), { target: { value: "1/3" } });
+  fireEvent.keyDown(promotedField(), { key: "Enter" });
+  fireEvent.blur(rateInputs()[0]!);
+  expect(owner.emissions.length).toBe(1);
+  expect(rateInputs()[0]!.value).toBe("1/3");
+});
+
+// Enter on unparseable text keeps the field open so the user can fix it in
+// place, with the invalid cue and its message.
+test("invalid text on the pending field keeps it open on Enter", () => {
+  const owner = controlledOwner<ItemOverride[]>([]);
+  renderAssumedWidget(owner);
+  fireEvent.click(screen.getByTestId("input-set-cap"));
+  fireEvent.change(promotedField(), { target: { value: "1/" } });
+  fireEvent.keyDown(promotedField(), { key: "Enter" });
+  expect(owner.emissions).toEqual([]);
+  expect(owner.latest).toEqual([]);
+  const field = promotedField();
+  expect(field.value).toBe("1/");
+  expect(field.getAttribute("aria-invalid")).toBe("true");
+  const row = screen.getByTestId("input-auto-row");
+  expect(row.querySelector('[data-testid="rate-invalid"]')).not.toBeNull();
+  expect(field.getAttribute("aria-describedby")).toBe(
+    "i-name-widget i-rate-err-widget",
+  );
+});
+
+// Blur is the "moved on" gesture, so it cancels the promotion rather than
+// keeping a rejected field open behind the user's back. Same policy as an
+// override row's blur-revert.
+test("invalid text on the pending field cancels on blur", () => {
+  const owner = controlledOwner<ItemOverride[]>([]);
+  renderAssumedWidget(owner);
+  fireEvent.click(screen.getByTestId("input-set-cap"));
+  fireEvent.change(promotedField(), { target: { value: "1/" } });
+  fireEvent.blur(promotedField());
+  expect(owner.emissions).toEqual([]);
+  expect(owner.latest).toEqual([]);
+  expect(screen.queryByTestId("input-pending-cap")).toBeNull();
+  expect(screen.queryByTestId("rate-invalid")).toBeNull();
+  expect(screen.getByTestId("input-set-cap")).not.toBeNull();
+});
+
+// Escape unmounts the field, so focus would land on the body: a keyboard user
+// who backs out of a promotion has to get the button back.
+test("Escape on the pending field returns focus to its Set cap button", () => {
+  const owner = controlledOwner<ItemOverride[]>([]);
+  renderAssumedWidget(owner);
+  fireEvent.click(screen.getByTestId("input-set-cap"));
+  fireEvent.change(promotedField(), { target: { value: "60" } });
+  fireEvent.keyDown(promotedField(), { key: "Escape" });
+  expect(owner.emissions).toEqual([]);
+  expect(screen.queryByTestId("input-pending-cap")).toBeNull();
+  expect(document.activeElement).toBe(screen.getByTestId("input-set-cap"));
+});
+
+// The pending field points at whichever message the row is showing, exactly as
+// an override row's field does: the shortage while the text is fine, the parse
+// error once it is not.
+test("the pending field is described by the visible shortage message", () => {
+  const onChange = vi.fn();
+  render(
+    <LocaleProvider locale="en">
+      <InputsPanel
+        itemOverrides={[]}
+        onChange={onChange}
+        pack={CATALYST_PACK}
+        assumedRawItemIds={["gas_xiranite"]}
+        catalystAccount={account("gas_xiranite", {
+          need: "1/10",
+          unmet: "1/10",
+        })}
+        supplyRateByItem={new Map()}
+      />
+    </LocaleProvider>,
+  );
+  fireEvent.click(screen.getByTestId("input-set-cap"));
+  expect(screen.getByTestId("rate-catalyst-short").id).toBe(
+    "i-rate-err-gas_xiranite",
+  );
+  expect(promotedField().getAttribute("aria-describedby")).toBe(
+    "i-name-gas_xiranite i-rate-err-gas_xiranite",
+  );
+  // Unparseable text takes the one message slot over, and the association
+  // follows it.
+  fireEvent.change(promotedField(), { target: { value: "1/" } });
+  fireEvent.keyDown(promotedField(), { key: "Enter" });
+  expect(screen.queryByTestId("rate-catalyst-short")).toBeNull();
+  expect(screen.getByTestId("rate-invalid").id).toBe("i-rate-err-gas_xiranite");
+  expect(promotedField().getAttribute("aria-describedby")).toBe(
+    "i-name-gas_xiranite i-rate-err-gas_xiranite",
+  );
+  expect(onChange).not.toHaveBeenCalled();
 });
 
 // The live case the pending state exists for. liquid_xiranite is not raw and

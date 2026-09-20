@@ -53,6 +53,7 @@ export type RateEditConfig =
 
 export type RateEdit = {
   field: (rowKey: string, fallbackText: string) => RateField;
+  seedCommittedText: (rowKey: string, text: string) => void;
   clearPendingEdit: (rowKey: string) => void;
   carryPendingEdit: (oldRowKey: string, newRowKey: string) => void;
   pruneEditsTo: (liveRowKeys: ReadonlySet<string>) => void;
@@ -168,6 +169,16 @@ export function useRateEdit(config: RateEditConfig): RateEdit {
           className: invalid ? "invalid" : undefined,
         },
       };
+    },
+    // Adopt a text this hook did not collect as the row's display value, on the
+    // same terms as a commit made through it: not dirty, so the next blur has
+    // nothing to re-commit. A caller that parses and commits a rate itself
+    // (the inputs panel's cap promotion, whose field lives outside this hook)
+    // needs it, because re-deriving the promoted row's text from the committed
+    // rational turns "1/3" into 0.3333333333333333. Only meaningful under
+    // keepTextAfterCommit; a row that drops committed text has nothing to keep.
+    seedCommittedText(rowKey, text) {
+      setTexts((prev) => new Map(prev).set(rowKey, text));
     },
     // Drop the in-flight edit text and dirty flag for a row that is going away,
     // so a stale entry can never redisplay on a later row that reuses the same
