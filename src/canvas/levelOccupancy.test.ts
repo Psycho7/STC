@@ -18,21 +18,17 @@ import {
   type FrameLine,
   type LevelPorts,
   type RunBand,
-} from "../../src/canvas/levelOccupancy";
-import {
-  PORT_STUB,
-  drawnEdge,
-  horizontalRuns,
-} from "../../src/canvas/edgePath";
-import { drawnPortsOf, nodeIndexOf } from "../../src/canvas/nodeGeometry";
-import type { RFAnyNode } from "../../src/canvas/layout";
+} from "./levelOccupancy";
+import { PORT_STUB, drawnEdge, horizontalRuns } from "./edgePath";
+import { drawnPortsOf, nodeIndexOf } from "./nodeGeometry";
+import type { RFAnyNode } from "./layout";
 import {
   containerNode,
   inputProductNode,
   mkEdge,
   orderedRecipeNode,
   productNode,
-} from "./busRouting.testkit";
+} from "./levelOccupancy.testkit";
 
 // A band at `y` spanning [left, right], for the queries that take bands as
 // data. The port rows default to values no `self` below coincides with, so a
