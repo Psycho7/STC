@@ -30,6 +30,8 @@ import { planToSolverArgs } from "../solver/planToSolverArgs";
 import type { RecipeId } from "../solver/types";
 import { renderPlanFromSolve, type RenderPipelineOutput } from "./driver";
 import { targetOutputShortfalls } from "./render/invariants";
+import { rationalFromString } from "./render/rational";
+import { isInputProductUnit, type RenderPlan } from "./types";
 
 export type SolveForRenderRequest = {
   targets: ReadonlyArray<ItemTarget>;
@@ -98,7 +100,42 @@ export type SolveFromPlanOutput = SolveForRenderOutput & {
    * graph does not meet the declared intent.
    */
   underDelivered: string[];
+  /**
+   * Items carrying an explicit finite supply cap the drawn plan pulls in full.
+   * The only evidence that lets the UI name a supply cap as a reason for a
+   * shortfall: a cap the plan does not exhaust constrains nothing.
+   */
+  cappedAtLimit: string[];
 };
+
+/**
+ * The items of `itemOverrides` whose cap the drawn plan draws in full, read off
+ * the boundary input units the render pipeline emitted (their `rate` is what the
+ * solve pulled, their `rateCap` the declared limit). Fan-out slices are skipped:
+ * only the whole node carries the item's total draw.
+ */
+export function boundaryCapsAtLimit(
+  plan: RenderPlan,
+  itemOverrides: ReadonlyArray<ItemOverride>,
+): string[] {
+  const capped = new Set(
+    itemOverrides.flatMap((ov) =>
+      ov.ratePerSec === undefined ? [] : [ov.itemId],
+    ),
+  );
+  if (capped.size === 0) return [];
+
+  const atLimit = new Set<string>();
+  for (const unit of plan.units) {
+    if (!isInputProductUnit(unit)) continue;
+    if (unit.isFanout) continue;
+    if (!capped.has(unit.itemId) || unit.rateCap === undefined) continue;
+    const cap = rationalFromString(unit.rateCap);
+    if (rationalFromString(unit.rate).compare(cap) < 0) continue;
+    atLimit.add(unit.itemId);
+  }
+  return [...atLimit].sort();
+}
 
 /**
  * The Plan-driven half of the seam: convert the plan to solver arguments, solve
@@ -124,5 +161,6 @@ export function solveFromPlan(
     underDelivered: targetOutputShortfalls(out.plan, out.targets).map(
       (s) => s.item,
     ),
+    cappedAtLimit: boundaryCapsAtLimit(out.plan, out.itemOverrides),
   };
 }

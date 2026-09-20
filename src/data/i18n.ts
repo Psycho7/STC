@@ -35,6 +35,11 @@ export type UiKey =
   | "app.error.dismiss"
   | "app.error.busy"
   | "app.error.crash"
+  | "app.shortfall.unmet"
+  | "app.shortfall.cause.area"
+  | "app.shortfall.cause.event"
+  | "app.shortfall.cause.manual"
+  | "app.shortfall.cause.cap"
   | "app.locale.label"
   | "inputs.title"
   | "inputs.rate.label"
@@ -154,6 +159,14 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "app.error.dismiss": "关闭",
     "app.error.busy": "方案正在加载，请等加载完成后再修改。",
     "app.error.crash": "规划器遇到意外错误，无法绘制当前方案。",
+    // The shortfall strip: a neutral lead that only states what is unmet, plus
+    // one sentence per explanation the evidence actually supports. None of them
+    // may blame a supply cap on its own - see src/data/shortfall.ts.
+    "app.shortfall.unmet": "以下产物未达到声明产量：{items}。",
+    "app.shortfall.cause.area": "{items} 的配方均无法在{area}建造。",
+    "app.shortfall.cause.event": "{items} 的配方均属于未开启的 {cohort} 活动。",
+    "app.shortfall.cause.manual": "{items} 的配方均已在设置中关闭。",
+    "app.shortfall.cause.cap": "{items} 的供给已用满所设上限。",
     "app.locale.label": "语言",
     "inputs.title": "输入",
     "inputs.rate.label": "速率",
@@ -265,6 +278,16 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
       "A plan is still loading. Try that change again once it lands.",
     "app.error.crash":
       "The planner hit an unexpected error and could not draw this plan.",
+    // See the zh entries: the lead states the shortfall and nothing else.
+    "app.shortfall.unmet": "Delivered below the declared rate: {items}.",
+    "app.shortfall.cause.area":
+      "No recipe producing {items} can be built in {area}.",
+    "app.shortfall.cause.event":
+      "Every recipe producing {items} belongs to the {cohort} event, which is switched off.",
+    "app.shortfall.cause.manual":
+      "Every recipe producing {items} is switched off in settings.",
+    "app.shortfall.cause.cap":
+      "The supply of {items} is drawn to its declared cap.",
     "app.locale.label": "Language",
     "inputs.title": "Inputs",
     "inputs.rate.label": "Rate",

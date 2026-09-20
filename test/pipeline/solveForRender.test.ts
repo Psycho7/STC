@@ -42,6 +42,12 @@ import {
 import { CLOSED_FORM_FIXTURES } from "../../src/solver/closed-form-fixtures";
 import { defaultPlan, type ItemOverride, type Plan } from "../../src/data/plan";
 import { pack } from "../../src/data/load";
+import {
+  unavailableCauses,
+  unavailableItems,
+  unavailableRecipeIds,
+} from "../../src/data/availability";
+import { attributeShortfall } from "../../src/data/shortfall";
 
 const chain = CLOSED_FORM_FIXTURES.find((f) => f.name === "chain")!;
 
@@ -117,6 +123,101 @@ describe("solveFromPlan: the targets the drawn plan misses", () => {
     const out = solveFromPlan({ ...CAPPED, itemOverrides: [] });
 
     expect(out.underDelivered).toEqual([]);
+  });
+});
+
+// The evidence the shortfall strip may name a supply cap on: a cap the drawn
+// plan pulls in full. A cap above the draw constrains nothing, so naming it
+// would be a guess.
+describe("solveFromPlan: the caps the drawn plan exhausts", () => {
+  it("reports an explicit cap the plan draws in full", () => {
+    vi.stubEnv("DEV", false);
+    try {
+      const out = solveFromPlan(CAPPED);
+
+      expect(out.cappedAtLimit).toEqual(["gas_inert"]);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("reports nothing for a cap the plan stays under", () => {
+    const out = solveFromPlan({
+      ...CAPPED,
+      itemOverrides: [
+        { itemId: "gas_inert", ratePerSec: { num: "50", denom: "1" } },
+      ],
+    });
+
+    expect(out.underDelivered).toEqual([]);
+    expect(out.cappedAtLimit).toEqual([]);
+  });
+});
+
+// The C1 regression, exactly as the review probe measured it on the shipped
+// pack: the deficits land on the three default targets, every one of their
+// direct producers is available, and the item the settlement actually blocks
+// carries no deficit at all. Attribution therefore has nothing to name.
+describe("the default plan under tundra", () => {
+  const settings = { eventOverrides: {}, area: "tundra" };
+
+  it("puts its deficits on targets whose direct producers are all available", () => {
+    vi.stubEnv("DEV", false);
+    try {
+      const unavailable = unavailableRecipeIds(
+        unavailableCauses(pack, settings),
+      );
+      const out = solveFromPlan(defaultPlan(pack), undefined, unavailable);
+      const deficits = new Map(
+        [...out.full.feasibility.deficits].map(([item, rate]) => [
+          item,
+          rate.toFraction(),
+        ]),
+      );
+
+      expect(out.full.feasibility.softFeasible).toBe(false);
+      expect(deficits).toEqual(
+        new Map([
+          ["copper_bottle", "2"],
+          ["copper_powder", "1/2"],
+          // Solver float noise, not a restriction: see the investigation in the
+          // T6 report. The snapped iron_powder rate lands 1/666660 per second
+          // under its 1/4 demand, which the LP extraction reports honestly.
+          ["iron_powder", "1/666660"],
+        ]),
+      );
+      expect(out.underDelivered.sort()).toEqual([
+        "copper_bottle",
+        "copper_powder",
+        "iron_powder",
+      ]);
+      // No declared cap anywhere in the default plan.
+      expect(out.cappedAtLimit).toEqual([]);
+
+      const itemCauses = unavailableItems(pack, settings);
+      for (const item of deficits.keys()) {
+        expect(itemCauses.get(item)).toBeUndefined();
+      }
+      // The one item the settlement does block never shows up as a deficit, so
+      // the deficit map cannot lead back to it.
+      expect(itemCauses.get("copper_nugget")).toEqual({
+        kind: "area",
+        area: "tundra",
+      });
+      expect(deficits.has("copper_nugget")).toBe(false);
+
+      // Hence: unmet demand, no supported explanation.
+      expect(
+        attributeShortfall({
+          underDelivered: out.underDelivered,
+          deficitItemIds: [...deficits.keys()],
+          itemCauses,
+          cappedAtLimit: out.cappedAtLimit,
+        }).clauses,
+      ).toEqual([]);
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 });
 
