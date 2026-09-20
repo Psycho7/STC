@@ -1,0 +1,299 @@
+{
+  "nodes": [
+    {
+      "id": "loop:plant_moss_3",
+      "x": 12,
+      "y": 214
+    },
+    {
+      "id": "u:class:q:7",
+      "x": 618,
+      "y": 148
+    },
+    {
+      "id": "u:class:q:8",
+      "x": 618,
+      "y": 28
+    },
+    {
+      "id": "u:class:q:9",
+      "x": 28,
+      "y": 28
+    },
+    {
+      "id": "u:class:q:0",
+      "x": 3088,
+      "y": 262
+    },
+    {
+      "id": "u:class:q:1",
+      "x": 2499,
+      "y": 262
+    },
+    {
+      "id": "u:class:q:2",
+      "x": 3693,
+      "y": 231
+    },
+    {
+      "id": "u:class:q:3",
+      "x": 1910,
+      "y": 251
+    },
+    {
+      "id": "u:class:q:4",
+      "x": 1305,
+      "y": 493
+    },
+    {
+      "id": "u:class:q:5",
+      "x": 3088,
+      "y": 66
+    },
+    {
+      "id": "u:class:q:6",
+      "x": 1305,
+      "y": 242
+    },
+    {
+      "id": "u:in:gas_xiranite",
+      "x": 533,
+      "y": 113
+    },
+    {
+      "id": "u:cat:gas_xiranite",
+      "x": 533,
+      "y": 12
+    },
+    {
+      "id": "u:in:originium_ore",
+      "x": 533,
+      "y": 502
+    },
+    {
+      "id": "u:out:equip_script_4",
+      "x": 4267,
+      "y": 251
+    }
+  ],
+  "edges": [
+    {
+      "id": "e:0:u:cat:gas_xiranite->u:class:q:5:gas_xiranite",
+      "type": "item",
+      "pts": [
+        [685, 47.5],
+        [1055.5, 47.5],
+        [1068.5, 60.5],
+        [1068.5, 160],
+        [1081.5, 173],
+        [3085, 173]
+      ],
+      "anchors": {
+        "labelAnchor": [2083.25, 173]
+      },
+      "bendX": 1068.5
+    },
+    {
+      "id": "e:1:u:class:q:0->u:class:q:2:crystal_enr",
+      "type": "item",
+      "pts": [
+        [3333, 336],
+        [3542.5, 336],
+        [3558.5, 327],
+        [3690, 327]
+      ],
+      "anchors": {
+        "labelAnchor": [3437.75, 336]
+      },
+      "bendX": 3481.1666666666665,
+      "entryX": 3550.5
+    },
+    {
+      "id": "e:2:u:class:q:1->u:class:q:0:crystal_enr_powder",
+      "type": "item",
+      "pts": [
+        [2744, 336],
+        [3085, 336]
+      ],
+      "anchors": {
+        "labelAnchor": [2914.5, 336]
+      },
+      "bendX": 2913.5
+    },
+    {
+      "id": "e:3:u:class:q:2->u:out:equip_script_4:equip_script_4",
+      "type": "item",
+      "pts": [
+        [3938, 305],
+        [4124, 305],
+        [4140, 286.5],
+        [4263, 286.5]
+      ],
+      "anchors": {
+        "labelAnchor": [4031, 305]
+      },
+      "bendX": 4088,
+      "entryX": 4132
+    },
+    {
+      "id": "e:4:u:class:q:3->u:class:q:1:originium_enr_powder",
+      "type": "item",
+      "pts": [
+        [2155, 325],
+        [2348.5, 325],
+        [2364.5, 336],
+        [2496, 336]
+      ],
+      "anchors": {
+        "labelAnchor": [2251.75, 325]
+      },
+      "bendX": 2312.5,
+      "entryX": 2356.5
+    },
+    {
+      "id": "e:5:u:class:q:4->u:class:q:3:originium_powder",
+      "type": "item",
+      "pts": [
+        [1550, 567],
+        [1759.5, 567],
+        [1767.5, 559],
+        [1767.5, 355],
+        [1775.5, 347],
+        [1907, 347]
+      ],
+      "anchors": {
+        "labelAnchor": [1654.75, 567]
+      },
+      "bendX": 1698.1666666666667,
+      "entryX": 1767.5
+    },
+    {
+      "id": "e:6:u:class:q:5->u:class:q:2:xiranite_powder",
+      "type": "item",
+      "pts": [
+        [3333, 140],
+        [3526.5, 140],
+        [3534.5, 148],
+        [3534.5, 297],
+        [3542.5, 305],
+        [3690, 305]
+      ],
+      "anchors": {
+        "labelAnchor": [3429.75, 140]
+      },
+      "bendX": 3499.8333333333335,
+      "entryX": 3534.5
+    },
+    {
+      "id": "e:7:u:class:q:6->u:class:q:3:plant_moss_powder_3",
+      "type": "item",
+      "pts": [
+        [1550, 316],
+        [1743.5, 316],
+        [1759.5, 325],
+        [1907, 325]
+      ],
+      "anchors": {
+        "labelAnchor": [1646.75, 316]
+      },
+      "bendX": 1716.8333333333333,
+      "entryX": 1751.5
+    },
+    {
+      "id": "e:8:u:class:q:7->u:class:q:9:plant_moss_3",
+      "type": "item",
+      "pts": [
+        [875, 436],
+        [1034.5, 436],
+        [1042.5, 444],
+        [1042.5, 581],
+        [1034.5, 589],
+        [36, 589],
+        [28, 581],
+        [28, 324],
+        [36, 316],
+        [37, 316]
+      ],
+      "anchors": {
+        "labelAnchor": [535.25, 589]
+      },
+      "entryX": 16,
+      "railXLeft": 28,
+      "railXRight": 1042.5,
+      "railY": 589
+    },
+    {
+      "id": "e:9:u:class:q:8->u:class:q:6:plant_moss_3",
+      "type": "item",
+      "pts": [
+        [875, 316],
+        [1302, 316]
+      ],
+      "anchors": {
+        "labelAnchor": [1088.5, 316]
+      },
+      "bendX": 1094.5
+    },
+    {
+      "id": "e:10:u:class:q:9->u:class:q:7:plant_moss_seed_3",
+      "type": "bus",
+      "pts": [
+        [285, 316],
+        [415, 316],
+        [423, 324],
+        [423, 428],
+        [431, 436],
+        [627, 436]
+      ],
+      "anchors": {
+        "junction": [415, 316],
+        "trunkAnchor": [352.5, 316],
+        "branchAnchor": [559.5, 436]
+      }
+    },
+    {
+      "id": "e:11:u:class:q:9->u:class:q:8:plant_moss_seed_3",
+      "type": "bus",
+      "pts": [
+        [285, 316],
+        [627, 316]
+      ],
+      "anchors": {
+        "junction": [415, 316],
+        "trunkAnchor": [352.5, 316],
+        "branchAnchor": [559.5, 316]
+      }
+    },
+    {
+      "id": "e:12:u:in:gas_xiranite->u:class:q:5:gas_xiranite",
+      "type": "item",
+      "pts": [
+        [685, 148.5],
+        [1086.5, 148.5],
+        [1102.5, 140],
+        [3085, 140]
+      ],
+      "anchors": {
+        "labelAnchor": [2093.75, 140]
+      },
+      "bendX": 1094.5
+    },
+    {
+      "id": "e:13:u:in:originium_ore->u:class:q:4:originium_ore",
+      "type": "item",
+      "pts": [
+        [685, 537.5],
+        [1154.5, 537.5],
+        [1162.5, 545.5],
+        [1162.5, 559],
+        [1170.5, 567],
+        [1302, 567]
+      ],
+      "anchors": {
+        "labelAnchor": [919.75, 537.5]
+      },
+      "bendX": 1120.5,
+      "entryX": 1162.5
+    }
+  ]
+}

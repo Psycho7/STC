@@ -1,0 +1,282 @@
+{
+  "nodes": [
+    {
+      "id": "u:class:q:0",
+      "x": 1194,
+      "y": 12
+    },
+    {
+      "id": "u:class:q:1",
+      "x": 573,
+      "y": 315
+    },
+    {
+      "id": "u:class:q:2",
+      "x": 573,
+      "y": 22
+    },
+    {
+      "id": "u:class:q:3",
+      "x": 573,
+      "y": 164
+    },
+    {
+      "id": "u:class:q:5",
+      "x": 1194,
+      "y": 195
+    },
+    {
+      "id": "u:class:q:7",
+      "x": 1194,
+      "y": 315
+    },
+    {
+      "id": "u:in:copper_ore",
+      "x": 12,
+      "y": 204
+    },
+    {
+      "id": "u:in:iron_ore",
+      "x": 12,
+      "y": 324
+    },
+    {
+      "id": "u:in:liquid_water",
+      "x": 12,
+      "y": 103
+    },
+    {
+      "id": "u:out:copper_bottle",
+      "x": 1847,
+      "y": 21
+    },
+    {
+      "id": "u:out:copper_powder",
+      "x": 1847,
+      "y": 223
+    },
+    {
+      "id": "u:out:iron_powder",
+      "x": 1847,
+      "y": 324
+    },
+    {
+      "id": "u:surplus:liquid_sewage",
+      "x": 1847,
+      "y": 122
+    }
+  ],
+  "edges": [
+    {
+      "id": "e:0:u:class:q:0->u:out:copper_bottle:copper_bottle",
+      "type": "item",
+      "pts": [
+        [1439, 86],
+        [1672.5, 86],
+        [1680.5, 78],
+        [1680.5, 64.5],
+        [1688.5, 56.5],
+        [1843, 56.5]
+      ],
+      "anchors": {
+        "labelAnchor": [1555.75, 86]
+      },
+      "bendX": 1592.5,
+      "entryX": 1680.5
+    },
+    {
+      "id": "e:1:u:class:q:1->u:class:q:7:iron_nugget",
+      "type": "item",
+      "pts": [
+        [818, 389],
+        [1191, 389]
+      ],
+      "anchors": {
+        "labelAnchor": [1004.5, 389]
+      },
+      "bendX": 969.5
+    },
+    {
+      "id": "e:2:u:class:q:2->u:class:q:0:copper_nugget",
+      "type": "item",
+      "pts": [
+        [818, 96],
+        [1043.5, 96],
+        [1059.5, 86],
+        [1191, 86]
+      ],
+      "anchors": {
+        "labelAnchor": [930.75, 96]
+      },
+      "bendX": 991.5,
+      "entryX": 1051.5
+    },
+    {
+      "id": "e:3:u:class:q:2->u:surplus:liquid_sewage:liquid_sewage",
+      "type": "item",
+      "pts": [
+        [818, 118],
+        [1688.5, 118],
+        [1696.5, 126],
+        [1696.5, 149.5],
+        [1704.5, 157.5],
+        [1843, 157.5]
+      ],
+      "anchors": {
+        "labelAnchor": [889.25, 118]
+      },
+      "bendX": 1696.5,
+      "faninJunctionX": 1704.5,
+      "faninJunctionY": 157.5
+    },
+    {
+      "id": "e:4:u:class:q:3->u:class:q:5:copper_nugget",
+      "type": "item",
+      "pts": [
+        [818, 238],
+        [1043.5, 238],
+        [1051.5, 246],
+        [1051.5, 261],
+        [1059.5, 269],
+        [1191, 269]
+      ],
+      "anchors": {
+        "labelAnchor": [930.75, 238]
+      },
+      "bendX": 1013.5,
+      "entryX": 1051.5
+    },
+    {
+      "id": "e:5:u:class:q:3->u:surplus:liquid_sewage:liquid_sewage",
+      "type": "item",
+      "pts": [
+        [818, 260],
+        [1021.5, 260],
+        [1029.5, 252],
+        [1029.5, 165.5],
+        [1037.5, 157.5],
+        [1843, 157.5]
+      ],
+      "anchors": {
+        "labelAnchor": [885.5, 260]
+      },
+      "bendX": 1696.5,
+      "srcColX": 1029.5
+    },
+    {
+      "id": "e:6:u:class:q:5->u:out:copper_powder:copper_powder",
+      "type": "item",
+      "pts": [
+        [1439, 269],
+        [1672.5, 269],
+        [1688.5, 258.5],
+        [1843, 258.5]
+      ],
+      "anchors": {
+        "labelAnchor": [1555.75, 269]
+      },
+      "bendX": 1616.5,
+      "entryX": 1680.5
+    },
+    {
+      "id": "e:7:u:class:q:7->u:out:iron_powder:iron_powder",
+      "type": "item",
+      "pts": [
+        [1439, 389],
+        [1672.5, 389],
+        [1680.5, 381],
+        [1680.5, 367.5],
+        [1688.5, 359.5],
+        [1843, 359.5]
+      ],
+      "anchors": {
+        "labelAnchor": [1555.75, 389]
+      },
+      "bendX": 1640.5,
+      "entryX": 1680.5
+    },
+    {
+      "id": "e:8:u:in:copper_ore->u:class:q:2:copper_ore",
+      "type": "bus",
+      "pts": [
+        [164, 239.5],
+        [334.5, 239.5],
+        [342.5, 231.5],
+        [342.5, 126],
+        [350.5, 118],
+        [570, 118]
+      ],
+      "anchors": {
+        "junction": [334.5, 239.5],
+        "trunkAnchor": [235.25, 239.5],
+        "branchAnchor": [498.75, 118]
+      }
+    },
+    {
+      "id": "e:9:u:in:copper_ore->u:class:q:3:copper_ore",
+      "type": "bus",
+      "pts": [
+        [164, 239.5],
+        [334.5, 239.5],
+        [350.5, 260],
+        [570, 260]
+      ],
+      "anchors": {
+        "junction": [334.5, 239.5],
+        "trunkAnchor": [235.25, 239.5],
+        "branchAnchor": [502.5, 260]
+      }
+    },
+    {
+      "id": "e:10:u:in:iron_ore->u:class:q:1:iron_ore",
+      "type": "item",
+      "pts": [
+        [164, 359.5],
+        [422.5, 359.5],
+        [430.5, 367.5],
+        [430.5, 381],
+        [438.5, 389],
+        [570, 389]
+      ],
+      "anchors": {
+        "labelAnchor": [293.25, 359.5]
+      },
+      "bendX": 390.5,
+      "entryX": 430.5
+    },
+    {
+      "id": "e:11:u:in:liquid_water->u:class:q:2:liquid_water",
+      "type": "bus",
+      "pts": [
+        [164, 138.5],
+        [302.5, 138.5],
+        [310.5, 130.5],
+        [310.5, 104],
+        [318.5, 96],
+        [570, 96]
+      ],
+      "anchors": {
+        "junction": [302.5, 138.5],
+        "trunkAnchor": [235.25, 138.5],
+        "branchAnchor": [498.75, 96]
+      }
+    },
+    {
+      "id": "e:12:u:in:liquid_water->u:class:q:3:liquid_water",
+      "type": "bus",
+      "pts": [
+        [164, 138.5],
+        [302.5, 138.5],
+        [310.5, 146.5],
+        [310.5, 230],
+        [318.5, 238],
+        [570, 238]
+      ],
+      "anchors": {
+        "junction": [302.5, 138.5],
+        "trunkAnchor": [235.25, 138.5],
+        "branchAnchor": [502.5, 238]
+      }
+    }
+  ]
+}

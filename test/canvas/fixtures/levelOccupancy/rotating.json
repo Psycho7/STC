@@ -1,0 +1,21 @@
+[
+  {
+    "id": "rot-bottled_rec_hp_1",
+    "title": "rot-bottled_rec_hp_1",
+    "targets": [
+      {
+        "itemId": "bottled_rec_hp_1",
+        "ratePerSec": { "num": "1", "denom": "2" }
+      }
+    ],
+    "maxDiffPixels": 0
+  },
+  {
+    "id": "rot-proc_bomb_1",
+    "title": "rot-proc_bomb_1",
+    "targets": [
+      { "itemId": "proc_bomb_1", "ratePerSec": { "num": "1", "denom": "2" } }
+    ],
+    "maxDiffPixels": 0
+  }
+]

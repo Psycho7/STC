@@ -1,0 +1,663 @@
+{
+  "nodes": [
+    {
+      "id": "u:class:q:0",
+      "x": 4291.5,
+      "y": 443
+    },
+    {
+      "id": "u:class:q:1",
+      "x": 1242,
+      "y": 243
+    },
+    {
+      "id": "u:class:q:10",
+      "x": 1887.5,
+      "y": 685
+    },
+    {
+      "id": "u:class:q:11",
+      "x": 621,
+      "y": 97
+    },
+    {
+      "id": "u:class:q:2",
+      "x": 1242,
+      "y": 557
+    },
+    {
+      "id": "u:class:q:20",
+      "x": 3702.5,
+      "y": 426
+    },
+    {
+      "id": "u:class:q:23",
+      "x": 1242,
+      "y": 90
+    },
+    {
+      "id": "u:class:q:27",
+      "x": 3097.5,
+      "y": 734
+    },
+    {
+      "id": "u:class:q:3",
+      "x": 1242,
+      "y": 385
+    },
+    {
+      "id": "u:class:q:4",
+      "x": 1242,
+      "y": 699
+    },
+    {
+      "id": "u:class:q:5",
+      "x": 4865.5,
+      "y": 720
+    },
+    {
+      "id": "u:class:q:6",
+      "x": 2492.5,
+      "y": 231
+    },
+    {
+      "id": "u:class:q:7",
+      "x": 3097.5,
+      "y": 444
+    },
+    {
+      "id": "u:class:q:8",
+      "x": 2492.5,
+      "y": 709
+    },
+    {
+      "id": "u:class:q:9",
+      "x": 1887.5,
+      "y": 263
+    },
+    {
+      "id": "u:in:copper_ore",
+      "x": 12,
+      "y": 137
+    },
+    {
+      "id": "u:in:gas_inert",
+      "x": 12,
+      "y": 597
+    },
+    {
+      "id": "u:in:gas_xiranite",
+      "x": 12,
+      "y": 810
+    },
+    {
+      "id": "u:cat:gas_xiranite",
+      "x": 12,
+      "y": 389
+    },
+    {
+      "id": "u:in:liquid_water",
+      "x": 12,
+      "y": 36
+    },
+    {
+      "id": "u:out:equip_script_4_3",
+      "x": 5447,
+      "y": 740
+    },
+    {
+      "id": "u:surplus:liquid_sewage",
+      "x": 5447,
+      "y": 12
+    }
+  ],
+  "edges": [
+    {
+      "id": "e:0:u:cat:gas_xiranite->u:class:q:20:gas_xiranite",
+      "type": "item",
+      "pts": [
+        [164, 424.5],
+        [302.5, 424.5],
+        [310.5, 416.5],
+        [310.5, 229],
+        [318.5, 221],
+        [3536, 221],
+        [3544, 229],
+        [3544, 525],
+        [3552, 533],
+        [3699.5, 533]
+      ],
+      "anchors": {
+        "labelAnchor": [3632, 533]
+      },
+      "bendX": 310.5,
+      "jogDescentX": 3544,
+      "legY": 221,
+      "fanoutJunctionX": 302.5,
+      "fanoutJunctionY": 424.5
+    },
+    {
+      "id": "e:1:u:cat:gas_xiranite->u:class:q:23:gas_xiranite",
+      "type": "item",
+      "pts": [
+        [164, 424.5],
+        [302.5, 424.5],
+        [310.5, 416.5],
+        [310.5, 249],
+        [318.5, 241],
+        [1091.5, 241],
+        [1099.5, 233],
+        [1099.5, 205],
+        [1107.5, 197],
+        [1239, 197]
+      ],
+      "anchors": {
+        "labelAnchor": [1171.5, 197]
+      },
+      "bendX": 310.5,
+      "jogDescentX": 1099.5,
+      "legY": 241
+    },
+    {
+      "id": "e:2:u:cat:gas_xiranite->u:class:q:27:gas_xiranite",
+      "type": "item",
+      "pts": [
+        [164, 424.5],
+        [302.5, 424.5],
+        [310.5, 432.5],
+        [310.5, 857.5],
+        [318.5, 865.5],
+        [2931, 865.5],
+        [2939, 857.5],
+        [2939, 849],
+        [2947, 841],
+        [3094.5, 841]
+      ],
+      "anchors": {
+        "labelAnchor": [3027, 841]
+      },
+      "bendX": 310.5,
+      "jogDescentX": 2939,
+      "legY": 865.5
+    },
+    {
+      "id": "e:3:u:cat:gas_xiranite->u:class:q:3:gas_xiranite",
+      "type": "item",
+      "pts": [
+        [164, 424.5],
+        [302.5, 424.5],
+        [310.5, 432.5],
+        [310.5, 484],
+        [318.5, 492],
+        [1239, 492]
+      ],
+      "anchors": {
+        "labelAnchor": [1171.5, 492]
+      },
+      "bendX": 310.5
+    },
+    {
+      "id": "e:4:u:cat:gas_xiranite->u:class:q:4:gas_xiranite",
+      "type": "item",
+      "pts": [
+        [164, 424.5],
+        [302.5, 424.5],
+        [310.5, 432.5],
+        [310.5, 745],
+        [318.5, 753],
+        [1091.5, 753],
+        [1099.5, 761],
+        [1099.5, 798],
+        [1107.5, 806],
+        [1239, 806]
+      ],
+      "anchors": {
+        "labelAnchor": [1171.5, 806]
+      },
+      "bendX": 310.5,
+      "jogDescentX": 1099.5,
+      "legY": 753
+    },
+    {
+      "id": "e:5:u:class:q:0->u:class:q:5:copper_enr2_cmpt",
+      "type": "item",
+      "pts": [
+        [4536.5, 517],
+        [4722.5, 517],
+        [4730.5, 525],
+        [4730.5, 786],
+        [4738.5, 794],
+        [4862.5, 794]
+      ],
+      "anchors": {
+        "labelAnchor": [4629.5, 517]
+      },
+      "bendX": 4686.5,
+      "entryX": 4730.5
+    },
+    {
+      "id": "e:6:u:class:q:1->u:class:q:9:copper_jar",
+      "type": "item",
+      "pts": [
+        [1487, 317],
+        [1695.17, 317],
+        [1711.17, 303],
+        [1728.5, 303],
+        [1736.5, 311],
+        [1736.5, 329],
+        [1744.5, 337],
+        [1884.5, 337]
+      ],
+      "anchors": {
+        "labelAnchor": [1591.09, 317]
+      },
+      "bendX": 1703.1666666666667,
+      "entryX": 1736.5,
+      "jogDescentX": 1736.5,
+      "legY": 303
+    },
+    {
+      "id": "e:7:u:class:q:10->u:class:q:8:filter_core",
+      "type": "item",
+      "pts": [
+        [2132.5, 759],
+        [2342, 759],
+        [2350, 767],
+        [2350, 793],
+        [2358, 801],
+        [2489.5, 801]
+      ],
+      "anchors": {
+        "labelAnchor": [2237.25, 759]
+      },
+      "bendX": 2310,
+      "entryX": 2350
+    },
+    {
+      "id": "e:8:u:class:q:11->u:class:q:1:copper_nugget",
+      "type": "bus",
+      "pts": [
+        [866, 171],
+        [1003.5, 171],
+        [1011.5, 179],
+        [1011.5, 309],
+        [1019.5, 317],
+        [1239, 317]
+      ],
+      "anchors": {
+        "junction": [1003.5, 171],
+        "trunkAnchor": [937.25, 171],
+        "branchAnchor": [1167.75, 317]
+      }
+    },
+    {
+      "id": "e:9:u:class:q:11->u:class:q:2:copper_nugget",
+      "type": "bus",
+      "pts": [
+        [866, 171],
+        [1003.5, 171],
+        [1011.5, 179],
+        [1011.5, 623],
+        [1019.5, 631],
+        [1239, 631]
+      ],
+      "anchors": {
+        "junction": [1003.5, 171],
+        "trunkAnchor": [937.25, 171],
+        "branchAnchor": [1167.75, 631]
+      }
+    },
+    {
+      "id": "e:10:u:class:q:11->u:class:q:23:copper_nugget",
+      "type": "bus",
+      "pts": [
+        [866, 171],
+        [1003.5, 171],
+        [1019.5, 164],
+        [1239, 164]
+      ],
+      "anchors": {
+        "junction": [1003.5, 171],
+        "trunkAnchor": [937.25, 171],
+        "branchAnchor": [1167.75, 164]
+      }
+    },
+    {
+      "id": "e:11:u:class:q:11->u:surplus:liquid_sewage:liquid_sewage",
+      "type": "item",
+      "pts": [
+        [866, 193],
+        [1053.5, 193],
+        [1071.5, 175],
+        [1071.5, 65.5],
+        [1089.5, 47.5],
+        [5443, 47.5]
+      ],
+      "anchors": {
+        "labelAnchor": [3266.25, 47.5]
+      },
+      "bendX": 1071.5
+    },
+    {
+      "id": "e:12:u:class:q:2->u:class:q:10:copper_jar",
+      "type": "item",
+      "pts": [
+        [1487, 631],
+        [1744.5, 631],
+        [1752.5, 639],
+        [1752.5, 751],
+        [1760.5, 759],
+        [1884.5, 759]
+      ],
+      "anchors": {
+        "labelAnchor": [1615.75, 631]
+      },
+      "bendX": 1633.8333333333333,
+      "entryX": 1752.5
+    },
+    {
+      "id": "e:13:u:class:q:20->u:class:q:0:copper_enr2",
+      "type": "item",
+      "pts": [
+        [3947.5, 500],
+        [4141, 500],
+        [4157, 517],
+        [4288.5, 517]
+      ],
+      "anchors": {
+        "labelAnchor": [4044.25, 500]
+      },
+      "bendX": 4105,
+      "entryX": 4149
+    },
+    {
+      "id": "e:14:u:class:q:23->u:class:q:6:gas_copper",
+      "type": "item",
+      "pts": [
+        [1487, 164],
+        [1643.17, 164],
+        [1651.17, 172],
+        [1651.17, 379],
+        [1659.17, 387],
+        [2326, 387],
+        [2334, 379],
+        [2334, 331],
+        [2342, 323],
+        [2489.5, 323]
+      ],
+      "anchors": {
+        "labelAnchor": [1992.59, 387]
+      },
+      "bendX": 1651.1666666666667,
+      "jogDescentX": 2334,
+      "legY": 387
+    },
+    {
+      "id": "e:15:u:class:q:27->u:class:q:5:xiranite_enr_powder",
+      "type": "item",
+      "pts": [
+        [3342.5, 808],
+        [3488, 808],
+        [3504, 816],
+        [4862.5, 816]
+      ],
+      "anchors": {
+        "labelAnchor": [4183.25, 816]
+      },
+      "bendX": 3496
+    },
+    {
+      "id": "e:16:u:class:q:3->u:class:q:9:xiranite_powder",
+      "type": "item",
+      "pts": [
+        [1487, 459],
+        [1744.5, 459],
+        [1752.5, 451],
+        [1752.5, 367],
+        [1760.5, 359],
+        [1884.5, 359]
+      ],
+      "anchors": {
+        "labelAnchor": [1615.75, 459]
+      },
+      "bendX": 1668.5,
+      "entryX": 1752.5
+    },
+    {
+      "id": "e:17:u:class:q:4->u:class:q:10:xiranite_powder",
+      "type": "item",
+      "pts": [
+        [1487, 773],
+        [1728.5, 773],
+        [1744.5, 781],
+        [1884.5, 781]
+      ],
+      "anchors": {
+        "labelAnchor": [1607.75, 773]
+      },
+      "bendX": 1685.8333333333333,
+      "entryX": 1736.5
+    },
+    {
+      "id": "e:18:u:class:q:5->u:out:equip_script_4_3:equip_script_4_3",
+      "type": "item",
+      "pts": [
+        [5110.5, 794],
+        [5296.5, 794],
+        [5312.5, 775.5],
+        [5443, 775.5]
+      ],
+      "anchors": {
+        "labelAnchor": [5203.5, 794]
+      },
+      "bendX": 5260.5,
+      "entryX": 5304.5
+    },
+    {
+      "id": "e:19:u:class:q:6->u:class:q:7:gas_copper_enr",
+      "type": "item",
+      "pts": [
+        [2737.5, 323],
+        [2947, 323],
+        [2955, 331],
+        [2955, 528],
+        [2963, 536],
+        [3094.5, 536]
+      ],
+      "anchors": {
+        "labelAnchor": [2842.25, 323]
+      },
+      "bendX": 2891,
+      "entryX": 2955
+    },
+    {
+      "id": "e:20:u:class:q:7->u:class:q:20:gas_copper_enr2",
+      "type": "item",
+      "pts": [
+        [3342.5, 536],
+        [3552, 536],
+        [3560, 528],
+        [3560, 508],
+        [3568, 500],
+        [3699.5, 500]
+      ],
+      "anchors": {
+        "labelAnchor": [3447.25, 536]
+      },
+      "bendX": 3520,
+      "entryX": 3560
+    },
+    {
+      "id": "e:21:u:class:q:8->u:class:q:27:gas_xiranite_enr",
+      "type": "item",
+      "pts": [
+        [2737.5, 801],
+        [2947, 801],
+        [2963, 808],
+        [3094.5, 808]
+      ],
+      "anchors": {
+        "labelAnchor": [2842.25, 801]
+      },
+      "bendX": 2915,
+      "entryX": 2955
+    },
+    {
+      "id": "e:22:u:class:q:9->u:class:q:6:filter_core",
+      "type": "item",
+      "pts": [
+        [2132.5, 337],
+        [2342, 337],
+        [2358, 345],
+        [2489.5, 345]
+      ],
+      "anchors": {
+        "labelAnchor": [2237.25, 337]
+      },
+      "bendX": 2286,
+      "entryX": 2350
+    },
+    {
+      "id": "e:23:u:in:copper_ore->u:class:q:11:copper_ore",
+      "type": "item",
+      "pts": [
+        [164, 172.5],
+        [454.5, 172.5],
+        [470.5, 193],
+        [618, 193]
+      ],
+      "anchors": {
+        "labelAnchor": [309.25, 172.5]
+      },
+      "bendX": 414.5,
+      "entryX": 462.5
+    },
+    {
+      "id": "e:24:u:in:gas_inert->u:class:q:1:gas_inert",
+      "type": "item",
+      "pts": [
+        [164, 632.5],
+        [334.5, 632.5],
+        [342.5, 624.5],
+        [342.5, 347],
+        [350.5, 339],
+        [1239, 339]
+      ],
+      "anchors": {
+        "labelAnchor": [1171.5, 339]
+      },
+      "bendX": 342.5,
+      "fanoutJunctionX": 334.5,
+      "fanoutJunctionY": 632.5
+    },
+    {
+      "id": "e:25:u:in:gas_inert->u:class:q:2:gas_inert",
+      "type": "item",
+      "pts": [
+        [164, 632.5],
+        [334.5, 632.5],
+        [350.5, 653],
+        [1239, 653]
+      ],
+      "anchors": {
+        "labelAnchor": [1171.5, 653]
+      },
+      "bendX": 342.5
+    },
+    {
+      "id": "e:26:u:in:gas_xiranite->u:class:q:3:gas_xiranite",
+      "type": "item",
+      "pts": [
+        [164, 845.5],
+        [366.5, 845.5],
+        [374.5, 837.5],
+        [374.5, 467],
+        [382.5, 459],
+        [1239, 459]
+      ],
+      "anchors": {
+        "labelAnchor": [1171.5, 459]
+      },
+      "bendX": 374.5,
+      "fanoutJunctionX": 366.5,
+      "fanoutJunctionY": 845.5
+    },
+    {
+      "id": "e:27:u:in:gas_xiranite->u:class:q:4:gas_xiranite",
+      "type": "item",
+      "pts": [
+        [164, 845.5],
+        [366.5, 845.5],
+        [374.5, 837.5],
+        [374.5, 803],
+        [382.5, 795],
+        [1059.5, 795],
+        [1075.5, 773],
+        [1239, 773]
+      ],
+      "anchors": {
+        "labelAnchor": [1171.5, 773]
+      },
+      "bendX": 374.5,
+      "jogDescentX": 1067.5,
+      "legY": 795
+    },
+    {
+      "id": "e:28:u:in:gas_xiranite->u:class:q:7:gas_xiranite",
+      "type": "item",
+      "pts": [
+        [164, 845.5],
+        [366.5, 845.5],
+        [374.5, 837.5],
+        [374.5, 532],
+        [382.5, 524],
+        [2867, 524],
+        [2875, 532],
+        [2875, 550],
+        [2883, 558],
+        [3094.5, 558]
+      ],
+      "anchors": {
+        "labelAnchor": [3023.25, 558]
+      },
+      "bendX": 374.5,
+      "jogDescentX": 2875,
+      "legY": 524
+    },
+    {
+      "id": "e:29:u:in:gas_xiranite->u:class:q:8:gas_xiranite",
+      "type": "item",
+      "pts": [
+        [164, 845.5],
+        [366.5, 845.5],
+        [382.5, 845.5],
+        [2262, 845.5],
+        [2278, 823],
+        [2489.5, 823]
+      ],
+      "anchors": {
+        "labelAnchor": [2418.25, 823]
+      },
+      "bendX": 374.5,
+      "jogDescentX": 2270,
+      "legY": 845.5
+    },
+    {
+      "id": "e:30:u:in:liquid_water->u:class:q:11:liquid_water",
+      "type": "item",
+      "pts": [
+        [164, 71.5],
+        [470.5, 71.5],
+        [478.5, 79.5],
+        [478.5, 163],
+        [486.5, 171],
+        [618, 171]
+      ],
+      "anchors": {
+        "labelAnchor": [317.25, 71.5]
+      },
+      "bendX": 430.5,
+      "entryX": 478.5
+    }
+  ]
+}
