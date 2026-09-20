@@ -133,7 +133,9 @@ describe("routeTrunkEdges: fan-in trunks", () => {
       const data = dataOf(routed.edges, id);
       expect(data.fanin).toBe(true);
       expect(data.fanout).toBeUndefined();
-      expect(data.trunkKey).toBe(`${ITEM}|tgt`);
+      // A fan-in key carries the target ROW KIND as its third part; this
+      // fixture stamps no toPortKind, so both members read as input rows.
+      expect(data.trunkKey).toBe(`${ITEM}|tgt|in`);
       expect(data.busMemberCount).toBe(2);
       expect((data.busTotalRate as Fraction).equals(new Fraction(5))).toBe(
         true,

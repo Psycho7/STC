@@ -458,6 +458,49 @@ describe("a backward edge's reserves", () => {
   });
 });
 
+describe("fan-in classification across a card's two row kinds", () => {
+  // One consumer taking item "s" twice: once on an input row and once on a
+  // catalyst row. They are two ports and two edges, so they are two trunk
+  // candidates however many producers feed them (issue #154).
+  const twoRowNodes = (): RFAnyNode[] => [
+    producer("s1", 0, "s"),
+    producer("s2", 200, "s"),
+    orderedRecipeNode("t", LAYER_PITCH, 0, ["s"]),
+  ];
+  // edgeTargetSide reads `toPortKind`, the only stamp that tells a catalyst
+  // row's edge from the input-row edge of one item on one card.
+  const catEdge = (id: string, source: string): Edge => {
+    const base = mkEdge(id, source, "t", "s");
+    return { ...base, data: { ...base.data, toPortKind: "catalyst" } };
+  };
+
+  it("keeps a catalyst-row edge and an input-row edge out of one trunk", () => {
+    const { trunks, trunkByEdgeId } = classifyTrunks(twoRowNodes(), [
+      catEdge("e:0", "s1"),
+      mkEdge("e:1", "s2", "t", "s"),
+    ]);
+
+    for (const id of ["e:0", "e:1"]) {
+      expect(trunkByEdgeId.get(id)?.fanIn).toBeUndefined();
+    }
+    const fanIn = trunks.filter((t) => t.kind === "fanIn");
+    expect(fanIn.flatMap((t) => [...t.members])).toEqual([]);
+  });
+
+  it("still merges two edges that arrive on the SAME row kind", () => {
+    // The control: the fixture above differs from this one only in which row
+    // e:0 lands on, so the split above is the row kind and nothing else.
+    const { trunks } = classifyTrunks(twoRowNodes(), [
+      mkEdge("e:0", "s1", "t", "s"),
+      mkEdge("e:1", "s2", "t", "s"),
+    ]);
+
+    expect(trunks.map((t) => [t.kind, t.unit, [...t.members]])).toEqual([
+      ["fanIn", "t", ["e:0", "e:1"]],
+    ]);
+  });
+});
+
 describe("web classification", () => {
   const webNodes = (): RFAnyNode[] => [
     producer("s1", 0, "s"),
