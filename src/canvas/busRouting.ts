@@ -104,10 +104,11 @@ export type BusAggregate = {
   busChipOwner?: boolean;
 };
 
-// A bus member owns its trunk's shared drawings (the trunk segment, junction
-// dot, and aggregate chip) unless explicitly flagged otherwise. ABSENT data, or
-// an absent busChipOwner, counts as OWNER, so an un-annotated fixture keeps the
-// whole-group highlight and its aggregate chip. One helper owns that default
+// A bus member is the one elected to DRAW its trunk's aggregate chip unless
+// explicitly flagged otherwise. It is a drawing role and nothing else: it says
+// which member states the trunk's total, never how the flow runs. ABSENT data,
+// or an absent busChipOwner, counts as OWNER, so an un-annotated fixture still
+// draws its aggregate chip. One helper owns that default
 // for every reader that agrees with it, instead of the same `!== false` /
 // `?? true` rule being restated at each site. The parameter is PARTIAL because
 // chipSeating's flat chip-anchor view carries busChipOwner without trunkKey; the
@@ -131,17 +132,6 @@ export function trunkGroupsOf(
   data: TrunkMembership | undefined,
 ): ReadonlyArray<string> {
   return data?.trunkGroups ?? [];
-}
-
-// Does this edge own the shared drawings of the ONE named trunk? A member holds
-// the aggregate stamps of at most one of its trunks, so ownership has to be
-// asked per group: isTrunkOwner alone answers "owner" for every member carrying
-// no stamps at all, which is every far and backward member of the graph.
-export function ownsTrunkGroup(
-  data: (Partial<BusAggregate> & TrunkMembership) | undefined,
-  group: string,
-): boolean {
-  return data?.trunkKey === group && isTrunkOwner(data);
 }
 
 // Fan-out trunk member (routeTrunkEdges). Retyped `type: "bus"` -- so Canvas

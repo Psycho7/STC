@@ -53,7 +53,14 @@ describe("canvas/focus identity", () => {
   it("maps every focus data copy back to the data it was made from", () => {
     const onE1 = focusEdges(EDGES, { edgeIds: new Set(["e1"]) });
     const onE2 = focusEdges(EDGES, { edgeIds: new Set(["e2"]) });
-    for (const out of [onE1, onE2]) {
+    // The third mapping, where a dimmed edge also carries the aggregate-chip
+    // exemption: it is a second flag on the same copy, so the back-reference
+    // must survive it too.
+    const exempt = focusEdges(EDGES, {
+      edgeIds: new Set(["e1"]),
+      chipLitEdgeIds: new Set(["e2"]),
+    });
+    for (const out of [onE1, onE2, exempt]) {
       out.forEach((edge, i) => {
         expect(edge.data, edge.id).not.toBe(EDGES[i]!.data);
         expect(focusSourceOf(edge.data), edge.id).toBe(EDGES[i]!.data);
