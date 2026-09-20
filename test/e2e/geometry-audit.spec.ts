@@ -1565,33 +1565,38 @@ const READING_CHIP_OVERLAP_BASELINE: Record<string, number> = {
 // dense plan's fit zoom sits under the chip LOD gates: at fit zoom multi6 and
 // battery5-xiranite mount no chips at all, so the sites the casebook reports
 // there cannot be measured. First pins at the harvested counts.
+//
+// CASEBOOK FAMILY A 2026-09-19: 10 -> 1. The chip seat now slides clear of
+// every vertical stroke of another flow, so no chip box can cover a cue:
+// battery5 1 -> 0, battery5-xiranite 1 -> 0, multi6 4 -> 0 (the fourth is the
+// cue family F stamped earlier in this stack), transmuters 2 -> 0,
+// copper-script43 1 -> 0. The surviving cell is `default`'s, and it is the one
+// cue no chip hides -- see below.
 const HIDDEN_CUE_BASELINE: Record<string, number> = {
   // The only dot site in the corpus: the Cuprium Ore split dot stands on the
-  // crossing it marks, which is the one shape the cue exists to deny.
+  // crossing it marks, which is the one shape the cue exists to deny. A chip
+  // slide cannot reach it; family B's slot order is what clears this cell.
   default: 1,
-  battery5: 1,
-  "battery5-xiranite": 1,
+  battery5: 0,
+  "battery5-xiranite": 0,
   crystal: 0,
   equip4: 0,
-  // The three sites the casebook names on this plan: a loop-return column, a
+  // Three sites the casebook named on this plan -- a loop-return column, a
   // jogged leg and a fan-in source column, each crossing a chip's own run
-  // inside the chip's box.
-  //
-  // CANVAS DEFECT CASEBOOK 2026-09-19 (T4, family F): 3 -> 4. UP move, listed
-  // for ruling. The fourth is the e:43 rail column crossing e:46's run at
-  // (2316.5, 1333) -- a crossing that was already there and is now cued --
-  // under the SAME chip that hides its own cue at (2340.5, 1333), which is
-  // family A's multi6 e:46 site. The seat is A's to fix (T5 takes this counter
-  // to 1 corpus-wide); no chip moved here.
-  multi6: 4,
+  // inside the chip's box -- and family F added a fourth: the e:43 rail column
+  // crossing e:46's run at (2316.5, 1333), a crossing that was already there
+  // and is now cued, under the SAME chip that hid its own cue at
+  // (2340.5, 1333). That was family A's multi6 e:46 site, and A retires all
+  // four in this stack: the seat slides clear, so no chip covers a cue here.
+  multi6: 0,
   tundra: 0,
   script43: 0,
   "coupon-web": 0,
   "gas-web": 0,
   "rot-bottled_food_3": 0,
   "rot-bottled_food_4": 0,
-  transmuters: 2,
-  "copper-script43": 1,
+  transmuters: 0,
+  "copper-script43": 0,
   "script43-xiranite": 0,
 };
 
@@ -1611,7 +1616,10 @@ const READING_TOTALS: {
   faninLeg: 0,
   dotCover: 0,
   chipOverlap: 0,
-  hiddenCue: 10,
+  // CASEBOOK FAMILY A 2026-09-19: 10 -> 1, the sum of HIDDEN_CUE_BASELINE
+  // after the foreign-vertical slide -- the four multi6 cues F leaves standing
+  // included. Arithmetic on that table, not a separate ruling.
+  hiddenCue: 1,
 };
 
 test.describe("reading-zoom census", () => {

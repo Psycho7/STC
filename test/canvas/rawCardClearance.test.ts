@@ -28,7 +28,9 @@ import {
 } from "../../src/canvas/busRouting";
 import { widenLayerGaps, type GapRecord } from "../../src/canvas/layerModel";
 import {
+  CHAMFER,
   PORT_STUB,
+  cardClearRunAnchor,
   chipBoxClearsCards,
   drawnEdge,
   horizontalRuns,
@@ -37,6 +39,7 @@ import {
 import {
   cardRectsFor,
   deconflictChipAnchors,
+  portKeepOutRect,
 } from "../../src/canvas/chipSeating";
 import { chipSeatHalfW, rateChipText } from "../../src/canvas/chipMetrics";
 import { RECIPE_WIDTH } from "../../src/canvas/dimensions";
@@ -309,6 +312,133 @@ describe("a far member whose named run cannot hold its chip", () => {
         (run) => run.y === anchor.y && anchor.x >= run.lo && anchor.x <= run.hi,
       ),
     ).toBe(true);
+  });
+});
+
+describe("the chip slide's obstacle tiers", () => {
+  // The slide's blockers come in three tiers -- cards + port furniture +
+  // foreign verticals, then cards + furniture, then cards alone -- and the
+  // first tier that yields a CLEAR seat wins. The tiers matter because
+  // cardClearRunAnchor always answers with a point: when nothing on the line
+  // clears the tier it falls back to the longest run's centre, which is the
+  // seat the slide was called to escape. So a tier that cannot clear must be
+  // discarded whole, not taken as an answer.
+  //
+  // Both fixtures draw one 1-to-1 edge on a straight run, one card (`blk`)
+  // standing on that run's middle, and a second flow whose column crosses the
+  // run -- p2 above and t2 below, so its vertical passes through the chip row
+  // while its own cards stay far off it.
+  const fixture = (
+    p: [number, number],
+    t: [number, number],
+    p2: [number, number],
+    t2: [number, number],
+  ): {
+    drawn: Extract<ReturnType<typeof drawnEdge>, { shape: "item" }>;
+    halfW: number;
+    cards: ReturnType<typeof cardRectsFor>;
+    withFurniture: Array<{
+      left: number;
+      right: number;
+      top: number;
+      bottom: number;
+    }>;
+    verticals: Array<{
+      left: number;
+      right: number;
+      top: number;
+      bottom: number;
+    }>;
+  } => {
+    const nodes: RFAnyNode[] = [
+      producer("p", p[0], p[1]),
+      consumer("t", t[0], t[1]),
+      productNode("blk", 700, -20, 200, 120),
+      producer("p2", p2[0], p2[1]),
+      consumer("t2", t2[0], t2[1]),
+    ];
+    const seated = deconflictChipAnchors(nodes, [
+      edge("e:1", "p", "t"),
+      edge("e:2", "p2", "t2"),
+    ]);
+    const byId = nodeIndexOf(nodes);
+    const cards = cardRectsFor(
+      nodes.filter((n) => n.type !== "group"),
+      byId,
+    );
+    const withFurniture = cards.flatMap((card) => [
+      card as { left: number; right: number; top: number; bottom: number },
+      portKeepOutRect(card, "source"),
+      portKeepOutRect(card, "target"),
+    ]);
+    const shapeOf = (id: string) => {
+      const found = seated.find((e) => e.id === id)!;
+      return drawnEdge(drawnPortsOf(found, byId)!, found.type, found.data);
+    };
+    const own = shapeOf("e:1");
+    const foreign = shapeOf("e:2");
+    // e:2's flow key differs from e:1's (a different source), so every
+    // vertical of its polyline is a blocker of e:1's chip.
+    const verticals = segmentsOf(foreign.pts)
+      .filter(([a, b]) => a[0] === b[0] && a[1] !== b[1])
+      .map(([a, b]) => ({
+        left: a[0] - CHAMFER,
+        right: a[0] + CHAMFER,
+        top: Math.min(a[1], b[1]),
+        bottom: Math.max(a[1], b[1]),
+      }));
+    expect(own.shape).toBe("item");
+    expect(verticals.length).toBe(1);
+    return {
+      drawn: own as Extract<typeof own, { shape: "item" }>,
+      halfW: chipSeatHalfW(
+        rateChipText(seated.find((e) => e.id === "e:1")!),
+        false,
+      ),
+      cards,
+      withFurniture,
+      verticals,
+    };
+  };
+
+  it("takes tier 1's seat when the run can clear the foreign vertical", () => {
+    const { drawn, halfW, withFurniture, verticals } = fixture(
+      [0, 0],
+      [1600, 0],
+      [400, -900],
+      [1300, 900],
+    );
+    const tier1 = [...withFurniture, ...verticals];
+    const anchor = drawn.labelAnchor;
+    // Premise: the two tiers really do want different seats, so the assertion
+    // below is about the order and not about one seat clearing both.
+    const [tier2X] = cardClearRunAnchor(drawn.pts, halfW, withFurniture);
+    expect(chipBoxClearsCards(tier2X, anchor.y, halfW, tier1)).toBe(false);
+
+    expect(anchor.x).not.toBe(tier2X);
+    expect(chipBoxClearsCards(anchor.x, anchor.y, halfW, tier1)).toBe(true);
+  });
+
+  it("does not take tier 1's answer when no seat clears that tier", () => {
+    // The corridor is short and the foreign column stands over the only
+    // card-clear window, so no seat on the run clears tier 1.
+    const { drawn, halfW, withFurniture, verticals } = fixture(
+      [412, 0],
+      [1043, 0],
+      [455, -900],
+      [1273, 900],
+    );
+    const tier1 = [...withFurniture, ...verticals];
+    const anchor = drawn.labelAnchor;
+    const [tier1X, tier1Y] = cardClearRunAnchor(drawn.pts, halfW, tier1);
+    // Premise: tier 1 answers with a point that does not clear tier 1 -- the
+    // fallback this rule must throw away.
+    expect(chipBoxClearsCards(tier1X, tier1Y, halfW, tier1)).toBe(false);
+
+    expect(anchor.x).not.toBe(tier1X);
+    expect(chipBoxClearsCards(anchor.x, anchor.y, halfW, withFurniture)).toBe(
+      true,
+    );
   });
 });
 
