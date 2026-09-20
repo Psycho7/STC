@@ -299,6 +299,49 @@ function segmentBox(seg: readonly [number, number, number, number]): Box {
   };
 }
 
+// The keep-out rect of every VERTICAL stroke of one reconstructed polyline.
+// The bevels at a stroke's two ends belong to it and are drawn as separate
+// diagonal segments, so the rect has to cover them: a bend carrying a corridor
+// budget draws them at up to MAX_CHAMFER, three times the base CHAMFER.
+//
+// Each stroke states its own bevel leg `c`: the diagonal next to it ends `c`
+// out in x and `c` past the end in y (chamferColumn emits the corner as
+// (x +/- c, y) -> (x, y +/- c)). The pad is the wider of the two neighbouring
+// bevels, floored at CHAMFER, and it applies to all four sides.
+//
+//    (x-c, y0)
+//         \             rect: x +/- c over [y0 - c, y1 + c]
+//          (x, y0+c)
+//          |
+//          (x, y1-c)
+//           \
+//            (x+c, y1)
+//
+// Exported for the seating suite, which reads the rects of a single polyline.
+export function verticalBlockerRects(
+  segs: ReadonlyArray<readonly [number, number, number, number]>,
+): PortZoneRect[] {
+  const rects: PortZoneRect[] = [];
+  segs.forEach((seg, i) => {
+    const [x0, y0, x1, y1] = seg;
+    if (x0 !== x1 || y0 === y1) return;
+    let pad = CHAMFER;
+    for (const near of [segs[i - 1], segs[i + 1]]) {
+      // A neighbour that is straight (or absent) is not a bevel of this stroke.
+      if (near === undefined) continue;
+      if (near[0] === near[2] || near[1] === near[3]) continue;
+      pad = Math.max(pad, Math.abs(near[2] - near[0]));
+    }
+    rects.push({
+      left: x0 - pad,
+      right: x0 + pad,
+      top: Math.min(y0, y1) - pad,
+      bottom: Math.max(y0, y1) + pad,
+    });
+  });
+  return rects;
+}
+
 // Every edge-data field this pass stamps. Picking them off the types that
 // declare them makes a rename at the declaration a build error here.
 type StampKey =
@@ -652,9 +695,11 @@ export function deconflictChipAnchors(
   // -- crossing the run the box sits on. The chip renders in the label layer
   // above every stroke, so a box seated on that crossing covers the crossing
   // cue and the reader sees a line entering a labelled box. A foreign column
-  // may cross the run; it may not cross the box. The blocker is the stroke's x
-  // padded by CHAMFER either side, the same budget the drawn bevel takes, over
-  // the stroke's own y span. Tiers: furniture + verticals, then furniture, then
+  // may cross the run; it may not cross the box. The blocker is the stroke's
+  // band padded by the bevel THAT stroke draws (verticalBlockerRects), which a
+  // budgeted bend column grows to MAX_CHAMFER; the pad goes on all four sides,
+  // because the bevel reaches past the stroke's own y span as far as it
+  // reaches out in x. Tiers: furniture + verticals, then furniture, then
   // cards -- the vertical is the weakest claim on the seat, because a covered
   // cue is a misread and a buried card label is worse.
   const chipSeatByIndex = new Map<number, { x: number; y: number }>();
@@ -679,18 +724,8 @@ export function deconflictChipAnchors(
     // against its own flow key.
     const verticalsByFlow: Array<{ flowKey: string; rect: PortZoneRect }> = [];
     for (const other of edgeSegments) {
-      for (const seg of other.segs) {
-        const [x0, y0, x1, y1] = seg;
-        if (x0 !== x1 || y0 === y1) continue;
-        verticalsByFlow.push({
-          flowKey: other.flowKey,
-          rect: {
-            left: x0 - CHAMFER,
-            right: x0 + CHAMFER,
-            top: Math.min(y0, y1),
-            bottom: Math.max(y0, y1),
-          },
-        });
+      for (const rect of verticalBlockerRects(other.segs)) {
+        verticalsByFlow.push({ flowKey: other.flowKey, rect });
       }
     }
     edges.forEach((edge, index) => {
