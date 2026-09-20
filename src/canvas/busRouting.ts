@@ -267,7 +267,10 @@ function legBlockedIn(
 // Slots are handed out top-to-bottom by the port row the trunk hangs off (the
 // source port for a fan-out, the target port for a fan-in), the trunk key
 // breaking ties, so the columns follow reading order and never depend on where
-// an edge sits in the input array. Without a ctx -- a hand-built fixture, or a
+// an edge sits in the input array. Fan-outs take one exception to that order:
+// where one trunk's near leg leaves on a sibling's arriving port row, the
+// leaver is moved right of the arriver (the coincident-row constraint below),
+// and only ties that constraint leaves open keep the plain order. Without a ctx -- a hand-built fixture, or a
 // caller that re-runs the passes on its own -- there is no record to read and
 // the column falls back to the midpoint of the corridor between the unit's port
 // and its nearest counterpart, clamped exactly as the path builders clamp it.
@@ -333,10 +336,11 @@ export function routeTrunkEdges(
     portY: number;
     fallbackColumn: number;
     reachByEdgeId: Map<string, Reach>;
-    // The rows at which this trunk's NEAR members meet its column: the rows
-    // their runs arrive on (the shared port row, for every one of them) and the
-    // rows their runs leave on (each member's own counterpart row). The slot
-    // order below is the only reader.
+    // The rows at which a FAN-OUT trunk's NEAR members meet its column: the
+    // rows their runs arrive on (the shared source port row, for every one of
+    // them) and the rows their runs leave on (each member's own target row).
+    // Empty on a fan-in: the slot order below is the only reader and it runs
+    // the constraint for fan-outs alone.
     arrivingRows: number[];
     leavingRows: number[];
   };
@@ -387,9 +391,9 @@ export function routeTrunkEdges(
       nearestX = fanOut
         ? Math.min(nearestX, memberPorts.tx)
         : Math.max(nearestX, memberPorts.sx);
-      if (reach !== "near") continue;
-      arrivingRows.push(fanOut ? memberPorts.sy : memberPorts.ty);
-      leavingRows.push(fanOut ? memberPorts.ty : memberPorts.sy);
+      if (reach !== "near" || !fanOut) continue;
+      arrivingRows.push(memberPorts.sy);
+      leavingRows.push(memberPorts.ty);
     }
 
     geoms.push({

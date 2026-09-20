@@ -265,6 +265,53 @@ describe("two verticals in one gap keep the column pitch floor", () => {
 // split dot. That rule fires on ONE corpus gap, and this suite is the guard that
 // it stays there -- a gap reordered on any other plan is a layout change nobody
 // measured, whichever direction it moves the columns.
+// The column a trunk drew on, read off the stamps of one of its members. Not
+// every member carries it: a backward member keeps its detour rail and is
+// stamped railXRight (fan-out) or railXLeft (fan-in) instead, so the scan takes
+// the first member that has a junction or bend column rather than the first
+// member in the list.
+function trunkColumnOf(
+  members: ReadonlyArray<string>,
+  edgeById: ReadonlyMap<string, Edge>,
+): { member: Edge; x: number } | undefined {
+  for (const id of members) {
+    const member = edgeById.get(id);
+    if (member === undefined) continue;
+    const hints = routingHintsFromData(
+      member.data as Record<string, unknown> | undefined,
+    );
+    const x = hints.junctionX ?? hints.bendX;
+    if (x === undefined) continue;
+    return { member, x };
+  }
+  return undefined;
+}
+
+describe("the trunk column is read off a member that carries one", () => {
+  it("skips a backward member standing first in the member list", () => {
+    // A backward member keeps its detour rail and is stamped railXRight only,
+    // so reading the first member alone would leave the trunk unmeasured.
+    const backward = {
+      id: "b",
+      source: "u:src",
+      target: "u:back",
+      data: { railXRight: 100 },
+    } as unknown as Edge;
+    const near = {
+      id: "f",
+      source: "u:src",
+      target: "u:near",
+      data: { fanout: true, junctionX: 220 },
+    } as unknown as Edge;
+    const edgeById = new Map([backward, near].map((edge) => [edge.id, edge]));
+
+    const column = trunkColumnOf(["b", "f"], edgeById);
+
+    expect(column?.member.id).toBe("f");
+    expect(column?.x).toBe(220);
+  });
+});
+
 describe("only one corpus gap takes the fan-out order off plain port order", () => {
   it("holds on every corpus plan", async () => {
     const reordered: string[] = [];
@@ -288,16 +335,11 @@ describe("only one corpus gap takes the fan-out order off plain port order", () 
       const placed: Placed[] = [];
       for (const trunk of classifyTrunks(nodes, edges).trunks) {
         if (trunk.kind !== "fanOut") continue;
-        const member = trunk.members
-          .map((id) => edgeById.get(id))
-          .find((edge): edge is Edge => edge !== undefined);
-        if (member === undefined) continue;
-        const hints = routingHintsFromData(
-          member.data as Record<string, unknown> | undefined,
-        );
-        const x = hints.junctionX ?? hints.bendX;
+        const column = trunkColumnOf(trunk.members, edgeById);
+        if (column === undefined) continue;
+        const { member, x } = column;
         const ports = edgePortsModel(member, byId);
-        if (x === undefined || ports === null) continue;
+        if (ports === null) continue;
         const gap = gapAt(gaps, model, member, x);
         if (gap === undefined) continue;
         placed.push({ key: trunk.key, gap: gapKeyOf(gap), x, portY: ports.sy });
