@@ -35,6 +35,18 @@ const TIERS = new Map<string, number>([
   ["echo", Number.POSITIVE_INFINITY],
 ]);
 
+// jsdom computes no grid template, so columnsFor falls back to one column and
+// Up/Down degrade into Left/Right. Every row-step test has to report a width.
+function mockColumns(n: number) {
+  const real = window.getComputedStyle.bind(window);
+  vi.spyOn(window, "getComputedStyle").mockImplementation(((el: Element) =>
+    el.classList?.contains("recipe-picker-grid")
+      ? ({
+          gridTemplateColumns: "40px ".repeat(n).trim(),
+        } as CSSStyleDeclaration)
+      : real(el)) as typeof window.getComputedStyle);
+}
+
 function renderPopup(
   overrides: Partial<ComponentProps<typeof ItemPickerPopup>> = {},
 ) {
@@ -314,6 +326,91 @@ test("the roving stop never lands on a disabled tile", () => {
   // the first enabled tile rather than park somewhere unfocusable.
   renderPopup({ selectedId: "alpha", disabledIds: new Set(["alpha"]) });
   expect(tabStopIds()).toEqual(["bravo"]);
+});
+
+// Each tier group is its own grid, so a row step has to respect that group's
+// own rows. Stepping by a flat column count over the whole tile list lands one
+// cell sideways of the column it started in whenever a group's last row is
+// partial, and skips whole tiles when a group is narrower than the step.
+test("ArrowDown off a full row clamps to the group's partial last row", () => {
+  mockColumns(2);
+  renderPopup();
+  // Tier 1 is alpha, bravo / delta: bravo sits in column 1 of the full row, and
+  // the row below it holds only delta.
+  const bravo = tile("bravo")!;
+  bravo.focus();
+  fireEvent.keyDown(bravo, { key: "ArrowDown" });
+  expect(document.activeElement).toBe(tile("delta"));
+});
+
+test("ArrowUp into a partial last row keeps the column", () => {
+  mockColumns(2);
+  renderPopup();
+  // charlie is tier 2's only tile, in column 0. Up enters tier 1 at its last
+  // row, which is delta alone - not bravo one cell to the right.
+  const charlie = tile("charlie")!;
+  charlie.focus();
+  fireEvent.keyDown(charlie, { key: "ArrowUp" });
+  expect(document.activeElement).toBe(tile("delta"));
+});
+
+test("a row step into a shorter group clamps to that group's last tile", () => {
+  mockColumns(3);
+  renderPopup();
+  // Three columns put all of tier 1 on one row, so Down from delta (column 2)
+  // enters tier 2, whose single row ends at column 0.
+  const delta = tile("delta")!;
+  delta.focus();
+  fireEvent.keyDown(delta, { key: "ArrowDown" });
+  expect(document.activeElement).toBe(tile("charlie"));
+});
+
+test("a row step onto a disabled tile walks on in the direction of travel", () => {
+  mockColumns(2);
+  renderPopup({ disabledIds: new Set(["delta"]) });
+  // Down from bravo clamps onto delta, which takes no focus, so the walk
+  // continues forward into tier 2.
+  const bravo = tile("bravo")!;
+  bravo.focus();
+  fireEvent.keyDown(bravo, { key: "ArrowDown" });
+  expect(document.activeElement).toBe(tile("charlie"));
+});
+
+test("row steps follow the filtered groups, not the unfiltered ones", async () => {
+  const user = userEvent.setup();
+  mockColumns(2);
+  // aa1, aa2, aa3 -> tier 1; mid -> tier 2; aa9 -> Infinity. Searching "aa"
+  // empties the middle group, leaving tier 1 adjacent to the Infinity bucket.
+  renderPopup({
+    items: ["aa1", "aa2", "aa3", "mid", "aa9"].map(mkItem),
+    tierByItemId: new Map([
+      ["aa1", 1],
+      ["aa2", 1],
+      ["aa3", 1],
+      ["mid", 2],
+      ["aa9", Number.POSITIVE_INFINITY],
+    ]),
+  });
+  await user.type(screen.getByLabelText(/search/i), "aa");
+  expect(tile("mid")).toBeNull();
+  // Tier 1 now reads aa1, aa2 / aa3, so Up from aa9 lands on aa3.
+  const aa9 = tile("aa9")!;
+  aa9.focus();
+  fireEvent.keyDown(aa9, { key: "ArrowUp" });
+  expect(document.activeElement).toBe(tile("aa3"));
+});
+
+test("a row step past either end stays put", () => {
+  mockColumns(2);
+  renderPopup();
+  const echo = tile("echo")!;
+  echo.focus();
+  fireEvent.keyDown(echo, { key: "ArrowDown" });
+  expect(document.activeElement).toBe(echo);
+  const alpha = tile("alpha")!;
+  alpha.focus();
+  fireEvent.keyDown(alpha, { key: "ArrowUp" });
+  expect(document.activeElement).toBe(alpha);
 });
 
 // Upstream renames some item icons to opaque hashes; a tile that looked the
