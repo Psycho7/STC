@@ -109,13 +109,13 @@ test("an area chosen in the panel survives a reload", async ({ page }) => {
   await page.getByRole("button", { name: TEXT.openSettings }).click();
   const dialog = page.getByRole("dialog");
   await expect(
-    dialog.getByRole("radio", { name: TEXT.allAreas }),
-  ).toHaveAttribute("aria-checked", "true");
+    dialog.getByRole("button", { name: TEXT.allAreas }),
+  ).toHaveAttribute("aria-pressed", "true");
 
-  await dialog.getByRole("radio", { name: TEXT.jinlong }).click();
+  await dialog.getByRole("button", { name: TEXT.jinlong }).click();
   await expect(
-    dialog.getByRole("radio", { name: TEXT.jinlong }),
-  ).toHaveAttribute("aria-checked", "true");
+    dialog.getByRole("button", { name: TEXT.jinlong }),
+  ).toHaveAttribute("aria-pressed", "true");
   expect(
     await page.evaluate(
       (key) => window.localStorage.getItem(key),
@@ -136,9 +136,9 @@ test("an area chosen in the panel survives a reload", async ({ page }) => {
   await page.getByRole("button", { name: TEXT.openSettings }).click();
   const reopened = page.getByRole("dialog");
   await expect(
-    reopened.getByRole("radio", { name: TEXT.jinlong }),
-  ).toHaveAttribute("aria-checked", "true");
+    reopened.getByRole("button", { name: TEXT.jinlong }),
+  ).toHaveAttribute("aria-pressed", "true");
   await expect(
-    reopened.getByRole("radio", { name: TEXT.allAreas }),
-  ).toHaveAttribute("aria-checked", "false");
+    reopened.getByRole("button", { name: TEXT.allAreas }),
+  ).toHaveAttribute("aria-pressed", "false");
 });

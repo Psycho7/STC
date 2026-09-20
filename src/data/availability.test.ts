@@ -29,8 +29,8 @@ import {
   EVENT_COHORT_OVERRIDES_STORAGE_KEY,
 } from "./storage-keys";
 
-// The settings the app hands the core, with only the cohort overrides set:
-// area and manual toggles have no source until #124/#125 ship theirs.
+// The settings the app hands the core, with only the cohort overrides set: the
+// area and manual fields are absent, so their predicates pass.
 function eventsOnly(
   eventOverrides: AvailabilitySettings["eventOverrides"] = {},
 ): AvailabilitySettings {
@@ -157,28 +157,28 @@ describe("effectiveCohortEnabled", () => {
   });
 });
 
-describe("unavailableCauses", () => {
-  // A pack whose location carriers are both exercised: `smelt` is tagged for
-  // the tundra alone, and `mint_coin` runs on a machine that only exists in
-  // jinlong. Everything else is untagged, which means everywhere.
-  function locatedPack(): RecipePack {
-    const pack = fixturePack();
-    const jinlongMachine: Machine = {
-      ...pack.machines[0]!,
-      id: "machine_jinlong",
-      locations: ["jinlong"],
-    };
-    pack.machines = [...pack.machines, jinlongMachine];
-    pack.recipes = pack.recipes.map((r) =>
-      r.id === "smelt"
-        ? { ...r, locations: ["tundra"] }
-        : r.id === "mint_coin"
-          ? { ...r, producers: ["machine_jinlong"] }
-          : r,
-    );
-    return pack;
-  }
+// A pack whose location carriers are both exercised: `smelt` is tagged for
+// the tundra alone, and `mint_coin` runs on a machine that only exists in
+// jinlong. Everything else is untagged, which means everywhere.
+function locatedPack(): RecipePack {
+  const pack = fixturePack();
+  const jinlongMachine: Machine = {
+    ...pack.machines[0]!,
+    id: "machine_jinlong",
+    locations: ["jinlong"],
+  };
+  pack.machines = [...pack.machines, jinlongMachine];
+  pack.recipes = pack.recipes.map((r) =>
+    r.id === "smelt"
+      ? { ...r, locations: ["tundra"] }
+      : r.id === "mint_coin"
+        ? { ...r, producers: ["machine_jinlong"] }
+        : r,
+  );
+  return pack;
+}
 
+describe("unavailableCauses", () => {
   it("passes every predicate whose settings field is absent", () => {
     // Cohorts all on, no area, no manual set: the location carriers in the
     // pack are inert and nothing is unavailable.
@@ -386,6 +386,65 @@ describe("unavailableItems", () => {
     ).toEqual(
       new Map([
         ["lung", { kind: "event", cohort: "v1.5" }],
+        ["token_orphan", { kind: "event", cohort: "v1.1" }],
+      ]),
+    );
+  });
+
+  it("maps an item whose every producer is out of area to that area", () => {
+    // Under the tundra only mint_coin is out of area, and it is coin's single
+    // producer; bar's producer (smelt) is tundra-tagged, so bar stays clear.
+    const tundra = unavailableItems(locatedPack(), {
+      eventOverrides: { "v1.2": true },
+      area: "tundra",
+    });
+    expect(tundra.get("coin")).toEqual({ kind: "area", area: "tundra" });
+    expect(tundra.has("bar")).toBe(false);
+
+    // The mirror: under jinlong smelt is the recipe carrier that fails, so bar
+    // is the item that goes dark.
+    const jinlong = unavailableItems(locatedPack(), {
+      eventOverrides: { "v1.2": true },
+      area: "jinlong",
+    });
+    expect(jinlong.get("bar")).toEqual({ kind: "area", area: "jinlong" });
+    expect(jinlong.has("coin")).toBe(false);
+  });
+
+  it("keeps an item whose producers disagree about the area", () => {
+    const pack = locatedPack();
+    const minter = pack.recipes.find((r) => r.id === "mint_coin")!;
+    pack.recipes = [
+      ...pack.recipes,
+      { ...minter, id: "mint_coin_anywhere", producers: ["machine"] },
+    ];
+    // The second recipe runs on the untagged machine, so coin can still be
+    // made in the tundra.
+    expect(
+      unavailableItems(pack, {
+        eventOverrides: { "v1.2": true },
+        area: "tundra",
+      }).has("coin"),
+    ).toBe(false);
+  });
+
+  it("maps a manually disabled sole producer onto its item", () => {
+    expect(
+      unavailableItems(fixturePack(), {
+        eventOverrides: { "v1.2": true },
+        disabledRecipeIds: new Set(["smelt"]),
+      }).get("bar"),
+    ).toEqual({ kind: "manual", recipeId: "smelt" });
+  });
+
+  it("lets an item's own cohort win over its producers' cause", () => {
+    // coin is v1.2-tagged and off by default; under the tundra its only
+    // producer is also out of area. The tile speaks of the item's cohort.
+    expect(
+      unavailableItems(locatedPack(), { eventOverrides: {}, area: "tundra" }),
+    ).toEqual(
+      new Map([
+        ["coin", { kind: "event", cohort: "v1.2" }],
         ["token_orphan", { kind: "event", cohort: "v1.1" }],
       ]),
     );

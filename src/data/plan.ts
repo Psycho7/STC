@@ -99,6 +99,23 @@ const CAUSE_PRECEDENCE: ProducerUnavailableCause["kind"][] = [
   "manual",
 ];
 
+// The outermost of the causes an item's producers carry, or undefined when the
+// list is empty. Shared with the item-level derivation in availability.ts so
+// the validation banner and the picker hint cannot name different switches for
+// the same item.
+export function outermostCause(
+  causes: readonly ProducerUnavailableCause[],
+): ProducerUnavailableCause | undefined {
+  return causes.reduce<ProducerUnavailableCause | undefined>(
+    (best, c) =>
+      best === undefined ||
+      CAUSE_PRECEDENCE.indexOf(c.kind) < CAUSE_PRECEDENCE.indexOf(best.kind)
+        ? c
+        : best,
+    undefined,
+  );
+}
+
 export type PlanLoadError =
   | { kind: "malformed-hash"; reason: string }
   | { kind: "payload-too-large"; length: number; limit: number }
@@ -343,12 +360,8 @@ export function validatePlan(
       if (producers.length > 0 && causes.length === producers.length) {
         // Producers can be off for different reasons; report the outermost
         // one, so the message points at the setting to flip first.
-        const cause = causes.reduce((best, c) =>
-          CAUSE_PRECEDENCE.indexOf(c.kind) < CAUSE_PRECEDENCE.indexOf(best.kind)
-            ? c
-            : best,
-        );
-        return { kind: "producer-unavailable", itemId, cause };
+        const cause = outermostCause(causes);
+        if (cause) return { kind: "producer-unavailable", itemId, cause };
       }
     }
   }

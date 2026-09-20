@@ -142,10 +142,10 @@ export function SettingsPanel({
             </div>
             <LocaleSwitcher />
           </section>
-          {/* The Area section (#124). Buttons rather than radio inputs: the
-              row is styled as a segmented control, and role="radio" on a
-              button carries the same semantics to assistive tech as long as
-              aria-checked rides along. */}
+          {/* The Area section (#124). A group of aria-pressed buttons rather
+              than a radio group: the row is styled as a segmented control and
+              has no arrow-key navigation, and radio semantics would promise a
+              keyboard contract the row does not implement. */}
           <section
             className="settings-section"
             aria-label={i18n.t("settings.area.title")}
@@ -157,7 +157,7 @@ export function SettingsPanel({
             </div>
             <div
               className="settings-areas"
-              role="radiogroup"
+              role="group"
               aria-label={i18n.t("settings.area.title")}
             >
               {areaOptions.map((option) => {
@@ -166,8 +166,7 @@ export function SettingsPanel({
                   <button
                     key={option.id ?? "all"}
                     type="button"
-                    role="radio"
-                    aria-checked={selected}
+                    aria-pressed={selected}
                     className={"settings-area" + (selected ? " selected" : "")}
                     data-area={option.id ?? "all"}
                     onClick={() => onAreaChange(option.id)}

@@ -31,9 +31,9 @@ vi.mock("./canvas/layout", async (importOriginal) => {
 
 // A seam for the reason-only transition below: the core is left alone until a
 // test arms `recast`, at which point every derived cause keeps its recipe id
-// and swaps its kind. Nothing in the app can produce an area or manual cause
-// yet (#124/#125 own the settings that would), and the point of the case is
-// precisely that the ids do not move.
+// and swaps its kind. The app produces area causes on its own now (#124's
+// settlement picker), but no manual ones yet (#125 owns that toggle), and the
+// point of the case is precisely that the ids do not move.
 const availabilitySpy = vi.hoisted(() => ({
   recast: null as null | { kind: "manual"; recipeId: string },
   lastIds: [] as string[],

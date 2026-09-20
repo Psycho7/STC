@@ -714,6 +714,22 @@ test("without unavailableItems every event tile stays enabled and no hint render
   expect(document.querySelector('[data-testid="picker-hint"]')).toBeNull();
 });
 
+// The area's item-level fallout (#124): an item every one of whose producers
+// sits outside the selected settlement is dimmed just like an off-cohort one,
+// and its hint names the area setting rather than a cohort.
+const TUNDRA_ONLY = unavailableItems(realPack, {
+  eventOverrides: {},
+  area: "tundra",
+});
+
+test("items whose producers are all outside the area are dimmed with the area hint", () => {
+  openAddPicker("en", TUNDRA_ONLY);
+  // liquid_copper is made only in jinlong; iron_powder is made everywhere.
+  expect(pickerTile("liquid_copper")!.disabled).toBe(true);
+  expect(pickerTile("iron_powder")!.disabled).toBe(false);
+  expect(pickerHintText()).toBe(loadI18n("en").t("picker.area.off"));
+});
+
 // The row-swap call site unions the same keys, so editing an existing target's
 // item dims the off-cohort tiles there too (the row's own item stays enabled
 // and highlighted, as before).

@@ -9,7 +9,13 @@
 // button flips it into the tree, and onClose unmounts it.
 import { useState } from "react";
 import { afterEach, expect, test, vi } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  within,
+} from "@testing-library/react";
 import type { RecipePack } from "@aef/schema";
 import { SettingsPanel } from "./SettingsPanel";
 import { LocaleProvider } from "../data/i18n-context";
@@ -165,44 +171,49 @@ test("the locale control lives in the dialog and persists the choice", () => {
   expect(window.localStorage.getItem(LOCALE_STORAGE_KEY)).toBe("zh");
 });
 
-// #124's Area section. Labels come from the pack's i18n sidecar, so the en
-// harness reads the English settlement names.
+// #124's Area section: a role="group" of aria-pressed buttons. Labels come
+// from the pack's i18n sidecar, so the en harness reads the English settlement
+// names.
+function areaGroup(): HTMLElement {
+  return screen.getByRole("group", { name: "Area" });
+}
+
 function areaOption(name: string): HTMLElement {
-  return screen.getByRole("radio", { name });
+  return within(areaGroup()).getByRole("button", { name });
 }
 
 test("the area group offers all areas plus one option per settlement", () => {
   renderSettings();
   openPanel();
-  const options = screen.getAllByRole("radio");
+  const options = within(areaGroup()).getAllByRole("button");
   expect(options.map((o) => o.textContent)).toEqual([
     "All areas",
     "Valley IV",
     "Wuling",
   ]);
   // Nothing stored: the plan spans every area.
-  expect(areaOption("All areas").getAttribute("aria-checked")).toBe("true");
+  expect(areaOption("All areas").getAttribute("aria-pressed")).toBe("true");
 });
 
-test("choosing an area persists it and checks exactly that option", () => {
+test("choosing an area persists it and presses exactly that option", () => {
   renderSettings();
   openPanel();
   fireEvent.click(areaOption("Valley IV"));
   expect(window.localStorage.getItem(AREA_STORAGE_KEY)).toBe("tundra");
-  expect(areaOption("Valley IV").getAttribute("aria-checked")).toBe("true");
-  expect(areaOption("All areas").getAttribute("aria-checked")).toBe("false");
+  expect(areaOption("Valley IV").getAttribute("aria-pressed")).toBe("true");
+  expect(areaOption("All areas").getAttribute("aria-pressed")).toBe("false");
   // Back to all areas: the key goes away rather than storing a sentinel.
   fireEvent.click(areaOption("All areas"));
   expect(window.localStorage.getItem(AREA_STORAGE_KEY)).toBeNull();
-  expect(areaOption("All areas").getAttribute("aria-checked")).toBe("true");
+  expect(areaOption("All areas").getAttribute("aria-pressed")).toBe("true");
 });
 
 test("the panel opens on the stored area, not the default", () => {
   window.localStorage.setItem(AREA_STORAGE_KEY, "jinlong");
   renderSettings();
   openPanel();
-  expect(areaOption("Wuling").getAttribute("aria-checked")).toBe("true");
-  expect(areaOption("All areas").getAttribute("aria-checked")).toBe("false");
+  expect(areaOption("Wuling").getAttribute("aria-pressed")).toBe("true");
+  expect(areaOption("All areas").getAttribute("aria-pressed")).toBe("false");
 });
 
 test("the shipped pack's v1.5 row reads current, defaults on, with the default tag", () => {

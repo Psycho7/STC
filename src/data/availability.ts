@@ -18,6 +18,8 @@
 import type { Recipe, RecipePack } from "@aef/schema";
 import type { RecipeId } from "../solver/types";
 import type { ProducerUnavailableCause } from "./plan";
+import { outermostCause } from "./plan";
+import { producersOfItem } from "./recipe-category";
 import {
   AREA_STORAGE_KEY,
   EVENT_COHORT_OVERRIDES_STORAGE_KEY as STORAGE_KEY,
@@ -199,13 +201,15 @@ function causeDetail(cause: ProducerUnavailableCause): string {
   }
 }
 
-// The ITEMS the pickers dim, each mapped to the cause behind it. Item-driven
-// on purpose - an item's cohort is what its tiles and validation errors speak
-// of, and the extractor's mixed-cohort guard keeps a row's tag in agreement
-// with its items, so this walks pack.items directly rather than going through
-// the recipe map above. Only event causes arise here today: an area or a hand
-// toggle hides recipes, not items, and #124/#125 own whatever item-level
-// dimming they turn out to want.
+// The ITEMS the pickers dim, each mapped to the cause behind it, in two
+// passes. First the item's own cohort: an item's tag is what its tiles and
+// validation errors speak of, and the extractor's mixed-cohort guard keeps a
+// row's tag in agreement with its items, so that pass walks pack.items
+// directly. Then the producer pass: an item every one of whose producers is
+// off - by area, by cohort, or by hand - is just as unpickable, so it carries
+// the outermost of their causes. An item claimed by the first pass keeps that
+// cause; an item with no producers at all is not this seam's business (the
+// plan loader reports it as not producible).
 export function unavailableItems(
   pack: RecipePack,
   settings: AvailabilitySettings,
@@ -219,6 +223,22 @@ export function unavailableItems(
     ) {
       causes.set(item.id, { kind: "event", cohort: item.event });
     }
+  }
+
+  const recipeCauses = unavailableCauses(pack, settings);
+  if (recipeCauses.size === 0) return causes;
+
+  for (const item of pack.items) {
+    if (causes.has(item.id)) continue;
+    const producers = producersOfItem(pack.recipes, item.id);
+    if (producers.length === 0) continue;
+    const producerCauses = producers.flatMap((r) => {
+      const cause = recipeCauses.get(r.id);
+      return cause ? [cause] : [];
+    });
+    if (producerCauses.length < producers.length) continue;
+    const cause = outermostCause(producerCauses);
+    if (cause) causes.set(item.id, cause);
   }
   return causes;
 }
