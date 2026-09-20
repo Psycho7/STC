@@ -201,7 +201,9 @@ export function TargetsPanel({
               <input
                 type="text"
                 inputMode="decimal"
-                aria-label={i18n.t("targets.rate.label")}
+                aria-label={i18n.t("targets.rate.forItem", {
+                  name: i18n.displayName(t.itemId),
+                })}
                 aria-describedby={
                   rate.invalid ? `t-rate-err-${t.itemId}` : undefined
                 }
@@ -217,13 +219,23 @@ export function TargetsPanel({
                 >
                   {i18n.t("rate.invalid")}
                 </span>
+              ) : rate.reverted ? (
+                <span
+                  className="b-rate-err"
+                  role="status"
+                  data-testid="rate-reverted"
+                >
+                  {i18n.t("rate.reverted")}
+                </span>
               ) : null}
             </div>
             <button
               className="b-remove"
               data-testid="remove-target"
               onClick={() => handleRemove(t.itemId)}
-              aria-label={i18n.t("targets.remove.label")}
+              aria-label={i18n.t("targets.remove.forItem", {
+                name: i18n.displayName(t.itemId),
+              })}
             >
               ×
             </button>

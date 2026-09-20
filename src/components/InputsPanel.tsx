@@ -129,12 +129,31 @@ export function InputsPanel({
   >(pack, pack.items, unavailableItems);
   const { pickerFor, prompt, closePicker, focusOnMount } = flow;
   // The row's item name plus, when present, the message under its rate field.
-  // The name is a description rather than a label so the accessible NAME stays
-  // the generic rate label every existing query resolves by.
+  // The name element stays a description even though the label now carries the
+  // item too: it is the on-screen name the row's message hangs off.
   function rateDescribedBy(key: RowKey, hasMessage: boolean): string {
     const ids = [`i-name-${key.itemId}${rowIdSuffix(key)}`];
     if (hasMessage) ids.push(`i-rate-err-${key.itemId}${rowIdSuffix(key)}`);
     return ids.join(" ");
+  }
+
+  // The pool a row addresses, as its controls name it: an item can hold a row
+  // in both pools, so the item name alone does not identify a row.
+  function poolName(key: RowKey): string {
+    return i18n.t(
+      key.role === "catalyst" ? "inputs.pool.catalyst" : "inputs.pool.general",
+    );
+  }
+
+  // Accessible name for a row's rate field or its remove button.
+  function rowLabel(
+    key: RowKey,
+    k: "inputs.rate.forItem" | "inputs.remove.forItem",
+  ) {
+    return i18n.t(k, {
+      name: i18n.displayName(key.itemId),
+      pool: poolName(key),
+    });
   }
 
   // The add prompt confirmed an amount (R5). The row commits exactly as a
@@ -524,7 +543,7 @@ export function InputsPanel({
               <input
                 type="text"
                 inputMode="decimal"
-                aria-label={i18n.t("inputs.rate.label")}
+                aria-label={rowLabel(key, "inputs.rate.forItem")}
                 aria-describedby={rateDescribedBy(
                   key,
                   rate.invalid || shortage !== undefined,
@@ -540,6 +559,14 @@ export function InputsPanel({
                   data-testid="rate-invalid"
                 >
                   {i18n.t("rate.invalid")}
+                </span>
+              ) : rate.reverted ? (
+                <span
+                  className="b-rate-err"
+                  role="status"
+                  data-testid="rate-reverted"
+                >
+                  {i18n.t("rate.reverted")}
                 </span>
               ) : null}
               {shortage !== undefined ? (
@@ -672,7 +699,7 @@ export function InputsPanel({
                 type="text"
                 inputMode="decimal"
                 ref={(el) => focusOnMount(el, rowKey, "rate")}
-                aria-label={i18n.t("inputs.rate.label")}
+                aria-label={rowLabel(key, "inputs.rate.forItem")}
                 aria-describedby={rateDescribedBy(
                   key,
                   rate.invalid || shortage !== undefined,
@@ -693,6 +720,14 @@ export function InputsPanel({
                 >
                   {i18n.t("rate.invalid")}
                 </span>
+              ) : rate.reverted ? (
+                <span
+                  className="b-rate-err"
+                  role="status"
+                  data-testid="rate-reverted"
+                >
+                  {i18n.t("rate.reverted")}
+                </span>
               ) : null}
               {shortage !== undefined ? (
                 <span
@@ -708,7 +743,7 @@ export function InputsPanel({
               className="b-remove"
               data-testid="remove-input"
               onClick={() => handleRemove(key)}
-              aria-label={i18n.t("inputs.remove.label")}
+              aria-label={rowLabel(key, "inputs.remove.forItem")}
             >
               ×
             </button>

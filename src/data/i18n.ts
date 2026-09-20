@@ -6,9 +6,9 @@ export type UiKey =
   | "targets.title"
   | "targets.add"
   | "targets.rate.unit"
-  | "targets.rate.label"
+  | "targets.rate.forItem"
   | "item.selected"
-  | "targets.remove.label"
+  | "targets.remove.forItem"
   | "targets.duplicate"
   | "targets.head.sub"
   | "targets.empty"
@@ -38,11 +38,14 @@ export type UiKey =
   | "app.locale.label"
   | "inputs.title"
   | "inputs.rate.label"
+  | "inputs.rate.forItem"
   | "inputs.rate.unit"
   | "canvas.rate.unit"
   | "canvas.catalyst.perMachine"
   | "inputs.rate.placeholder"
-  | "inputs.remove.label"
+  | "inputs.remove.forItem"
+  | "inputs.pool.general"
+  | "inputs.pool.catalyst"
   | "inputs.add"
   | "inputs.add.exhausted"
   | "inputs.picker.listed"
@@ -73,6 +76,7 @@ export type UiKey =
   | "canvas.controls.fit_view"
   | "canvas.controls.interactive"
   | "rate.invalid"
+  | "rate.reverted"
   | "ratePrompt.title"
   | "ratePrompt.confirm"
   | "ratePrompt.cancel"
@@ -113,9 +117,11 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "targets.title": "目标",
     "targets.add": "添加目标",
     "targets.rate.unit": "件 / 分钟",
-    "targets.rate.label": "速率",
+    // Row controls name their item: a rail of identically named fields and X
+    // buttons tells a screen-reader user nothing about which row they are on.
+    "targets.rate.forItem": "{name} 的速率",
     "item.selected": "物品：{name}",
-    "targets.remove.label": "删除目标",
+    "targets.remove.forItem": "删除目标 {name}",
     "targets.duplicate": "物品 ID 重复: {itemId}",
     "targets.head.sub": "// 声明产出速率 · 件 / 分钟",
     "targets.empty": "未声明任何目标产物 — 点击下方按钮添加",
@@ -157,11 +163,16 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "app.locale.label": "语言",
     "inputs.title": "输入",
     "inputs.rate.label": "速率",
+    // An item can hold a row in both supply pools, so an input row's controls
+    // name the pool as well as the item.
+    "inputs.rate.forItem": "{name} 的{pool}速率",
     "inputs.rate.unit": "/分",
     "canvas.rate.unit": "/分",
     "canvas.catalyst.perMachine": "每台 {rate}/分",
     "inputs.rate.placeholder": "上限 / 分",
-    "inputs.remove.label": "移除输入行",
+    "inputs.remove.forItem": "移除 {name} 的{pool}输入行",
+    "inputs.pool.general": "普通",
+    "inputs.pool.catalyst": "催化",
     "inputs.add": "添加输入",
     "inputs.add.exhausted": "所有物品均已添加",
     "inputs.picker.listed": "灰显的物品已在面板中 — 请直接编辑对应行",
@@ -192,6 +203,7 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "canvas.controls.fit_view": "适应视图",
     "canvas.controls.interactive": "切换交互",
     "rate.invalid": "请输入数字，例如 30 或 1/3",
+    "rate.reverted": "输入无效，已恢复为原速率",
     "ratePrompt.title": "数量",
     "ratePrompt.confirm": "添加",
     "ratePrompt.cancel": "取消",
@@ -223,9 +235,9 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "targets.title": "Targets",
     "targets.add": "Add target",
     "targets.rate.unit": "items / minute",
-    "targets.rate.label": "rate",
+    "targets.rate.forItem": "Rate for {name}",
     "item.selected": "Item: {name}",
-    "targets.remove.label": "remove target",
+    "targets.remove.forItem": "Remove target {name}",
     "targets.duplicate": "Duplicate item id: {itemId}",
     "targets.head.sub": "// declared output rates · items per minute",
     "targets.empty": "No declared outputs yet — use the action below",
@@ -268,11 +280,14 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "app.locale.label": "Language",
     "inputs.title": "Inputs",
     "inputs.rate.label": "Rate",
+    "inputs.rate.forItem": "{pool} rate for {name}",
     "inputs.rate.unit": "/min",
     "canvas.rate.unit": "/min",
     "canvas.catalyst.perMachine": "{rate}/min per machine",
     "inputs.rate.placeholder": "cap /min",
-    "inputs.remove.label": "Remove input row",
+    "inputs.remove.forItem": "Remove {pool} input {name}",
+    "inputs.pool.general": "General",
+    "inputs.pool.catalyst": "Catalyst",
     "inputs.add": "Add input",
     "inputs.add.exhausted": "All items already have a row",
     "inputs.picker.listed":
@@ -304,6 +319,7 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "canvas.controls.fit_view": "Fit view",
     "canvas.controls.interactive": "Toggle interactivity",
     "rate.invalid": "Enter a number, e.g. 30 or 1/3",
+    "rate.reverted": "That was not a number; the previous rate is back",
     "ratePrompt.title": "Amount",
     "ratePrompt.confirm": "Add",
     "ratePrompt.cancel": "Cancel",

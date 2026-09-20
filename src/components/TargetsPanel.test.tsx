@@ -208,6 +208,83 @@ test("blur on unparseable text reverts the field to the last-good value", () => 
   expect(input.value).toBe("120");
   expect(input.getAttribute("aria-invalid")).toBeNull();
   expect(onChange).not.toHaveBeenCalled();
+  // The revert is reported, not silent: a discarded edit with no cue reads as
+  // the panel swallowing the number. It is a status, not an error - the field
+  // holds a valid rate again.
+  const status = screen.getByTestId("rate-reverted");
+  expect(status.getAttribute("role")).toBe("status");
+  expect(status.className).toContain("b-rate-err");
+  expect(status.textContent).toBe(loadI18n("en").t("rate.reverted"));
+  // Nothing describes it, and the now-valid field is not marked invalid.
+  expect(input.getAttribute("aria-describedby")).toBeNull();
+  expect(status.id).toBe("");
+  // Short-lived: the next keystroke retires it.
+  fireEvent.change(input, { target: { value: "60" } });
+  expect(screen.queryByTestId("rate-reverted")).toBeNull();
+});
+
+// Refocusing the field is the other way out of the notice: the user is back on
+// the value it talks about.
+test("refocusing the reverted field retires the status line", () => {
+  render(
+    <LocaleProvider locale="en">
+      <TargetsPanel
+        targets={[{ itemId: "widget", ratePerSec: { num: "2", denom: "1" } }]}
+        onChange={() => {}}
+        pack={PACK}
+      />
+    </LocaleProvider>,
+  );
+  const input = rateInputs()[0]!;
+  fireEvent.change(input, { target: { value: "12,5" } });
+  fireEvent.blur(input);
+  expect(screen.getByTestId("rate-reverted")).not.toBeNull();
+  fireEvent.focus(input);
+  expect(screen.queryByTestId("rate-reverted")).toBeNull();
+});
+
+// Enter's invalid cue and the blur revert are different states and must not
+// both be on screen: one says "fix this", the other "your text is gone".
+test("Enter on unparseable text shows the invalid cue, not the revert status", () => {
+  render(
+    <LocaleProvider locale="en">
+      <TargetsPanel
+        targets={[{ itemId: "widget", ratePerSec: { num: "2", denom: "1" } }]}
+        onChange={() => {}}
+        pack={PACK}
+      />
+    </LocaleProvider>,
+  );
+  const input = rateInputs()[0]!;
+  fireEvent.change(input, { target: { value: "12,5" } });
+  fireEvent.keyDown(input, { key: "Enter" });
+  expect(screen.getByTestId("rate-invalid")).not.toBeNull();
+  expect(screen.queryByTestId("rate-reverted")).toBeNull();
+});
+
+// Every row control carries its own item in its accessible name, so a
+// screen-reader user can tell the rows apart.
+test("each row's rate field and remove button name their target", () => {
+  render(
+    <LocaleProvider locale="en">
+      <TargetsPanel targets={targets3()} onChange={() => {}} pack={PACK} />
+    </LocaleProvider>,
+  );
+  const i18n = loadI18n("en");
+  expect(rateInputs().map((el) => el.getAttribute("aria-label"))).toEqual(
+    ["widget", "gadget", "sprocket"].map((name) =>
+      i18n.t("targets.rate.forItem", { name }),
+    ),
+  );
+  expect(
+    screen
+      .getAllByTestId("remove-target")
+      .map((el) => el.getAttribute("aria-label")),
+  ).toEqual(
+    ["widget", "gadget", "sprocket"].map((name) =>
+      i18n.t("targets.remove.forItem", { name }),
+    ),
+  );
 });
 
 // An emptied target rate is invalid (a target needs a rate); it is not silently
@@ -288,7 +365,9 @@ test("an item swap hands focus to the swapped row's trigger", () => {
   );
   fireEvent.click(screen.getByLabelText(/item/i));
   pickTile("gadget");
-  const trigger = screen.getByLabelText(/gadget/i);
+  // Anchored on the trigger's own label: the row's rate field and remove
+  // button now name the item too, so a bare /gadget/ matches three controls.
+  const trigger = screen.getByLabelText(/^Item: gadget$/);
   expect(document.activeElement).toBe(trigger);
 });
 

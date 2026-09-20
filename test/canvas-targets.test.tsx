@@ -5,6 +5,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
@@ -155,7 +156,9 @@ describe("canvas-targets: rate edit commit", () => {
     );
     const hashBefore = window.location.hash;
 
-    const inputs = screen.getAllByLabelText("速率");
+    const inputs = within(
+      screen.getByTestId("targets-section"),
+    ).getAllByLabelText(/速率/);
     // Typing alone must not commit or rewrite the hash.
     fireEvent.change(inputs[0]!, { target: { value: "240" } });
     expect(window.location.hash).toBe(hashBefore);
@@ -197,7 +200,9 @@ describe("canvas-targets: rapid edits race", () => {
       { timeout: 5000 },
     );
 
-    const inputs = screen.getAllByLabelText("速率");
+    const inputs = within(
+      screen.getByTestId("targets-section"),
+    ).getAllByLabelText(/速率/);
     // Two keystrokes, then a single blur: only the final value is committed.
     fireEvent.change(inputs[0]!, { target: { value: "100" } });
     fireEvent.change(inputs[0]!, { target: { value: "200" } });

@@ -341,6 +341,42 @@ test("Enter on invalid auto-row text shows the cue and keeps the text", () => {
   expect(onChange).not.toHaveBeenCalled();
 });
 
+// An auto-row's blur revert follows the same one-line policy as an override
+// row's: the discarded text is reported where the field is, as a status.
+test("blur on invalid auto-row text announces the revert as a status", () => {
+  const onChange = vi.fn();
+  render(
+    <LocaleProvider locale="en">
+      <InputsPanel
+        itemOverrides={[]}
+        onChange={onChange}
+        pack={PACK}
+        assumedRawItemIds={["widget"]}
+        supplyRateByItem={new Map()}
+      />
+    </LocaleProvider>,
+  );
+  const input = screen.getByTestId("input-auto-row").querySelector("input")!;
+  fireEvent.change(input, { target: { value: "1/" } });
+  fireEvent.blur(input);
+  expect(input.value).toBe("");
+  expect(input.getAttribute("aria-invalid")).toBeNull();
+  const status = screen.getByTestId("rate-reverted");
+  expect(status.getAttribute("role")).toBe("status");
+  expect(status.textContent).toBe(loadI18n("en").t("rate.reverted"));
+  expect(status.id).toBe("");
+  expect(onChange).not.toHaveBeenCalled();
+  // Refocusing retires the notice: the user is back on the value it names.
+  fireEvent.focus(input);
+  expect(screen.queryByTestId("rate-reverted")).toBeNull();
+  // So does the next keystroke, after a fresh revert.
+  fireEvent.change(input, { target: { value: "x" } });
+  fireEvent.blur(input);
+  expect(screen.getByTestId("rate-reverted")).not.toBeNull();
+  fireEvent.change(input, { target: { value: "5" } });
+  expect(screen.queryByTestId("rate-reverted")).toBeNull();
+});
+
 // Blur on an invalid cap reverts the field to the last-good value.
 test("blur on invalid cap reverts an override row to its last-good value", () => {
   render(
@@ -360,6 +396,72 @@ test("blur on invalid cap reverts an override row to its last-good value", () =>
   fireEvent.blur(input);
   expect(input.value).toBe("60");
   expect(input.getAttribute("aria-invalid")).toBeNull();
+  // The revert says so instead of happening behind the user's back, as a
+  // status: the cap on screen is valid again.
+  const status = screen.getByTestId("rate-reverted");
+  expect(status.getAttribute("role")).toBe("status");
+  expect(status.textContent).toBe(loadI18n("en").t("rate.reverted"));
+  // It describes nothing: the field still points only at the row's name.
+  expect(status.id).toBe("");
+  expect(input.getAttribute("aria-describedby")).toBe("i-name-widget");
+  // Short-lived: the next keystroke retires it.
+  fireEvent.change(input, { target: { value: "30" } });
+  expect(screen.queryByTestId("rate-reverted")).toBeNull();
+});
+
+// An item with a row in both pools: the rows are told apart by pool, so their
+// controls have to be too.
+test("a split item's two rows carry distinct control names", () => {
+  render(
+    <LocaleProvider locale="en">
+      <InputsPanel
+        itemOverrides={[
+          { itemId: "gas_xiranite" },
+          { itemId: "gas_xiranite", role: "catalyst" },
+        ]}
+        onChange={() => {}}
+        pack={CATALYST_PACK}
+      />
+    </LocaleProvider>,
+  );
+  const i18n = loadI18n("en");
+  const name = i18n.displayName("gas_xiranite");
+  const label = (row: HTMLElement, testid: string) =>
+    row.querySelector(`[data-testid="${testid}"]`)!.getAttribute("aria-label");
+  const general = rowFor("gas_xiranite");
+  const catalyst = rowFor("gas_xiranite", "catalyst");
+  const generalRate = general.querySelector("input[type=text]")!;
+  const catalystRate = catalyst.querySelector("input[type=text]")!;
+  expect(generalRate.getAttribute("aria-label")).toBe(
+    i18n.t("inputs.rate.forItem", {
+      name,
+      pool: i18n.t("inputs.pool.general"),
+    }),
+  );
+  expect(catalystRate.getAttribute("aria-label")).toBe(
+    i18n.t("inputs.rate.forItem", {
+      name,
+      pool: i18n.t("inputs.pool.catalyst"),
+    }),
+  );
+  expect(generalRate.getAttribute("aria-label")).not.toBe(
+    catalystRate.getAttribute("aria-label"),
+  );
+  expect(label(general, "remove-input")).toBe(
+    i18n.t("inputs.remove.forItem", {
+      name,
+      pool: i18n.t("inputs.pool.general"),
+    }),
+  );
+  expect(label(catalyst, "remove-input")).toBe(
+    i18n.t("inputs.remove.forItem", {
+      name,
+      pool: i18n.t("inputs.pool.catalyst"),
+    }),
+  );
+  expect(label(general, "remove-input")).not.toBe(
+    label(catalyst, "remove-input"),
+  );
 });
 
 // An empty auto-row is the Unlimited state, not an error: blur leaves it empty
