@@ -125,16 +125,17 @@ export function RecipeToggles({
     return recipes.length === 0 ? [] : [{ ...group, recipes }];
   });
   // Same rule one level down: a recipe stays when its own name matches or when
-  // one of the items it makes does.
-  const shownMachines = showAll
-    ? machineGroups.flatMap((group) => {
-        const recipes = group.recipes.filter(
-          (r) =>
-            matches(r.id, needle) || r.out.some((o) => matches(o.item, needle)),
-        );
-        return recipes.length === 0 ? [] : [{ ...group, recipes }];
-      })
-    : [];
+  // one of the items it makes does. This runs whether or not the catalogue is
+  // expanded, because the empty message has to count the matches hiding behind
+  // the disclosure as matches.
+  const matchedMachines = machineGroups.flatMap((group) => {
+    const recipes = group.recipes.filter(
+      (r) =>
+        matches(r.id, needle) || r.out.some((o) => matches(o.item, needle)),
+    );
+    return recipes.length === 0 ? [] : [{ ...group, recipes }];
+  });
+  const shownMachines = showAll ? matchedMachines : [];
 
   function toggle(recipeId: RecipeId, enabled: boolean): void {
     const next = new Set(disabledRecipeIds);
@@ -158,7 +159,7 @@ export function RecipeToggles({
     );
   }
 
-  const empty = shownItems.length === 0 && shownMachines.length === 0;
+  const empty = shownItems.length === 0 && matchedMachines.length === 0;
 
   return (
     <section
