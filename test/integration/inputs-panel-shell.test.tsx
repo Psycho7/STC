@@ -56,12 +56,12 @@ describe("inputs-panel-shell: side-panel layout", () => {
     const supplyCount = inputsHead.querySelector(".count .v")?.textContent;
     expect(Number(supplyCount)).toBeGreaterThan(0);
 
-    // The supply section carries its two labelled blocks, each with its own
-    // row count: no override is declared on the default plan, so everything
-    // the plan draws sits under Assumed unlimited.
-    const supplies = within(sidePanel).getByTestId("inputs-block-supplies");
+    // Each labelled block appears with its own rows and carries their count.
+    // No override is declared on the default plan, so everything the plan
+    // draws sits under Assumed unlimited and the Supplies head stays away
+    // rather than standing over an empty body.
+    expect(within(sidePanel).queryByTestId("inputs-block-supplies")).toBeNull();
     const assumed = within(sidePanel).getByTestId("inputs-block-assumed");
-    expect(supplies.querySelector(".n")?.textContent).toBe("0 行");
     const assumedRows = screen.getAllByTestId("input-auto-row").length;
     expect(assumed.querySelector(".n")?.textContent).toBe(`${assumedRows} 行`);
   });

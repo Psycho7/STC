@@ -170,6 +170,45 @@ test("assumed-raw items without an override stay visible alongside an override",
   ).toBe("3");
 });
 
+// Each head is gated on its own rows. With the only drawn item capped there
+// is no auto-row left, so an "Assumed unlimited · 0 rows" head would announce
+// a body that is not there.
+test("the Assumed head is absent when every drawn item is overridden", () => {
+  render(
+    <LocaleProvider locale="en">
+      <InputsPanel
+        itemOverrides={[
+          { itemId: "widget", ratePerSec: { num: "1", denom: "1" } },
+        ]}
+        onChange={() => {}}
+        pack={PACK}
+        assumedRawItemIds={["widget"]}
+        supplyRateByItem={new Map()}
+      />
+    </LocaleProvider>,
+  );
+  expect(screen.queryAllByTestId("input-auto-row").length).toBe(0);
+  expect(screen.queryByTestId("inputs-block-assumed")).toBeNull();
+  expect(screen.getByTestId("inputs-block-supplies")).not.toBeNull();
+});
+
+// The mirror case: auto-rows with no override declared.
+test("the Supplies head is absent when nothing is overridden", () => {
+  render(
+    <LocaleProvider locale="en">
+      <InputsPanel
+        itemOverrides={[]}
+        onChange={() => {}}
+        pack={PACK}
+        assumedRawItemIds={["widget"]}
+        supplyRateByItem={new Map()}
+      />
+    </LocaleProvider>,
+  );
+  expect(screen.queryByTestId("inputs-block-supplies")).toBeNull();
+  expect(screen.getByTestId("inputs-block-assumed")).not.toBeNull();
+});
+
 // 40/27 per sec * 60 = 800/9 = 88.888.../min. The realized-demand readout now
 // shares the canvas chip's decimal formatter, so it shows "88.9" -- never a
 // vulgar fraction next to decimals, never the raw 88.8888888888889 float.

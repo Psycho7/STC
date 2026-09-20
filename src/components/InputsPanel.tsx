@@ -443,33 +443,41 @@ export function InputsPanel({
   const shownCount = displayedInputCount(itemOverrides, assumedRawItemIds);
   const addExhausted = pack.items.every((it) => fullyListed(it.id));
   // Supplies holds every declared override, capped or not; Assumed unlimited
-  // holds the rows the plan earned by drawing the item. The blocks disappear
-  // together with the rows, so an empty panel shows one empty-state line
-  // instead of two headers over nothing.
-  const suppliesBlock = showEmptyState ? null : (
-    <>
-      <div className="block-head" data-testid="inputs-block-supplies">
-        <span>{i18n.t("inputs.block.supplies")}</span>
-        <span className="n">
-          {i18n.t("inputs.block.rows", { count: String(itemOverrides.length) })}
-        </span>
-      </div>
-      <div className="block-sub">{i18n.t("inputs.block.supplies.sub")}</div>
-    </>
-  );
-  const assumedBlock = showEmptyState ? null : (
-    <>
-      <div className="block-head assumed" data-testid="inputs-block-assumed">
-        <span>{i18n.t("inputs.block.assumed")}</span>
-        <span className="n">
-          {i18n.t("inputs.block.rows", {
-            count: String(assumedInputCount(itemOverrides, assumedRawItemIds)),
-          })}
-        </span>
-      </div>
-      <div className="block-sub">{i18n.t("inputs.block.assumed.sub")}</div>
-    </>
-  );
+  // holds the rows the plan earned by drawing the item. Each head is gated on
+  // its OWN rows, so a panel whose every drawn item is overridden shows the
+  // Supplies head alone rather than an "Assumed unlimited · 0 rows" head over
+  // nothing. With neither block's rows present, the empty-state line stands in
+  // for both.
+  const suppliesBlock =
+    itemOverrides.length === 0 ? null : (
+      <>
+        <div className="block-head" data-testid="inputs-block-supplies">
+          <span>{i18n.t("inputs.block.supplies")}</span>
+          <span className="n">
+            {i18n.t("inputs.block.rows", {
+              count: String(itemOverrides.length),
+            })}
+          </span>
+        </div>
+        <div className="block-sub">{i18n.t("inputs.block.supplies.sub")}</div>
+      </>
+    );
+  const assumedBlock =
+    autoRows.length === 0 ? null : (
+      <>
+        <div className="block-head assumed" data-testid="inputs-block-assumed">
+          <span>{i18n.t("inputs.block.assumed")}</span>
+          <span className="n">
+            {i18n.t("inputs.block.rows", {
+              count: String(
+                assumedInputCount(itemOverrides, assumedRawItemIds),
+              ),
+            })}
+          </span>
+        </div>
+        <div className="block-sub">{i18n.t("inputs.block.assumed.sub")}</div>
+      </>
+    );
 
   return (
     <>
