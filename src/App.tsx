@@ -42,6 +42,7 @@ import {
   readStoredArea,
   readStoredEventOverrides,
   unavailableCauses,
+  unavailableEventItems,
   unavailableItems,
   unavailableRecipeIds,
   writeStoredArea,
@@ -466,6 +467,14 @@ function AppInner() {
   // tiles, the hint, and the banner can never disagree.
   const unavailableItemCauses = useMemo(
     () => unavailableItems(pack, availabilitySettings),
+    [availabilitySettings],
+  );
+  // The inputs picker gets the narrower map: an input is imported, so having no
+  // producer in the selected area - or none left after a hand toggle - is no
+  // reason to refuse it. Only an off cohort, which takes the item out of the
+  // game entirely, can dim a tile there.
+  const unavailableInputCauses = useMemo(
+    () => unavailableEventItems(pack, availabilitySettings),
     [availabilitySettings],
   );
   // loadFromHash is a long-lived callback: the mount/hashchange wiring below
@@ -1151,7 +1160,7 @@ function AppInner() {
                   itemOverrides={plan.itemOverrides ?? []}
                   onChange={handleItemOverridesChange}
                   pack={pack}
-                  unavailableItems={unavailableItemCauses}
+                  unavailableItems={unavailableInputCauses}
                   targetItemIds={targetItemIds}
                   supplyRateByItem={supplyRateByItem}
                   catalystAccount={catalystAccount}

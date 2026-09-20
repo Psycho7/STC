@@ -201,16 +201,16 @@ function causeDetail(cause: ProducerUnavailableCause): string {
   }
 }
 
-// The ITEMS the pickers dim, each mapped to the cause behind it, in two
-// passes. First the item's own cohort: an item's tag is what its tiles and
-// validation errors speak of, and the extractor's mixed-cohort guard keeps a
-// row's tag in agreement with its items, so that pass walks pack.items
-// directly. Then the producer pass: an item every one of whose producers is
-// off - by area, by cohort, or by hand - is just as unpickable, so it carries
-// the outermost of their causes. An item claimed by the first pass keeps that
-// cause; an item with no producers at all is not this seam's business (the
-// plan loader reports it as not producible).
-export function unavailableItems(
+// The ITEMS an off cohort removes from the game outright, each mapped to its
+// own tag: an item's tag is what its tiles and validation errors speak of, and
+// the extractor's mixed-cohort guard keeps a row's tag in agreement with its
+// items, so this walks pack.items directly rather than reasoning over recipes.
+//
+// This is also the whole of what the INPUTS picker may dim. An area or a hand
+// toggle says where a recipe can be built, which is no statement about the
+// item: an input with no local producer is exactly the case an import covers.
+// An off cohort is different in kind - the item does not exist to import.
+export function unavailableEventItems(
   pack: RecipePack,
   settings: AvailabilitySettings,
 ): ReadonlyMap<string /*itemId*/, ProducerUnavailableCause> {
@@ -224,6 +224,20 @@ export function unavailableItems(
       causes.set(item.id, { kind: "event", cohort: item.event });
     }
   }
+  return causes;
+}
+
+// Everything a picker of things to MAKE must dim: the cohort pass above plus a
+// producer pass - an item every one of whose producers is off, by area, by
+// cohort, or by hand, cannot be produced here, so it carries the outermost of
+// their causes. An item claimed by the cohort pass keeps that cause; an item
+// with no producers at all is not this seam's business (the plan loader reports
+// it as not producible).
+export function unavailableItems(
+  pack: RecipePack,
+  settings: AvailabilitySettings,
+): ReadonlyMap<string /*itemId*/, ProducerUnavailableCause> {
+  const causes = new Map(unavailableEventItems(pack, settings));
 
   const recipeCauses = unavailableCauses(pack, settings);
   if (recipeCauses.size === 0) return causes;

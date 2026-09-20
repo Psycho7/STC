@@ -17,6 +17,7 @@ import {
   readStoredArea,
   readStoredEventOverrides,
   unavailableCauses,
+  unavailableEventItems,
   unavailableItems,
   unavailableRecipeIds,
   writeStoredArea,
@@ -461,6 +462,56 @@ describe("unavailableItems", () => {
         eventsOnly({ "v1.1": true, "v1.2": true }),
       ),
     ).toEqual(new Map());
+  });
+});
+
+// The inputs seam: the same settings, the cohort pass alone. The target picker
+// asks what can be MADE here, the inputs picker what can be BROUGHT IN, and an
+// area or a hand toggle only answers the first question.
+describe("unavailableEventItems", () => {
+  const TUNDRA: AvailabilitySettings = {
+    eventOverrides: { "v1.2": true },
+    area: "tundra",
+  };
+
+  it("keeps the item's own cohort and drops the producer causes", () => {
+    // coin's only tundra-legal producer is missing and smelt is off by hand:
+    // both causes land in the target map and neither in this one.
+    const settings: AvailabilitySettings = {
+      ...TUNDRA,
+      disabledRecipeIds: new Set(["smelt"]),
+    };
+    expect(unavailableItems(locatedPack(), settings)).toEqual(
+      new Map([
+        ["coin", { kind: "area", area: "tundra" }],
+        ["bar", { kind: "manual", recipeId: "smelt" }],
+        ["token_orphan", { kind: "event", cohort: "v1.1" }],
+      ]),
+    );
+    expect(unavailableEventItems(locatedPack(), settings)).toEqual(
+      new Map([["token_orphan", { kind: "event", cohort: "v1.1" }]]),
+    );
+  });
+
+  it("leaves an area-blocked shipped item importable", () => {
+    // The tundra with the pack's own cohort forced off, so both passes have
+    // something to say over the pack we actually ship.
+    const settings: AvailabilitySettings = {
+      eventOverrides: { [packCohortOf(shippedPack)]: false },
+      area: "tundra",
+    };
+    // copper_nugget is jinlong-tagged, so the tundra has no producer for it -
+    // which is a reason to stop offering it as a target, not as an import.
+    expect(
+      unavailableItems(shippedPack, settings).get("copper_nugget"),
+    ).toEqual({ kind: "area", area: "tundra" });
+    const inputs = unavailableEventItems(shippedPack, settings);
+    expect(inputs.has("copper_nugget")).toBe(false);
+    // Nothing but a cohort can dim an input tile, whatever else is switched off.
+    expect(inputs.size).toBeGreaterThan(0);
+    expect(new Set([...inputs.values()].map((c) => c.kind))).toEqual(
+      new Set(["event"]),
+    );
   });
 });
 
