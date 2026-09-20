@@ -1,6 +1,7 @@
 import { test, expect, type ConsoleMessage, type Page } from "@playwright/test";
 import { bootExamPage, waitForCanvasReady } from "./viewport";
 import { planHash } from "./plan-hash";
+import { SCENARIOS, scenarioHash } from "./scenarios";
 
 test.use({ viewport: { width: 1600, height: 1000 } });
 
@@ -628,7 +629,17 @@ test.describe("InputsPanel golden-path coverage", () => {
     page,
   }) => {
     const log = attachConsoleListener(page);
-    await bootExamPage(page, { url: "/", readiness: "nodes", settle: "none" });
+    // multi6, not the default plan: sticky heads only prove anything on a rail
+    // that scrolls, and the default plan's three assumed rows and empty
+    // Supplies block leave the rail exactly as tall as its viewport, so the
+    // loop below would pass without a single head ever being pinned. multi6's
+    // six targets and seven assumed inputs overflow it by ~600px.
+    const scenario = SCENARIOS.find((s) => s.id === "multi6")!;
+    await bootExamPage(page, {
+      url: `/#${await scenarioHash(scenario)}`,
+      readiness: "nodes",
+      settle: "none",
+    });
     await waitForInputsPanel(page);
 
     // The pill nav is gone; what replaces it are two stacked sticky heads, and
