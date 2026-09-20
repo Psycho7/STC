@@ -32,7 +32,12 @@ import ItemEdge, { edgeStrokeWidth, withFocusFlags } from "./ItemEdge";
 import BusEdge from "./BusEdge";
 import { contentBounds } from "./chipSeating";
 import { examChipReservations } from "./chipMetrics";
-import { isTrunkOwner, type BusAggregate } from "./busRouting";
+import {
+  ownsTrunkGroup,
+  trunkGroupsOf,
+  type BusAggregate,
+  type TrunkMembership,
+} from "./busRouting";
 import type { RFAnyNode } from "./layout";
 import type { GapRecord } from "./layerModel";
 import { ExportModeProvider } from "./exportMode";
@@ -560,15 +565,20 @@ function CanvasInner({
       edgeById.set(edge.id, edge);
       pushInto(edgesByNode, edge.source, edge.id);
       pushInto(edgesByNode, edge.target, edge.id);
-      const trunkKey = (edge.data as BusAggregate | undefined)?.trunkKey;
-      // trunkKey names the port the trunk fans through: item + "|" + the source
-      // unit for a fan-out, and item + "|" + the target unit + "|" + the target
-      // row kind ("in" or "cat") for a fan-in, whose target end can take one
-      // item on two rows. Either way every member of one trunk shares ONE
-      // trunkKey and they form a single hover group here. The trunk's aggregate
-      // chip shows its own total (its members' summed rate).
-      if (edge.type === "bus" && typeof trunkKey === "string") {
-        pushInto(edgesByTrunk, trunkKey, edge.id);
+      // A trunk key names the port the trunk fans through: item + "|" + the
+      // source unit for a fan-out, and item + "|" + the target unit + "|" + the
+      // target row kind ("in" or "cat") for a fan-in, whose target end can take
+      // one item on two rows. Every member of a trunk carries its key in
+      // trunkGroups whatever shape the routing pass drew it as, so indexing on
+      // that field -- rather than on the single trunkKey of the aggregate stamps,
+      // which only the drawn bus members carry -- gives the trunk's whole
+      // membership: its far members pinned to the column and its backward
+      // members on their rails included, and a dual member filed under both of
+      // its trunks.
+      for (const key of trunkGroupsOf(
+        edge.data as TrunkMembership | undefined,
+      )) {
+        pushInto(edgesByTrunk, key, edge.id);
       }
     }
     return { edgesByNode, edgesByTrunk, edgeById };
@@ -609,36 +619,30 @@ function CanvasInner({
       }
     } else {
       const edge = adjacency.edgeById.get(hovered.id);
-      const data = edge?.data as BusAggregate | undefined;
-      const trunkKey = data?.trunkKey;
-      // A bus edge belongs to a trunk (every same-trunkKey member). Two hover
-      // modes split off which members light:
-      //   TRUNK hover  -- the pointer is over the trunk owner (the member that
-      //     draws the shared trunk segment, junction, and aggregate chip). Light
-      //     the whole group, today's behaviour. `busChipOwner` absent counts as
-      //     owner so an un-annotated fixture keeps the whole-group highlight.
+      const data = edge?.data as (BusAggregate & TrunkMembership) | undefined;
+      lightEdge(hovered.id);
+      // An edge belongs to one trunk group per trunk it is a member of -- two for
+      // a dual member, which is a fan-out branch and a fan-in branch at once.
+      // Each group is lit on its own terms, and only the HOVERED edge's groups
+      // are read: a member lit here never has its own groups expanded, so a
+      // shared member does not drag one trunk's siblings into another trunk's
+      // highlight. Within a group, two hover modes split off which members light:
+      //   TRUNK hover  -- the pointer is over this group's owner (the member that
+      //     draws its shared trunk segment, junction, and aggregate chip). Light
+      //     the whole group.
       //   BRANCH hover -- the pointer is over a non-owner member. Light only that
-      //     branch plus the trunk owner(s); sibling branches stay dimmed. Branch
-      //     mode lights every member isTrunkOwner accepts and dims the rest.
-      const trunkEdges =
-        edge?.type === "bus" && typeof trunkKey === "string"
-          ? adjacency.edgesByTrunk.get(trunkKey)
-          : undefined;
-      if (trunkEdges) {
-        if (isTrunkOwner(data)) {
-          for (const edgeId of trunkEdges) lightEdge(edgeId);
-        } else {
-          lightEdge(hovered.id);
-          for (const edgeId of trunkEdges) {
-            if (edgeId === hovered.id) continue;
-            const sibData = adjacency.edgeById.get(edgeId)?.data as
-              | BusAggregate
-              | undefined;
-            if (isTrunkOwner(sibData)) lightEdge(edgeId);
-          }
+      //     branch plus the group's owner(s); sibling branches stay dimmed.
+      // Ownership is asked per group: a member carries the aggregate stamps of at
+      // most one of its trunks, so an unstamped far or backward member is a plain
+      // branch of every group it is in.
+      for (const group of trunkGroupsOf(data)) {
+        const whole = ownsTrunkGroup(data, group);
+        for (const edgeId of adjacency.edgesByTrunk.get(group) ?? []) {
+          const memberData = adjacency.edgeById.get(edgeId)?.data as
+            | (BusAggregate & TrunkMembership)
+            | undefined;
+          if (whole || ownsTrunkGroup(memberData, group)) lightEdge(edgeId);
         }
-      } else {
-        lightEdge(hovered.id);
       }
     }
     return { nodeIds, edgeIds };

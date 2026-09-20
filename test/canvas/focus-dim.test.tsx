@@ -55,6 +55,9 @@ function busData(trunkKey: string): Record<string, unknown> {
     rate: new Fraction(1, 1),
     fanout: true,
     trunkKey,
+    // Hover membership rides on trunkGroups, which routeTrunkEdges stamps on
+    // every member of every trunk the edge belongs to.
+    trunkGroups: [trunkKey],
   } as unknown as Record<string, unknown>;
 }
 
@@ -274,6 +277,7 @@ function trunkMember(owner: boolean): Record<string, unknown> {
     rate: new Fraction(1, 1),
     fanout: true,
     trunkKey: "Iron|a",
+    trunkGroups: ["Iron|a"],
     busChipOwner: owner,
     busTotalRate: new Fraction(3, 1),
     busMemberCount: 3,
@@ -667,5 +671,381 @@ describe("canvas/focus-dim chip hover binding", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+// Trunk membership beyond the retyped members. A trunk's hover group is its
+// TOPOLOGICAL member list (routeTrunkEdges stamps it as `trunkGroups` on every
+// member), so it also holds the far members that only borrow the junction column
+// and the backward members that keep their detour rail -- both plain item edges.
+// Indexing the group by the one `trunkKey` a member carries, gated on
+// `type === "bus"`, dropped all of those and left the reader a partial trunk.
+
+// One unrelated item edge per fixture, so a whole-group hover still has a
+// witness that something dimmed.
+function loneData(item: string): Record<string, unknown> {
+  return {
+    item,
+    rate: new Fraction(1, 1),
+  } as unknown as Record<string, unknown>;
+}
+
+// A member that carries membership only: a far member borrowing its trunk's
+// column, or a backward member on its rail. No aggregate stamps at all, which is
+// what makes the per-group owner test necessary -- read as a bare
+// `busChipOwner ?? true` it would claim ownership of every group it is in.
+function memberOnly(groups: string[]): Record<string, unknown> {
+  return {
+    item: "Iron",
+    rate: new Fraction(1, 1),
+    trunkGroups: groups,
+  } as unknown as Record<string, unknown>;
+}
+
+// A member holding one trunk's aggregate stamps. `owner: undefined` leaves
+// busChipOwner absent, the documented un-annotated default that reads as owner
+// of the trunk its trunkKey names.
+function aggMember(
+  trunkKey: string,
+  groups: string[],
+  owner: boolean | undefined,
+  shape: "fanout" | "fanin",
+): Record<string, unknown> {
+  return {
+    item: "Iron",
+    rate: new Fraction(1, 1),
+    [shape]: true,
+    trunkKey,
+    trunkGroups: groups,
+    busTotalRate: new Fraction(3, 1),
+    busMemberCount: 3,
+    ...(owner === undefined ? {} : { busChipOwner: owner }),
+  } as unknown as Record<string, unknown>;
+}
+
+function renderWith(nodes: Node[], edges: Edge[]) {
+  return render(
+    <LocaleProvider locale="en">
+      <ItemPackProvider value={PACK}>
+        <Canvas nodes={nodes} edges={edges} />
+      </ItemPackProvider>
+    </LocaleProvider>,
+  );
+}
+
+function gridNodes(ids: Array<[string, number, number]>): Node[] {
+  return ids.map(([id, x, y]) => ({
+    id,
+    position: { x, y },
+    data: { label: id },
+  }));
+}
+
+// A far-only fan-out trunk: no member was retyped, so all three are item edges
+// and the trunk's total rides on the elected far owner "fo".
+const FAR_NODES = gridNodes([
+  ["fa", 0, 0],
+  ["ft0", 1200, 0],
+  ["ft1", 1200, 200],
+  ["ft2", 1200, 400],
+  ["fu", 0, 800],
+  ["fv", 1200, 800],
+]);
+
+const FAR_EDGES: Edge[] = [
+  {
+    id: "fo",
+    type: "item",
+    source: "fa",
+    target: "ft0",
+    data: aggMember("Iron|fa", ["Iron|fa"], true, "fanout"),
+  },
+  {
+    id: "f1",
+    type: "item",
+    source: "fa",
+    target: "ft1",
+    data: memberOnly(["Iron|fa"]),
+  },
+  {
+    id: "f2",
+    type: "item",
+    source: "fa",
+    target: "ft2",
+    data: memberOnly(["Iron|fa"]),
+  },
+  {
+    id: "fx",
+    type: "item",
+    source: "fu",
+    target: "fv",
+    data: loneData("Copper"),
+  },
+];
+
+describe("canvas/focus-dim far-only trunk hover", () => {
+  it("owner hover lights the whole far-only group", async () => {
+    const { container } = renderWith(FAR_NODES, FAR_EDGES);
+    fireEvent.mouseEnter(await edgeEl(container, "fo"));
+    await waitFor(async () => {
+      expect(await edgeDimmed(container, "fx")).toBe(true);
+    });
+    for (const id of ["fo", "f1", "f2"]) {
+      expect(await edgeDimmed(container, id), id).toBe(false);
+    }
+  });
+
+  it("non-owner hover lights that member and the owner only", async () => {
+    const { container } = renderWith(FAR_NODES, FAR_EDGES);
+    fireEvent.mouseEnter(await edgeEl(container, "f1"));
+    // f2 is a sibling branch of the same trunk and carries no stamps: without
+    // the per-group owner test it would read as an owner and light.
+    await waitFor(async () => {
+      expect(await edgeDimmed(container, "f2")).toBe(true);
+    });
+    expect(await edgeDimmed(container, "f1")).toBe(false);
+    expect(await edgeDimmed(container, "fo")).toBe(false);
+    expect(await edgeDimmed(container, "fx")).toBe(true);
+  });
+});
+
+// A ten-member fan-out trunk drawn in all three treatments at once: three near
+// members retyped into the bus shape, six far members pinned to the column, and
+// one backward member on its detour rail (its target stands left of its source).
+const MIXED_NODES = gridNodes([
+  ["xa", 900, 0],
+  ["xn0", 1400, 0],
+  ["xn1", 1400, 150],
+  ["xn2", 1400, 300],
+  ["xf0", 2400, 0],
+  ["xf1", 2400, 150],
+  ["xf2", 2400, 300],
+  ["xf3", 2400, 450],
+  ["xf4", 2400, 600],
+  ["xf5", 2400, 750],
+  ["xb0", 0, 400],
+  ["xu", 0, 1200],
+  ["xv", 1400, 1200],
+]);
+
+const MIXED_KEY = "Iron|xa";
+const MIXED_NEAR = ["xn0", "xn1", "xn2"];
+const MIXED_FAR = ["xf0", "xf1", "xf2", "xf3", "xf4", "xf5"];
+
+const MIXED_EDGES: Edge[] = [
+  ...MIXED_NEAR.map((target, i) => ({
+    id: `mn${i}`,
+    type: "bus",
+    source: "xa",
+    target,
+    data: aggMember(MIXED_KEY, [MIXED_KEY], i === 0, "fanout"),
+  })),
+  ...MIXED_FAR.map((target, i) => ({
+    id: `mf${i}`,
+    type: "item",
+    source: "xa",
+    target,
+    data: memberOnly([MIXED_KEY]),
+  })),
+  {
+    id: "mb0",
+    type: "item",
+    source: "xa",
+    target: "xb0",
+    data: memberOnly([MIXED_KEY]),
+  },
+  {
+    id: "mx",
+    type: "item",
+    source: "xu",
+    target: "xv",
+    data: loneData("Copper"),
+  },
+];
+
+const MIXED_MEMBERS = [
+  "mn0",
+  "mn1",
+  "mn2",
+  "mf0",
+  "mf1",
+  "mf2",
+  "mf3",
+  "mf4",
+  "mf5",
+  "mb0",
+];
+
+describe("canvas/focus-dim mixed-treatment trunk hover", () => {
+  it("owner hover lights all ten members, near, far and backward", async () => {
+    expect(MIXED_MEMBERS).toHaveLength(10);
+    const { container } = renderWith(MIXED_NODES, MIXED_EDGES);
+    fireEvent.mouseEnter(await edgeEl(container, "mn0"));
+    await waitFor(async () => {
+      expect(await edgeDimmed(container, "mx")).toBe(true);
+    });
+    for (const id of MIXED_MEMBERS) {
+      expect(await edgeDimmed(container, id), id).toBe(false);
+    }
+  });
+
+  it("backward-member hover lights the owner and dims the other members", async () => {
+    const { container } = renderWith(MIXED_NODES, MIXED_EDGES);
+    fireEvent.mouseEnter(await edgeEl(container, "mb0"));
+    await waitFor(async () => {
+      expect(await edgeDimmed(container, "mf0")).toBe(true);
+    });
+    expect(await edgeDimmed(container, "mb0")).toBe(false);
+    expect(await edgeDimmed(container, "mn0")).toBe(false);
+    expect(await edgeDimmed(container, "mn1")).toBe(true);
+  });
+});
+
+// Dual membership: edge "X" is a member of fan-out trunk A = {A1, A2, X} and of
+// fan-in trunk B = {X, B1, B2}. Hovering it unions the two groups; hovering a
+// member of A stays inside A, with no expansion through X into B.
+const DUAL_NODES = gridNodes([
+  ["da", 0, 0],
+  ["dt1", 1200, 0],
+  ["dt2", 1200, 200],
+  ["dtb", 1200, 500],
+  ["db1", 0, 500],
+  ["db2", 0, 700],
+]);
+
+const KEY_A = "Iron|da";
+const KEY_B = "Iron|dtb|in";
+
+const DUAL_EDGES: Edge[] = [
+  {
+    id: "A1",
+    type: "bus",
+    source: "da",
+    target: "dt1",
+    data: aggMember(KEY_A, [KEY_A], true, "fanout"),
+  },
+  // Un-annotated: reads as an owner of A too, so the union below is the whole of
+  // both groups rather than each group's elected owner.
+  {
+    id: "A2",
+    type: "bus",
+    source: "da",
+    target: "dt2",
+    data: aggMember(KEY_A, [KEY_A], undefined, "fanout"),
+  },
+  {
+    id: "X",
+    type: "item",
+    source: "da",
+    target: "dtb",
+    data: memberOnly([KEY_A, KEY_B]),
+  },
+  {
+    id: "B1",
+    type: "bus",
+    source: "db1",
+    target: "dtb",
+    data: aggMember(KEY_B, [KEY_B], true, "fanin"),
+  },
+  {
+    id: "B2",
+    type: "bus",
+    source: "db2",
+    target: "dtb",
+    data: aggMember(KEY_B, [KEY_B], undefined, "fanin"),
+  },
+];
+
+describe("canvas/focus-dim dual trunk membership", () => {
+  it("lights group A only on an A member, without expanding through X", async () => {
+    const { container } = renderWith(DUAL_NODES, DUAL_EDGES);
+    fireEvent.mouseEnter(await edgeEl(container, "A1"));
+    await waitFor(async () => {
+      expect(await edgeDimmed(container, "B1")).toBe(true);
+    });
+    expect(await edgeDimmed(container, "B2")).toBe(true);
+    for (const id of ["A1", "A2", "X"]) {
+      expect(await edgeDimmed(container, id), id).toBe(false);
+    }
+  });
+
+  it("lights the union of both groups on the shared member", async () => {
+    const { container } = renderWith(DUAL_NODES, DUAL_EDGES);
+    fireEvent.mouseEnter(await edgeEl(container, "X"));
+    await waitFor(() => {
+      expect(
+        container.querySelector(".ak-canvas-theme.hover-active"),
+      ).not.toBeNull();
+    });
+    for (const id of ["A1", "A2", "X", "B1", "B2"]) {
+      expect(await edgeDimmed(container, id), id).toBe(false);
+    }
+  });
+});
+
+// Fan-in symmetry: the same three treatments on a trunk whose members converge
+// on one target port.
+const FANIN_NODES = gridNodes([
+  ["ia", 0, 0],
+  ["ib", 0, 200],
+  ["ic", 0, 400],
+  ["it", 1400, 200],
+  ["iu", 0, 900],
+  ["iv", 1400, 900],
+]);
+
+const KEY_IN = "Iron|it|in";
+
+const FANIN_EDGES: Edge[] = [
+  {
+    id: "i1",
+    type: "bus",
+    source: "ia",
+    target: "it",
+    data: aggMember(KEY_IN, [KEY_IN], true, "fanin"),
+  },
+  {
+    id: "i2",
+    type: "bus",
+    source: "ib",
+    target: "it",
+    data: aggMember(KEY_IN, [KEY_IN], false, "fanin"),
+  },
+  {
+    id: "i3",
+    type: "item",
+    source: "ic",
+    target: "it",
+    data: memberOnly([KEY_IN]),
+  },
+  {
+    id: "ix",
+    type: "item",
+    source: "iu",
+    target: "iv",
+    data: loneData("Copper"),
+  },
+];
+
+describe("canvas/focus-dim fan-in trunk hover", () => {
+  it("owner hover lights the whole fan-in group", async () => {
+    const { container } = renderWith(FANIN_NODES, FANIN_EDGES);
+    fireEvent.mouseEnter(await edgeEl(container, "i1"));
+    await waitFor(async () => {
+      expect(await edgeDimmed(container, "ix")).toBe(true);
+    });
+    for (const id of ["i1", "i2", "i3"]) {
+      expect(await edgeDimmed(container, id), id).toBe(false);
+    }
+  });
+
+  it("far-member hover lights that member and the owner only", async () => {
+    const { container } = renderWith(FANIN_NODES, FANIN_EDGES);
+    fireEvent.mouseEnter(await edgeEl(container, "i3"));
+    await waitFor(async () => {
+      expect(await edgeDimmed(container, "i2")).toBe(true);
+    });
+    expect(await edgeDimmed(container, "i3")).toBe(false);
+    expect(await edgeDimmed(container, "i1")).toBe(false);
   });
 });

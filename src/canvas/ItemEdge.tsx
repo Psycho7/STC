@@ -12,9 +12,10 @@ import type { ItemId, TransportKindId } from "../pipeline/types";
 import { useI18n } from "../data/i18n-context";
 import { formatRateExactPerMin } from "../data/rate-format";
 import { aggregateChipText, rateChipText } from "./chipMetrics";
-// Type-only: the trunk-aggregate stamps routeTrunkEdges puts on a far owner.
-// Erased at compile time, so it adds no runtime or bundler edge.
-import type { BusAggregate } from "./busRouting";
+// Type-only: the trunk-aggregate stamps routeTrunkEdges puts on a far owner,
+// plus the trunk membership it stamps on every member. Erased at compile time,
+// so it adds no runtime or bundler edge.
+import type { BusAggregate, TrunkMembership } from "./busRouting";
 import {
   CHIP_ICON_ONLY_MAX_ZOOM,
   LABEL_MIN_ZOOM,
@@ -118,7 +119,8 @@ export type ItemEdgeData = RoutingHints & {
   // of the stamped anchors (see useLiveCrossingCues), so a node drag on
   // EITHER side of the pair drops the gap instead of floating it.
   crossingCues?: ReadonlyArray<CrossingCue>;
-} & Partial<BusAggregate>;
+} & Partial<BusAggregate> &
+  TrunkMembership;
 
 // Physical stroke-width bounds. Edge strokes are drawn in graph units, so the
 // pane zoom scales them: at fit zoom a 1-unit stroke is a sub-pixel hairline. To
