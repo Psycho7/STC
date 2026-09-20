@@ -8,11 +8,12 @@ import {
 } from "./corpus";
 import { solveForRender } from "../pipeline/solveForRender";
 import { checkRenderPlan } from "../pipeline/render/invariants";
-import { withoutGasMachines } from "./closed-form-fixtures";
+import { makePack, withoutGasMachines } from "./closed-form-fixtures";
 import { pack } from "../data/load";
 import type { ItemTarget } from "../data/targets";
 import type { RecipePack } from "@aef/schema";
 import type { LpResult } from "./lp";
+import { VALIDATE_ENV_VAR } from "../util/dev-asserts";
 
 // game v1.4's gas-system machines let the LP route xiranite_enr_powder through
 // a gas chain, displacing the water-fed main+purifier producers. The
@@ -728,5 +729,88 @@ describe("SolvePlanFull.catalystAccount", () => {
     expect(entry.fromCatalyst.equals(0)).toBe(true);
     expect(entry.fromGeneral.equals(new Fraction(1, 5))).toBe(true);
     expect(entry.unmet.equals(0)).toBe(true);
+  });
+});
+
+// Witness for the augmented-LP-support SCC guard in index.ts. Two disposal
+// absorbers of the byproduct S trade an X/Y loop, so neither is reachable from
+// the F cone (both arrive through augmentGraphWithLpSupport) and together they
+// form a 2-member SCC -- the exact shape the guard calls unreplicable.
+//
+// The two magnitudes are what make the LP run the absorbers at all. 5000 S per
+// a1 execution means absorbing pays 5 in surplus weight (1e-3 each) against the
+// 2 the pair costs to run, and a 10000/s F target keeps the resulting absorber
+// rate (2/s) above the extraction hygiene pass's plan-relative noise ceiling,
+// which sweeps anything under 1e-4 of plan scale back out of the solution.
+describe("augmented LP-support recipes inside a multi-member SCC", () => {
+  const absorberPack = makePack(
+    [
+      { id: "main", time: 1, in: { R: 1 }, out: { F: 1, S: 1 } },
+      { id: "a1", time: 1, in: { S: 5000, X: 1 }, out: { Y: 1 } },
+      { id: "a2", time: 1, in: { Y: 1 }, out: { X: 1 } },
+    ],
+    [
+      { id: "F", stack: 1 },
+      { id: "S", stack: 1 },
+      { id: "X", stack: 1 },
+      { id: "Y", stack: 1 },
+      { id: "R", raw: true, stack: 1 },
+    ],
+  );
+  const absorberTargets: ItemTarget[] = [
+    { itemId: "F", ratePerSec: { num: "10000", denom: "1" } },
+  ];
+
+  it("fails the guard when the checks are armed", () => {
+    expect(() =>
+      solvePlanWithIntermediates(absorberTargets, absorberPack),
+    ).toThrow(/augmented LP-support recipe a1 inside multi-member SCC/);
+  });
+
+  // The Bun path: no development mode, validation flag armed. This is the run
+  // tools/solver-cli and tools/exam take, where import.meta.env.DEV is undefined
+  // and the guard used to be silently skipped.
+  it("fails the guard outside DEV when the validation flag is armed", () => {
+    vi.stubEnv("DEV", false);
+    vi.stubEnv(VALIDATE_ENV_VAR, "1");
+    try {
+      expect(() =>
+        solvePlanWithIntermediates(absorberTargets, absorberPack),
+      ).toThrow(/augmented LP-support recipe a1 inside multi-member SCC/);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  // What the guard rejects: the seeding path replicates both absorbers at their
+  // full LP rate and the rendered plan passes all ten render checkers, so on
+  // this shape the guard fires on a plan that is not actually broken.
+  it("renders a clean plan when the checks are disarmed", () => {
+    vi.stubEnv("DEV", false);
+    vi.stubEnv(VALIDATE_ENV_VAR, undefined);
+    try {
+      const { full, plan } = solveForRender({
+        targets: absorberTargets,
+        pack: absorberPack,
+      });
+      expect(full.rates.get("a1")!.equals(2)).toBe(true);
+      expect(full.rates.get("a2")!.equals(2)).toBe(true);
+      expect(full.replicas.map((r) => r.recipeId).sort()).toEqual([
+        "a1",
+        "a2",
+        "main",
+      ]);
+      const results = checkRenderPlan({
+        plan,
+        rates: full.rates,
+        pack: absorberPack,
+        targets: absorberTargets,
+        itemOverrides: [],
+        catalystAccount: full.catalystAccount,
+      });
+      expect(results.flatMap((r) => r.violations)).toEqual([]);
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 });

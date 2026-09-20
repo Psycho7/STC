@@ -16,6 +16,7 @@ import { assignIdealMultipliers } from "./multiplier";
 import { assembleLogicalGraph } from "./assemble";
 import { bisimQuotient, deriveReplicaEdges } from "./bisim";
 import { assertInvariants } from "./invariants";
+import { devAsserts } from "../util/dev-asserts";
 import {
   netSelfConsumption,
   type NettedPack,
@@ -224,7 +225,7 @@ function runSolvePipeline(
   );
   const sccs = tarjanScc(g);
   const c = condense(g, sccs);
-  if (import.meta.env.DEV && augmented.size > 0) {
+  if (devAsserts() && augmented.size > 0) {
     // The seeding path treats augmented nodes as singleton SCCs. A mutual cycle
     // among augmented nodes would route them into the SCC machinery unseeded;
     // fail loud instead of replicating it wrong.
@@ -329,7 +330,7 @@ export function solvePlanWithIntermediates(
     unavailableRecipeIds,
   );
 
-  if (import.meta.env.DEV) {
+  if (devAsserts()) {
     // Assert against the very pack the pipeline solved, not a second netting
     // of the raw one: the checkers read the stoichiometry the LP saw.
     assertInvariants({
