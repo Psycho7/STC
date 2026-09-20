@@ -463,6 +463,47 @@ test("the filter matches an en name under the zh locale", () => {
   ]);
 });
 
+function emptyMessages(): NodeListOf<HTMLElement> {
+  return document.querySelectorAll<HTMLElement>(".settings-recipe-empty");
+}
+
+test("a needle that matches only expansion rows does not show the empty message while collapsed", () => {
+  renderSettings();
+  openPanel();
+  // copper_bottle and its two producers are all single-producer entities, so
+  // the item view has nothing to show for this needle and every match sits
+  // behind the disclosure.
+  filterRecipes("copper_bottle");
+  expect(itemGroups()).toHaveLength(0);
+  expect(emptyMessages()).toHaveLength(0);
+
+  expandAllRecipes();
+  const shown = new Set(
+    [
+      ...document.querySelectorAll('[data-testid="settings-recipe-toggle"]'),
+    ].map((r) => r.getAttribute("data-recipe")),
+  );
+  expect([...shown].sort()).toEqual([
+    "copper_bottle",
+    "copper_bottle-liquid_plant_grass_1",
+    "copper_bottle-liquid_plant_grass_2",
+  ]);
+});
+
+test("a needle that matches nothing at all shows the empty message", () => {
+  renderSettings();
+  openPanel();
+  filterRecipes("no such recipe exists");
+  expect(itemGroups()).toHaveLength(0);
+  expect(emptyMessages()).toHaveLength(1);
+  expect(emptyMessages()[0]!.textContent).toBe("No recipe matches that name");
+
+  // The disclosure does not change the verdict: there is nothing behind it.
+  expandAllRecipes();
+  expect(machineGroups()).toHaveLength(0);
+  expect(emptyMessages()).toHaveLength(1);
+});
+
 test("an area-hidden recipe is a disabled row carrying its reason", () => {
   window.localStorage.setItem(AREA_STORAGE_KEY, "tundra");
   renderSettings();
