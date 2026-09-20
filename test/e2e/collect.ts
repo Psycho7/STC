@@ -330,8 +330,11 @@ export function collectGeometry(): Geometry {
       // The -drop suffix decides the aggregate family on its own, whichever
       // edge type drew it: a fan-out with no near member seats its total on an
       // ITEM-shaped far owner (`item-edge-<id>-drop`), and reading the family
-      // off the prefix alone filed that chip as a rate chip, so every bus-drop
-      // audit skipped it in silence.
+      // off the prefix alone filed that chip as a rate chip, so the card audit
+      // held it to the rate-chip rule instead of the trunk-member exemption.
+      // It does not reach the trunk-seat audits: those pair a chip with a
+      // bus-junction dot, and an item-shaped owner draws the fan-out
+      // divergence dot instead, so they still pass these chips over.
       kind: (testId.endsWith("-drop")
         ? "bus-drop"
         : testId.startsWith("bus-edge-")

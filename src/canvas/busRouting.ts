@@ -83,8 +83,9 @@ import {
 import { pushInto } from "../util/multimap";
 import type { RFAnyNode, RoutingCtx } from "./layout";
 // Type-only: ItemEdge.tsx declares the base canvas edge payload these passes
-// stamp onto and read back. Erased at compile time, so it adds no runtime or
-// bundler edge, and ItemEdge imports none of this module.
+// stamp onto and read back. ItemEdge imports BusAggregate back from here, so
+// the cycle runs both ways, but it is type-only on both sides and erased at
+// compile time, so it adds no runtime or bundler edge.
 import type { ItemEdgeData } from "./ItemEdge";
 
 // Trunk-aggregate fields of a fan-out trunk. Every
@@ -520,11 +521,19 @@ export function routeTrunkEdges(
   // total on its source stub, in the gap reserve layerModel already charged for
   // it. A BACKWARD member is never elected -- it draws no stretch the box could
   // stand on -- so a trunk of backward members only stays ownerless.
+  //
+  // A member that is still NEAR on its FAN-IN side is never elected either: the
+  // stamping below retypes it as a fan-in bus member before it reads the far
+  // stamps, so it would swallow the total rather than draw it. Both sides of one
+  // edge start at the same layer distance, but the fan-out demotion above can
+  // send a member far while the fan-in demotion keeps it near against the other
+  // column. A trunk whose far members are all near fan-ins stays ownerless.
   const farAggOwnerByTrunk = new Map<Trunk, string>();
   {
     const farByTrunk = new Map<Trunk, string[]>();
     for (const [id, side] of fanOutByEdgeId) {
       if (side.reach !== "far") continue;
+      if (fanInByEdgeId.get(id)?.reach === "near") continue;
       if (fanoutAggOwnerByTrunk.has(side.geom.trunk)) continue;
       pushInto(farByTrunk, side.geom.trunk, id);
     }

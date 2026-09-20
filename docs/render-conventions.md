@@ -223,7 +223,8 @@ source port and the split dot, and it states the whole port's total. Each
 member draws its own rate on its own leg, never on the shared column: the
 column belongs to every member, so a chip parked there names none of them.
 
-Every fan-out states its total, whatever its members' reach. Where one member
+Every fan-out with a forward member states its total, whatever that member's
+reach; a trunk whose members all run backward draws none. Where one member
 heads to the next layer over it carries the aggregate on the shared trunk. Where
 they all reach further, the owner is a far member instead -- the first that bends
 away from the source row, so the total and the split dot ride one line -- and it

@@ -21,6 +21,7 @@ import {
   recipeNode,
   mkEdge,
   orderedRecipeNode,
+  productNode,
 } from "./busRouting.testkit";
 
 describe("chip placement: fan-out trunk chips", () => {
@@ -182,5 +183,43 @@ describe("chip placement: which member draws the trunk's total", () => {
     ]);
     expect(routed.every((edge) => edge.type === "item")).toBe(true);
     expect(ownerOf(routed)).toBe("e:1");
+  });
+
+  it("skips a far member that is still a near fan-in member", () => {
+    // Asymmetric demotion. e:1 and e:2 leave src for the next layer over, so
+    // both start near, and `blk` -- a card of src's own layer, reaching out
+    // across both target rows -- blocks the branch legs they would draw off the
+    // split column, which sends both to the far treatment. e:1 also merges into
+    // t1 beside e:3, and that trunk's column stands right of blk, so e:1 stays
+    // NEAR on its fan-in side and is retyped `bus` as a fan-in member. Elected
+    // far owner of the fan-out, it would carry that trunk's total into the
+    // fan-in shape and the fan-out would state no total at all, so the election
+    // passes it over for e:2.
+    const nodes: RFAnyNode[] = [
+      producer("src", 0, 0),
+      productNode("blk", RECIPE_WIDTH, 400, 660, 600),
+      producer("p", 660, 1400),
+      consumer("t1", 1200, 420),
+      consumer("t2", 1200, 760),
+    ];
+    const routed = routeTrunkEdges(nodes, [
+      link("e:1", "t1"),
+      link("e:2", "t2"),
+      mkEdge("e:3", "p", "t1", ITEM),
+    ]);
+
+    // Premise: e:1 really is far on one side and near on the other.
+    const first = routed.find((edge) => edge.id === "e:1")!;
+    expect(first.type).toBe("bus");
+    expect((first.data as { fanin?: boolean }).fanin).toBe(true);
+
+    // The fan-out's total rides the member that keeps its item shape.
+    const owner = routed.find(
+      (edge) =>
+        edge.type === "item" &&
+        (edge.data as { busChipOwner?: boolean }).busChipOwner === true,
+    );
+    expect(owner?.id).toBe("e:2");
+    expect((owner?.data as { busMemberCount?: number }).busMemberCount).toBe(2);
   });
 });
