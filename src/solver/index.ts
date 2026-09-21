@@ -103,9 +103,12 @@ function runBisim(g: RecipeGraph, rawReplicas: Replica[]): Replica[] {
  *
  * Membership in a multi-member SCC is not itself a problem: the seeding loop in
  * replicate.ts mints each augmented node once at its full LP rate and registers
- * it in `targetSeeded`, which `processProducer` and `seedTargetProducer` consult
- * before they hand a producer to the SCC machinery, so the seed wins over
- * `sccApportionment` even inside a cycle. What would be broken is the outcome:
+ * it in `targetSeeded`, which `processProducer` consults before it hands a
+ * producer to the SCC machinery, so the seed wins over `sccApportionment` even
+ * inside a cycle. (`seedTargetProducer` checks SCC membership before
+ * `targetSeeded`, but it runs before the augmented loop and only over target
+ * producers, which are disjoint from the augmented set, so it never sees an
+ * augmented seed.) What would be broken is the outcome:
  * an augmented recipe carried into the SCC path anyway and apportioned across
  * the cycle, leaving every replica at a split rate. Assert that instead - for
  * each augmented member of a multi-member SCC, some replica runs at the LP rate.

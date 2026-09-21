@@ -31,7 +31,7 @@
 //
 // Every solve here runs under Bun, where import.meta.env.DEV is undefined and
 // the pipeline's internal guards (solver and render invariants, the
-// augmented-LP-support SCC guard, the edge-rate capacity guard) are therefore
+// augmented-LP-support seed guard, the edge-rate capacity guard) are therefore
 // off. Prefix the run with STC_VALIDATE=1 to arm them:
 //
 //   STC_VALIDATE=1 bun run tools/exam/coverage.ts --all
