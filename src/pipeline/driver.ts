@@ -20,6 +20,7 @@ import { expandMultipliers } from "./expand";
 import { computeEdgeRates } from "./expand/edge-rates";
 import { AlwaysFoldRender } from "./render";
 import { assertRenderInvariants } from "./render/invariants";
+import { devAsserts } from "../util/dev-asserts";
 import type {
   ContainerId,
   ContainerSet,
@@ -148,9 +149,10 @@ export function renderPlanFromSolve(
     boundaryShare,
   });
 
-  // Dev/test-only: assert render invariants, tree-shaken out of production
-  // builds (parity with the solver hook in src/solver/index.ts).
-  if (import.meta.env.DEV) {
+  // Dev/test-only: assert render invariants, skipped in production builds and
+  // armed under Bun only by the validation flag (parity with the solver hook in
+  // src/solver/index.ts).
+  if (devAsserts()) {
     assertRenderInvariants({
       plan,
       rates,

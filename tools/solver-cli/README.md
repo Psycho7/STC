@@ -48,6 +48,22 @@ bun run tools/solver-cli/main.ts --hash v1.H4sI...
   deficit. No invariant checks.
 - `full` (default): also runs all invariant checkers and the optimality screen.
 
+### STC_VALIDATE
+
+The verdict lines below are computed and printed unconditionally. The pipeline's
+own internal guards are separate: they key on `import.meta.env.DEV`, which Bun
+leaves undefined, so a plain CLI run takes every production fallback. Arm them
+with the env var:
+
+```
+STC_VALIDATE=1 bun run tools/solver-cli/main.ts --plan xiranite_enr_powder=0.1
+```
+
+Armed, a violated solver invariant, render invariant, augmented-LP-support SCC
+guard or edge-rate capacity guard throws and the run exits `1` instead of
+printing a plan built on the fallback. Nothing else changes: a clean plan prints
+byte-identical output either way.
+
 ## Output format
 
 Output is line-oriented key=value. Maps are sorted by id so output is

@@ -29,6 +29,16 @@
 // much of that residue a larger --max would still have reached. A candidate
 // whose solve throws is listed and skipped, never fatal.
 //
+// Every solve here runs under Bun, where import.meta.env.DEV is undefined and
+// the pipeline's internal guards (solver and render invariants, the
+// augmented-LP-support SCC guard, the edge-rate capacity guard) are therefore
+// off. Prefix the run with STC_VALIDATE=1 to arm them:
+//
+//   STC_VALIDATE=1 bun run tools/exam/coverage.ts --all
+//
+// A guard that then fires throws out of the scenario's solve, which --fill
+// reports and skips and a core scenario turns into a fatal exit 1.
+//
 // Exit codes:
 //   0  report printed
 //   1  bad flags or a solve that threw

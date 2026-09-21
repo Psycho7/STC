@@ -19,6 +19,7 @@ import { solvePlanWithIntermediates } from "../../solver/index";
 import type { Target } from "../../data/targets";
 import { solveForRender, solveFromPlan } from "../solveForRender";
 import { capProducerInputOutflow, type CapEdge } from "../expand/edge-rates";
+import { VALIDATE_ENV_VAR } from "../../util/dev-asserts";
 import {
   assertRenderInvariants,
   checkRenderPlan,
@@ -1247,6 +1248,67 @@ describe("render corpus: torn-arc returns fan across sibling stamps (Bug 2b)", (
     ];
     const result = new Map<string, Fraction>([["e1", new Fraction(3)]]);
     vi.stubEnv("DEV", true);
+    try {
+      expect(() => capProducerInputOutflow(edges, result)).toThrow(
+        /consumer "consumerX" item "itemY"/,
+      );
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  // Production twin of the throw above. With the checks disarmed the helper
+  // returns on the same shortfall and leaves the uncapped rates in place, so the
+  // plan still renders: e1 keeps its billed 3 against a capacity of 1.
+  //
+  // That fallback is only sound because of the upstream contract the throw
+  // guards: the assemble fan wires every consumer of a split-producer item to
+  // all sibling producers, so total inbound capacity is short only when a
+  // supplier was dropped upstream -- a state the public solve+render path is not
+  // supposed to reach. The rates it leaves behind violate Kirchhoff at the
+  // producer, which is why the shortfall is a loud failure in dev and in
+  // validation runs rather than a silent repair here.
+  it("capProducerInputOutflow leaves the rates uncapped when the checks are disarmed", () => {
+    const groupKey = "consumerX\0itemY";
+    const edges: CapEdge[] = [
+      {
+        edgeId: "e1",
+        producerId: "p1",
+        groupKey,
+        item: "itemY",
+        rate: new Fraction(3),
+        capacity: new Fraction(1),
+      },
+    ];
+    const result = new Map<string, Fraction>([["e1", new Fraction(3)]]);
+    vi.stubEnv("DEV", false);
+    vi.stubEnv(VALIDATE_ENV_VAR, undefined);
+    try {
+      expect(() => capProducerInputOutflow(edges, result)).not.toThrow();
+    } finally {
+      vi.unstubAllEnvs();
+    }
+    expect(result.get("e1")!.equals(new Fraction(3))).toBe(true);
+  });
+
+  // The Bun path: no development mode, but the validation flag armed. Under Bun
+  // import.meta.env.DEV is undefined, so tools/exam and tools/solver-cli used to
+  // take the silent fallback above; with the flag set they get the throw.
+  it("capProducerInputOutflow throws outside DEV when the validation flag is armed", () => {
+    const groupKey = "consumerX\0itemY";
+    const edges: CapEdge[] = [
+      {
+        edgeId: "e1",
+        producerId: "p1",
+        groupKey,
+        item: "itemY",
+        rate: new Fraction(3),
+        capacity: new Fraction(1),
+      },
+    ];
+    const result = new Map<string, Fraction>([["e1", new Fraction(3)]]);
+    vi.stubEnv("DEV", false);
+    vi.stubEnv(VALIDATE_ENV_VAR, "1");
     try {
       expect(() => capProducerInputOutflow(edges, result)).toThrow(
         /consumer "consumerX" item "itemY"/,
