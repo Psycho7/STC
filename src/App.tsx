@@ -54,6 +54,7 @@ import type { LogicalGraph } from "./canvas/layout";
 import { LpInfeasibleError } from "./solver";
 import type { CatalystAccount } from "./solver/catalyst";
 import { solveFromPlan } from "./pipeline/solveForRender";
+import type { RationalString } from "./pipeline/types";
 import { LocaleProvider, useI18n } from "./data/i18n-context";
 import type { I18nIndex } from "./data/i18n";
 import { ItemPackProvider } from "./canvas/itemPackContext";
@@ -174,6 +175,29 @@ const SIDE_SECTION_ORDER: SideSection[] = ["targets", "inputs"];
 
 const EMPTY_CATALYST_ACCOUNT: CatalystAccount = new Map();
 
+// Boundary supply per general ROW KEY, folded out of the input ProductNode
+// data the layout layer wrote.
+//
+// Only the ordinary draw goes in. The render pipeline draws the cycled charge
+// from a catalyst node of its own, but every reader keys this map by the
+// general row: the general row's number is its ordinary draw alone, and what
+// the general pool was billed of the charge comes from catalystAccount, not
+// from the catalyst node, so adding the node's rate here would count that
+// share twice. The catalyst row's number comes from catalystAccount too.
+type SupplyRateByItem = ReadonlyMap<string, RationalString>;
+
+const EMPTY_SUPPLY_RATES: SupplyRateByItem = new Map();
+
+function buildSupplyRateByItem(nodes: readonly Node[]): SupplyRateByItem {
+  const byRowKey = new Map<string, RationalString>();
+  for (const [itemId, rates] of buildRealizedRateByItem(nodes)) {
+    if (rates.ordinary !== undefined) {
+      byRowKey.set(encodeItemOverrideKey({ itemId }), rates.ordinary);
+    }
+  }
+  return byRowKey;
+}
+
 function toSideSection(elementId: string): SideSection | null {
   if (elementId === "side-inputs") return "inputs";
   if (elementId === "side-targets") return "targets";
@@ -272,6 +296,12 @@ function AppInner() {
   const [catalystAccount, setCatalystAccount] = useState<CatalystAccount>(
     EMPTY_CATALYST_ACCOUNT,
   );
+  // Realized boundary supply of the latest solve, per row key. Derived state of
+  // the committed render pass, so it is written where the nodes it describes
+  // are: a drag hands App a fresh node array every pointer frame without
+  // touching any node's data, and the panels keep this map for the whole drag.
+  const [supplyRateByItem, setSupplyRateByItem] =
+    useState<SupplyRateByItem>(EMPTY_SUPPLY_RATES);
   // Which section anchor is in view inside the side rail. Drives the skewed-tab
   // highlight so it reads as a "you-are-here" pill, not a toggle. Computed by an
   // IntersectionObserver watching the two section anchors.
@@ -491,6 +521,7 @@ function AppInner() {
     ): void => {
       setRecipeCount(countDistinctRecipes(solved.full.logical));
       setCatalystAccount(solved.full.catalystAccount);
+      setSupplyRateByItem(buildSupplyRateByItem(laid.nodes as Node[]));
       setNodes(laid.nodes as Node[]);
       setEdges(laid.edges);
       setGaps(laid.gaps);
@@ -757,49 +788,6 @@ function AppInner() {
     if (!plan) return new Set<string>();
     return new Set(plan.targets.map((t) => t.itemId));
   }, [plan]);
-
-  // Boundary supply per ROW KEY: the realized demand of the latest render
-  // pass, read off the input ProductNode data the layout layer wrote.
-  //
-  // A catalyst is external supply the same way a raw draw is, and the render
-  // pipeline draws the cycled charge from a catalyst node of its own. The two
-  // nodes go in under different row keys rather than being summed: the panel
-  // shows one row per pool, and the general row's number is its ordinary draw
-  // alone. What the general pool was billed of the charge comes from
-  // catalystAccount, not from the catalyst node, so adding the node's rate
-  // here would count that share twice.
-  //
-  // A drag hands App a fresh node array every pointer frame without touching
-  // any node's data, so the entries are flattened to a string key and the map
-  // is rebuilt only when that key changes: the panels keep the same map, and
-  // the memos below keyed on it, for the whole drag.
-  const supplyRateEntries: Array<
-    [string, import("./pipeline/types").RationalString]
-  > = [];
-  for (const [itemId, rates] of buildRealizedRateByItem(nodes)) {
-    if (rates.ordinary !== undefined) {
-      supplyRateEntries.push([
-        encodeItemOverrideKey({ itemId }),
-        rates.ordinary,
-      ]);
-    }
-    if (rates.catalyst !== undefined) {
-      supplyRateEntries.push([
-        encodeItemOverrideKey({ itemId, role: "catalyst" }),
-        rates.catalyst,
-      ]);
-    }
-  }
-  const supplyRateKey = JSON.stringify(supplyRateEntries);
-  const supplyRateByItem = useMemo<
-    ReadonlyMap<string, import("./pipeline/types").RationalString>
-  >(
-    () =>
-      new Map<string, import("./pipeline/types").RationalString>(
-        JSON.parse(supplyRateKey),
-      ),
-    [supplyRateKey],
-  );
 
   // Items the current plan pulls across the boundary as assumed-infinite
   // supply: raw items with a realized draw, plus every item whose cycled
