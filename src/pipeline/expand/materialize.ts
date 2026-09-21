@@ -39,8 +39,10 @@ export type ExpandMultipliersInput = {
   // MachineSccVertex, which AlwaysFoldRender draws as a LoopNode stating net I/O
   // instead of its member recipes. Preserved deliberately and exercised by tests
   // only -- the shipped driver never passes this map, so no plan takes the route
-  // today. Active loop rendering is the loop-box CONTAINER over ordinary recipe
-  // units, which is a different mechanism and unaffected by this field.
+  // today. Only expandMultipliers honours it; expandAggregate has no SCC branch
+  // and treats every logical recipe node as a machine vertex. Active loop
+  // rendering is the loop-box CONTAINER over ordinary recipe units, which is a
+  // different mechanism and unaffected by this field.
   sccByLogicalNodeId?: ReadonlyMap<
     string,
     { sccId: SccId; netIO: ReadonlyArray<NetIOPort> }
@@ -106,7 +108,7 @@ function indexLogical(input: ExpandMultipliersInput): LogicalIndex {
   // per-vertex rates for any caller that believed it had wired both.
   if ((input.idealCount === undefined) !== (input.machineById === undefined)) {
     throw new Error(
-      "expandMultipliers: idealCount and machineById must be provided together (or both omitted); one without the other silently disables N_full + partial decomposition",
+      "indexLogical: idealCount and machineById must be provided together (or both omitted); one without the other silently disables N_full + partial decomposition",
     );
   }
 
@@ -136,7 +138,7 @@ function transportKindOf(
   const entry = itemById.get(item);
   if (!entry) {
     throw new Error(
-      `expandMultipliers: item ${item} missing from itemById; pack referential integrity broken`,
+      `transportKindOf: item ${item} missing from itemById; pack referential integrity broken`,
     );
   }
   return entry.transportKind;
@@ -144,9 +146,10 @@ function transportKindOf(
 
 /**
  * ExpandAggregate: the shipped materialisation. One MachineRecipeVertex per
- * surviving replica carrying the replica's whole execution rate, one
- * MachineSccVertex per SCC stand-in, and one MachineEdge per (source vertex,
- * target vertex, item) carrying the logical edge's total rate.
+ * surviving replica carrying the replica's whole execution rate, and one
+ * MachineEdge per (source vertex, target vertex, item) carrying the logical
+ * edge's total rate. No SCC stand-in branch: the driver never passes
+ * sccByLogicalNodeId, so the route exists only on expandMultipliers.
  *
  * This is what the render draws. AlwaysFoldRender folds a replica's vertices
  * into one unit whose badge comes from idealCount and sums every edge of a
@@ -161,25 +164,12 @@ function transportKindOf(
  */
 export function expandAggregate(input: ExpandMultipliersInput): MachineGraph {
   const { logical, itemById } = input;
-  const { recipeNodes, replicaByLogicalId, sccMap } = indexLogical(input);
+  const { recipeNodes, replicaByLogicalId } = indexLogical(input);
 
   const vertices: MachineVertex[] = [];
   const vertexByNodeId = new Map<string, MachineVertexId>();
 
   for (const n of recipeNodes) {
-    const scc = sccMap.get(n.id);
-    if (scc) {
-      const v: MachineSccVertex = {
-        kind: "scc-box",
-        id: n.id,
-        sccId: scc.sccId,
-        netIO: scc.netIO,
-      };
-      vertices.push(v);
-      vertexByNodeId.set(n.id, v.id);
-      continue;
-    }
-
     const replica = replicaByLogicalId.get(n.id);
     const replicaId: ReplicaId = replica ? replica.id : n.id;
     const ideal = input.idealCount?.get(replicaId);

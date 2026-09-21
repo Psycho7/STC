@@ -7,7 +7,6 @@ import {
   unitIdForInputContainer,
   unitIdForInputTargetFeed,
   unitIdForOutputProduct,
-  unitIdForRecipe,
   unitIdForScc,
   unitIdForSurplus,
 } from "./unit-ids";
@@ -17,10 +16,6 @@ import {
 // two sides disagree at runtime; this suite is what catches a rename instead.
 // Every string below is byte-identical to the literal its constructor
 // replaced, and the render corpus golden depends on all of them.
-
-test("unitIdForRecipe pins the bare machine-vertex form", () => {
-  expect(unitIdForRecipe("r:iron_plate~0:0")).toBe("u:r:iron_plate~0:0");
-});
 
 test("unitIdForScc pins the loop form", () => {
   expect(unitIdForScc("s1")).toBe("u:scc:s1");

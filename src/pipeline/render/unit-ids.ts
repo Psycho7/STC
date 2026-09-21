@@ -1,7 +1,6 @@
 import type {
   ContainerId,
   ItemId,
-  MachineVertexId,
   RenderUnitId,
   ReplicaId,
   SccId,
@@ -25,21 +24,16 @@ import type {
 //
 // The grammar is `u:`-prefixed and `:`-separated, and the families below are
 // distinguished by the word after `u:` (`scc`, `class`, `in`, `cat`, `out`,
-// `surplus`) or, for a recipe unit, by the absence of one. Injectivity across
-// the families rests on exactly three clauses about the ids fed in:
+// `surplus`). Injectivity across the families rests on exactly two clauses
+// about the ids fed in:
 //   1. An item id contains no `:`. Otherwise `u:in:a:b` is ambiguous between
 //      the aggregate for item "a:b" and the container "b" of item "a", and
 //      `u:cat:a:b` the same way for the catalyst family.
-//   2. A machine vertex id does not start with a family word followed by `:`.
-//      Otherwise a recipe unit collides with the family that word names.
-//   3. A container id is not literally "target", the one reserved container
+//   2. A container id is not literally "target", the one reserved container
 //      slot under `u:in:<item>:`.
 // The pack census in src/solver/pack-shape.test.ts pins clause 1 on the
-// shipped pack; clauses 2 and 3 hold because vertex and container ids are
-// minted inside the pipeline, not read off the pack.
-
-export const unitIdForRecipe = (vertexId: MachineVertexId): RenderUnitId =>
-  `u:${vertexId}`;
+// shipped pack; clause 2 holds because container ids are minted inside the
+// pipeline, not read off the pack.
 
 // Every SCC vertex with the same sccId collapses to one loop unit so all
 // inbound and outbound edges resolve to the same render endpoint.
