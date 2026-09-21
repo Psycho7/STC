@@ -59,7 +59,7 @@ with the env var:
 STC_VALIDATE=1 bun run tools/solver-cli/main.ts --plan xiranite_enr_powder=0.1
 ```
 
-Armed, a violated solver invariant, render invariant, augmented-LP-support SCC
+Armed, a violated solver invariant, render invariant, augmented-LP-support seed
 guard or edge-rate capacity guard throws and the run exits `1` instead of
 printing a plan built on the fallback. Nothing else changes: a clean plan prints
 byte-identical output either way.

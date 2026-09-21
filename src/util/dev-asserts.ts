@@ -1,6 +1,6 @@
 // Arming predicate for the pipeline's expensive internal checks (solver and
-// render invariants, the augmented-LP-support SCC guard, the edge-rate capacity
-// guard).
+// render invariants, the augmented-LP-support seed guard, the edge-rate
+// capacity guard).
 //
 // Two runtimes have to agree on it. Vite sets import.meta.env.DEV, so the dev
 // server and vitest arm the checks; a production browser bundle never does.
