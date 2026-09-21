@@ -61,21 +61,11 @@ vi.mock("./canvas/Canvas", () => ({
 }));
 
 import App from "./App";
-import { defaultPlan, encodePlan, type Plan } from "./data/plan";
-import { pack } from "./data/load";
+import { encodePlan } from "./data/plan";
 import { loadI18n } from "./data/i18n";
 import { EVENT_COHORT_OVERRIDES_STORAGE_KEY } from "./data/storage-keys";
+import { LUNG_PLAN, flipStoredOverrides } from "./App.testkit";
 import { pickerTile } from "./components/panel.testkit";
-
-// The lung is v1.5 event content whose only producer is the event recipe of
-// the same id: with the cohort on it solves through that recipe, with it off
-// the target has no available producer at all.
-const LUNG_PLAN: Plan = {
-  ...defaultPlan(pack),
-  targets: [
-    { itemId: "activity_xiranite_lung", ratePerSec: { num: "1", denom: "1" } },
-  ],
-};
 
 // The localized producer-unavailable copy the splash and banner must render:
 // raw item id plus the cohort, per the T3 string.
@@ -83,17 +73,6 @@ const zhCohortError = loadI18n("zh").t("app.error.producer-unavailable.event", {
   itemId: "activity_xiranite_lung",
   cohort: "v1.5",
 });
-
-// Simulate another tab flipping a cohort: same-document writes fire no
-// `storage` event, so the test writes the key and then dispatches the event
-// the browser would have delivered to the other windows.
-function flipStoredOverrides(json: string): void {
-  window.localStorage.setItem(EVENT_COHORT_OVERRIDES_STORAGE_KEY, json);
-  fireEvent(
-    window,
-    new StorageEvent("storage", { key: EVENT_COHORT_OVERRIDES_STORAGE_KEY }),
-  );
-}
 
 beforeEach(() => {
   vi.stubGlobal(

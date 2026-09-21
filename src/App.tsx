@@ -516,8 +516,11 @@ function AppInner() {
   // Drop whatever solve or navigation is in flight without starting a new one.
   // Bumping the generation is what makes the running one give up: every one of
   // its resume points compares against solveGen, so it applies nothing and
-  // writes no hash. Its `finally` then declines to clear the flag and the
-  // pending state (they belong to the newest generation), so clear both here.
+  // writes no hash. The navigation flag and the pending state have three
+  // clearers: the running generation's own `finally`, scheduleSolve when it
+  // supersedes a navigation, and this callback. The first only clears for the
+  // newest generation, which the bump just made it not, and no scheduleSolve
+  // follows, so this one clears both.
   const invalidateInFlight = useCallback((): void => {
     solveGen.current++;
     navigationInFlightRef.current = false;
@@ -716,6 +719,13 @@ function AppInner() {
     }
     const error = validatePlan(current, pack, availability.causes);
     if (error) {
+      // A hash navigation still landing is headed for another plan, so this
+      // rejection is not its concern: re-run it so the pasted link is checked
+      // under the new set rather than dropped along with the rejected plan.
+      if (navigationInFlightRef.current) {
+        void loadFromHash(window.location.hash, "navigation");
+        return;
+      }
       // The plan under the new set is rejected, so a solve still running for it
       // is obsolete: landing it would clear this banner and write the URL of a
       // plan that no longer loads. Unlike commitPlan's refusals, which fire

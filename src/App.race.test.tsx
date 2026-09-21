@@ -14,7 +14,9 @@
 // rejection site: when an availability flip (from another tab or from this
 // tab's settings panel) rejects the committed plan, the solve already in flight
 // for that plan must not land - it would clear the banner and rewrite the URL
-// to a plan that fails to load.
+// to a plan that fails to load. A sixth bounds that invalidation: a hash
+// navigation in flight at the same time is headed for another plan and is
+// re-run under the new set, not dropped.
 //
 // The solve window is made deterministic by mocking layoutRenderPlan with a
 // manually resolved deferred, so no real-timing race window is involved.
@@ -47,15 +49,10 @@ vi.mock("./canvas/layout", async (importOriginal) => {
 });
 
 import App from "./App";
-import {
-  defaultPlan,
-  encodePlan,
-  loadPlan,
-  validatePlan,
-  type Plan,
-} from "./data/plan";
+import { defaultPlan, encodePlan, loadPlan, validatePlan } from "./data/plan";
 import { pack } from "./data/load";
 import { EVENT_COHORT_OVERRIDES_STORAGE_KEY } from "./data/storage-keys";
+import { LUNG_PLAN, flipStoredOverrides } from "./App.testkit";
 
 // Plan B: the default plan minus its last target, distinguishable by row count.
 async function encodePlanB(): Promise<string> {
@@ -63,25 +60,6 @@ async function encodePlanB(): Promise<string> {
   const b = { ...a, targets: a.targets.slice(0, a.targets.length - 1) };
   if (validatePlan(b, pack)) throw new Error("plan B unexpectedly invalid");
   return "#" + (await encodePlan(b));
-}
-
-// The lung is v1.5 event content whose only producer is the event recipe of the
-// same id, so switching the cohort off is a plan-rejecting availability change.
-const LUNG_PLAN: Plan = {
-  ...defaultPlan(pack),
-  targets: [
-    { itemId: "activity_xiranite_lung", ratePerSec: { num: "1", denom: "1" } },
-  ],
-};
-
-// Another tab flipping a cohort: a same-document write fires no `storage`
-// event, so write the key and dispatch the event the browser would deliver.
-function flipStoredOverridesInAnotherTab(json: string): void {
-  window.localStorage.setItem(EVENT_COHORT_OVERRIDES_STORAGE_KEY, json);
-  fireEvent(
-    window,
-    new StorageEvent("storage", { key: EVENT_COHORT_OVERRIDES_STORAGE_KEY }),
-  );
 }
 
 // The header status chip, read off the one chip whose whole text is a status.
@@ -352,7 +330,7 @@ test("a cross-tab availability flip invalidates the in-flight solve", async () =
 
   // Another tab switches the cohort the committed target depends on off. The
   // re-validation rejects the plan while its solve is still held.
-  flipStoredOverridesInAnotherTab('{"v1.5": false}');
+  flipStoredOverrides('{"v1.5": false}');
   await screen.findByRole("alert");
 
   await releaseAndExpectInvalidated(hashBeforeEdit);
@@ -379,4 +357,41 @@ test("a settings-panel availability flip invalidates the in-flight solve", async
   await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
 
   await releaseAndExpectInvalidated(hashBeforeEdit);
+});
+
+// The rejection above must not take a hash navigation down with the solve: a
+// link pasted while the lung solve was in flight is headed for another plan,
+// and the flip is that plan's problem to re-check, not a reason to drop it.
+test("an availability flip that rejects the committed plan re-runs a landing hash navigation", async () => {
+  window.location.hash = "#" + (await encodePlan(LUNG_PLAN));
+  render(<App />);
+
+  await waitFor(() => expect(layoutGate.pending.length).toBe(1));
+  layoutGate.pending.shift()!();
+  await screen.findAllByTestId("target-row");
+  await waitFor(() => expect(statusChip()).toBe("READY"));
+
+  await commitHeldRateEdit();
+
+  // Paste plan B while the edit's solve is held; its navigation is held too.
+  const planBHash = await encodePlanB();
+  window.location.hash = planBHash;
+  await waitFor(() => expect(layoutGate.pending.length).toBe(2));
+
+  // The flip rejects the lung plan the navigation is leaving. The navigation
+  // restarts under the new set, queueing a third layout behind the held two.
+  flipStoredOverrides('{"v1.5": false}');
+  await waitFor(() => expect(layoutGate.pending.length).toBe(3));
+
+  // Release everything in order: only the restarted navigation may land.
+  while (layoutGate.pending.length > 0) layoutGate.pending.shift()!();
+  await waitFor(() =>
+    expect(
+      within(screen.getByTestId("targets-section")).getAllByTestId("target-row")
+        .length,
+    ).toBe(2),
+  );
+  await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
+  expect(statusChip()).toBe("READY");
+  expect(window.location.hash).toBe(planBHash);
 });
