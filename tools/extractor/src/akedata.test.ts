@@ -449,6 +449,32 @@ describe("side tables keep their shape", () => {
     return gas ? { ...ake, gasMiners: flipped } : { ...ake, miners: flipped };
   }
 
+  test("a miner recipe with two outputs fails the join", () => {
+    // Arity is asserted before membership, so the message names the table
+    // rather than the row the stoichiometry check would have looked for.
+    const broken = packWithRecipe("iron_ore", {
+      out: [
+        { item: "iron_ore", qty: 1 },
+        { item: "copper_ore", qty: 1 },
+      ],
+    });
+    expect(() => joinAndAssert(broken, ake)).toThrow(
+      /iron_ore .*FactoryMinerTable/,
+    );
+  });
+
+  test("a gas-miner recipe with two outputs fails the join", () => {
+    const broken = packWithRecipe("gas_xiranite", {
+      out: [
+        { item: "gas_xiranite", qty: 1 },
+        { item: "gas_inert", qty: 1 },
+      ],
+    });
+    expect(() => joinAndAssert(broken, ake)).toThrow(
+      /gas_xiranite .*FactoryGasMinerTable/,
+    );
+  });
+
   test("a miner output quantity the table does not imply fails the join", () => {
     // produceRate is folded into the duration, so the quantity has to stay 1.
     const broken = packWithRecipe("iron_ore", {
@@ -580,6 +606,9 @@ describe("environment derivation", () => {
     }
     expect(message).toContain(MIX_POOL_RECIPE);
     for (const craftId of craftIds) expect(message).toContain(craftId);
+    // Both sides of the disagreement are spelled out, the absent one included.
+    expect(message).toContain("stable atmosphere");
+    expect(message).toContain("no atmosphere");
   });
 
   test("an unrecognised gasEnv value fails the derivation", () => {

@@ -358,9 +358,10 @@ export function deriveEnvironments(
       if (environment) environments.set(recipeId, environment);
       continue;
     }
-    if (environments.get(recipeId) !== environment) {
+    const firstEnvironment = environments.get(recipeId);
+    if (firstEnvironment !== environment) {
       throw new Error(
-        `recipe ${recipeId} joins crafts ${first} and ${craftId} with different atmospheres`,
+        `recipe ${recipeId} joins crafts ${first} (${firstEnvironment ?? "no"} atmosphere) and ${craftId} (${environment ?? "no"} atmosphere)`,
       );
     }
   }
