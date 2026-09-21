@@ -175,16 +175,15 @@ const SIDE_SECTION_ORDER: SideSection[] = ["targets", "inputs"];
 
 const EMPTY_CATALYST_ACCOUNT: CatalystAccount = new Map();
 
-// Boundary supply per ROW KEY, folded out of the input ProductNode data the
-// layout layer wrote.
+// Boundary supply per general ROW KEY, folded out of the input ProductNode
+// data the layout layer wrote.
 //
-// A catalyst is external supply the same way a raw draw is, and the render
-// pipeline draws the cycled charge from a catalyst node of its own. The two
-// nodes go in under different row keys rather than being summed: the panel
-// shows one row per pool, and the general row's number is its ordinary draw
-// alone. What the general pool was billed of the charge comes from
-// catalystAccount, not from the catalyst node, so adding the node's rate here
-// would count that share twice.
+// Only the ordinary draw goes in. The render pipeline draws the cycled charge
+// from a catalyst node of its own, but every reader keys this map by the
+// general row: the general row's number is its ordinary draw alone, and what
+// the general pool was billed of the charge comes from catalystAccount, not
+// from the catalyst node, so adding the node's rate here would count that
+// share twice. The catalyst row's number comes from catalystAccount too.
 type SupplyRateByItem = ReadonlyMap<string, RationalString>;
 
 const EMPTY_SUPPLY_RATES: SupplyRateByItem = new Map();
@@ -194,12 +193,6 @@ function buildSupplyRateByItem(nodes: readonly Node[]): SupplyRateByItem {
   for (const [itemId, rates] of buildRealizedRateByItem(nodes)) {
     if (rates.ordinary !== undefined) {
       byRowKey.set(encodeItemOverrideKey({ itemId }), rates.ordinary);
-    }
-    if (rates.catalyst !== undefined) {
-      byRowKey.set(
-        encodeItemOverrideKey({ itemId, role: "catalyst" }),
-        rates.catalyst,
-      );
     }
   }
   return byRowKey;

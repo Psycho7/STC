@@ -64,9 +64,8 @@ type Props = {
   // that model no availability render every tile enabled.
   unavailableItems?: ReadonlyMap<string, ProducerUnavailableCause> | undefined;
   targetItemIds?: ReadonlySet<string>;
-  // Boundary supply per ROW KEY (encodeItemOverrideKey): the realized demand of the
-  // latest render pass, read off the boundary nodes, with the ordinary node
-  // under the item id and the catalyst node under the item's catalyst key.
+  // Boundary supply per general ROW KEY (encodeItemOverrideKey): the realized
+  // demand of the latest render pass, read off the ordinary boundary nodes.
   // When present, a general row shows the same number as the matching canvas
   // ProductNode; rows without an entry leave the rate slot empty. Shown in
   // place of the old "UNCAPPED" chip.
