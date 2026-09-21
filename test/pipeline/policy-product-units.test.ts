@@ -6,7 +6,7 @@ import { pack } from "../../src/data/load";
 import { makePack } from "../../src/solver/closed-form-fixtures";
 import type { Target } from "../../src/data/targets";
 import type { ItemOverride } from "../../src/data/plan";
-import { NoFoldRender } from "../../src/pipeline/render/policy";
+import { AlwaysFoldRender } from "../../src/pipeline/render/always-fold";
 import type { SupplyTable } from "../../src/solver/effectiveSupply";
 import { buildSupplyTable } from "../../src/solver/effectiveSupply";
 import {
@@ -15,6 +15,7 @@ import {
 } from "../../src/pipeline/types";
 import type {
   MachineEdge,
+  RenderPolicyInput,
   MachineRecipeVertex,
   RenderUnitInputProduct,
   RenderUnitOutputProduct,
@@ -29,6 +30,25 @@ function mkSupply(
   itemOverrides: ReadonlyArray<ItemOverride> = [],
 ): SupplyTable {
   return buildSupplyTable({ items: [...itemById.values()] }, itemOverrides);
+}
+
+// The hand-built cases below drive deriveBoundaryProducts through the shipped
+// AlwaysFoldRender policy. It needs an idealCount entry per replica for the
+// multiplicity badge, and these synthetic graphs carry one machine per vertex,
+// so the count is the vertex count of the replica. Units are named
+// `u:class:<replicaId>`.
+function foldRender(
+  input: Omit<RenderPolicyInput, "idealCount">,
+): ReturnType<typeof AlwaysFoldRender> {
+  const idealCount = new Map<string, Fraction>();
+  for (const v of input.machineGraph.vertices) {
+    if (v.kind !== "machine") continue;
+    idealCount.set(
+      v.replicaId,
+      (idealCount.get(v.replicaId) ?? new Fraction(0)).add(new Fraction(1)),
+    );
+  }
+  return AlwaysFoldRender({ ...input, idealCount });
 }
 
 // Helper: run the full pipeline end-to-end for a given targets+overrides
@@ -198,9 +218,8 @@ describe("render policy / boundary product units", () => {
         },
       ],
     ]);
-    const plan = NoFoldRender({
+    const plan = foldRender({
       containers: { containers: [], containerByMember: new Map() },
-      idealCount: new Map(),
       machineGraph: { vertices: [], edges: [] },
       targets: [
         { itemId: "x", ratePerSec: { num: "1", denom: "1" } },
@@ -281,9 +300,8 @@ describe("render policy / boundary product units", () => {
     const itemOverrides: ItemOverride[] = [
       { itemId: "built", ratePerSec: { num: "1", denom: "2" } },
     ];
-    const plan = NoFoldRender({
+    const plan = foldRender({
       containers: { containers: [], containerByMember: new Map() },
-      idealCount: new Map(),
       machineGraph: { vertices: [consumer], edges: [] },
       targets: [{ itemId: "out", ratePerSec: { num: "1", denom: "1" } }],
       itemOverrides,
@@ -354,9 +372,8 @@ describe("render policy / boundary product units", () => {
     const itemOverrides: ItemOverride[] = [
       { itemId: "built", ratePerSec: { num: "0", denom: "1" } },
     ];
-    const plan = NoFoldRender({
+    const plan = foldRender({
       containers: { containers: [], containerByMember: new Map() },
-      idealCount: new Map(),
       machineGraph: { vertices: [consumer], edges: [] },
       targets: [{ itemId: "out", ratePerSec: { num: "1", denom: "1" } }],
       itemOverrides,
@@ -422,9 +439,8 @@ describe("render policy / boundary product units", () => {
       stampIndex: 0,
       executionRate: new Fraction(1),
     };
-    const plan = NoFoldRender({
+    const plan = foldRender({
       containers: { containers: [], containerByMember: new Map() },
-      idealCount: new Map(),
       machineGraph: { vertices: [consumer], edges: [] },
       targets: [{ itemId: "out", ratePerSec: { num: "1", denom: "1" } }],
       itemOverrides: [],
@@ -567,9 +583,8 @@ describe("render policy / boundary product units", () => {
     const itemOverrides: ItemOverride[] = [
       { itemId: "shared", ratePerSec: { num: "1", denom: "2" } },
     ];
-    const plan = NoFoldRender({
+    const plan = foldRender({
       containers: { containers: [], containerByMember: new Map() },
-      idealCount: new Map(),
       machineGraph: { vertices: [producer, consumer], edges: [edge] },
       targets: [{ itemId: "out", ratePerSec: { num: "1", denom: "1" } }],
       itemOverrides,
@@ -590,8 +605,8 @@ describe("render policy / boundary product units", () => {
     // the input product (boundary edge is additive, not replacing).
     const producerEdge = plan.edges.find(
       (e) =>
-        e.fromUnit === "u:v_prod" &&
-        e.toUnit === "u:v_cons" &&
+        e.fromUnit === "u:class:r_prod#0" &&
+        e.toUnit === "u:class:r_cons#0" &&
         e.item === "shared",
     );
     expect(producerEdge).toBeDefined();
@@ -599,7 +614,7 @@ describe("render policy / boundary product units", () => {
     const boundaryEdge = plan.edges.find(
       (e) =>
         e.fromUnit === "u:in:shared" &&
-        e.toUnit === "u:v_cons" &&
+        e.toUnit === "u:class:r_cons#0" &&
         e.item === "shared",
     );
     expect(boundaryEdge).toBeDefined();
@@ -612,9 +627,8 @@ describe("render policy / boundary product units", () => {
     // machine vertex / edge exists.
     const { consumer } = dualEmissionFixture();
     const itemOverrides: ItemOverride[] = [{ itemId: "shared" }];
-    const plan = NoFoldRender({
+    const plan = foldRender({
       containers: { containers: [], containerByMember: new Map() },
-      idealCount: new Map(),
       machineGraph: { vertices: [consumer], edges: [] },
       targets: [{ itemId: "out", ratePerSec: { num: "1", denom: "1" } }],
       itemOverrides,
@@ -631,7 +645,8 @@ describe("render policy / boundary product units", () => {
     expect(shared!.rateCap).toBeUndefined();
     // No producer vertex emitted, hence no producer->consumer edge.
     const producerEdge = plan.edges.find(
-      (e) => e.fromUnit === "u:v_prod" && e.toUnit === "u:v_cons",
+      (e) =>
+        e.fromUnit === "u:class:r_prod#0" && e.toUnit === "u:class:r_cons#0",
     );
     expect(producerEdge).toBeUndefined();
   });
@@ -825,9 +840,8 @@ describe("render policy / boundary product units", () => {
     const itemOverrides: ItemOverride[] = [
       { itemId: "shared", ratePerSec: { num: "1", denom: "1" } },
     ];
-    const plan = NoFoldRender({
+    const plan = foldRender({
       containers: { containers: [], containerByMember: new Map() },
-      idealCount: new Map(),
       machineGraph: {
         vertices: [prod0, prod1, cons0, cons1],
         edges,
@@ -844,7 +858,7 @@ describe("render policy / boundary product units", () => {
     });
     // For each consumer, sum all incoming edges carrying `shared` and assert
     // the total equals the consumer's per-input demand (1/s here).
-    const consumerIds = ["u:v_cons_0", "u:v_cons_1"] as const;
+    const consumerIds = ["u:class:r_cons#0", "u:class:r_cons#1"] as const;
     for (const cid of consumerIds) {
       const incoming = plan.edges.filter(
         (e) => e.toUnit === cid && e.item === "shared",
@@ -932,9 +946,8 @@ describe("render policy / boundary product units", () => {
     const itemOverrides: ItemOverride[] = [
       { itemId: "dual", ratePerSec: { num: "1", denom: "2" } },
     ];
-    const plan = NoFoldRender({
+    const plan = foldRender({
       containers: { containers: [], containerByMember: new Map() },
-      idealCount: new Map(),
       machineGraph: { vertices: [producer, consumer], edges: [] },
       targets: [{ itemId: "dual", ratePerSec: { num: "1", denom: "1" } }],
       itemOverrides,
@@ -1022,9 +1035,8 @@ describe("render policy / boundary product units", () => {
       stampIndex: 0,
       executionRate: new Fraction(1),
     };
-    const plan = NoFoldRender({
+    const plan = foldRender({
       containers: { containers: [], containerByMember: new Map() },
-      idealCount: new Map(),
       machineGraph: { vertices: [producer, consumer], edges: [] },
       targets: [{ itemId: "raw_target", ratePerSec: { num: "1", denom: "1" } }],
       itemOverrides: [],
@@ -1056,9 +1068,8 @@ describe("render policy / boundary product units", () => {
     const itemOverrides: ItemOverride[] = [
       { itemId: "shared", ratePerSec: { num: "1", denom: "2" } },
     ];
-    const plan = NoFoldRender({
+    const plan = foldRender({
       containers: { containers: [], containerByMember: new Map() },
-      idealCount: new Map(),
       machineGraph: {
         vertices: [producerWithHalfRate, consumer],
         edges: [edgeAtHalf],
@@ -1073,7 +1084,7 @@ describe("render policy / boundary product units", () => {
       boundaryShare: new Map([["shared", new Fraction(1, 2)]]),
     });
     const incoming = plan.edges.filter(
-      (e) => e.toUnit === "u:v_cons" && e.item === "shared",
+      (e) => e.toUnit === "u:class:r_cons#0" && e.item === "shared",
     );
     const total = incoming.reduce(
       (acc, e) => acc.add(e.rate as unknown as Fraction),
@@ -1084,7 +1095,7 @@ describe("render policy / boundary product units", () => {
     const boundaryEdge = plan.edges.find(
       (e) =>
         e.fromUnit === "u:in:shared" &&
-        e.toUnit === "u:v_cons" &&
+        e.toUnit === "u:class:r_cons#0" &&
         e.item === "shared",
     );
     expect(boundaryEdge).toBeDefined();
@@ -1158,9 +1169,8 @@ describe("render policy / boundary product units", () => {
       stampIndex: 1,
       executionRate: new Fraction(2),
     };
-    const plan = NoFoldRender({
+    const plan = foldRender({
       containers: { containers: [], containerByMember: new Map() },
-      idealCount: new Map(),
       machineGraph: { vertices: [cons0, cons1], edges: [] },
       targets: [{ itemId: "out", ratePerSec: { num: "3", denom: "1" } }],
       itemOverrides: [],
@@ -1248,9 +1258,8 @@ describe("render policy / boundary product units", () => {
     const itemOverrides: ItemOverride[] = [
       { itemId: "built", ratePerSec: { num: "1", denom: "2" } },
     ];
-    const plan = NoFoldRender({
+    const plan = foldRender({
       containers: { containers: [], containerByMember: new Map() },
-      idealCount: new Map(),
       machineGraph: { vertices: [cons], edges: [] },
       targets: [{ itemId: "out", ratePerSec: { num: "1", denom: "1" } }],
       itemOverrides,
@@ -1387,9 +1396,8 @@ describe("render policy / input fan-out per container", () => {
       containerA: "grp:A",
       containerB: "grp:B",
     });
-    const plan = NoFoldRender({
+    const plan = foldRender({
       containers: { containers: [], containerByMember: new Map() },
-      idealCount: new Map(),
       machineGraph: { vertices: [v_a!, v_b!], edges: [] },
       targets: [
         { itemId: "out_a", ratePerSec: { num: "1", denom: "1" } },
@@ -1436,8 +1444,8 @@ describe("render policy / input fan-out per container", () => {
     const bEdges = plan.edges.filter(
       (e) => e.fromUnit === "u:in:water:grp:B" && e.item === "water",
     );
-    expect(aEdges.map((e) => e.toUnit)).toEqual(["u:v_a"]);
-    expect(bEdges.map((e) => e.toUnit)).toEqual(["u:v_b"]);
+    expect(aEdges.map((e) => e.toUnit)).toEqual(["u:class:r_a#0"]);
+    expect(bEdges.map((e) => e.toUnit)).toEqual(["u:class:r_b#0"]);
   });
 
   it("regression: consumers in a single container collapse to one input node", () => {
@@ -1445,9 +1453,8 @@ describe("render policy / input fan-out per container", () => {
       containerA: "grp:shared",
       containerB: "grp:shared",
     });
-    const plan = NoFoldRender({
+    const plan = foldRender({
       containers: { containers: [], containerByMember: new Map() },
-      idealCount: new Map(),
       machineGraph: { vertices: [v_a!, v_b!], edges: [] },
       targets: [
         { itemId: "out_a", ratePerSec: { num: "1", denom: "1" } },
@@ -1470,9 +1477,8 @@ describe("render policy / input fan-out per container", () => {
 
   it("loose consumers (no containerId) share the single u:in:water card", () => {
     const [v_a, v_b] = makeConsumers({}); // both undefined containerId
-    const plan = NoFoldRender({
+    const plan = foldRender({
       containers: { containers: [], containerByMember: new Map() },
-      idealCount: new Map(),
       machineGraph: { vertices: [v_a!, v_b!], edges: [] },
       targets: [
         { itemId: "out_a", ratePerSec: { num: "1", denom: "1" } },
@@ -1498,7 +1504,10 @@ describe("render policy / input fan-out per container", () => {
     const outEdges = plan.edges.filter(
       (e) => e.fromUnit === "u:in:water" && e.item === "water",
     );
-    expect(outEdges.map((e) => e.toUnit).sort()).toEqual(["u:v_a", "u:v_b"]);
+    expect(outEdges.map((e) => e.toUnit).sort()).toEqual([
+      "u:class:r_a#0",
+      "u:class:r_b#0",
+    ]);
     // Edge rates sum exactly to the node rate (rational equality).
     const edgeSum = outEdges.reduce(
       (acc, e) => acc.add(e.rate),
@@ -1511,9 +1520,8 @@ describe("render policy / input fan-out per container", () => {
 
   it("single lone loose consumer collapses to legacy u:in:water with no aggregate", () => {
     const [v_a] = makeConsumers({}); // single loose consumer
-    const plan = NoFoldRender({
+    const plan = foldRender({
       containers: { containers: [], containerByMember: new Map() },
-      idealCount: new Map(),
       machineGraph: { vertices: [v_a!], edges: [] },
       targets: [{ itemId: "out_a", ratePerSec: { num: "1", denom: "1" } }],
       itemOverrides: [],
@@ -1534,9 +1542,8 @@ describe("render policy / input fan-out per container", () => {
 
   it("mixed grouped + loose consumer: aggregate + grouped fanout, loose edge off the aggregate", () => {
     const [v_a, v_b] = makeConsumers({ containerA: "grp:A" }); // B undefined
-    const plan = NoFoldRender({
+    const plan = foldRender({
       containers: { containers: [], containerByMember: new Map() },
-      idealCount: new Map(),
       machineGraph: { vertices: [v_a!, v_b!], edges: [] },
       targets: [
         { itemId: "out_a", ratePerSec: { num: "1", denom: "1" } },
@@ -1565,13 +1572,13 @@ describe("render policy / input fan-out per container", () => {
       (e) => e.fromUnit === "u:in:water" && e.item === "water",
     );
     expect(aggregateOut.map((e) => e.toUnit).sort()).toEqual([
+      "u:class:r_b#0",
       "u:in:water:grp:A",
-      "u:v_b",
     ]);
     const groupEdges = plan.edges.filter(
       (e) => e.fromUnit === "u:in:water:grp:A" && e.item === "water",
     );
-    expect(groupEdges.map((e) => e.toUnit)).toEqual(["u:v_a"]);
+    expect(groupEdges.map((e) => e.toUnit)).toEqual(["u:class:r_a#0"]);
     // Aggregate rate == sum(slice inbound) + sum(direct loose edges).
     const aggSum = aggregateOut.reduce(
       (acc, e) => acc.add(e.rate),
@@ -1596,9 +1603,8 @@ describe("render policy / input fan-out per container", () => {
     const itemOverrides: ItemOverride[] = [
       { itemId: "water", ratePerSec: { num: "2", denom: "1" } },
     ];
-    const plan = NoFoldRender({
+    const plan = foldRender({
       containers: { containers: [], containerByMember: new Map() },
-      idealCount: new Map(),
       machineGraph: { vertices: [v_a!, v_b!], edges: [] },
       targets: [
         { itemId: "out_a", ratePerSec: { num: "3", denom: "1" } },

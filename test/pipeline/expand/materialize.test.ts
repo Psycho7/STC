@@ -185,10 +185,10 @@ describe("expandMultipliers / paired distribution (producer 4 -> consumer 4)", (
     expect(recipeVerts).toHaveLength(8);
     const producerStamps = recipeVerts
       .filter((v) => v.replicaId === "rP0")
-      .sort((a, b) => a.stampIndex - b.stampIndex);
+      .sort((a, b) => (a.stampIndex ?? 0) - (b.stampIndex ?? 0));
     const consumerStamps = recipeVerts
       .filter((v) => v.replicaId === "rC0")
-      .sort((a, b) => a.stampIndex - b.stampIndex);
+      .sort((a, b) => (a.stampIndex ?? 0) - (b.stampIndex ?? 0));
     expect(producerStamps.map((v) => v.stampIndex)).toEqual([0, 1, 2, 3]);
     expect(consumerStamps.map((v) => v.stampIndex)).toEqual([0, 1, 2, 3]);
 
@@ -246,7 +246,7 @@ describe("expandMultipliers / paired distribution with unequal multipliers", () 
     const producerStamps = out.vertices
       .filter(isMachineRecipeVertex)
       .filter((v) => v.replicaId === "rP0")
-      .sort((a, b) => a.stampIndex - b.stampIndex);
+      .sort((a, b) => (a.stampIndex ?? 0) - (b.stampIndex ?? 0));
     expect(producerStamps).toHaveLength(6);
 
     // edgeCount = max(6, 4) = 6; every producer machine must be a source.
@@ -483,7 +483,7 @@ describe("expandMultipliers / shared-utility distribution (greedy by demand)", (
     // producer stamp 11 -> rC stamp 3.
     const sortedProducers = recipeVerts
       .filter((v) => v.replicaId === "rS")
-      .sort((a, b) => a.stampIndex - b.stampIndex);
+      .sort((a, b) => (a.stampIndex ?? 0) - (b.stampIndex ?? 0));
     const consumerOf = (vid: string): string => {
       const v = recipeVerts.find((x) => x.id === vid)!;
       return v.replicaId;

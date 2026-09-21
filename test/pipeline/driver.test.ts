@@ -155,11 +155,13 @@ describe("pipeline driver: default AEF targets", () => {
   });
 });
 
-// D06 pin: stamping is capped per replica class, and the cap is invisible in
-// the folded plan. Scaling one target by 1000 pushes several classes past the
-// cap; the render plan that comes out must have the same units and the same
-// edges as the x1 plan, with every rate scaled by exactly 1000.
-describe("pipeline driver: stamp cap is invisible after folding", () => {
+// D06 pin, re-derived for the aggregate materialisation: the machine graph
+// carries one vertex per replica whatever the target rate, so machine count
+// never reaches the drawn plan as vertex count. Scaling one target by 1000 asks
+// for orders of magnitude more machines; the render plan that comes out must
+// have the same units and the same edges as the x1 plan, with every rate scaled
+// by exactly 1000.
+describe("pipeline driver: machine count is invisible in the plan shape", () => {
   const solve = (ratePerSec: { num: string; denom: string }) => {
     const targets = [{ itemId: "proc_battery_5", ratePerSec }];
     return solveForRender({ targets, pack });
@@ -175,33 +177,34 @@ describe("pipeline driver: stamp cap is invisible after folding", () => {
     p.edges.map((e) => `${e.fromUnit} -> ${e.toUnit} ${e.item}`);
 
   const census = (r: typeof one) => {
-    const stampsByReplica = new Map<string, number>();
+    const verticesByReplica = new Map<string, number>();
     for (const v of r.machineGraph.vertices) {
       if (v.kind !== "machine") continue;
-      stampsByReplica.set(
+      verticesByReplica.set(
         v.replicaId,
-        (stampsByReplica.get(v.replicaId) ?? 0) + 1,
+        (verticesByReplica.get(v.replicaId) ?? 0) + 1,
       );
     }
-    const ideals = [...stampsByReplica.keys()].map((id) =>
+    const ideals = [...verticesByReplica.keys()].map((id) =>
       Number(r.full.idealCount.get(id)?.valueOf() ?? 0),
     );
     return {
-      maxStamps: Math.max(...stampsByReplica.values()),
+      maxVertices: Math.max(...verticesByReplica.values()),
       maxIdeal: Math.max(...ideals),
     };
   };
 
-  it("stamps x1 in full and collapses x1000 past the cap", () => {
-    // x1 is the uncapped side: every machine of the busiest class gets its own
-    // stamp. x1000 asks for orders of magnitude more machines and still hands
-    // out a bounded number of stamps, so the two sides below are a capped plan
-    // compared against an uncapped one.
+  it("emits one vertex per replica at x1 and at x1000", () => {
+    // The two sides really do differ in machine count -- x1000 asks for more
+    // than a thousand machines of one class -- and both still materialize one
+    // vertex per replica, so nothing downstream can read machine count off the
+    // vertex count.
     const small = census(one);
-    expect(small.maxStamps).toBe(Math.ceil(small.maxIdeal));
+    expect(small.maxIdeal).toBeGreaterThan(1);
+    expect(small.maxVertices).toBe(1);
     const large = census(kilo);
     expect(large.maxIdeal).toBeGreaterThan(1000);
-    expect(large.maxStamps).toBeLessThanOrEqual(65);
+    expect(large.maxVertices).toBe(1);
   });
 
   it("emits the same units and edges at x1 and x1000", () => {
