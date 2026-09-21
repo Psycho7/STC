@@ -88,6 +88,14 @@ const DOMAIN_TRANSFER_EXCLUDED: readonly string[] = [
 
 const MS_PER_SECOND = 1000;
 
+// The side tables stage 2 resolves, named once: the join hands the name back as
+// its answer and the shape checks name it in their messages.
+const MINER_TABLE = "FactoryMinerTable";
+const GAS_MINER_TABLE = "FactoryGasMinerTable";
+const FLUID_PUMP_TABLE = "FactoryFluidPumpInTable";
+const FLUID_CONSUME_TABLE = "FactoryFluidConsumeTable";
+const FUEL_ITEM_TABLE = "FactoryFuelItemTable";
+
 // The only pack rows the snapshot has no counterpart for. Everything else must
 // join: a snapshot row that disappears would otherwise quietly drop its row out
 // of the stack, phase, power, location and size assertions while every count
@@ -156,6 +164,9 @@ export interface AkeBuilding {
 interface AkeMineable {
   miningItemId: string;
   produceRate: number;
+  // What one round of extraction costs, and the only input a mining recipe can
+  // have. A free ore spells it as an empty id with a count of 0.
+  consumeItem: { id: string; count: number };
 }
 
 export interface AkeMiner {
@@ -347,9 +358,10 @@ export function deriveEnvironments(
       if (environment) environments.set(recipeId, environment);
       continue;
     }
-    if (environments.get(recipeId) !== environment) {
+    const firstEnvironment = environments.get(recipeId);
+    if (firstEnvironment !== environment) {
       throw new Error(
-        `recipe ${recipeId} joins crafts ${first} and ${craftId} with different atmospheres`,
+        `recipe ${recipeId} joins crafts ${first} (${firstEnvironment ?? "no"} atmosphere) and ${craftId} (${environment ?? "no"} atmosphere)`,
       );
     }
   }
@@ -513,81 +525,200 @@ function assertTime(r: Recipe, expected: number): void {
   }
 }
 
-// Resolve one stage-2 recipe against the side tables, asserting the duration
-// (and, for the power station, the generated usage) each table implies.
-// Returns the table name, or undefined when no table models the recipe.
+// The stoichiometry a side table implies, in the same shape stoichKey builds
+// from the pack row. Only the tables that fix both sides get one: the pump and
+// the fluid consumer list which items the machine handles and nothing else.
+function assertStoich(r: Recipe, expected: string): void {
+  const actual = stoichKey(r);
+  if (actual !== expected) {
+    throw new Error(
+      `recipe ${r.id} stoichiometry ${actual} disagrees with akedata ${expected}`,
+    );
+  }
+}
+
+// How many rows each side of a recipe the table models may carry; an absent
+// side is one the table leaves to the stoichiometry check. Arity belongs to the
+// table rather than to the row an item selects, so it is asserted before
+// membership: a recipe of the wrong shape is a disagreement even when the table
+// carries no row for its item.
+function assertArity(
+  r: Recipe,
+  table: string,
+  arity: { out: number; in?: number },
+): void {
+  const outWrong = r.out.length !== arity.out;
+  const inWrong = arity.in !== undefined && r.in.length !== arity.in;
+  if (!outWrong && !inWrong) return;
+
+  throw new Error(
+    `recipe ${r.id} has out/in arity ${r.out.length}/${r.in.length}, which akedata ${table} cannot model`,
+  );
+}
+
+// Resolve one stage-2 recipe against the side tables, asserting the shape, the
+// duration (and, for the power station, the generated usage) each table
+// implies. Returns the table name, or undefined when no table models the
+// recipe.
+//
+// The producer set alone picks the branch: the five tables are keyed on
+// disjoint machines. Once a branch is entered the pack row is asserted against
+// the table rather than matched against it, because a row this machine's table
+// has to explain and cannot is a disagreement between the vendors, and falling
+// through would report it as a missing table row instead. Which items a machine
+// handles is the exception - a recipe for an item the table does not list is
+// simply not one of its rows.
 function matchSideTable(
   r: Recipe,
   producers: string[],
   ake: AkeSnapshot,
 ): string | undefined {
-  // The extraction tables are keyed on what the machine produces; the consumer
-  // and power tables on what it takes in. Either side can be empty - a power
-  // recipe has no output and a miner recipe has no input - so each branch only
-  // reads the side its table is keyed on.
-  const out = r.out[0];
-  const outId = out ? akeItemId(out.item) : undefined;
-  const input = r.in[0];
-  const inputId = input ? akeItemId(input.item) : undefined;
-
-  if (outId !== undefined && producers.every((p) => ake.miners[p])) {
-    const rates = producers.map((p) =>
-      ake.miners[p]!.mineable.find((m) => m.miningItemId === outId),
+  if (producers.every((p) => ake.miners[p])) {
+    return matchMiner(
+      r,
+      producers.map((p) => ake.miners[p]!),
     );
-    if (rates.some((m) => !m)) return undefined;
-    for (const [i, m] of rates.entries()) {
-      assertTime(
-        r,
-        ake.miners[producers[i]!]!.msPerRound / m!.produceRate / MS_PER_SECOND,
-      );
-    }
-    return "FactoryMinerTable";
   }
 
-  if (outId !== undefined && producers.every((p) => ake.gasMiners[p])) {
-    const rows = producers.map((p) => ake.gasMiners[p]!);
-    if (!rows.every((g) => g.mineable.some((m) => m.miningItemId === outId))) {
-      return undefined;
-    }
-    for (const g of rows) assertTime(r, g.msPerRound / MS_PER_SECOND);
-    return "FactoryGasMinerTable";
+  if (producers.every((p) => ake.gasMiners[p])) {
+    return matchGasMiner(
+      r,
+      producers.map((p) => ake.gasMiners[p]!),
+    );
   }
 
-  if (outId !== undefined && producers.every((p) => ake.fluidPumps[p])) {
-    const rows = producers.map((p) => ake.fluidPumps[p]!);
-    if (!rows.every((p) => p.enableLiquidIds.includes(outId))) return undefined;
-    for (const p of rows) assertTime(r, p.msPerRound / MS_PER_SECOND);
-    return "FactoryFluidPumpInTable";
+  if (producers.every((p) => ake.fluidPumps[p])) {
+    return matchFluidPump(
+      r,
+      producers.map((p) => ake.fluidPumps[p]!),
+    );
   }
-
-  if (inputId === undefined) return undefined;
 
   if (producers.every((p) => ake.fluidConsumers[p])) {
-    const rows = producers.map((p) => ake.fluidConsumers[p]!);
-    if (!rows.every((c) => c.liquidable.includes(inputId))) return undefined;
-    for (const c of rows) assertTime(r, c.msPerRound / MS_PER_SECOND);
-    return "FactoryFluidConsumeTable";
+    return matchFluidConsume(
+      r,
+      producers.map((p) => ake.fluidConsumers[p]!),
+    );
   }
 
   if (producers.every((p) => ake.powerStations[p])) {
-    const fuel = ake.fuelItems[inputId];
-    if (!fuel) return undefined;
-    for (const p of producers) {
-      assertTime(
-        r,
-        (fuel.progressRound * ake.powerStations[p]!.msPerRound) / MS_PER_SECOND,
-      );
-    }
-    const usage = -fuel.powerProvide;
-    if (r.usage !== usage) {
-      throw new Error(
-        `recipe ${r.id} usage ${r.usage} disagrees with akedata ${usage}`,
-      );
-    }
-    return "FactoryFuelItemTable";
+    return matchPowerStation(
+      r,
+      producers.map((p) => ake.powerStations[p]!),
+      ake,
+    );
   }
 
   return undefined;
+}
+
+function matchMiner(r: Recipe, rows: AkeMiner[]): string | undefined {
+  assertArity(r, MINER_TABLE, { out: 1 });
+
+  const mineable = findMineable(r, rows);
+  if (!mineable) return undefined;
+
+  for (const [i, m] of mineable.entries()) {
+    // produceRate is items per round, which the pack folds into the duration of
+    // a one-item recipe rather than into the output quantity.
+    assertTime(r, rows[i]!.msPerRound / m.produceRate / MS_PER_SECOND);
+    assertStoich(r, mineableStoich(m));
+  }
+  return MINER_TABLE;
+}
+
+function matchGasMiner(r: Recipe, rows: AkeMiner[]): string | undefined {
+  assertArity(r, GAS_MINER_TABLE, { out: 1 });
+
+  const mineable = findMineable(r, rows);
+  if (!mineable) return undefined;
+
+  for (const [i, m] of mineable.entries()) {
+    // A gas round is the whole duration of one unit, so unlike the ore miner
+    // there is nowhere in the pack row for a rate to go.
+    if (m.produceRate !== 1) {
+      throw new Error(
+        `recipe ${r.id} extracts gas at akedata produceRate ${m.produceRate}, which the pack cannot spell`,
+      );
+    }
+    assertTime(r, rows[i]!.msPerRound / MS_PER_SECOND);
+    assertStoich(r, mineableStoich(m));
+  }
+  return GAS_MINER_TABLE;
+}
+
+// The mineable row every producer carries for this recipe's output, or
+// undefined when any of them does not extract that item.
+function findMineable(r: Recipe, rows: AkeMiner[]): AkeMineable[] | undefined {
+  const outId = akeItemId(r.out[0]!.item);
+  const found: AkeMineable[] = [];
+  for (const row of rows) {
+    const m = row.mineable.find((m) => m.miningItemId === outId);
+    if (!m) return undefined;
+    found.push(m);
+  }
+  return found;
+}
+
+function mineableStoich(m: AkeMineable): string {
+  const consumed = m.consumeItem;
+  const free = consumed.id === "" && consumed.count === 0;
+  const input = free ? "" : `${consumed.id}*${consumed.count}`;
+  return `${m.miningItemId}*1|${input}`;
+}
+
+function matchFluidPump(r: Recipe, rows: AkeFluidPump[]): string | undefined {
+  assertArity(r, FLUID_PUMP_TABLE, { out: 1, in: 0 });
+
+  // The table names the liquids a pump can draw and no amount for any of them,
+  // so membership is the whole of the item check here.
+  const outId = akeItemId(r.out[0]!.item);
+  if (!rows.every((p) => p.enableLiquidIds.includes(outId))) return undefined;
+
+  for (const p of rows) assertTime(r, p.msPerRound / MS_PER_SECOND);
+  return FLUID_PUMP_TABLE;
+}
+
+function matchFluidConsume(
+  r: Recipe,
+  rows: AkeFluidConsume[],
+): string | undefined {
+  assertArity(r, FLUID_CONSUME_TABLE, { out: 0, in: 1 });
+
+  const inputId = akeItemId(r.in[0]!.item);
+  if (!rows.every((c) => c.liquidable.includes(inputId))) return undefined;
+
+  for (const c of rows) assertTime(r, c.msPerRound / MS_PER_SECOND);
+  // msPerRound is the time one unit takes, so the round takes exactly one.
+  assertStoich(r, `|${inputId}*1`);
+  return FLUID_CONSUME_TABLE;
+}
+
+function matchPowerStation(
+  r: Recipe,
+  rows: AkePowerStation[],
+  ake: AkeSnapshot,
+): string | undefined {
+  assertArity(r, FUEL_ITEM_TABLE, { out: 0, in: 1 });
+
+  const inputId = akeItemId(r.in[0]!.item);
+  const fuel = ake.fuelItems[inputId];
+  if (!fuel) return undefined;
+
+  for (const row of rows) {
+    assertTime(r, (fuel.progressRound * row.msPerRound) / MS_PER_SECOND);
+  }
+  // progressRound is how many rounds one unit of fuel burns for, so the recipe
+  // that burns it takes exactly one.
+  assertStoich(r, `|${inputId}*1`);
+
+  const usage = -fuel.powerProvide;
+  if (r.usage !== usage) {
+    throw new Error(
+      `recipe ${r.id} usage ${r.usage} disagrees with akedata ${usage}`,
+    );
+  }
+  return FUEL_ITEM_TABLE;
 }
 
 function assertItems(items: Item[], ake: AkeSnapshot, join: AkeJoin): void {

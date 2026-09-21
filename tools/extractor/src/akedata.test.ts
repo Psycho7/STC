@@ -6,6 +6,7 @@ import {
   joinAndAssert,
   loadAkeData,
   type AkeJoin,
+  type AkeMiner,
   type AkeSnapshot,
 } from "./akedata.ts";
 import { WORLD_NODE_MACHINES, main as runExtractor } from "./extract.ts";
@@ -55,6 +56,19 @@ function packWithMachine(id: string, patch: Partial<Machine>) {
   return {
     ...rows,
     machines: rows.machines.map((m) => (m.id === id ? { ...m, ...patch } : m)),
+  };
+}
+
+// The pack-side counterpart of flip, by recipe id. The side-table shape checks
+// read the pack row against the table, so a shape only the pack can spell has
+// to be broken here.
+function packWithRecipe(id: string, patch: Partial<Recipe>) {
+  if (!rows.recipes.some((r) => r.id === id)) {
+    throw new Error(`test fixture: no recipe ${id}`);
+  }
+  return {
+    ...rows,
+    recipes: rows.recipes.map((r) => (r.id === id ? { ...r, ...patch } : r)),
   };
 }
 
@@ -409,6 +423,123 @@ describe("derivable fields disagree loudly", () => {
   });
 });
 
+describe("side tables keep their shape", () => {
+  // Every mutation below leaves the recipe matching its table, so the throw has
+  // to come from the shape check rather than from the unmatched-set assertion.
+  const WATER_MINER = "miner_4";
+  const WET_COPPER_RECIPE = "copper_ore-liquid_water";
+
+  // The mineable row a miner or gas miner carries for one pack item, patched in
+  // place and the rest of the snapshot left shared.
+  function withMineable(
+    minerId: string,
+    packItemId: string,
+    patch: Partial<AkeMiner["mineable"][number]>,
+  ): AkeSnapshot {
+    const gas = ake.gasMiners[minerId] !== undefined;
+    const table = gas ? ake.gasMiners : ake.miners;
+    const row = table[minerId];
+    if (!row) throw new Error(`test fixture: no miner ${minerId}`);
+
+    const itemId = akeItemId(packItemId);
+    const mineable = row.mineable.map((m) =>
+      m.miningItemId === itemId ? { ...m, ...patch } : m,
+    );
+    const flipped = flip(table, minerId, { mineable });
+    return gas ? { ...ake, gasMiners: flipped } : { ...ake, miners: flipped };
+  }
+
+  test("a miner recipe with two outputs fails the join", () => {
+    // Arity is asserted before membership, so the message names the table
+    // rather than the row the stoichiometry check would have looked for.
+    const broken = packWithRecipe("iron_ore", {
+      out: [
+        { item: "iron_ore", qty: 1 },
+        { item: "copper_ore", qty: 1 },
+      ],
+    });
+    expect(() => joinAndAssert(broken, ake)).toThrow(
+      /iron_ore .*FactoryMinerTable/,
+    );
+  });
+
+  test("a gas-miner recipe with two outputs fails the join", () => {
+    const broken = packWithRecipe("gas_xiranite", {
+      out: [
+        { item: "gas_xiranite", qty: 1 },
+        { item: "gas_inert", qty: 1 },
+      ],
+    });
+    expect(() => joinAndAssert(broken, ake)).toThrow(
+      /gas_xiranite .*FactoryGasMinerTable/,
+    );
+  });
+
+  test("a miner output quantity the table does not imply fails the join", () => {
+    // produceRate is folded into the duration, so the quantity has to stay 1.
+    const broken = packWithRecipe("iron_ore", {
+      out: [{ item: "iron_ore", qty: 2 }],
+    });
+    expect(() => joinAndAssert(broken, ake)).toThrow(/iron_ore/);
+  });
+
+  test("an input on a free mining recipe fails the join", () => {
+    const broken = packWithRecipe("iron_ore", {
+      in: [{ item: "liquid_water", qty: 1 }],
+    });
+    expect(() => joinAndAssert(broken, ake)).toThrow(/iron_ore/);
+  });
+
+  test("a mining recipe that drops its consumeItem fails the join", () => {
+    const broken = packWithRecipe(WET_COPPER_RECIPE, { in: [] });
+    expect(() => joinAndAssert(broken, ake)).toThrow(
+      new RegExp(WET_COPPER_RECIPE),
+    );
+  });
+
+  test("a consumeItem count the pack disagrees with fails the join", () => {
+    const row = ake.miners[WATER_MINER]!.mineable.find(
+      (m) => m.miningItemId === akeItemId("copper_ore"),
+    )!;
+    expectThrows(
+      withMineable(WATER_MINER, "copper_ore", {
+        consumeItem: { ...row.consumeItem, count: row.consumeItem.count + 1 },
+      }),
+      WET_COPPER_RECIPE,
+    );
+  });
+
+  test("a gas rate other than one fails the join", () => {
+    // The gas table's round is the whole duration, so the pack has nowhere to
+    // put a rate; the join refuses rather than dropping it.
+    expectThrows(
+      withMineable("gas_pump_1", "gas_xiranite", { produceRate: 2 }),
+      "gas_xiranite",
+    );
+  });
+
+  test("an output on a fuel recipe fails the join", () => {
+    const broken = packWithRecipe("power_originium_ore", {
+      out: [{ item: "originium_ore", qty: 1 }],
+    });
+    expect(() => joinAndAssert(broken, ake)).toThrow(/power_originium_ore/);
+  });
+
+  test("an input on a pump recipe fails the join", () => {
+    const broken = packWithRecipe("liquid_water", {
+      in: [{ item: "liquid_sewage", qty: 1 }],
+    });
+    expect(() => joinAndAssert(broken, ake)).toThrow(/liquid_water/);
+  });
+
+  test("an output on a fluid-consume recipe fails the join", () => {
+    const broken = packWithRecipe("liquid_cleaner_1-sewage", {
+      out: [{ item: "liquid_water", qty: 1 }],
+    });
+    expect(() => joinAndAssert(broken, ake)).toThrow(/liquid_cleaner_1-sewage/);
+  });
+});
+
 describe("environment derivation", () => {
   // The one acidic craft today; the atmosphere it demands is read off its
   // gasEnv, so breaking that row is what the two throw paths below do.
@@ -475,6 +606,9 @@ describe("environment derivation", () => {
     }
     expect(message).toContain(MIX_POOL_RECIPE);
     for (const craftId of craftIds) expect(message).toContain(craftId);
+    // Both sides of the disagreement are spelled out, the absent one included.
+    expect(message).toContain("stable atmosphere");
+    expect(message).toContain("no atmosphere");
   });
 
   test("an unrecognised gasEnv value fails the derivation", () => {
