@@ -60,6 +60,11 @@ const SCENARIO_LIST = [...SCENARIOS, ...extraScenariosFromEnv()];
 // members whose trunk has no stretch on their own line: see `carveOuts` below.
 const CARVE_OUT_TOTAL = { oneSided: 0, noGeometry: 0 };
 
+// How far apart two members' claims on one trunk may end, in graph units. A
+// near member's junction and a far or backward member's stamped column are the
+// same slot read through different builders, so they agree to the rounding.
+const COLUMN_EPS = 1;
+
 const BASELINE_DIR = resolve(import.meta.dirname, "fixtures/trunkGroups");
 const BASELINE_PATH = resolve(BASELINE_DIR, "stamp-baseline.json");
 const WRITING = process.env.TRUNK_GROUP_BASELINE === "write";
@@ -222,8 +227,15 @@ beforeAll(async () => {
         else carve.noGeometry += 1;
       }
 
-      // The trunk's line: one row, and every member's claim overlapping every
-      // other's, so a pointer on any of them is on the same stroke.
+      // The trunk's line: one row, every member's claim overlapping every
+      // other's, and every claim ending at the one column where the members
+      // part (the split of a fan-out, the merge of a fan-in), so a pointer on
+      // any of them is on the same stroke and none of them reaches onto a
+      // member's own leg. A shared-y member draws one straight run port to
+      // port, so without the column check its claim would still overlap every
+      // sibling's while covering its own leg too.
+      const columnEnd = (run: HorizontalRun): number =>
+        trunk.kind === "fanOut" ? run.hi : run.lo;
       for (const a of drawn) {
         for (const b of drawn) {
           if (a.id >= b.id) continue;
@@ -236,6 +248,12 @@ beforeAll(async () => {
           ) {
             sharedMismatches.push(
               `${scenario.id} ${trunk.key}: ${a.id} [${a.run.lo}, ${a.run.hi}] misses ${b.id} [${b.run.lo}, ${b.run.hi}]`,
+            );
+          } else if (
+            Math.abs(columnEnd(a.run) - columnEnd(b.run)) > COLUMN_EPS
+          ) {
+            sharedMismatches.push(
+              `${scenario.id} ${trunk.key}: ${a.id} [${a.run.lo}, ${a.run.hi}] and ${b.id} [${b.run.lo}, ${b.run.hi}] part at different columns`,
             );
           }
         }

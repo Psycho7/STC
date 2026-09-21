@@ -134,13 +134,14 @@ export function trunkGroupsOf(
   return data?.trunkGroups ?? [];
 }
 
-// Fan-out trunk member (routeTrunkEdges). Retyped `type: "bus"` -- so Canvas
-// trunk adjacency and hover-dim pick it up -- and it consolidates N
-// same-source-port edges onto one shared junction column in a single layer gap.
-// `fanout: true` is always set, so BusEdge draws the short in-corridor trunk
-// (chamferFanoutPath). `junctionX` is the shared column, the slot the trunk
-// took in its gap's reserved column zone. The aggregate reuses BusAggregate;
-// where its two chips stand is the path builder's rule, not a stamp.
+// Fan-out trunk member (routeTrunkEdges). Retyped `type: "bus"` so the canvas
+// hands it to BusEdge, which draws the short in-corridor trunk
+// (chamferFanoutPath) off `fanout: true`; the retype is a drawing choice only,
+// hover grouping reads TrunkMembership and never the type. It consolidates N
+// same-source-port edges onto one shared junction column in a single layer
+// gap. `junctionX` is the shared column, the slot the trunk took in its gap's
+// reserved column zone. The aggregate reuses BusAggregate; where its two chips
+// stand is the path builder's rule, not a stamp.
 export type FanoutBusEdgeData = BusAggregate &
   TrunkMembership & {
     fanout: true;

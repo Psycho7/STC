@@ -1421,10 +1421,8 @@ export type SharedStretch = { group: string; run: HorizontalRun };
 // pointer is on this member's own leg" (light this edge alone), and the corpus
 // test reads the same function, so the two cannot drift.
 //
-// Everything below is READ off the geometry the edge already drew -- the runs of
-// `pts`, the junction the builder placed -- never recomputed: a second
-// derivation of a chamfer offset would land a hair off the drawn line at exactly
-// the corridors forwardStepGeometry scales. Per member shape:
+// Every stretch is a sub-interval of a run the edge already drew (the runs of
+// `pts`), so it lies on the drawn line by construction. Per member shape:
 //   near fan-out      the first run, source port to the split;
 //   near fan-in       the last run, the merge into the target port;
 //   dual              both: the first run for its fan-out trunk and, past the
@@ -1434,6 +1432,15 @@ export type SharedStretch = { group: string; run: HorizontalRun };
 //                     final leg (fan-in) the trunk's line;
 //   backward member   the same two ends of its detour rail, which leaves the
 //                     port on the trunk's column.
+// The run is CLIPPED at the trunk's column, because a run does not always end
+// there: a shared-y member draws one straight run from port to port, a far
+// member that jogs (or drops at its own source column) runs on the trunk's row
+// well past -- or well before -- the column, and everything beyond the column
+// is that member's own leg. The clip column is the junction the builder placed
+// for a bus shape, and the stamped column one chamfer inward for an item shape
+// (where chamferStepShape leaves the row; the far-only dots in chipSeating
+// stand at the same point). An item-shape clip can miss the drawn corner by the
+// chamfer scaling of a narrow corridor, which only shortens the stretch.
 // Two carve-outs come out empty-handed by construction, and neither falls back
 // to whole-group hover:
 //   - a member far on BOTH sides carries two keys but borrows ONE column (the
@@ -1468,39 +1475,50 @@ export function sharedStretches(
     if (!groups.includes(group)) return;
     out.push({ group, run });
   };
+  // The part of a run on the trunk's side of a column: left of a split, right
+  // of a merge. A column off the run leaves it empty, which `add` drops.
+  const upTo = (run: HorizontalRun | undefined, x: number) =>
+    run === undefined
+      ? undefined
+      : { lo: run.lo, hi: Math.min(run.hi, x), y: run.y };
+  const from = (run: HorizontalRun | undefined, x: number) =>
+    run === undefined
+      ? undefined
+      : { lo: Math.max(run.lo, x), hi: run.hi, y: run.y };
 
   if (drawn.shape === "fanout") {
-    add(fanoutKey, first);
+    add(fanoutKey, upTo(first, drawn.junction.x));
     // Dual member: the fan-in trunk's members all meet one chamfer past their
     // merge column, so the stretch this edge shares with them is whatever of its
     // last run lies right of that point. A column that leaves no such tail --
     // the case dualAnchorOf answers with no middle run -- makes this a plain
     // fan-out member for hover.
     const joinX = (d as RoutingHints | undefined)?.faninJoinX;
-    if (joinX !== undefined && last !== undefined) {
+    if (joinX !== undefined) {
       const mergeX = joinX + CHAMFER;
-      if (mergeX > drawn.junction.x && mergeX < last.hi) {
-        add(faninKey, {
-          lo: Math.max(last.lo, mergeX),
-          hi: last.hi,
-          y: last.y,
-        });
+      if (mergeX > drawn.junction.x) {
+        add(faninKey, from(last, mergeX));
       }
     }
     return out;
   }
 
   if (drawn.shape === "fanin") {
-    add(faninKey, last);
+    add(faninKey, from(last, drawn.junction.x));
     return out;
   }
 
+  // Item shape: the column is a stamp, the borrowed bend column of a far member
+  // or the rail column of a backward one, and the members' lines part one
+  // chamfer inward of it.
   const hints = routingHintsFromData(d);
-  if (hints.fanoutColumn === true || hints.railXRight !== undefined) {
-    add(fanoutKey, first);
+  const splitX = hints.fanoutColumn === true ? hints.bendX : hints.railXRight;
+  if (splitX !== undefined) {
+    add(fanoutKey, upTo(first, splitX - CHAMFER));
   }
-  if (hints.faninColumn === true || hints.railXLeft !== undefined) {
-    add(faninKey, last);
+  const mergeX = hints.faninColumn === true ? hints.bendX : hints.railXLeft;
+  if (mergeX !== undefined) {
+    add(faninKey, from(last, mergeX + CHAMFER));
   }
   return out;
 }
