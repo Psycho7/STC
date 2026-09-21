@@ -298,6 +298,11 @@ export function joinAndAssert(
   assertMachines(pack.machines, ake, join);
   assertUnjoined("items", join.unmatchedItems, UNJOINED_ITEMS);
   assertUnjoined("machines", join.unmatchedMachines, UNJOINED_MACHINES);
+  assertUnjoined(
+    "recipes",
+    join.unmatchedRecipes,
+    expectedUnjoinedRecipes(pack.recipes, ake),
+  );
   assertDomainTransfer(pack.items, pack.recipes, ake);
   return join;
 }
@@ -364,6 +369,21 @@ function craftEnvironment(
     );
   }
   return environment;
+}
+
+// The recipes the join is allowed to leave, derived rather than listed: every
+// table it reads is keyed on a producer the building table ships, so a recipe
+// whose producers are all absent from that table (the hub transfer, the coupon
+// exchanges, the purification gates) has nothing to match against. A recipe
+// that mixes a shipped producer with an absent one is not excused - a stage-2
+// match needs a craft for every producer, so the leftover deserves a look.
+function expectedUnjoinedRecipes(
+  recipes: Recipe[],
+  ake: AkeSnapshot,
+): string[] {
+  return recipes
+    .filter((r) => r.producers.every((p) => !ake.buildings[akeMachineId(p)]))
+    .map((r) => r.id);
 }
 
 function assertUnjoined(
