@@ -394,6 +394,18 @@ test("ArrowUp past the end of a partial last row clamps to the group's last tile
   expect(document.activeElement).toBe(tile("a6"));
 });
 
+test("ArrowDown off a partial last row keeps the column into the next group", () => {
+  renderPopup(WIDE);
+  mockColumns(4);
+  // a6 is column 1 of tier 1's partial last row. Down crosses into tier 2 at
+  // the same column, landing on b2 - not b3, the clamp target a regression to
+  // "last tile of the neighbour" would give (one column: b1).
+  const a6 = tile("a6")!;
+  a6.focus();
+  fireEvent.keyDown(a6, { key: "ArrowDown" });
+  expect(document.activeElement).toBe(tile("b2"));
+});
+
 test("a row step into a shorter group clamps to that group's last tile", () => {
   renderPopup(WIDE);
   mockColumns(4);
