@@ -700,7 +700,8 @@ function CanvasInner({
           // deleted unit or edge back, and the export would ship the hole (a
           // deleted container box takes its members with it). null unbinds the
           // delete keys entirely - onBeforeDelete would still run the delete
-          // plumbing, and there is no nodesDeletable prop in this version.
+          // plumbing, and the per-element opt-out in this version is the
+          // optional `deletable` field on nodes and edges.
           deleteKeyCode={null}
           // Keep nodes mouse-draggable and Tab-focusable (tabIndex stays 0), but
           // stop the arrow keys from nudging a selected node out of the ELK
