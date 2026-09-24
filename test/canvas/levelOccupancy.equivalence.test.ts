@@ -1,15 +1,15 @@
-// The jog frame gap, the rail floor rescan, the chip slide and the far-owner
-// trunk total move exactly these lines.
+// The jog frame gap, the rail floor rescan, the chip slide, the far-owner trunk
+// total and the fan-out slot order move exactly these lines.
 //
 // The fixtures are the routed corpus at the level-occupancy extraction (the
-// commit before the F, D, A and H work), and they were written to prove that
+// commit before the F, D, A, H and B work), and they were written to prove that
 // the extraction moved nothing. They still serve: the F candidate arm, the D
-// rescan, the A chip slide and the H trunk total are deliberate behaviour
-// changes, and the question this test now answers is which lines they reach.
-// Every field of every other edge and node must still match the extraction byte
-// for byte, and the keys that do differ must be exactly the ones the three
-// tables below enumerate. The ratchet tables in the e2e geometry audit cannot
-// say that:
+// rescan, the A chip slide, the H trunk total and the B slot order are
+// deliberate behaviour changes, and the question this test now answers is which
+// lines they reach. Every field of every other edge and node must still match
+// the extraction byte for byte, and the keys that do differ must be exactly the
+// ones the four tables below enumerate. The ratchet tables in the e2e geometry
+// audit cannot say that:
 // every cell is an upper bound compared with toBeLessThanOrEqual, so a
 // relocation that lowers a count passes silently. A whole-scene diff cannot say
 // it either: the capture carries build provenance and camera metadata that
@@ -207,7 +207,7 @@ const edgeHeadOf = (key: string): string | null =>
 // fields of a listed edge may differ -- because A moves no polyline, column,
 // level or node placement, and the test should keep saying so.
 //
-// All three tables compose: an unlisted key still compares exact, the union of
+// All four tables compose: an unlisted key still compares exact, the union of
 // what they permit is the whole permitted delta, and a listed edge that stops
 // differing fails whichever table lists it, so no list can rot into a blanket
 // waiver.
@@ -289,6 +289,24 @@ const FAR_OWNERS_SEATED: Readonly<Record<string, ReadonlyArray<string>>> = {
   ],
 };
 
+// The fourth named delta: family B swaps the two fan-out columns of `default`'s
+// first gap -- the Cuprium Ore trunk's and the Clean Water trunk's -- so both
+// trunks' members redraw on the other's column and the ore split dot comes off
+// the water leg. Nothing else in the corpus reorders a gap. Field-restricted
+// like the two tables above, because the only thing a slot swap can reach is
+// the column the members draw on, which this snapshot records as the drawn
+// polyline and the junction anchor a fan-out shape seats on it. A listed edge
+// that moves its chip anchor or its level is a finding, not a waiver.
+const SLOT_FIELDS = ["pts", "junction"] as const;
+const COLUMNS_SWAPPED: Readonly<Record<string, ReadonlyArray<string>>> = {
+  default: [
+    "e:8:u:in:copper_ore->u:class:q:2:copper_ore",
+    "e:9:u:in:copper_ore->u:class:q:3:copper_ore",
+    "e:11:u:in:liquid_water->u:class:q:2:liquid_water",
+    "e:12:u:in:liquid_water->u:class:q:3:liquid_water",
+  ],
+};
+
 describe("the level-occupancy extraction routes the corpus identically", () => {
   for (const scenario of SCENARIO_LIST) {
     it(`matches the base fixture on ${scenario.id}`, async () => {
@@ -317,6 +335,7 @@ describe("the level-occupancy extraction routes the corpus identically", () => {
       const moved = MOVED[scenario.id] ?? [];
       const seats = CHIP_SEATS_MOVED[scenario.id] ?? [];
       const seated = FAR_OWNERS_SEATED[scenario.id] ?? [];
+      const swapped = COLUMNS_SWAPPED[scenario.id] ?? [];
       const seatKeys = new Map<string, string>();
       for (const id of seats) {
         for (const field of SEAT_FIELDS)
@@ -327,22 +346,34 @@ describe("the level-occupancy extraction routes the corpus identically", () => {
         for (const field of TOTAL_FIELDS)
           totalKeys.set(`edge:${id}.${field}`, id);
       }
+      const slotKeys = new Map<string, string>();
+      for (const id of swapped) {
+        for (const field of SLOT_FIELDS)
+          slotKeys.set(`edge:${id}.${field}`, id);
+      }
       const unexpected: string[] = [];
       const movedHeads = new Set<string>();
       const seatsSeen = new Set<string>();
       const seatedSeen = new Set<string>();
+      const swappedSeen = new Set<string>();
       for (const key of new Set([...lhs.keys(), ...rhs.keys()])) {
         if (Object.is(lhs.get(key), rhs.get(key))) continue;
         // A key any table permits is permitted, and credits every table that
-        // permits it -- all of them, where a seat or total field of an edge
-        // MOVED already covers differs.
+        // permits it -- all of them, where a seat, total or slot field of an
+        // edge MOVED already covers differs.
         const seat = seatKeys.get(key);
         if (seat !== undefined) seatsSeen.add(seat);
         const owner = totalKeys.get(key);
         if (owner !== undefined) seatedSeen.add(owner);
+        const slot = slotKeys.get(key);
+        if (slot !== undefined) swappedSeen.add(slot);
         const head = edgeHeadOf(key);
         if (head !== null && moved.includes(head)) movedHeads.add(head);
-        else if (seat === undefined && owner === undefined)
+        else if (
+          seat === undefined &&
+          owner === undefined &&
+          slot === undefined
+        )
           unexpected.push(`${key}: ${lhs.get(key)} -> ${rhs.get(key)}`);
       }
 
@@ -353,6 +384,7 @@ describe("the level-occupancy extraction routes the corpus identically", () => {
       expect([...movedHeads].sort()).toEqual([...moved].sort());
       expect([...seatsSeen].sort()).toEqual([...seats].sort());
       expect([...seatedSeen].sort()).toEqual([...seated].sort());
+      expect([...swappedSeen].sort()).toEqual([...swapped].sort());
     }, 600_000);
   }
 });

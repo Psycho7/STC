@@ -267,7 +267,10 @@ function legBlockedIn(
 // Slots are handed out top-to-bottom by the port row the trunk hangs off (the
 // source port for a fan-out, the target port for a fan-in), the trunk key
 // breaking ties, so the columns follow reading order and never depend on where
-// an edge sits in the input array. Without a ctx -- a hand-built fixture, or a
+// an edge sits in the input array. Fan-outs take one exception to that order:
+// where one trunk's near leg leaves on a sibling's arriving port row, the
+// leaver is moved right of the arriver (the coincident-row constraint below),
+// and only ties that constraint leaves open keep the plain order. Without a ctx -- a hand-built fixture, or a
 // caller that re-runs the passes on its own -- there is no record to read and
 // the column falls back to the midpoint of the corridor between the unit's port
 // and its nearest counterpart, clamped exactly as the path builders clamp it.
@@ -333,6 +336,13 @@ export function routeTrunkEdges(
     portY: number;
     fallbackColumn: number;
     reachByEdgeId: Map<string, Reach>;
+    // The rows at which a FAN-OUT trunk's NEAR members meet its column: the
+    // rows their runs arrive on (the shared source port row, for every one of
+    // them) and the rows their runs leave on (each member's own target row).
+    // Empty on a fan-in: the slot order below is the only reader and it runs
+    // the constraint for fan-outs alone.
+    arrivingRows: number[];
+    leavingRows: number[];
   };
 
   const geoms: TrunkGeom[] = [];
@@ -351,6 +361,8 @@ export function routeTrunkEdges(
     const fanOut = trunk.kind === "fanOut";
 
     const reachByEdgeId = new Map<string, Reach>();
+    const arrivingRows: number[] = [];
+    const leavingRows: number[] = [];
     // The nearest counterpart port, for the no-ctx fallback column: the leftmost
     // target for a fan-out, the rightmost source for a fan-in.
     let nearestX = fanOut ? Infinity : -Infinity;
@@ -379,6 +391,9 @@ export function routeTrunkEdges(
       nearestX = fanOut
         ? Math.min(nearestX, memberPorts.tx)
         : Math.max(nearestX, memberPorts.sx);
+      if (reach !== "near" || !fanOut) continue;
+      arrivingRows.push(memberPorts.sy);
+      leavingRows.push(memberPorts.ty);
     }
 
     geoms.push({
@@ -389,6 +404,8 @@ export function routeTrunkEdges(
         ? corridorMidColumn(ports.sx, nearestX)
         : corridorMidColumn(nearestX, ports.tx),
       reachByEdgeId,
+      arrivingRows,
+      leavingRows,
     });
   }
   if (geoms.length === 0) return edges.map((e) => e);
@@ -409,19 +426,82 @@ export function routeTrunkEdges(
     const bySlot = (a: TrunkGeom, b: TrunkGeom): number =>
       a.portY - b.portY ||
       (a.trunk.key < b.trunk.key ? -1 : a.trunk.key > b.trunk.key ? 1 : 0);
+
+    // At a COINCIDENT ROW -- one trunk's near leg running within
+    // FORWARD_LEVEL_FLOOR of a sibling's port row -- the two share a stretch of
+    // x whenever the leaving trunk stands LEFT of the arriving one: the leg runs
+    // right from its own column across the sibling's stub, which runs right from
+    // its port to the sibling's column, and the sibling's junction dot then sits
+    // on a foreign stroke. With the leaver standing RIGHT there is no shared
+    // stretch, so this is the pairwise constraint:
+    //
+    //   plain order (bad)            B order (good)
+    //     A       B                    B       A
+    //     |       |                    |       |
+    //   --+---o---+--> A's leg       --+--> A's leg starts right of the dot
+    //     |   ^dot|                    |dot^  |
+    //
+    // Deliberately NOT a level-occupancy query (STC-0009): the rule runs before
+    // any run band exists, and its inputs are port rows, not drawn geometry.
+    // Near members only -- a far member's leg level is set later by the jog pass,
+    // so its target row is not where its leg runs.
+    const coincident = (leaver: TrunkGeom, arriver: TrunkGeom): boolean =>
+      leaver.leavingRows.some((leg) =>
+        arriver.arrivingRows.some(
+          (row) => Math.abs(leg - row) < FORWARD_LEVEL_FLOOR,
+        ),
+      );
+
+    // Topological order over those constraints, taking the plain slot order's
+    // first eligible trunk at every step, so the port-y tie-break survives wherever
+    // no constraint speaks. A cycle -- two trunks each leaving on the other's
+    // arriving row -- has no satisfying order at all, and falls back to plain.
+    const byConstraint = (kind: TrunkKind): TrunkGeom[] => {
+      const plain = group
+        .filter((geom) => geom.trunk.kind === kind)
+        .sort(bySlot);
+      const standRight = new Map<TrunkGeom, TrunkGeom[]>();
+      const owed = new Map<TrunkGeom, number>(plain.map((geom) => [geom, 0]));
+      for (const leaver of plain) {
+        for (const arriver of plain) {
+          if (leaver === arriver || !coincident(leaver, arriver)) continue;
+          pushInto(standRight, arriver, leaver);
+          owed.set(leaver, owed.get(leaver)! + 1);
+        }
+      }
+
+      const placed: TrunkGeom[] = [];
+      const left = new Set(plain);
+      while (placed.length < plain.length) {
+        const next = plain.find(
+          (geom) => left.has(geom) && owed.get(geom) === 0,
+        );
+        if (next === undefined) return plain;
+        left.delete(next);
+        placed.push(next);
+        for (const dependent of standRight.get(next) ?? []) {
+          owed.set(dependent, owed.get(dependent)! - 1);
+        }
+      }
+      return placed;
+    };
+
     const place = (
       kind: TrunkKind,
       columnOf: (slot: number) => number,
     ): void => {
-      group
-        .filter((geom) => geom.trunk.kind === kind)
-        .sort(bySlot)
-        .forEach((geom, slot) => {
-          junctionByTrunk.set(
-            geom.trunk,
-            zone === undefined ? geom.fallbackColumn : columnOf(slot),
-          );
-        });
+      // Fan-outs only: a fan-in's members meet its column on the target side,
+      // where the mirror of this rule has no corpus site to measure it on.
+      const ordered =
+        kind === "fanOut"
+          ? byConstraint(kind)
+          : group.filter((geom) => geom.trunk.kind === kind).sort(bySlot);
+      ordered.forEach((geom, slot) => {
+        junctionByTrunk.set(
+          geom.trunk,
+          zone === undefined ? geom.fallbackColumn : columnOf(slot),
+        );
+      });
     };
     place(
       "fanOut",
