@@ -104,10 +104,11 @@ export type BusAggregate = {
   busChipOwner?: boolean;
 };
 
-// A bus member owns its trunk's shared drawings (the trunk segment, junction
-// dot, and aggregate chip) unless explicitly flagged otherwise. ABSENT data, or
-// an absent busChipOwner, counts as OWNER, so an un-annotated fixture keeps the
-// whole-group highlight and its aggregate chip. One helper owns that default
+// A bus member is the one elected to DRAW its trunk's aggregate chip unless
+// explicitly flagged otherwise. It is a drawing role and nothing else: it says
+// which member states the trunk's total, never how the flow runs. ABSENT data,
+// or an absent busChipOwner, counts as OWNER, so an un-annotated fixture still
+// draws its aggregate chip. One helper owns that default
 // for every reader that agrees with it, instead of the same `!== false` /
 // `?? true` rule being restated at each site. The parameter is PARTIAL because
 // chipSeating's flat chip-anchor view carries busChipOwner without trunkKey; the
@@ -116,20 +117,39 @@ export function isTrunkOwner(data: Partial<BusAggregate> | undefined): boolean {
   return data?.busChipOwner ?? true;
 }
 
-// Fan-out trunk member (routeTrunkEdges). Retyped `type: "bus"` -- so Canvas
-// trunk adjacency and hover-dim pick it up -- and it consolidates N
-// same-source-port edges onto one shared junction column in a single layer gap.
-// `fanout: true` is always set, so BusEdge draws the short in-corridor trunk
-// (chamferFanoutPath). `junctionX` is the shared column, the slot the trunk
-// took in its gap's reserved column zone. The aggregate reuses BusAggregate;
-// where its two chips stand is the path builder's rule, not a stamp.
-export type FanoutBusEdgeData = BusAggregate & {
-  fanout: true;
-  // The absent half of the discriminated union below, so a reader can ask
-  // either question of a BusEdgeData without narrowing it first.
-  fanin?: undefined;
-  junctionX?: number;
+// Hover membership, stamped on every member of every trunk -- including the
+// members no drawing marks as one: a far member that only borrows the junction
+// column, and a backward member that keeps its detour rail. It is kept OUT of
+// BusAggregate because the aggregate stamps are the drawing contract of ONE
+// trunk (the one a member is drawn as), while membership is the topological fact
+// about all of them, so a dual member carries two keys here and one trunkKey
+// there.
+export type TrunkMembership = {
+  trunkGroups?: string[];
 };
+
+export function trunkGroupsOf(
+  data: TrunkMembership | undefined,
+): ReadonlyArray<string> {
+  return data?.trunkGroups ?? [];
+}
+
+// Fan-out trunk member (routeTrunkEdges). Retyped `type: "bus"` so the canvas
+// hands it to BusEdge, which draws the short in-corridor trunk
+// (chamferFanoutPath) off `fanout: true`; the retype is a drawing choice only,
+// hover grouping reads TrunkMembership and never the type. It consolidates N
+// same-source-port edges onto one shared junction column in a single layer
+// gap. `junctionX` is the shared column, the slot the trunk took in its gap's
+// reserved column zone. The aggregate reuses BusAggregate; where its two chips
+// stand is the path builder's rule, not a stamp.
+export type FanoutBusEdgeData = BusAggregate &
+  TrunkMembership & {
+    fanout: true;
+    // The absent half of the discriminated union below, so a reader can ask
+    // either question of a BusEdgeData without narrowing it first.
+    fanin?: undefined;
+    junctionX?: number;
+  };
 
 // Fan-in trunk member (routeTrunkEdges), the mirror of the fan-out payload
 // above. Retyped `type: "bus"` the same way, with `fanin: true` as the
@@ -138,11 +158,12 @@ export type FanoutBusEdgeData = BusAggregate & {
 // RIGHT of its gap's reserved column zone. The aggregate reuses BusAggregate:
 // here busChipOwner marks the member that draws the trunk's one aggregate chip
 // on the shared leg into the port.
-export type FaninBusEdgeData = BusAggregate & {
-  fanin: true;
-  fanout?: undefined;
-  junctionX?: number;
-};
+export type FaninBusEdgeData = BusAggregate &
+  TrunkMembership & {
+    fanin: true;
+    fanout?: undefined;
+    junctionX?: number;
+  };
 
 // Data fields the bus pass merges onto a member edge's existing `data`: a
 // bus-typed edge is a member of one trunk or the other, so the payload is the
@@ -318,6 +339,28 @@ export function routeTrunkEdges(
   const model = buildLayerModel(nodes);
   const edgeById = new Map(edges.map((edge) => [edge.id, edge]));
 
+  // Hover membership, straight off the classification: every key an edge is a
+  // member of, in trunk order. It is stamped whatever treatment the passes below
+  // give the member and whether or not any geometry could be derived, because
+  // the group is the topological fact, not the drawn shape.
+  const groupsByEdgeId = new Map<string, string[]>();
+  for (const trunk of trunks) {
+    for (const id of trunk.members) {
+      pushInto(groupsByEdgeId, id, trunk.key);
+    }
+  }
+  const membership = (edge: Edge): TrunkMembership => {
+    const groups = groupsByEdgeId.get(edge.id);
+    return groups === undefined ? {} : { trunkGroups: groups };
+  };
+  // Membership alone, for an edge no other stamp touches.
+  const withMembership = (edge: Edge): Edge => {
+    const groups = groupsByEdgeId.get(edge.id);
+    return groups === undefined
+      ? edge
+      : { ...edge, data: { ...edge.data, trunkGroups: groups } };
+  };
+
   // How far the member reaches from its trunk's own layer, which is what
   // decides whether it is drawn as part of the trunk (next layer over), merely
   // pinned to its column (further away) or left to its detour rail (backward).
@@ -408,7 +451,9 @@ export function routeTrunkEdges(
       leavingRows,
     });
   }
-  if (geoms.length === 0) return edges.map((e) => e);
+  // No trunk had geometry to reason about, so there is nothing to stamp but the
+  // membership: the trunks are classified either way and hover reads them.
+  if (geoms.length === 0) return edges.map(withMembership);
 
   // One slot per trunk in its gap's reserved zone, the two kinds filling it from
   // opposite ends so neither can land on the other's column.
@@ -658,7 +703,9 @@ export function routeTrunkEdges(
   return edges.map((edge) => {
     const out = fanOutByEdgeId.get(edge.id);
     const into = fanInByEdgeId.get(edge.id);
-    if (out === undefined && into === undefined) return edge;
+    // Only the membership is left for a member whose trunk was dropped for want
+    // of geometry above; a non-member comes back by reference.
+    if (out === undefined && into === undefined) return withMembership(edge);
 
     // Pre-stamped rail columns: a backward member shares its trunk's column
     // with the forward members instead of taking its own default one stub off
@@ -676,6 +723,7 @@ export function routeTrunkEdges(
         type: "bus",
         data: {
           ...edge.data,
+          ...membership(edge),
           ...rails,
           ...aggregateOf(
             out.geom.trunk,
@@ -693,6 +741,7 @@ export function routeTrunkEdges(
         type: "bus",
         data: {
           ...edge.data,
+          ...membership(edge),
           ...rails,
           ...aggregateOf(
             into.geom.trunk,
@@ -722,11 +771,17 @@ export function routeTrunkEdges(
           ? { bendX: into.junctionX, faninColumn: true as const }
           : {};
     if (Object.keys(column).length === 0 && Object.keys(rails).length === 0) {
-      return edge;
+      return withMembership(edge);
     }
     return {
       ...edge,
-      data: { ...edge.data, ...rails, ...farAggregate, ...column },
+      data: {
+        ...edge.data,
+        ...membership(edge),
+        ...rails,
+        ...farAggregate,
+        ...column,
+      },
     };
   });
 }

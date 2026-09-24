@@ -1,8 +1,8 @@
 // The trunk-ownership default, pinned in one place. isTrunkOwner is the shared
-// reader three sites adopted (BusEdge's aggregate chip, Canvas's hover-group
-// lighting, and contentBounds' aggregate frame), so the "absent means owner"
-// rule that keeps un-annotated fixtures drawing their aggregate lives here
-// rather than being restated at each call.
+// reader three sites adopted (BusEdge's aggregate chip, Canvas's chip exemption
+// under a branch hover, and contentBounds' aggregate frame), so the "absent
+// means owner" rule that keeps un-annotated fixtures drawing their aggregate
+// lives here rather than being restated at each call.
 
 import { describe, it, expect } from "vitest";
 

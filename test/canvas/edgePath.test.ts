@@ -15,6 +15,7 @@ import {
   parsePathPoints,
   pathPointAtPts,
   routingHintsFromData,
+  sharedStretches,
   PORT_STUB,
   CHAMFER,
   MAX_CHAMFER,
@@ -1044,5 +1045,110 @@ describe("cardClearRunAnchor", () => {
   it("ignores a card the chip row cannot reach", () => {
     const below = { left: 150, right: 260, top: 200, bottom: 300 };
     expect(cardClearRunAnchor(PTS, HALF_W, [below])).toEqual([200, 0]);
+  });
+});
+
+describe("sharedStretches", () => {
+  // The trunk keys classifyTrunks buckets by: item + "|" + source for a
+  // fan-out, item + "|" + target + "|in" for a fan-in into an input row.
+  const OUT_KEY = "s|a";
+  const IN_KEY = "s|b|in";
+  const ends = { source: "a", target: "b" };
+
+  it("stops a shared-y near fan-out member's stretch at the split", () => {
+    // A member on the source row draws one straight run from port to port;
+    // only the part up to the junction is the trunk's line.
+    const ports = { sourceX: 0, sourceY: 0, targetX: 300, targetY: 0 };
+    const data = {
+      item: "s",
+      fanout: true,
+      junctionX: 120,
+      trunkGroups: [OUT_KEY],
+    };
+    const drawn = drawnEdge(ports, "bus", data);
+    if (drawn.shape !== "fanout") throw new Error("expected the fan-out shape");
+    expect(drawn.pts).toEqual([
+      [0, 0],
+      [300, 0],
+    ]);
+    expect(sharedStretches(drawn, { ...ends, data })).toEqual([
+      { group: OUT_KEY, run: { lo: 0, hi: drawn.junction.x, y: 0 } },
+    ]);
+    expect(drawn.junction.x).toBe(120 - CHAMFER);
+  });
+
+  it("starts a shared-y near fan-in member's stretch at the merge", () => {
+    const ports = { sourceX: 0, sourceY: 0, targetX: 300, targetY: 0 };
+    const data = {
+      item: "s",
+      fanin: true,
+      junctionX: 120,
+      trunkGroups: [IN_KEY],
+    };
+    const drawn = drawnEdge(ports, "bus", data);
+    if (drawn.shape !== "fanin") throw new Error("expected the fan-in shape");
+    expect(sharedStretches(drawn, { ...ends, data })).toEqual([
+      { group: IN_KEY, run: { lo: drawn.junction.x, hi: 300, y: 0 } },
+    ]);
+    expect(drawn.junction.x).toBe(120 + CHAMFER);
+  });
+
+  it("stops a shared-y far fan-out member's stretch one chamfer before its column", () => {
+    // A far member borrows the column through bendX and is drawn as an item
+    // edge; on the source row that is a straight line clear to the target.
+    const ports = { sourceX: 0, sourceY: 0, targetX: 600, targetY: 0 };
+    const data = {
+      item: "s",
+      bendX: 200,
+      fanoutColumn: true,
+      trunkGroups: [OUT_KEY],
+    };
+    const drawn = drawnEdge(ports, "item", data);
+    expect(drawn.pts).toEqual([
+      [0, 0],
+      [600, 0],
+    ]);
+    expect(sharedStretches(drawn, { ...ends, data })).toEqual([
+      { group: OUT_KEY, run: { lo: 0, hi: 200 - CHAMFER, y: 0 } },
+    ]);
+  });
+
+  it("starts a far fan-in member's stretch at its column, not at its own early drop", () => {
+    // A jog-cleared source column drops the member onto the target row long
+    // before the trunk's merge column; the run before that column is its own.
+    const ports = { sourceX: 0, sourceY: 0, targetX: 600, targetY: 100 };
+    const data = {
+      item: "s",
+      bendX: 500,
+      faninColumn: true,
+      srcColX: 40,
+      trunkGroups: [IN_KEY],
+    };
+    const drawn = drawnEdge(ports, "item", data);
+    const last = drawn.pts[drawn.pts.length - 1]!;
+    const beforeLast = drawn.pts[drawn.pts.length - 2]!;
+    expect([beforeLast, last]).toEqual([
+      [48, 100],
+      [600, 100],
+    ]);
+    expect(sharedStretches(drawn, { ...ends, data })).toEqual([
+      { group: IN_KEY, run: { lo: 500 + CHAMFER, hi: 600, y: 100 } },
+    ]);
+  });
+
+  it("leaves a stepping member's stretch as the run it already draws", () => {
+    // The clip is a bound: a member whose run ends at the column anyway comes
+    // out unchanged.
+    const ports = { sourceX: 0, sourceY: 0, targetX: 300, targetY: 100 };
+    const data = {
+      item: "s",
+      fanout: true,
+      junctionX: 120,
+      trunkGroups: [OUT_KEY],
+    };
+    const drawn = drawnEdge(ports, "bus", data);
+    expect(sharedStretches(drawn, { ...ends, data })).toEqual([
+      { group: OUT_KEY, run: { lo: 0, hi: 120 - CHAMFER, y: 0 } },
+    ]);
   });
 });

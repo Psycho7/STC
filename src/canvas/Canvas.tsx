@@ -32,7 +32,13 @@ import ItemEdge, { edgeStrokeWidth, withFocusFlags } from "./ItemEdge";
 import BusEdge from "./BusEdge";
 import { contentBounds } from "./chipSeating";
 import { examChipReservations } from "./chipMetrics";
-import { isTrunkOwner, type BusAggregate } from "./busRouting";
+import {
+  isTrunkOwner,
+  trunkGroupsOf,
+  type BusAggregate,
+  type TrunkMembership,
+} from "./busRouting";
+import { SegmentHoverContext, type SegmentHover } from "./hoverSegment";
 import type { RFAnyNode } from "./layout";
 import type { GapRecord } from "./layerModel";
 import { ExportModeProvider } from "./exportMode";
@@ -122,9 +128,14 @@ interface CanvasProps {
 // Which graph element the pointer is over. Drives the ego-network highlight:
 // the hovered element plus its immediate neighbourhood stays lit, everything
 // else gets the `dimmed` class. `null` = idle (no dimming at all).
+//
+// On an edge, `segment` names the trunk whose SHARED stretch the pointer stands
+// on, reported by that stretch's own interaction path through SegmentHoverContext.
+// Absent means the pointer is on the member's own branch leg, wherever on the
+// edge that is.
 type Hovered =
   | { kind: "node"; id: string }
-  | { kind: "edge"; id: string }
+  | { kind: "edge"; id: string; segment?: string }
   | null;
 
 // Adjacency indexes derived once per `edges` array. Everything the highlight
@@ -214,24 +225,33 @@ export function focusNodes(
 // driven from a rendered Canvas.
 export function focusEdges(
   edges: Edge[],
-  focus: { edgeIds: Set<string> } | null,
+  focus: {
+    edgeIds: Set<string>;
+    // The aggregate drawers exempted from a branch hover's dim: their stroke
+    // fades with the rest of the trunk, but the total and junction dot they
+    // draw for it stay readable (see the focus memo).
+    chipLitEdgeIds?: Set<string>;
+  } | null,
 ): Edge[] {
   if (!focus) return edges;
-  return edges.map((edge) =>
-    focus.edgeIds.has(edge.id)
-      ? // The lit edge announces itself so its chips can outrank the zoom
-        // level-of-detail gates and show the rate the hover is asking for.
-        { ...edge, data: withFocusFlags(edge.data, { focused: true }) }
-      : {
-          ...edge,
-          className: withDimmed(edge.className),
-          // The edge label chips (rate / entry / bus drop-rise) portal out of
-          // this wrapper via EdgeLabelRenderer, so the wrapper's `dimmed`
-          // class never fades them. Thread the dim through edge data; the
-          // chips map it onto their own .flow-chip.dimmed rule.
-          data: withFocusFlags(edge.data, { dimmed: true }),
-        },
-  );
+  return edges.map((edge) => {
+    if (focus.edgeIds.has(edge.id)) {
+      // The lit edge announces itself so its chips can outrank the zoom
+      // level-of-detail gates and show the rate the hover is asking for.
+      return { ...edge, data: withFocusFlags(edge.data, { focused: true }) };
+    }
+    return {
+      ...edge,
+      className: withDimmed(edge.className),
+      // The edge label chips (rate / entry / bus drop-rise) portal out of
+      // this wrapper via EdgeLabelRenderer, so the wrapper's `dimmed`
+      // class never fades them. Thread the dim through edge data; the
+      // chips map it onto their own .flow-chip.dimmed rule.
+      data: focus.chipLitEdgeIds?.has(edge.id)
+        ? withFocusFlags(edge.data, { dimmed: true, aggregateLit: true })
+        : withFocusFlags(edge.data, { dimmed: true }),
+    };
+  });
 }
 
 // Level-of-detail band derived from the live React Flow zoom. At the fit zoom of
@@ -434,12 +454,27 @@ function CanvasInner({
       hoverTimer.current = null;
     }
   }, []);
+  // The target the pending (or settled) hover is aimed at. An edge is entered by
+  // its wrapper AND by the stretch path inside it, and a pointer crossing one
+  // edge fires several of those, so re-scheduling on an unchanged target would
+  // restart the intent delay on every frame and the dim would never settle.
+  const hoverTargetRef = useRef<string | null>(null);
   const scheduleHover = useCallback(
     (next: Hovered) => {
       // A pointer crossing the canvas while the rasterizer walks the DOM would
       // bake `dimmed` classes into part of the image. Hovering is inert until
       // the capture is done.
       if (exportingRef.current) return;
+      const target =
+        next === null
+          ? null
+          : [
+              next.kind,
+              next.id,
+              next.kind === "edge" ? (next.segment ?? "") : "",
+            ].join("\u0000");
+      if (target === hoverTargetRef.current) return;
+      hoverTargetRef.current = target;
       cancelPendingHover();
       hoverTimer.current = setTimeout(() => {
         hoverTimer.current = null;
@@ -449,6 +484,7 @@ function CanvasInner({
     [cancelPendingHover],
   );
   const clearHover = useCallback(() => {
+    hoverTargetRef.current = null;
     cancelPendingHover();
     setHovered(null);
   }, [cancelPendingHover]);
@@ -506,6 +542,7 @@ function CanvasInner({
   // it was aimed at the old graph. A hover that has already settled is left to
   // the focus memo below, which keeps it only while its element is still there.
   useEffect(() => {
+    hoverTargetRef.current = null;
     cancelPendingHover();
   }, [layoutGeneration, cancelPendingHover]);
 
@@ -525,6 +562,19 @@ function CanvasInner({
     (_, edge) => {
       scheduleHover({ kind: "edge", id: edge.id });
     },
+    [scheduleHover],
+  );
+  // The segment seam: a shared-stretch path (or an aggregate chip) says the
+  // pointer is on a trunk, and its leave says the pointer is back on the
+  // member's own leg without having left the edge. Both arrive after the
+  // wrapper's own enter -- React walks the enter outward-in -- so the plain edge
+  // hover lands first and this refines it.
+  const segmentHover = useMemo<SegmentHover>(
+    () => ({
+      enter: (edgeId, group) =>
+        scheduleHover({ kind: "edge", id: edgeId, segment: group }),
+      leave: (edgeId) => scheduleHover({ kind: "edge", id: edgeId }),
+    }),
     [scheduleHover],
   );
 
@@ -560,15 +610,20 @@ function CanvasInner({
       edgeById.set(edge.id, edge);
       pushInto(edgesByNode, edge.source, edge.id);
       pushInto(edgesByNode, edge.target, edge.id);
-      const trunkKey = (edge.data as BusAggregate | undefined)?.trunkKey;
-      // trunkKey names the port the trunk fans through: item + "|" + the source
-      // unit for a fan-out, and item + "|" + the target unit + "|" + the target
-      // row kind ("in" or "cat") for a fan-in, whose target end can take one
-      // item on two rows. Either way every member of one trunk shares ONE
-      // trunkKey and they form a single hover group here. The trunk's aggregate
-      // chip shows its own total (its members' summed rate).
-      if (edge.type === "bus" && typeof trunkKey === "string") {
-        pushInto(edgesByTrunk, trunkKey, edge.id);
+      // A trunk key names the port the trunk fans through: item + "|" + the
+      // source unit for a fan-out, and item + "|" + the target unit + "|" + the
+      // target row kind ("in" or "cat") for a fan-in, whose target end can take
+      // one item on two rows. Every member of a trunk carries its key in
+      // trunkGroups whatever shape the routing pass drew it as, so indexing on
+      // that field -- rather than on the single trunkKey of the aggregate stamps,
+      // which only the drawn bus members carry -- gives the trunk's whole
+      // membership: its far members pinned to the column and its backward
+      // members on their rails included, and a dual member filed under both of
+      // its trunks.
+      for (const key of trunkGroupsOf(
+        edge.data as TrunkMembership | undefined,
+      )) {
+        pushInto(edgesByTrunk, key, edge.id);
       }
     }
     return { edgesByNode, edgesByTrunk, edgeById };
@@ -580,6 +635,7 @@ function CanvasInner({
   const focus = useMemo<{
     nodeIds: Set<string>;
     edgeIds: Set<string>;
+    chipLitEdgeIds: Set<string>;
   } | null>(() => {
     if (!hovered) return null;
     // A plan swap leaves the hover pointing at whatever the pointer was last
@@ -594,6 +650,7 @@ function CanvasInner({
     if (!present) return null;
     const nodeIds = new Set<string>();
     const edgeIds = new Set<string>();
+    const chipLitEdgeIds = new Set<string>();
     const lightEdge = (edgeId: string): void => {
       edgeIds.add(edgeId);
       const edge = adjacency.edgeById.get(edgeId);
@@ -608,40 +665,44 @@ function CanvasInner({
         lightEdge(edgeId);
       }
     } else {
-      const edge = adjacency.edgeById.get(hovered.id);
-      const data = edge?.data as BusAggregate | undefined;
-      const trunkKey = data?.trunkKey;
-      // A bus edge belongs to a trunk (every same-trunkKey member). Two hover
-      // modes split off which members light:
-      //   TRUNK hover  -- the pointer is over the trunk owner (the member that
-      //     draws the shared trunk segment, junction, and aggregate chip). Light
-      //     the whole group, today's behaviour. `busChipOwner` absent counts as
-      //     owner so an un-annotated fixture keeps the whole-group highlight.
-      //   BRANCH hover -- the pointer is over a non-owner member. Light only that
-      //     branch plus the trunk owner(s); sibling branches stay dimmed. Branch
-      //     mode lights every member isTrunkOwner accepts and dims the rest.
-      const trunkEdges =
-        edge?.type === "bus" && typeof trunkKey === "string"
-          ? adjacency.edgesByTrunk.get(trunkKey)
-          : undefined;
-      if (trunkEdges) {
-        if (isTrunkOwner(data)) {
-          for (const edgeId of trunkEdges) lightEdge(edgeId);
-        } else {
-          lightEdge(hovered.id);
-          for (const edgeId of trunkEdges) {
-            if (edgeId === hovered.id) continue;
-            const sibData = adjacency.edgeById.get(edgeId)?.data as
-              | BusAggregate
-              | undefined;
-            if (isTrunkOwner(sibData)) lightEdge(edgeId);
-          }
+      lightEdge(hovered.id);
+      // WHERE on the edge the pointer stands decides the set, because that is
+      // what the ink under it belongs to. On a stretch a trunk SHARES, the line
+      // is the trunk's and every direct member of that one group lights. On the
+      // member's own branch leg -- no segment reported -- the line is this
+      // edge's alone, so only it and its two endpoints do. Either way only the
+      // HOVERED edge's groups are read: a member lit here never has its own
+      // groups expanded, so a shared member cannot drag one trunk's siblings
+      // into another trunk's highlight.
+      if (hovered.segment !== undefined) {
+        for (const edgeId of adjacency.edgesByTrunk.get(hovered.segment) ??
+          []) {
+          lightEdge(edgeId);
         }
       } else {
-        lightEdge(hovered.id);
+        // The trunk's ONE aggregate chip and its junction dot are exempt from
+        // the dim: they state the total and the split of the trunk this branch
+        // belongs to, which is still what the reader is looking at. The member
+        // that DRAWS them is the one carrying the aggregate stamps of that group
+        // (trunkKey names the group and busChipOwner elects it); it is not
+        // lit -- a lit stroke would read as part of the branch's flow and would
+        // lift the zoom gate on its own rate chip too.
+        const data = adjacency.edgeById.get(hovered.id)?.data as
+          | (BusAggregate & TrunkMembership)
+          | undefined;
+        for (const group of trunkGroupsOf(data)) {
+          for (const edgeId of adjacency.edgesByTrunk.get(group) ?? []) {
+            const memberData = adjacency.edgeById.get(edgeId)?.data as
+              | (BusAggregate & TrunkMembership)
+              | undefined;
+            if (memberData?.trunkKey === group && isTrunkOwner(memberData)) {
+              chipLitEdgeIds.add(edgeId);
+            }
+          }
+        }
       }
     }
-    return { nodeIds, edgeIds };
+    return { nodeIds, edgeIds, chipLitEdgeIds };
   }, [hovered, adjacency, presentNodeIds]);
 
   const displayNodes = useMemo<Node[]>(
@@ -681,29 +742,31 @@ function CanvasInner({
       }}
     >
       <ExportModeProvider exporting={exporting}>
-        <ReactFlow
-          nodes={displayNodes}
-          edges={displayEdges}
-          {...(onNodesChange ? { onNodesChange } : {})}
-          {...(onEdgesChange ? { onEdgesChange } : {})}
-          onNodeDragStop={handleNodeDragStop}
-          nodeTypes={nodeTypes}
-          edgeTypes={edgeTypes}
-          onNodeMouseEnter={handleNodeMouseEnter}
-          onNodeMouseLeave={clearHover}
-          onEdgeMouseEnter={handleEdgeMouseEnter}
-          onEdgeMouseLeave={clearHover}
-          onPaneClick={clearHover}
-          minZoom={0.05}
-          ariaLabelConfig={ariaLabelConfig}
-          // Keep nodes mouse-draggable and Tab-focusable (tabIndex stays 0), but
-          // stop the arrow keys from nudging a selected node out of the ELK
-          // layout. React Flow gates the arrow-key move handler on this flag; it
-          // leaves keyboard focus traversal intact.
-          disableKeyboardA11y
-        >
-          <Controls aria-label={i18n.t("canvas.controls.panel")} />
-        </ReactFlow>
+        <SegmentHoverContext.Provider value={segmentHover}>
+          <ReactFlow
+            nodes={displayNodes}
+            edges={displayEdges}
+            {...(onNodesChange ? { onNodesChange } : {})}
+            {...(onEdgesChange ? { onEdgesChange } : {})}
+            onNodeDragStop={handleNodeDragStop}
+            nodeTypes={nodeTypes}
+            edgeTypes={edgeTypes}
+            onNodeMouseEnter={handleNodeMouseEnter}
+            onNodeMouseLeave={clearHover}
+            onEdgeMouseEnter={handleEdgeMouseEnter}
+            onEdgeMouseLeave={clearHover}
+            onPaneClick={clearHover}
+            minZoom={0.05}
+            ariaLabelConfig={ariaLabelConfig}
+            // Keep nodes mouse-draggable and Tab-focusable (tabIndex stays 0), but
+            // stop the arrow keys from nudging a selected node out of the ELK
+            // layout. React Flow gates the arrow-key move handler on this flag; it
+            // leaves keyboard focus traversal intact.
+            disableKeyboardA11y
+          >
+            <Controls aria-label={i18n.t("canvas.controls.panel")} />
+          </ReactFlow>
+        </SegmentHoverContext.Provider>
       </ExportModeProvider>
       <div className="canvas-frame" aria-hidden="true" />
       <div className="cb tl" aria-hidden="true" />

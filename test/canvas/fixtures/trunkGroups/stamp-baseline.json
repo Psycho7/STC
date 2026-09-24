@@ -1,0 +1,104 @@
+{
+  "default": {
+    "stampCount": 4,
+    "stampSha": "77510a570b3532ee627a78933b5c443a51cfead8ba9b935a729f7f46838281c2",
+    "chipCount": 15,
+    "chipSha": "2b9819e729c5441173dc3872d110b7b37a6acb94689f9ffad4b7047585c50cea"
+  },
+  "battery5": {
+    "stampCount": 4,
+    "stampSha": "e51855b78ceb6aa8a04333fed2480aebe235d1974da633dbf7b607758572784c",
+    "chipCount": 28,
+    "chipSha": "55f3787f632b8c705e6422011b7dd4057c9d61b06ed6230cae96010fc99c1bc1"
+  },
+  "battery5-xiranite": {
+    "stampCount": 6,
+    "stampSha": "26d941601befef799452536088a2ab74ae6d70762b640eedb88de48d5286ea80",
+    "chipCount": 41,
+    "chipSha": "218eee6a103e954c713bd53c73036c1a03cbe81a7be92dd7751c681c8f9036a5"
+  },
+  "crystal": {
+    "stampCount": 2,
+    "stampSha": "25264381f19b68b25655e4ed803e7b16397e82638eb5e0af9d5f3e19f6ce32ea",
+    "chipCount": 11,
+    "chipSha": "fe9674acdefda9f818e17852cf976eaf9af0decb2a41955618765b779a0fa4d6"
+  },
+  "equip4": {
+    "stampCount": 2,
+    "stampSha": "ac62e78e25c88c751250a8200bd19b460c084aabb639c0ba45968b62177f4c36",
+    "chipCount": 15,
+    "chipSha": "21d3f67e4366330721c508f397434a4603951104a78849f577976576b9957fd0"
+  },
+  "multi6": {
+    "stampCount": 21,
+    "stampSha": "a74b3474e258befa2d7877526dd2819e1a28035473ab3c880fb8255cb6c52347",
+    "chipCount": 103,
+    "chipSha": "65a205ece621af2fd7c02bf242f1be35a1352cd85bfbd3fb5b92e963b070b714"
+  },
+  "tundra": {
+    "stampCount": 0,
+    "stampSha": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "chipCount": 7,
+    "chipSha": "69fa0589efa984ed6a9c3f72172b681d2bdce8a396dd9d648b97820bf1ddff03"
+  },
+  "script43": {
+    "stampCount": 6,
+    "stampSha": "846e29e60984b7bead4ec29d5852649f1e3991696fa8fd4def2beb4266c5223e",
+    "chipCount": 35,
+    "chipSha": "f77c3629c807107b41bf98816c0c1c8ace11b7c7b06c147607de6445757f2ffc"
+  },
+  "coupon-web": {
+    "stampCount": 9,
+    "stampSha": "d2af6a3c9276001fcf5937e74b2d26d2b0551898a96107bd0ceb3916c9a76324",
+    "chipCount": 38,
+    "chipSha": "250263d3938bda2d21b1d5be759af9f4a56a4d3569f1d23ed29daaa3ff814fb8"
+  },
+  "gas-web": {
+    "stampCount": 6,
+    "stampSha": "f83eaa6e051c015f150609de68ceaa613880338bb7c63916d66cf2154e86cacd",
+    "chipCount": 30,
+    "chipSha": "0abb33527cb9e3452e4714f0c3a28888d650d5c491392b91efcf32d355ccf664"
+  },
+  "rot-bottled_food_3": {
+    "stampCount": 5,
+    "stampSha": "014ac19f2e63b72245641231f6e5a7c9238b8f25f970d541b0fb159770c0dd81",
+    "chipCount": 22,
+    "chipSha": "4c297aec74ec928c8ee92ef8e7cc856f0efaf97858669999892b193178b5b9c8"
+  },
+  "rot-bottled_food_4": {
+    "stampCount": 4,
+    "stampSha": "ec72b467c8558aa6b8e63e021d2a427b0ea6d74d0b1668a56c659e3dfd7a447f",
+    "chipCount": 22,
+    "chipSha": "227e627e533b0b32c09e5171f484ad1a73dcfaff05ed0b8eb28336400f620df3"
+  },
+  "transmuters": {
+    "stampCount": 8,
+    "stampSha": "c84ccbca8d553531c21ad49ca12f61d1e45df662899fb5166c9bcf5ea3d6f261",
+    "chipCount": 29,
+    "chipSha": "a02f4895c72563d69d8d46dc2937f18580bb5d921430a2eead06a62040d25627"
+  },
+  "copper-script43": {
+    "stampCount": 7,
+    "stampSha": "9de9243b91a78ad5dc741f3b9e92af4db78112c363674ff56f15b19a4b867ce7",
+    "chipCount": 40,
+    "chipSha": "45b903c5e084765d121c96cb4f5a7689f98e93f3fc7be28bb9b43d023554c907"
+  },
+  "script43-xiranite": {
+    "stampCount": 7,
+    "stampSha": "6442b46b442afff4a9117e4fd39ec29d1358f724dd8e6e2568690282eb7cd747",
+    "chipCount": 37,
+    "chipSha": "0309a81df7a23e17bcc20deff5cd2c32dc660723171ef9acb0b803c0afd523cd"
+  },
+  "rot-bottled_rec_hp_1": {
+    "stampCount": 2,
+    "stampSha": "2bbf9aa9bb2b0580d46754c91371a1d060444b335d79558de6a1085ac589ec1d",
+    "chipCount": 10,
+    "chipSha": "8e585b0adfb17cd700760d8150eec6695c3f88174365c37b284a028c07b44292"
+  },
+  "rot-proc_bomb_1": {
+    "stampCount": 2,
+    "stampSha": "d2850271a2a28afb70d815b697a24c1bd714d50e091a20c673684786f1d16210",
+    "chipCount": 10,
+    "chipSha": "3caa2ffb5be30caf516f7011dfaf0c1d518de51665accfdcaae4919dcdb3a4f9"
+  }
+}

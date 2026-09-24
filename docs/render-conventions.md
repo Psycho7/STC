@@ -372,10 +372,19 @@ Do not report these as defects.
   cut.
 - A hover screenshot, where the capture took one, dims everything outside the
   hovered ego-network on purpose.
+- Which part of a trunk member the pointer sat on decides what a hover
+  screenshot lights. On the stretch the trunk shares -- the run out of a shared
+  out-port, the leg into a shared in-port -- every member of that trunk stays
+  lit. On a member's own branch leg only that edge and its two cards do, and the
+  rest of the trunk dims even though the same trunk's total and junction dot
+  stay lit beside it. A member drawing two trunks (one on each of its rows)
+  lights one of them per stretch, never both. Which member draws the total is a
+  drawing role and changes nothing here.
 - A rate chip is a hover source for the edge it labels: the chip is drawn
   through a portal but stays inside its edge's React tree, so pointing at the
-  chip box lights that edge exactly as pointing at its stroke does, and the
-  focus-dim tests pin it.
+  chip box lights that edge exactly as pointing at its stroke does. An aggregate
+  chip is the one exception, and it follows the same rule: it states the trunk's
+  total, so it lights the trunk. The focus-dim tests pin both.
 
 ## Locale notes
 

@@ -4,6 +4,7 @@ import {
   FlowChip,
   JunctionDot,
   MaskedEdge,
+  SharedStretchPaths,
   edgeStrokeStyle,
   focusSourceOf,
   rateLabel,
@@ -12,7 +13,8 @@ import {
 import { isTrunkOwner, type BusEdgeData } from "./busRouting";
 import { aggregateChipText, branchChipText } from "./chipMetrics";
 import { CHIP_ICON_ONLY_MAX_ZOOM, LABEL_MIN_ZOOM } from "./dimensions";
-import { drawnEdge } from "./edgePath";
+import { drawnEdge, sharedStretches } from "./edgePath";
+import { useSegmentHover } from "./hoverSegment";
 import { useEffectiveZoomSelect } from "./exportMode";
 import { useI18n } from "../data/i18n-context";
 import { formatRateExactPerMin } from "../data/rate-format";
@@ -36,6 +38,8 @@ import { formatRateExactPerMin } from "../data/rate-format";
 // a fan-in member its stub out of the source.
 export default function BusEdge({
   id,
+  source,
+  target,
   sourceX,
   sourceY,
   targetX,
@@ -46,6 +50,7 @@ export default function BusEdge({
 }: EdgeProps) {
   const edgeData = data as (ItemEdgeData & BusEdgeData) | undefined;
   const sourceData = focusSourceOf(edgeData);
+  const segment = useSegmentHover();
   // The PNG export rasterizes at unit scale, so every zoom gate below reads 1
   // and the image keeps full detail whatever the camera was parked at.
   const labelsShown = useEffectiveZoomSelect((zoom) => zoom >= LABEL_MIN_ZOOM);
@@ -74,6 +79,13 @@ export default function BusEdge({
   // path builder put it there; nothing moves it afterwards.
   const aggX = fan?.trunkAnchor.x ?? 0;
   const aggY = fan?.trunkAnchor.y ?? 0;
+  // The stretches this member shares with its trunks: the run out of (or into)
+  // the shared port, plus, on a dual member, the fan-in trunk's leg past the
+  // merge column. Memoized like the shape they are read off.
+  const stretches = useMemo(
+    () => sharedStretches(drawn, { source, target, data: sourceData }),
+    [drawn, source, target, sourceData],
+  );
 
   const { stroke, style: mergedStyle } = edgeStrokeStyle(
     edgeData?.transportKind,
@@ -144,8 +156,15 @@ export default function BusEdge({
   const branchX = fan?.branchAnchor.x ?? 0;
   const branchY = fan?.branchAnchor.y ?? 0;
 
+  // The trunk's total and its junction dot survive the dim a branch hover
+  // elsewhere in the trunk puts on this member; its own rate chip does not.
+  const dimmed = edgeData?.dimmed === true;
+  const trunkChromeDimmed = dimmed && edgeData?.aggregateLit !== true;
+
   // One chip on the trunk segment (where the flow enters the trunk) and one on
-  // the branch leg (where it leaves toward the target).
+  // the branch leg (where it leaves toward the target). The trunk chip reports
+  // the trunk's own segment, so pointing at the total reads as pointing at the
+  // trunk; the member chip leaves the edge's plain branch hover alone.
   const renderChip = (
     suffix: string,
     x: number,
@@ -153,21 +172,30 @@ export default function BusEdge({
     text: string,
     label: string,
     title: string,
-  ) => (
-    <FlowChip
-      testId={`bus-edge-label-${id}-${suffix}`}
-      edgeId={id}
-      x={x}
-      y={y}
-      item={edgeData?.item}
-      text={text}
-      label={label}
-      title={title}
-      dimmed={edgeData?.dimmed}
-      focused={edgeData?.focused}
-      belowDigitsGate={belowDigitsGate}
-    />
-  );
+  ) => {
+    const isTrunkChip = suffix === "drop" && edgeData?.trunkKey !== undefined;
+    return (
+      <FlowChip
+        testId={`bus-edge-label-${id}-${suffix}`}
+        edgeId={id}
+        x={x}
+        y={y}
+        item={edgeData?.item}
+        text={text}
+        label={label}
+        title={title}
+        dimmed={isTrunkChip ? trunkChromeDimmed : dimmed}
+        focused={edgeData?.focused}
+        belowDigitsGate={belowDigitsGate}
+        {...(isTrunkChip
+          ? {
+              onMouseEnter: () => segment.enter(id, edgeData!.trunkKey),
+              onMouseLeave: () => segment.leave(id),
+            }
+          : {})}
+      />
+    );
+  };
 
   return (
     <>
@@ -181,6 +209,7 @@ export default function BusEdge({
         fromPool={edgeData?.fromPool}
         markerEnd={markerEnd}
       />
+      <SharedStretchPaths edgeId={id} stretches={stretches} />
       {/* Junction dot where the trunk's members coincide -- the split for a
           fan-out, the merge for a fan-in -- reusing the shared JunctionDot
           markup. It sits BELOW the flow chips in the shared edgelabel-renderer
@@ -197,7 +226,7 @@ export default function BusEdge({
           x={fan.junction.x}
           y={fan.junction.y}
           color={stroke}
-          dimmed={edgeData?.dimmed}
+          dimmed={trunkChromeDimmed}
         />
       ) : null}
       {isOwner && dropText
