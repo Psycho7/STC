@@ -83,7 +83,6 @@ export type UiKey =
   | "settings.close.label"
   | "settings.locale.title"
   | "settings.area.title"
-  | "settings.area.all"
   | "settings.events.title"
   | "settings.events.reset"
   | "settings.events.current"
@@ -203,7 +202,6 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "settings.close.label": "关闭",
     "settings.locale.title": "语言",
     "settings.area.title": "区域",
-    "settings.area.all": "全部区域",
     "settings.events.title": "活动",
     "settings.events.reset": "恢复默认",
     "settings.events.current": "当前",
@@ -316,7 +314,6 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "settings.close.label": "Close",
     "settings.locale.title": "Language",
     "settings.area.title": "Area",
-    "settings.area.all": "All areas",
     "settings.events.title": "Events",
     "settings.events.reset": "Reset to defaults",
     "settings.events.current": "current",

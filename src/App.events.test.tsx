@@ -318,10 +318,13 @@ test("a stored off override dims the cohort's items in both pickers with the hin
   const lungTile = pickerTile("activity_xiranite_lung")!;
   expect(lungTile).not.toBeNull();
   expect(lungTile.disabled).toBe(true);
+  // The target picker also carries the area line: the default settlement
+  // always leaves the other one's coupon without a producer.
   const targetHint = document.querySelector('[data-testid="picker-hint"]')!;
-  expect(targetHint.textContent).toBe(
+  expect(targetHint.textContent).toContain(
     loadI18n("zh").t("picker.event.off", { cohorts: "v1.5" }),
   );
+  expect(targetHint.textContent).toContain(loadI18n("zh").t("picker.area.off"));
   fireEvent.keyDown(document, { key: "Escape" });
 
   // Inputs picker: same cohort, same dimming, same hint line.

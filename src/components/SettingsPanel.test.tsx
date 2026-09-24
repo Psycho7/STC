@@ -182,17 +182,14 @@ function areaOption(name: string): HTMLElement {
   return within(areaGroup()).getByRole("button", { name });
 }
 
-test("the area group offers all areas plus one option per settlement", () => {
+test("the area group offers one option per settlement and no all-areas option", () => {
   renderSettings();
   openPanel();
   const options = within(areaGroup()).getAllByRole("button");
-  expect(options.map((o) => o.textContent)).toEqual([
-    "All areas",
-    "Valley IV",
-    "Wuling",
-  ]);
-  // Nothing stored: the plan spans every area.
-  expect(areaOption("All areas").getAttribute("aria-pressed")).toBe("true");
+  expect(options.map((o) => o.textContent)).toEqual(["Valley IV", "Wuling"]);
+  // Nothing stored: the latest settlement is selected.
+  expect(areaOption("Wuling").getAttribute("aria-pressed")).toBe("true");
+  expect(areaOption("Valley IV").getAttribute("aria-pressed")).toBe("false");
 });
 
 test("choosing an area persists it and presses exactly that option", () => {
@@ -201,19 +198,19 @@ test("choosing an area persists it and presses exactly that option", () => {
   fireEvent.click(areaOption("Valley IV"));
   expect(window.localStorage.getItem(AREA_STORAGE_KEY)).toBe("tundra");
   expect(areaOption("Valley IV").getAttribute("aria-pressed")).toBe("true");
-  expect(areaOption("All areas").getAttribute("aria-pressed")).toBe("false");
-  // Back to all areas: the key goes away rather than storing a sentinel.
-  fireEvent.click(areaOption("All areas"));
-  expect(window.localStorage.getItem(AREA_STORAGE_KEY)).toBeNull();
-  expect(areaOption("All areas").getAttribute("aria-pressed")).toBe("true");
+  expect(areaOption("Wuling").getAttribute("aria-pressed")).toBe("false");
+  // Choosing the default writes it too, so a later pack cannot move the user.
+  fireEvent.click(areaOption("Wuling"));
+  expect(window.localStorage.getItem(AREA_STORAGE_KEY)).toBe("jinlong");
+  expect(areaOption("Wuling").getAttribute("aria-pressed")).toBe("true");
 });
 
 test("the panel opens on the stored area, not the default", () => {
-  window.localStorage.setItem(AREA_STORAGE_KEY, "jinlong");
+  window.localStorage.setItem(AREA_STORAGE_KEY, "tundra");
   renderSettings();
   openPanel();
-  expect(areaOption("Wuling").getAttribute("aria-pressed")).toBe("true");
-  expect(areaOption("All areas").getAttribute("aria-pressed")).toBe("false");
+  expect(areaOption("Valley IV").getAttribute("aria-pressed")).toBe("true");
+  expect(areaOption("Wuling").getAttribute("aria-pressed")).toBe("false");
 });
 
 test("the shipped pack's v1.5 row reads current, defaults on, with the default tag", () => {

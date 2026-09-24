@@ -29,10 +29,10 @@ type Props = {
   // it in place - every change hands back a fresh map.
   overrides: EventCohortOverrides;
   onOverridesChange: (next: EventCohortOverrides) => void;
-  // The selected settlement (#124), or undefined for all of them - owned by
-  // the parent on the same one-writer terms as the overrides above.
-  area: string | undefined;
-  onAreaChange: (next: string | undefined) => void;
+  // The selected settlement (#124) - owned by the parent on the same
+  // one-writer terms as the overrides above.
+  area: string;
+  onAreaChange: (next: string) => void;
   onClose: () => void;
 };
 
@@ -84,13 +84,14 @@ export function SettingsPanel({
     recipes: pack.recipes.filter((r) => r.event === cohort),
   }));
 
-  // The Area choices: all areas first, then one per settlement the pack lists.
-  // The labels are the sidecar's own location names (displayName flattens that
+  // The Area choices: one per settlement the pack lists, and nothing for "all
+  // areas" - the game builds every factory in exactly one settlement. The
+  // labels are the sidecar's own location names (displayName flattens that
   // bucket), so a new settlement needs no new UI string.
-  const areaOptions: { id: string | undefined; label: string }[] = [
-    { id: undefined, label: i18n.t("settings.area.all") },
-    ...pack.locations.map((l) => ({ id: l.id, label: i18n.displayName(l.id) })),
-  ];
+  const areaOptions = pack.locations.map((l) => ({
+    id: l.id,
+    label: i18n.displayName(l.id),
+  }));
 
   // A flip stores exactly one cohort's boolean into the parent-owned map; the
   // section reset clears every cohort's override in one write.
@@ -164,11 +165,11 @@ export function SettingsPanel({
                 const selected = option.id === area;
                 return (
                   <button
-                    key={option.id ?? "all"}
+                    key={option.id}
                     type="button"
                     aria-pressed={selected}
                     className={"settings-area" + (selected ? " selected" : "")}
-                    data-area={option.id ?? "all"}
+                    data-area={option.id}
                     onClick={() => onAreaChange(option.id)}
                   >
                     {option.label}

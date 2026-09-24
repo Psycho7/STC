@@ -31,7 +31,7 @@ function attachConsoleListener(page: Page): ConsoleLog {
 // sidecar, the rest from src/data/i18n.ts.
 const TEXT = {
   openSettings: "打开设置",
-  allAreas: "全部区域",
+  area: "区域",
   tundra: "四号谷地",
   jinlong: "武陵",
 } as const;
@@ -72,9 +72,9 @@ test("with the tundra seeded, a copper target is refused by name", async ({
   ).toEqual([]);
 });
 
-// The control: the same plan with no area seeded is the all-areas default and
-// solves, so the refusal above is the area rule biting rather than the plan
-// being broken.
+// The control: the same plan with no area seeded opens on the latest
+// settlement, 武陵, and solves, so the refusal above is the area rule biting
+// rather than the plan being broken.
 test("with no area seeded, the same copper plan solves", async ({ page }) => {
   const log = attachConsoleListener(page);
   const hash = await planHash({ targets: COPPER_TARGETS });
@@ -91,7 +91,8 @@ test("with no area seeded, the same copper plan solves", async ({ page }) => {
     (key) => window.localStorage.getItem(key),
     AREA_STORAGE_KEY,
   );
-  // All areas is the ABSENCE of the key: booting must not write a sentinel.
+  // The default is read, not written: booting must not store it, so a pack
+  // that adds a newer settlement still moves this browser onto it.
   expect(stored).toBeNull();
 
   expect(
@@ -108,20 +109,24 @@ test("an area chosen in the panel survives a reload", async ({ page }) => {
 
   await page.getByRole("button", { name: TEXT.openSettings }).click();
   const dialog = page.getByRole("dialog");
+  // Settlements only, and the latest one pressed on a fresh browser.
   await expect(
-    dialog.getByRole("button", { name: TEXT.allAreas }),
-  ).toHaveAttribute("aria-pressed", "true");
-
-  await dialog.getByRole("button", { name: TEXT.jinlong }).click();
+    dialog.getByRole("group", { name: TEXT.area }).getByRole("button"),
+  ).toHaveText([TEXT.tundra, TEXT.jinlong]);
   await expect(
     dialog.getByRole("button", { name: TEXT.jinlong }),
+  ).toHaveAttribute("aria-pressed", "true");
+
+  await dialog.getByRole("button", { name: TEXT.tundra }).click();
+  await expect(
+    dialog.getByRole("button", { name: TEXT.tundra }),
   ).toHaveAttribute("aria-pressed", "true");
   expect(
     await page.evaluate(
       (key) => window.localStorage.getItem(key),
       AREA_STORAGE_KEY,
     ),
-  ).toBe("jinlong");
+  ).toBe("tundra");
 
   await page.reload();
   await waitForCanvasReady(page);
@@ -130,15 +135,15 @@ test("an area chosen in the panel survives a reload", async ({ page }) => {
       (key) => window.localStorage.getItem(key),
       AREA_STORAGE_KEY,
     ),
-  ).toBe("jinlong");
+  ).toBe("tundra");
 
   // And the panel reads the stored settlement back, not the default.
   await page.getByRole("button", { name: TEXT.openSettings }).click();
   const reopened = page.getByRole("dialog");
   await expect(
-    reopened.getByRole("button", { name: TEXT.jinlong }),
+    reopened.getByRole("button", { name: TEXT.tundra }),
   ).toHaveAttribute("aria-pressed", "true");
   await expect(
-    reopened.getByRole("button", { name: TEXT.allAreas }),
+    reopened.getByRole("button", { name: TEXT.jinlong }),
   ).toHaveAttribute("aria-pressed", "false");
 });

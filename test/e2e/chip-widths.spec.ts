@@ -128,6 +128,7 @@ function defineCheck(locale: LocaleId, scenario: Scenario): void {
     await bootExamPage(page, {
       url: `/#${hash}`,
       locale,
+      area: scenario.area,
       readiness: "nodes",
       settle: "both",
     });

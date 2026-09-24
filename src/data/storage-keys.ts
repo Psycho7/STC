@@ -22,7 +22,6 @@ export const LOCALE_STORAGE_KEY = "aef.locale";
 export const EVENT_COHORT_OVERRIDES_STORAGE_KEY = "aef.eventCohortOverrides";
 
 // The settlement the plan is built in (#124): a bare location id from the pack
-// ("tundra", "jinlong"). The key is ABSENT for all areas rather than holding a
-// sentinel, so a fresh browser and a browser that chose "all areas" are the
-// same state.
+// ("tundra", "jinlong"). ABSENT until the user picks one, which reads as the
+// pack's latest settlement.
 export const AREA_STORAGE_KEY = "aef.area";

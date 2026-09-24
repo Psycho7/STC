@@ -146,8 +146,9 @@ type Options = {
   out: string;
   targetZoom: number;
   locale: string;
-  // The settlement to seed (#124), or undefined for all areas - the default
-  // every capture taken so far was shot under.
+  // The settlement to seed (#124), or undefined for the app's default, the
+  // pack's latest settlement. A plan that needs the other settlement's
+  // recipes (a tundra_coupon target) has to pass it.
   area: string | undefined;
   maxTiles: number;
   seamMargin: number;
@@ -264,7 +265,7 @@ export type BootOptions = {
   hash: string;
   locale: string;
   // Optional so the probe CLI, which has no area flag of its own, still
-  // satisfies this shape: an absent area is the all-areas default.
+  // satisfies this shape: an absent area is the latest-settlement default.
   area?: string | undefined;
 };
 

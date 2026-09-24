@@ -78,9 +78,8 @@ export function effectiveCohortEnabled(
 // the event rule and nothing else.
 export type AvailabilitySettings = {
   eventOverrides: EventCohortOverrides;
-  // The settlement the plan is built in, or absent for all of them (#124).
-  // Deliberately a distinct "all" state rather than the union of the two
-  // areas: a recipe can be tagged for a settlement the pack does not list.
+  // The settlement the plan is built in (#124). The app always sets one; absent
+  // means no area filter, which only tests of the other predicates rely on.
   area?: string | undefined;
   // Recipes switched off by hand (#125). Stored independently of the other
   // two, so re-enabling an area never resurrects one.
@@ -295,30 +294,34 @@ export function writeStoredEventOverrides(next: EventCohortOverrides): void {
   }
 }
 
+// The settlement a fresh browser starts in: the newest one. The pack carries no
+// release field on a location, so recency is its list order - upstream appends
+// each settlement as the game opens it (tundra, then jinlong), and the extractor
+// copies that order verbatim. A pack with no settlement is a broken extract.
+export function latestArea(pack: RecipePack): string {
+  const latest = pack.locations.at(-1);
+  if (latest === undefined) throw new Error("recipe pack lists no locations");
+  return latest.id;
+}
+
 // The stored settlement (#124), validated against the pack's own location list.
-// An unknown id - hand-edited storage, or an area a pack bump retired - reads
-// as all areas: filtering against a location no machine names would leave the
-// user staring at an empty canvas with no way to tell why.
-export function readStoredArea(pack: RecipePack): string | undefined {
-  if (typeof window === "undefined") return undefined;
+// An absent key or an unknown id - hand-edited storage, or an area a pack bump
+// retired - reads as the latest settlement. The key stays absent until the user
+// picks one, so a pack that adds a settlement moves a fresh browser onto it.
+export function readStoredArea(pack: RecipePack): string {
+  if (typeof window === "undefined") return latestArea(pack);
   try {
     const raw = window.localStorage?.getItem(AREA_STORAGE_KEY);
     if (raw && pack.locations.some((l) => l.id === raw)) return raw;
   } catch {
     // Same private-mode fall-through as the overrides read above.
   }
-  return undefined;
+  return latestArea(pack);
 }
 
-// All areas is the absence of the key, so choosing it removes rather than
-// writes; see AREA_STORAGE_KEY.
-export function writeStoredArea(next: string | undefined): void {
+export function writeStoredArea(next: string): void {
   if (typeof window === "undefined") return;
   try {
-    if (next === undefined) {
-      window.localStorage?.removeItem(AREA_STORAGE_KEY);
-      return;
-    }
     window.localStorage?.setItem(AREA_STORAGE_KEY, next);
   } catch {
     // As above: an unpersisted choice still drives this session.

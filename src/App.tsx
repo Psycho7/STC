@@ -392,12 +392,10 @@ function AppInner() {
   const [eventOverrides, setEventOverrides] = useState<EventCohortOverrides>(
     readStoredEventOverrides,
   );
-  // The settlement the plan is built in (#124), or undefined for all of them.
-  // Same one-writer discipline as the overrides above; `pack` is a
-  // module-stable import, so the boot read needs no dependency.
-  const [area, setArea] = useState<string | undefined>(() =>
-    readStoredArea(pack),
-  );
+  // The settlement the plan is built in (#124). Same one-writer discipline as
+  // the overrides above; `pack` is a module-stable import, so the boot read
+  // needs no dependency.
+  const [area, setArea] = useState<string>(() => readStoredArea(pack));
   // The pack's own cohort, handed to the settings panel so its Events rows
   // can tell current from past. `pack` is a module-stable import, so it stays
   // out of the dependency list.
@@ -510,7 +508,7 @@ function AppInner() {
   // The same one writer for the area (#124): the panel's radio group and the
   // cross-tab storage listener below both land here, so memory and storage
   // never disagree about which settlement is selected.
-  const handleAreaChange = useCallback((next: string | undefined): void => {
+  const handleAreaChange = useCallback((next: string): void => {
     setArea(next);
     writeStoredArea(next);
   }, []);

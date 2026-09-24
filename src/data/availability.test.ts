@@ -14,6 +14,7 @@ import {
   effectiveCohortEnabled,
   eventCohortsOf,
   packCohortOf,
+  latestArea,
   readStoredArea,
   readStoredEventOverrides,
   unavailableCauses,
@@ -273,7 +274,8 @@ describe("unavailableCauses - area over the shipped pack", () => {
     expect(shippedPack.recipes).toHaveLength(TOTAL_RECIPES);
     expect(survivingIds("tundra")).toHaveLength(180);
     expect(survivingIds("jinlong")).toHaveLength(242);
-    // No area selected is a distinct "all" state, not the union of the two.
+    // No area filter at all (the core's unrestricted input, which the app
+    // never passes) is not the union of the two.
     expect(survivingIds()).toHaveLength(TOTAL_RECIPES);
   });
 
@@ -556,23 +558,31 @@ describe("stored area", () => {
     expect(readStoredArea(shippedPack)).toBe("tundra");
   });
 
-  it("reads an absent key as all areas", () => {
-    expect(readStoredArea(shippedPack)).toBeUndefined();
-  });
-
-  it("clears the key when writing all areas", () => {
-    writeStoredArea("jinlong");
-    writeStoredArea(undefined);
+  it("reads an absent key as the latest settlement without writing it", () => {
+    expect(readStoredArea(shippedPack)).toBe("jinlong");
     expect(window.localStorage.getItem(AREA_STORAGE_KEY)).toBeNull();
-    expect(readStoredArea(shippedPack)).toBeUndefined();
   });
 
-  it("falls back to all areas for a value the pack does not list", () => {
+  it("falls back to the latest settlement for a value the pack does not list", () => {
     // Hand-edited storage, or an area a pack bump retired: filtering against
     // an area no machine names would hide every recipe behind an empty canvas.
     for (const bad of ["", "atlantis", "TUNDRA", "[]"]) {
       window.localStorage.setItem(AREA_STORAGE_KEY, bad);
-      expect(readStoredArea(shippedPack)).toBeUndefined();
+      expect(readStoredArea(shippedPack)).toBe("jinlong");
     }
+  });
+});
+
+describe("latestArea", () => {
+  it("is the last settlement the pack lists", () => {
+    expect(latestArea(shippedPack)).toBe("jinlong");
+    const newer = {
+      ...shippedPack,
+      locations: [
+        ...shippedPack.locations,
+        { id: "newer", name: "newer", icon: "newer" },
+      ],
+    };
+    expect(latestArea(newer)).toBe("newer");
   });
 });

@@ -115,7 +115,8 @@ export type BootExamPageOptions = {
   // version-rule default - same contract as `locale`.
   eventOverrides?: Record<string, boolean> | undefined;
   // The settlement (#124) to seed before boot, a pack location id. Omitting it
-  // writes NO key, which is the all-areas default - same contract as `locale`.
+  // writes NO key, which is the latest-settlement default - same contract as
+  // `locale`.
   area?: string | undefined;
 };
 
@@ -227,11 +228,12 @@ export async function loadCensusScenario(
   page: Page,
   hash: string,
   zoom: number,
-  seed: { locale?: BootLocale | undefined } = {},
+  seed: { locale?: BootLocale | undefined; area?: string | undefined } = {},
 ): Promise<void> {
   await bootExamPage(page, {
     url: `/#${hash}`,
     locale: seed.locale,
+    area: seed.area,
     readiness: "nodes",
     settle: "both",
   });
