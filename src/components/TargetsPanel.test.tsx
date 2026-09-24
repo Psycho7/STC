@@ -243,6 +243,34 @@ test("refocusing the reverted field retires the status line", () => {
   expect(screen.queryByTestId("rate-reverted")).toBeNull();
 });
 
+// A revert flag must not outlive its row: swapping the row's item away and
+// back re-creates the row key, and a stale flag would resurface as a status
+// line about an edit the fresh row never saw.
+test("a revert status does not resurface after swapping the item away and back", () => {
+  const owner = controlledOwner<Target[]>([
+    { itemId: "widget", ratePerSec: { num: "2", denom: "1" } },
+  ]);
+  render(
+    owner.element((targets, onChange) => (
+      <LocaleProvider locale="en">
+        <TargetsPanel targets={targets} onChange={onChange} pack={PACK} />
+      </LocaleProvider>
+    )),
+  );
+  const input = rateInputs()[0]!;
+  fireEvent.change(input, { target: { value: "12,5" } });
+  fireEvent.blur(input);
+  expect(screen.getByTestId("rate-reverted")).not.toBeNull();
+  // Swap widget -> gadget: the widget key leaves the family.
+  fireEvent.click(screen.getByLabelText(/^Item: widget$/));
+  pickTile("gadget");
+  expect(screen.queryByTestId("rate-reverted")).toBeNull();
+  // Swap back: the widget key returns and must not carry the stale flag.
+  fireEvent.click(screen.getByLabelText(/^Item: gadget$/));
+  pickTile("widget");
+  expect(screen.queryByTestId("rate-reverted")).toBeNull();
+});
+
 // Enter's invalid cue and the blur revert are different states and must not
 // both be on screen: one says "fix this", the other "your text is gone".
 test("Enter on unparseable text shows the invalid cue, not the revert status", () => {

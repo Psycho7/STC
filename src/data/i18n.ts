@@ -54,6 +54,7 @@ export type UiKey =
   | "inputs.needed"
   | "inputs.empty"
   | "inputs.catalyst.role"
+  | "inputs.catalyst.role.forItem"
   | "inputs.catalyst.badge"
   | "inputs.catalyst.part"
   | "env.stable"
@@ -181,6 +182,7 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "inputs.needed": "需求 {rate}/分",
     "inputs.empty": "未配置任何输入 — 全部按 raw 自动求解",
     "inputs.catalyst.role": "催化",
+    "inputs.catalyst.role.forItem": "{name} 的{pool}输入行：催化",
     "inputs.catalyst.badge": "催化",
     "inputs.catalyst.part": "其中催化 {rate}/分",
     "env.stable": "稳定环境",
@@ -203,7 +205,9 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "canvas.controls.fit_view": "适应视图",
     "canvas.controls.interactive": "切换交互",
     "rate.invalid": "请输入数字，例如 30 或 1/3",
-    "rate.reverted": "输入无效，已恢复为原速率",
+    // Neutral discard wording: an uncapped or auto row reverts to an EMPTY
+    // field, so copy claiming a rate came back would be false there.
+    "rate.reverted": "输入无效，已放弃本次输入",
     "ratePrompt.title": "数量",
     "ratePrompt.confirm": "添加",
     "ratePrompt.cancel": "取消",
@@ -297,6 +301,7 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "inputs.needed": "needed {rate}/min",
     "inputs.empty": "No declared inputs — defaults to raw-source feed",
     "inputs.catalyst.role": "catalyst",
+    "inputs.catalyst.role.forItem": "{pool} input {name}: catalyst",
     "inputs.catalyst.badge": "CATALYST",
     "inputs.catalyst.part": "{rate}/min catalyst",
     "env.stable": "Stable environment",
@@ -319,7 +324,9 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "canvas.controls.fit_view": "Fit view",
     "canvas.controls.interactive": "Toggle interactivity",
     "rate.invalid": "Enter a number, e.g. 30 or 1/3",
-    "rate.reverted": "That was not a number; the previous rate is back",
+    // Neutral discard wording: an uncapped or auto row reverts to an EMPTY
+    // field, so copy claiming a rate came back would be false there.
+    "rate.reverted": "That was not a number; the edit was discarded",
     "ratePrompt.title": "Amount",
     "ratePrompt.confirm": "Add",
     "ratePrompt.cancel": "Cancel",

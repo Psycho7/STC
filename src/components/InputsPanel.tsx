@@ -128,13 +128,10 @@ export function InputsPanel({
     { override: ItemOverride }
   >(pack, pack.items, unavailableItems);
   const { pickerFor, prompt, closePicker, focusOnMount } = flow;
-  // The row's item name plus, when present, the message under its rate field.
-  // The name element stays a description even though the label now carries the
-  // item too: it is the on-screen name the row's message hangs off.
-  function rateDescribedBy(key: RowKey, hasMessage: boolean): string {
-    const ids = [`i-name-${key.itemId}${rowIdSuffix(key)}`];
-    if (hasMessage) ids.push(`i-rate-err-${key.itemId}${rowIdSuffix(key)}`);
-    return ids.join(" ");
+  // The id of the message under a row's rate field, when one renders: the
+  // only thing the field describes, since its label already names the row.
+  function rateErrId(key: RowKey): string {
+    return `i-rate-err-${key.itemId}${rowIdSuffix(key)}`;
   }
 
   // The pool a row addresses, as its controls name it: an item can hold a row
@@ -145,10 +142,13 @@ export function InputsPanel({
     );
   }
 
-  // Accessible name for a row's rate field or its remove button.
+  // Accessible name for a row's rate field, remove button, or pool toggle.
   function rowLabel(
     key: RowKey,
-    k: "inputs.rate.forItem" | "inputs.remove.forItem",
+    k:
+      | "inputs.rate.forItem"
+      | "inputs.remove.forItem"
+      | "inputs.catalyst.role.forItem",
   ) {
     return i18n.t(k, {
       name: i18n.displayName(key.itemId),
@@ -437,7 +437,7 @@ export function InputsPanel({
           data-testid="input-catalyst-toggle"
           checked={key.role === "catalyst"}
           onChange={(e) => handleRoleChange(key, e.target.checked)}
-          aria-label={i18n.t("inputs.catalyst.role")}
+          aria-label={rowLabel(key, "inputs.catalyst.role.forItem")}
         />
         <span>{i18n.t("inputs.catalyst.role")}</span>
       </label>
@@ -450,9 +450,22 @@ export function InputsPanel({
   // override does not retire the item's general row. The owner decides what
   // belongs in the set; a catalyst item is in it because the plan draws it, not
   // because it is raw.
-  const autoRows = (assumedRawItemIds ?? []).filter(
-    (id) => !hasRow({ itemId: id }),
+  const autoRowKeys = useMemo(
+    () =>
+      new Set(
+        (assumedRawItemIds ?? []).filter((id) => !hasRow({ itemId: id })),
+      ),
+    [assumedRawItemIds, overrideKeys],
   );
+  const autoRows = [...autoRowKeys];
+  // Prune the auto-row family like the override one above: an auto row can
+  // leave by any route (its item stops being drawn, or a promotion replaces
+  // it), and a surviving revert flag would resurface if the row returns.
+  useEffect(() => {
+    autoEdit.pruneEditsTo(autoRowKeys);
+    // autoEdit is rebuilt every render; the prune depends only on the live keys.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoRowKeys]);
   const showEmptyState = itemOverrides.length === 0 && autoRows.length === 0;
   // Every row key already exists, so the picker would open on an all-dimmed
   // grid. Unreachable on the shipped pack, but a hand-crafted plan can carry a
@@ -544,10 +557,11 @@ export function InputsPanel({
                 type="text"
                 inputMode="decimal"
                 aria-label={rowLabel(key, "inputs.rate.forItem")}
-                aria-describedby={rateDescribedBy(
-                  key,
-                  rate.invalid || shortage !== undefined,
-                )}
+                aria-describedby={
+                  rate.invalid || shortage !== undefined
+                    ? rateErrId(key)
+                    : undefined
+                }
                 placeholder={i18n.t("inputs.unlimited")}
                 {...rate.inputProps}
               />
@@ -700,10 +714,11 @@ export function InputsPanel({
                 inputMode="decimal"
                 ref={(el) => focusOnMount(el, rowKey, "rate")}
                 aria-label={rowLabel(key, "inputs.rate.forItem")}
-                aria-describedby={rateDescribedBy(
-                  key,
-                  rate.invalid || shortage !== undefined,
-                )}
+                aria-describedby={
+                  rate.invalid || shortage !== undefined
+                    ? rateErrId(key)
+                    : undefined
+                }
                 placeholder={
                   uncapped
                     ? i18n.t("inputs.unlimited")
