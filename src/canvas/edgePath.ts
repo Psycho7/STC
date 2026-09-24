@@ -580,7 +580,8 @@ export function chipBoxAt(
 
 // Do two rects overlap in their strict interiors? Touching edges are not an
 // intersection: a chip box flush against a card border still reads as beside
-// the card, and the slide below seats exactly flush.
+// the card, and a slide seat holds CHIP_CARD_CLEARANCE past the card edge it
+// dodges, so it clears by construction.
 function rectsOverlap(
   a: { left: number; right: number; top: number; bottom: number },
   b: { left: number; right: number; top: number; bottom: number },
@@ -597,6 +598,13 @@ function rectsOverlap(
 // sums of the same fractional layout coordinates, so a seat computed to stand
 // exactly flush against a card edge must not read back as intersecting it.
 const BOX_EPS = 1e-6;
+
+// Clearance a seated chip box keeps from every card: a box flush against a
+// foreign card's border reads as that card's own label at reading zoom, so the
+// box tests grow the box by this on all sides and the slide seats stand this
+// far past the card edge they dodge. 4 model units clears the border stroke
+// and the visual seam without pushing a wide box off a short run.
+export const CHIP_CARD_CLEARANCE = 4;
 
 // The runs of a polyline in the order the card-clear rule tries them: longest
 // first, ties by the run centre nearest the polyline's arc midpoint -- the same
@@ -637,7 +645,9 @@ function runsByPreference(
 // this module sees one edge at a time and never the node list.
 // Does a chip box at (x, y) enter any of these cards? The seating pass asks it
 // of a RULE seat before deciding to slide, and the slide below asks it of every
-// candidate, so both read the same definition of "on a card".
+// candidate, so both read the same definition of "on a card". The box is grown
+// by CHIP_CARD_CLEARANCE on all sides first: a box merely clear of the border
+// still reads as the card's label at reading zoom.
 export function chipBoxClearsCards(
   x: number,
   y: number,
@@ -649,7 +659,14 @@ export function chipBoxClearsCards(
     bottom: number;
   }>,
 ): boolean {
-  return !cards.some((card) => rectsOverlap(chipBoxAt(x, y, halfW), card));
+  const box = chipBoxAt(x, y, halfW);
+  const grown = {
+    left: box.left - CHIP_CARD_CLEARANCE,
+    right: box.right + CHIP_CARD_CLEARANCE,
+    top: box.top - CHIP_CARD_CLEARANCE,
+    bottom: box.bottom + CHIP_CARD_CLEARANCE,
+  };
+  return !cards.some((card) => rectsOverlap(grown, card));
 }
 
 export function cardClearRunAnchor(
@@ -670,15 +687,19 @@ export function cardClearRunAnchor(
   for (const run of runs) {
     const centre = (run.lo + run.hi) / 2;
     // Only the cards this run's chip ROW can meet matter; the rest can never
-    // be hit however far the box slides along it.
+    // be hit however far the box slides along it. The row is the box grown by
+    // CHIP_CARD_CLEARANCE vertically, matching what the seats must clear.
     const blockers = cards.filter(
       (card) =>
-        card.bottom > run.y - CHIP_HALF_H + BOX_EPS &&
-        card.top < run.y + CHIP_HALF_H - BOX_EPS,
+        card.bottom > run.y - CHIP_HALF_H - CHIP_CARD_CLEARANCE + BOX_EPS &&
+        card.top < run.y + CHIP_HALF_H + CHIP_CARD_CLEARANCE - BOX_EPS,
     );
     if (clears(centre, run.y, blockers)) return [r(centre), r(run.y)];
     const seats = blockers
-      .flatMap((card) => [card.left - halfW, card.right + halfW])
+      .flatMap((card) => [
+        card.left - halfW - CHIP_CARD_CLEARANCE,
+        card.right + halfW + CHIP_CARD_CLEARANCE,
+      ])
       .filter((x) => x >= run.lo && x <= run.hi && clears(x, run.y, blockers))
       .sort((a, b) => Math.abs(a - centre) - Math.abs(b - centre) || a - b);
     const seat = seats[0];

@@ -65,6 +65,11 @@ const CARVE_OUT_TOTAL = { oneSided: 0, noGeometry: 0 };
 // same slot read through different builders, so they agree to the rounding.
 const COLUMN_EPS = 1;
 
+// CHIP-CARD CLEARANCE 2026-09-24: chipSha re-captured once on this branch.
+// The clearance moved 18 seated boxes, position only (five flush rule seats
+// slid off their card, thirteen existing slide seats shifted by exactly the
+// clearance), so every chipCount and every stampSha came out identical and
+// only the ten chipShas of the plans those seats live in changed.
 const BASELINE_DIR = resolve(import.meta.dirname, "fixtures/trunkGroups");
 const BASELINE_PATH = resolve(BASELINE_DIR, "stamp-baseline.json");
 const WRITING = process.env.TRUNK_GROUP_BASELINE === "write";
