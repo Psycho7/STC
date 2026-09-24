@@ -1400,8 +1400,14 @@
    scales relative to the edge's zoom-compensated --edge-base-width so the lit
    edge always dominates its dimmed neighbours; the 2.25px floor preserves the
    emphasis at zoom 1 where the base is only 1px. !important beats the inline
-   strokeWidth the edge sets from the same custom property. */
-.ak-canvas-theme.hover-active .react-flow__edge:not(.dimmed) path {
+   strokeWidth the edge sets from the same custom property. Only the ink path
+   is selected: the invisible hit paths (the interaction path, the
+   shared-stretch paths) carry stroke-width 20 so a pointer a few px off the
+   centreline still hits the edge, and shrinking them would flicker the hover
+   on and off. */
+.ak-canvas-theme.hover-active
+  .react-flow__edge:not(.dimmed)
+  path.react-flow__edge-path {
   stroke-width: max(2.25px, calc(var(--edge-base-width, 1px) * 1.6)) !important;
   filter: brightness(1.35);
 }
