@@ -11,7 +11,10 @@ import type Fraction from "fraction.js";
 import type { ItemId, TransportKindId } from "../pipeline/types";
 import { useI18n } from "../data/i18n-context";
 import { formatRateExactPerMin } from "../data/rate-format";
-import { rateChipText } from "./chipMetrics";
+import { aggregateChipText, rateChipText } from "./chipMetrics";
+// Type-only: the trunk-aggregate stamps routeTrunkEdges puts on a far owner.
+// Erased at compile time, so it adds no runtime or bundler edge.
+import type { BusAggregate } from "./busRouting";
 import {
   CHIP_ICON_ONLY_MAX_ZOOM,
   LABEL_MIN_ZOOM,
@@ -37,6 +40,9 @@ import { Sprite } from "./RecipeNode";
 import { BELT_COLOR, GAS_COLOR, PIPE_COLOR } from "./transportPalette";
 
 // The stamped routing hints (and their docs) live in edgePath's RoutingHints.
+// The trunk-aggregate fields intersected in at the end are set on at most ONE
+// item edge per fan-out trunk: the far owner routeTrunkEdges elects for a trunk
+// with no near member, which draws that trunk's total beside its own rate.
 export type ItemEdgeData = RoutingHints & {
   item: ItemId;
   rate: Fraction;
@@ -112,7 +118,7 @@ export type ItemEdgeData = RoutingHints & {
   // of the stamped anchors (see useLiveCrossingCues), so a node drag on
   // EITHER side of the pair drops the gap instead of floating it.
   crossingCues?: ReadonlyArray<CrossingCue>;
-};
+} & Partial<BusAggregate>;
 
 // Physical stroke-width bounds. Edge strokes are drawn in graph units, so the
 // pane zoom scales them: at fit zoom a 1-unit stroke is a sub-pixel hairline. To
@@ -634,6 +640,35 @@ export default function ItemEdge({
     [item, rate, rateStr, unit, i18n],
   );
 
+  // The trunk total this edge carries when it is the elected far owner of a
+  // fan-out with no near member: the same builder, wording and unit BusEdge's
+  // drop chip uses, so the two states of one contract read alike. Empty on
+  // every other item edge, where the payload carries no total.
+  const totalStr = useMemo(
+    () =>
+      aggregateChipText({
+        id: "",
+        source: "",
+        target: "",
+        data: sourceData,
+      } as Edge)?.body ?? "",
+    [sourceData],
+  );
+  const total = (sourceData as ItemEdgeData | undefined)?.busTotalRate;
+  const { totalLabel, totalTitle } = useMemo(
+    () =>
+      item !== undefined && total !== undefined && totalStr
+        ? {
+            totalLabel: rateLabel(i18n.displayName(item), `${totalStr}${unit}`),
+            totalTitle: rateLabel(
+              i18n.displayName(item),
+              `${formatRateExactPerMin(total)}${unit}`,
+            ),
+          }
+        : { totalLabel: "", totalTitle: "" },
+    [item, total, totalStr, unit, i18n],
+  );
+
   // The drawn shape of this edge: the polyline, its vertices and its label
   // anchor, resolved by drawnEdge from the live React Flow endpoints and this
   // edge's stamped data, so the render and the bookkeeping pass's
@@ -691,6 +726,15 @@ export default function ItemEdge({
     edgeData && rateStr && (labelsShown || edgeData.focused === true)
       ? `${rateStr}${unit}`
       : "";
+  // The trunk total draws only where the shape seated an anchor for it, under
+  // the label chip's own gates: a drag that re-routes this member off the trunk
+  // drops the anchor and the chip with it.
+  const totalText =
+    drawn.trunkAnchor !== undefined &&
+    totalStr &&
+    (labelsShown || edgeData?.focused === true)
+      ? `${totalStr}${unit}`
+      : "";
 
   const { stroke, style: mergedStyle } = edgeStrokeStyle(
     edgeData?.transportKind,
@@ -720,6 +764,24 @@ export default function ItemEdge({
           text={chipText}
           label={fullLabel}
           title={exactTitle}
+          dimmed={edgeData?.dimmed}
+          focused={edgeData?.focused}
+          belowDigitsGate={belowDigitsGate}
+        />
+      ) : null}
+      {/* The trunk's aggregate, on the far owner's source stub: the counterpart
+          of the drop chip a retyped member draws from BusEdge, on the one item
+          shape that carries a trunk's aggregate stamps. */}
+      {totalText && drawn.trunkAnchor !== undefined ? (
+        <FlowChip
+          testId={`item-edge-${id}-drop`}
+          edgeId={id}
+          x={drawn.trunkAnchor.x}
+          y={drawn.trunkAnchor.y}
+          item={edgeData?.item}
+          text={totalText}
+          label={totalLabel}
+          title={totalTitle}
           dimmed={edgeData?.dimmed}
           focused={edgeData?.focused}
           belowDigitsGate={belowDigitsGate}

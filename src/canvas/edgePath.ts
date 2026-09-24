@@ -1291,6 +1291,13 @@ export type DrawnEdge =
       path: string;
       pts: ReadonlyArray<readonly [number, number]>;
       labelAnchor: Anchor;
+      // Present only on the elected FAR owner of a fan-out trunk with no near
+      // member (routeTrunkEdges stamps busChipOwner beside fanoutColumn): where
+      // that trunk's total stands, on this member's own source stub in the gap's
+      // source reserve -- the seat a retyped member's aggregate chip takes, so a
+      // trunk of far members states its total like every other fan-out. Absent
+      // on every other item shape.
+      trunkAnchor?: Anchor;
     }
   | {
       shape: "fanout";
@@ -1359,16 +1366,45 @@ export function drawnEdge(
   }
 
   // An item shape seats only its own rate chip (itemAnchor reads memberHalfW),
-  // so the aggregate width is never measured here.
+  // so the aggregate width is measured here for one shape alone: the far owner
+  // of an otherwise ownerless fan-out trunk, whose total rides its SOURCE stub
+  // (the polyline's first run) one port stub out of the port, the reserve seat
+  // every trunk chip takes. The trunk's divergence dot stands at the borrowed
+  // column, so the column end of the stub -- one chamfer before the bend -- is
+  // what the seat clears by DOT_KEEPOFF; with no bend the run's own end stands
+  // in, and reserveSeatX clamps the anchor onto the run either way.
   const step = chamferStepShape({
     ...ports,
     ...hints,
     memberHalfW: memberHalfWOf(d),
   });
+  let trunkAnchor: Anchor | undefined;
+  if (hints.fanoutColumn === true && d?.busChipOwner === true) {
+    const stub = horizontalRuns(step.pts)[0];
+    if (stub !== undefined) {
+      const inward =
+        hints.bendX === undefined
+          ? stub.hi
+          : Math.min(stub.hi, hints.bendX - CHAMFER);
+      trunkAnchor = {
+        x: r(
+          reserveSeatX(
+            ports.sourceX,
+            inward,
+            chipHalfWidthsOf(d).aggHalfW,
+            stub.lo,
+            stub.hi,
+          ),
+        ),
+        y: r(stub.y),
+      };
+    }
+  }
   return {
     shape: "item",
     path: step.path,
     pts: step.pts,
     labelAnchor: { x: step.x, y: step.y },
+    ...(trunkAnchor !== undefined ? { trunkAnchor } : {}),
   };
 }

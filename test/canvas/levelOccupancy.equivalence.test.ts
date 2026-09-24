@@ -1,14 +1,15 @@
-// The jog frame gap, the rail floor rescan and the chip slide move exactly
-// these lines.
+// The jog frame gap, the rail floor rescan, the chip slide and the far-owner
+// trunk total move exactly these lines.
 //
 // The fixtures are the routed corpus at the level-occupancy extraction (the
-// commit before the F, D and A clearance work), and they were written to prove
-// that the extraction moved nothing. They still serve: the F candidate arm, the
-// D rescan and the A chip slide are deliberate behaviour changes, and the
-// question this test now answers is which lines they reach. Every field of
-// every other edge and node must still match the extraction byte for byte, and
-// the keys that do differ must be exactly the ones the two tables below
-// enumerate. The ratchet tables in the e2e geometry audit cannot say that:
+// commit before the F, D, A and H work), and they were written to prove that
+// the extraction moved nothing. They still serve: the F candidate arm, the D
+// rescan, the A chip slide and the H trunk total are deliberate behaviour
+// changes, and the question this test now answers is which lines they reach.
+// Every field of every other edge and node must still match the extraction byte
+// for byte, and the keys that do differ must be exactly the ones the three
+// tables below enumerate. The ratchet tables in the e2e geometry audit cannot
+// say that:
 // every cell is an upper bound compared with toBeLessThanOrEqual, so a
 // relocation that lowers a count passes silently. A whole-scene diff cannot say
 // it either: the capture carries build provenance and camera metadata that
@@ -206,9 +207,10 @@ const edgeHeadOf = (key: string): string | null =>
 // fields of a listed edge may differ -- because A moves no polyline, column,
 // level or node placement, and the test should keep saying so.
 //
-// Both tables compose: an unlisted key still compares exact, the union of what
-// the two permit is the whole permitted delta, and a listed edge that stops
-// differing fails either way, so neither list can rot into a blanket waiver.
+// All three tables compose: an unlisted key still compares exact, the union of
+// what they permit is the whole permitted delta, and a listed edge that stops
+// differing fails whichever table lists it, so no list can rot into a blanket
+// waiver.
 const SEAT_FIELDS = ["chipX", "chipY", "labelAnchor"] as const;
 const CHIP_SEATS_MOVED: Readonly<Record<string, ReadonlyArray<string>>> = {
   battery5: [
@@ -235,6 +237,56 @@ const CHIP_SEATS_MOVED: Readonly<Record<string, ReadonlyArray<string>>> = {
   "copper-script43": ["e:26:u:class:q:9->u:class:q:32:gas_xiranite_enr"],
   "rot-bottled_rec_hp_1": ["e:4:u:class:q:4->u:class:q:5:plant_moss_1"],
   "rot-proc_bomb_1": ["e:4:u:class:q:4->u:class:q:5:plant_bbflower_1"],
+};
+
+// The third named delta: family H gives a fan-out trunk with no near member a
+// far owner, and that owner's item shape seats the trunk's total where it drew
+// nothing before. Nothing else moves -- the polyline, the columns, the levels
+// and the label seat of the very same edge still compare exact -- so the
+// exemption is one FIELD on a named list of edges, narrower still than
+// CHIP_SEATS_MOVED. The fixtures stay as written on the base commit;
+// regenerating them would prove nothing.
+const TOTAL_FIELDS = ["trunkAnchor"] as const;
+const FAR_OWNERS_SEATED: Readonly<Record<string, ReadonlyArray<string>>> = {
+  "battery5-xiranite": [
+    "e:0:u:cat:gas_xiranite->u:class:q:23:gas_xiranite",
+    "e:30:u:in:gas_xiranite->u:class:q:2:gas_xiranite",
+  ],
+  multi6: [
+    "e:0:u:cat:gas_xiranite->u:class:q:12:gas_xiranite",
+    "e:65:u:in:copper_ore->u:class:q:22:copper_ore",
+  ],
+  script43: [
+    "e:0:u:cat:gas_xiranite->u:class:q:20:gas_xiranite",
+    "e:24:u:in:gas_inert->u:class:q:1:gas_inert",
+    "e:26:u:in:gas_xiranite->u:class:q:3:gas_xiranite",
+  ],
+  "coupon-web": [
+    "e:0:u:cat:gas_xiranite->u:class:q:20:gas_xiranite",
+    "e:25:u:in:gas_inert->u:class:q:3:gas_inert",
+    "e:27:u:in:gas_xiranite->u:class:q:1:gas_xiranite",
+  ],
+  "gas-web": [
+    "e:0:u:cat:gas_xiranite->u:class:q:0:gas_xiranite",
+    "e:18:u:in:gas_inert->u:class:q:7:gas_inert",
+    "e:21:u:in:gas_xiranite->u:class:q:0:gas_xiranite",
+  ],
+  "rot-bottled_food_4": ["e:12:u:in:iron_ore->u:class:q:3:iron_ore"],
+  transmuters: [
+    "e:0:u:cat:gas_xiranite->u:class:q:13:gas_xiranite",
+    "e:20:u:in:gas_xiranite->u:class:q:2:gas_xiranite",
+  ],
+  "copper-script43": [
+    "e:0:u:cat:gas_xiranite->u:class:q:25:gas_xiranite",
+    "e:28:u:in:gas_inert->u:class:q:2:gas_inert",
+    "e:30:u:in:gas_xiranite->u:class:q:4:gas_xiranite",
+  ],
+  "script43-xiranite": [
+    "e:0:u:cat:gas_xiranite->u:class:q:20:gas_xiranite",
+    "e:15:u:class:q:27->u:class:q:5:xiranite_enr_powder",
+    "e:25:u:in:gas_inert->u:class:q:1:gas_inert",
+    "e:27:u:in:gas_xiranite->u:class:q:3:gas_xiranite",
+  ],
 };
 
 describe("the level-occupancy extraction routes the corpus identically", () => {
@@ -264,23 +316,33 @@ describe("the level-occupancy extraction routes the corpus identically", () => {
       const rhs = flatten(after);
       const moved = MOVED[scenario.id] ?? [];
       const seats = CHIP_SEATS_MOVED[scenario.id] ?? [];
+      const seated = FAR_OWNERS_SEATED[scenario.id] ?? [];
       const seatKeys = new Map<string, string>();
       for (const id of seats) {
         for (const field of SEAT_FIELDS)
           seatKeys.set(`edge:${id}.${field}`, id);
       }
+      const totalKeys = new Map<string, string>();
+      for (const id of seated) {
+        for (const field of TOTAL_FIELDS)
+          totalKeys.set(`edge:${id}.${field}`, id);
+      }
       const unexpected: string[] = [];
       const movedHeads = new Set<string>();
       const seatsSeen = new Set<string>();
+      const seatedSeen = new Set<string>();
       for (const key of new Set([...lhs.keys(), ...rhs.keys()])) {
         if (Object.is(lhs.get(key), rhs.get(key))) continue;
-        // A key either table permits is permitted, and credits that table --
-        // both, where a seat field of an edge MOVED already covers differs.
+        // A key any table permits is permitted, and credits every table that
+        // permits it -- all of them, where a seat or total field of an edge
+        // MOVED already covers differs.
         const seat = seatKeys.get(key);
         if (seat !== undefined) seatsSeen.add(seat);
+        const owner = totalKeys.get(key);
+        if (owner !== undefined) seatedSeen.add(owner);
         const head = edgeHeadOf(key);
         if (head !== null && moved.includes(head)) movedHeads.add(head);
-        else if (seat === undefined)
+        else if (seat === undefined && owner === undefined)
           unexpected.push(`${key}: ${lhs.get(key)} -> ${rhs.get(key)}`);
       }
 
@@ -290,6 +352,7 @@ describe("the level-occupancy extraction routes the corpus identically", () => {
       expect(unexpected).toEqual([]);
       expect([...movedHeads].sort()).toEqual([...moved].sort());
       expect([...seatsSeen].sort()).toEqual([...seats].sort());
+      expect([...seatedSeen].sort()).toEqual([...seated].sort());
     }, 600_000);
   }
 });

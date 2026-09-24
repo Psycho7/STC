@@ -239,6 +239,15 @@ export function examChipReservations(edges: Edge[]): ExamChipReservation[] {
   for (const edge of edges) {
     if (edge.type === "item") {
       push(`item-edge-label-${edge.id}`, rateChipText(edge));
+      // The far owner of a fan-out trunk with no near member draws that
+      // trunk's total as a second chip on the item shape, under the same
+      // -drop suffix a retyped member's aggregate uses.
+      const data = edge.data as
+        | { busChipOwner?: boolean; fanoutColumn?: boolean }
+        | undefined;
+      if (data?.busChipOwner === true && data.fanoutColumn === true) {
+        push(`item-edge-${edge.id}-drop`, aggregateChipText(edge));
+      }
     } else if (edge.type === "bus") {
       push(`bus-edge-label-${edge.id}-drop`, aggregateChipText(edge));
       push(`bus-edge-label-${edge.id}-rise`, branchChipText(edge));
