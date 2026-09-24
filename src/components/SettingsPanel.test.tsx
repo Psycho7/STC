@@ -9,16 +9,27 @@
 // button flips it into the tree, and onClose unmounts it.
 import { useState } from "react";
 import { afterEach, expect, test, vi } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  within,
+} from "@testing-library/react";
 import type { RecipePack } from "@aef/schema";
 import { SettingsPanel } from "./SettingsPanel";
 import { LocaleProvider } from "../data/i18n-context";
-import { packCohortOf, type EventCohortOverrides } from "../data/availability";
+import {
+  packCohortOf,
+  readStoredArea,
+  writeStoredArea,
+  type EventCohortOverrides,
+} from "../data/availability";
 import { pack as realPack } from "../data/load";
-import { LOCALE_STORAGE_KEY } from "../data/storage-keys";
+import { AREA_STORAGE_KEY, LOCALE_STORAGE_KEY } from "../data/storage-keys";
 
 afterEach(cleanup);
-afterEach(() => window.localStorage.removeItem(LOCALE_STORAGE_KEY));
+afterEach(() => window.localStorage.clear());
 
 // A pack whose provenance is a LATER version (v9.9) carrying a few v1.5 rows,
 // so the cohort must read "past" and default off. Slicing the shipped pack's
@@ -46,6 +57,11 @@ function renderSettings({
   function Host() {
     const [open, setOpen] = useState(false);
     const [current, setCurrent] = useState(overrides);
+    // The area is owned exactly the way App owns it: read from storage once,
+    // and every change applied to memory and storage by one writer. That is
+    // what makes the persistence assertions below about the real seam rather
+    // than about a mock the test wrote.
+    const [area, setArea] = useState(() => readStoredArea(pack));
     return (
       <>
         <button
@@ -64,6 +80,11 @@ function renderSettings({
               latest = next;
               onOverridesChange(next);
               setCurrent(next);
+            }}
+            area={area}
+            onAreaChange={(next) => {
+              setArea(next);
+              writeStoredArea(next);
             }}
             onClose={() => {
               onClose();
@@ -148,6 +169,48 @@ test("the locale control lives in the dialog and persists the choice", () => {
   expect(dialog.contains(select)).toBe(true);
   fireEvent.change(select, { target: { value: "zh" } });
   expect(window.localStorage.getItem(LOCALE_STORAGE_KEY)).toBe("zh");
+});
+
+// #124's Area section: a role="group" of aria-pressed buttons. Labels come
+// from the pack's i18n sidecar, so the en harness reads the English settlement
+// names.
+function areaGroup(): HTMLElement {
+  return screen.getByRole("group", { name: "Area" });
+}
+
+function areaOption(name: string): HTMLElement {
+  return within(areaGroup()).getByRole("button", { name });
+}
+
+test("the area group offers one option per settlement and no all-areas option", () => {
+  renderSettings();
+  openPanel();
+  const options = within(areaGroup()).getAllByRole("button");
+  expect(options.map((o) => o.textContent)).toEqual(["Valley IV", "Wuling"]);
+  // Nothing stored: the latest settlement is selected.
+  expect(areaOption("Wuling").getAttribute("aria-pressed")).toBe("true");
+  expect(areaOption("Valley IV").getAttribute("aria-pressed")).toBe("false");
+});
+
+test("choosing an area persists it and presses exactly that option", () => {
+  renderSettings();
+  openPanel();
+  fireEvent.click(areaOption("Valley IV"));
+  expect(window.localStorage.getItem(AREA_STORAGE_KEY)).toBe("tundra");
+  expect(areaOption("Valley IV").getAttribute("aria-pressed")).toBe("true");
+  expect(areaOption("Wuling").getAttribute("aria-pressed")).toBe("false");
+  // Choosing the default writes it too, so a later pack cannot move the user.
+  fireEvent.click(areaOption("Wuling"));
+  expect(window.localStorage.getItem(AREA_STORAGE_KEY)).toBe("jinlong");
+  expect(areaOption("Wuling").getAttribute("aria-pressed")).toBe("true");
+});
+
+test("the panel opens on the stored area, not the default", () => {
+  window.localStorage.setItem(AREA_STORAGE_KEY, "tundra");
+  renderSettings();
+  openPanel();
+  expect(areaOption("Valley IV").getAttribute("aria-pressed")).toBe("true");
+  expect(areaOption("Wuling").getAttribute("aria-pressed")).toBe("false");
 });
 
 test("the shipped pack's v1.5 row reads current, defaults on, with the default tag", () => {

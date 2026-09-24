@@ -18,7 +18,12 @@
 import type { Recipe, RecipePack } from "@aef/schema";
 import type { RecipeId } from "../solver/types";
 import type { ProducerUnavailableCause } from "./plan";
-import { EVENT_COHORT_OVERRIDES_STORAGE_KEY as STORAGE_KEY } from "./storage-keys";
+import { outermostCause } from "./plan";
+import { producersOfItem } from "./recipe-category";
+import {
+  AREA_STORAGE_KEY,
+  EVENT_COHORT_OVERRIDES_STORAGE_KEY as STORAGE_KEY,
+} from "./storage-keys";
 
 // User override per cohort: true = forced on, false = forced off, absent =
 // follow the default rule (on iff the cohort matches the pack's own version).
@@ -73,9 +78,8 @@ export function effectiveCohortEnabled(
 // the event rule and nothing else.
 export type AvailabilitySettings = {
   eventOverrides: EventCohortOverrides;
-  // The settlement the plan is built in, or absent for all of them (#124).
-  // Deliberately a distinct "all" state rather than the union of the two
-  // areas: a recipe can be tagged for a settlement the pack does not list.
+  // The settlement the plan is built in (#124). The app always sets one; absent
+  // means no area filter, which only tests of the other predicates rely on.
   area?: string | undefined;
   // Recipes switched off by hand (#125). Stored independently of the other
   // two, so re-enabling an area never resurrects one.
@@ -196,14 +200,16 @@ function causeDetail(cause: ProducerUnavailableCause): string {
   }
 }
 
-// The ITEMS the pickers dim, each mapped to the cause behind it. Item-driven
-// on purpose - an item's cohort is what its tiles and validation errors speak
-// of, and the extractor's mixed-cohort guard keeps a row's tag in agreement
-// with its items, so this walks pack.items directly rather than going through
-// the recipe map above. Only event causes arise here today: an area or a hand
-// toggle hides recipes, not items, and #124/#125 own whatever item-level
-// dimming they turn out to want.
-export function unavailableItems(
+// The ITEMS an off cohort removes from the game outright, each mapped to its
+// own tag: an item's tag is what its tiles and validation errors speak of, and
+// the extractor's mixed-cohort guard keeps a row's tag in agreement with its
+// items, so this walks pack.items directly rather than reasoning over recipes.
+//
+// This is also the whole of what the INPUTS picker may dim. An area or a hand
+// toggle says where a recipe can be built, which is no statement about the
+// item: an input with no local producer is exactly the case an import covers.
+// An off cohort is different in kind - the item does not exist to import.
+export function unavailableEventItems(
   pack: RecipePack,
   settings: AvailabilitySettings,
 ): ReadonlyMap<string /*itemId*/, ProducerUnavailableCause> {
@@ -216,6 +222,36 @@ export function unavailableItems(
     ) {
       causes.set(item.id, { kind: "event", cohort: item.event });
     }
+  }
+  return causes;
+}
+
+// Everything a picker of things to MAKE must dim: the cohort pass above plus a
+// producer pass - an item every one of whose producers is off, by area, by
+// cohort, or by hand, cannot be produced here, so it carries the outermost of
+// their causes. An item claimed by the cohort pass keeps that cause; an item
+// with no producers at all is not this seam's business (the plan loader reports
+// it as not producible).
+export function unavailableItems(
+  pack: RecipePack,
+  settings: AvailabilitySettings,
+): ReadonlyMap<string /*itemId*/, ProducerUnavailableCause> {
+  const causes = new Map(unavailableEventItems(pack, settings));
+
+  const recipeCauses = unavailableCauses(pack, settings);
+  if (recipeCauses.size === 0) return causes;
+
+  for (const item of pack.items) {
+    if (causes.has(item.id)) continue;
+    const producers = producersOfItem(pack.recipes, item.id);
+    if (producers.length === 0) continue;
+    const producerCauses = producers.flatMap((r) => {
+      const cause = recipeCauses.get(r.id);
+      return cause ? [cause] : [];
+    });
+    if (producerCauses.length < producers.length) continue;
+    const cause = outermostCause(producerCauses);
+    if (cause) causes.set(item.id, cause);
   }
   return causes;
 }
@@ -255,5 +291,39 @@ export function writeStoredEventOverrides(next: EventCohortOverrides): void {
   } catch {
     // If we can't persist the choice it's no big deal; the in-memory state
     // still drives the rest of the session.
+  }
+}
+
+// The settlement a fresh browser starts in: the newest one. The pack carries no
+// release field on a location, so recency is its list order - upstream appends
+// each settlement as the game opens it (tundra, then jinlong), and the extractor
+// copies that order verbatim. A pack with no settlement is a broken extract.
+export function latestArea(pack: RecipePack): string {
+  const latest = pack.locations.at(-1);
+  if (latest === undefined) throw new Error("recipe pack lists no locations");
+  return latest.id;
+}
+
+// The stored settlement (#124), validated against the pack's own location list.
+// An absent key or an unknown id - hand-edited storage, or an area a pack bump
+// retired - reads as the latest settlement. The key stays absent until the user
+// picks one, so a pack that adds a settlement moves a fresh browser onto it.
+export function readStoredArea(pack: RecipePack): string {
+  if (typeof window === "undefined") return latestArea(pack);
+  try {
+    const raw = window.localStorage?.getItem(AREA_STORAGE_KEY);
+    if (raw && pack.locations.some((l) => l.id === raw)) return raw;
+  } catch {
+    // Same private-mode fall-through as the overrides read above.
+  }
+  return latestArea(pack);
+}
+
+export function writeStoredArea(next: string): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage?.setItem(AREA_STORAGE_KEY, next);
+  } catch {
+    // As above: an unpersisted choice still drives this session.
   }
 }

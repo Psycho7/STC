@@ -39,16 +39,22 @@ import { pack } from "./data/load";
 import { packIndex } from "./data/pack-index";
 import {
   availabilityKey,
+  readStoredArea,
   readStoredEventOverrides,
   unavailableCauses,
+  unavailableEventItems,
   unavailableItems,
   unavailableRecipeIds,
+  writeStoredArea,
   writeStoredEventOverrides,
   packCohortOf,
   type AvailabilitySettings,
   type EventCohortOverrides,
 } from "./data/availability";
-import { EVENT_COHORT_OVERRIDES_STORAGE_KEY } from "./data/storage-keys";
+import {
+  AREA_STORAGE_KEY,
+  EVENT_COHORT_OVERRIDES_STORAGE_KEY,
+} from "./data/storage-keys";
 import { SettingsPanel } from "./components/SettingsPanel";
 import type { LogicalGraph } from "./canvas/layout";
 import { LpInfeasibleError } from "./solver";
@@ -151,17 +157,27 @@ type InitialError =
 
 // Localized text for a plan-load error on a user-facing surface. The
 // producer-unavailable kind is the one failure aimed at the player rather
-// than the link (#144): its event cause names the target item and the
-// switched-off cohort in the UI language. The area and manual causes keep
-// describePlanLoadError's text until #124 and #125 ship the settings that can
-// produce them. Every other kind describes a damaged share link -
+// than the link: its event cause names the switched-off cohort (#144) and its
+// area cause the selected settlement (#124), both in the UI language. The
+// manual cause keeps describePlanLoadError's text until #125 ships the toggles
+// that can produce it. Every other kind describes a damaged share link -
 // developer-facing detail - and keeps that text too.
 function describeLoadError(error: PlanLoadError, i18n: I18nIndex): string {
-  if (error.kind === "producer-unavailable" && error.cause.kind === "event") {
-    return i18n.t("app.error.producer-unavailable.event", {
-      itemId: error.itemId,
-      cohort: error.cause.cohort,
-    });
+  if (error.kind === "producer-unavailable") {
+    if (error.cause.kind === "event") {
+      return i18n.t("app.error.producer-unavailable.event", {
+        itemId: error.itemId,
+        cohort: error.cause.cohort,
+      });
+    }
+    if (error.cause.kind === "area") {
+      // The settlement is named the way the panel names it, not by its raw
+      // pack id: the sentence has to point at the option the user would flip.
+      return i18n.t("app.error.producer-unavailable.area", {
+        itemId: error.itemId,
+        area: i18n.displayName(error.cause.area),
+      });
+    }
   }
   return describePlanLoadError(error);
 }
@@ -406,6 +422,10 @@ function AppInner() {
   const [eventOverrides, setEventOverrides] = useState<EventCohortOverrides>(
     readStoredEventOverrides,
   );
+  // The settlement the plan is built in (#124). Same one-writer discipline as
+  // the overrides above; `pack` is a module-stable import, so the boot read
+  // needs no dependency.
+  const [area, setArea] = useState<string>(() => readStoredArea(pack));
   // The pack's own cohort, handed to the settings panel so its Events rows
   // can tell current from past. `pack` is a module-stable import, so it stays
   // out of the dependency list.
@@ -439,11 +459,11 @@ function AppInner() {
       setExportingPng(false);
     }
   }, []);
-  // Everything the availability core reads. Only the cohort overrides have a
-  // source today; #124 and #125 add their fields and their own writers.
+  // Everything the availability core reads. The cohort overrides and the area
+  // each have their own key and their own writer; #125 adds the last field.
   const availabilitySettings = useMemo<AvailabilitySettings>(
-    () => ({ eventOverrides }),
-    [eventOverrides],
+    () => ({ eventOverrides, area }),
+    [eventOverrides, area],
   );
   // What is switched off and why: the cause map plan validation reports from,
   // the id set the solver seam takes, and the digest that decides whether any
@@ -477,6 +497,14 @@ function AppInner() {
     () => unavailableItems(pack, availabilitySettings),
     [availabilitySettings],
   );
+  // The inputs picker gets the narrower map: an input is imported, so having no
+  // producer in the selected area - or none left after a hand toggle - is no
+  // reason to refuse it. Only an off cohort, which takes the item out of the
+  // game entirely, can dim a tile there.
+  const unavailableInputCauses = useMemo(
+    () => unavailableEventItems(pack, availabilitySettings),
+    [availabilitySettings],
+  );
   // loadFromHash is a long-lived callback: the mount/hashchange wiring below
   // must not re-run when a flip recreates it, or every flip would reload the
   // plan and reset the panels. It reads availability through this ref instead
@@ -507,6 +535,13 @@ function AppInner() {
     },
     [],
   );
+  // The same one writer for the area (#124): the panel's radio group and the
+  // cross-tab storage listener below both land here, so memory and storage
+  // never disagree about which settlement is selected.
+  const handleAreaChange = useCallback((next: string): void => {
+    setArea(next);
+    writeStoredArea(next);
+  }, []);
   // `pack` is a module-stable import, so its memoized index is one object for
   // the app's lifetime and the item-pack context value never changes identity.
   const itemPackValue = packIndex(pack);
@@ -769,20 +804,25 @@ function AppInner() {
     void scheduleSolve(current);
   }, [availability, scheduleSolve, loadFromHash, invalidateInFlight]);
 
-  // Cross-tab sync for the overrides: a `storage` event fires in every OTHER
-  // window sharing this origin's localStorage when the key changes, which is
-  // how a cohort flipped in one tab reaches a second open tab. Route it through
-  // the same writer the settings panel (T5) will use, so both tabs converge on
-  // the same normalized map. Same-document writes fire no `storage` event, so
-  // the panel path never double-applies.
+  // Cross-tab sync for the settings keys: a `storage` event fires in every
+  // OTHER window sharing this origin's localStorage when a key changes, which
+  // is how a cohort or an area changed in one tab reaches a second open tab.
+  // Each key routes through the same writer the settings panel uses, so both
+  // tabs converge on the same normalized state. Same-document writes fire no
+  // `storage` event, so the panel path never double-applies.
   useEffect(() => {
     const onStorage = (e: StorageEvent) => {
-      if (e.key !== EVENT_COHORT_OVERRIDES_STORAGE_KEY) return;
-      handleEventOverridesChange(readStoredEventOverrides());
+      if (e.key === EVENT_COHORT_OVERRIDES_STORAGE_KEY) {
+        handleEventOverridesChange(readStoredEventOverrides());
+        return;
+      }
+      if (e.key === AREA_STORAGE_KEY) {
+        handleAreaChange(readStoredArea(pack));
+      }
     };
     window.addEventListener("storage", onStorage);
     return () => window.removeEventListener("storage", onStorage);
-  }, [handleEventOverridesChange]);
+  }, [handleEventOverridesChange, handleAreaChange]);
 
   function handleTargetsChange(update: (current: Target[]) => Target[]): void {
     const current = planRef.current;
@@ -878,6 +918,8 @@ function AppInner() {
       packCohort={packCohort}
       overrides={eventOverrides}
       onOverridesChange={handleEventOverridesChange}
+      area={area}
+      onAreaChange={handleAreaChange}
       onClose={() => setSettingsOpen(false)}
     />
   ) : null;
@@ -1130,7 +1172,7 @@ function AppInner() {
                   itemOverrides={plan.itemOverrides ?? []}
                   onChange={handleItemOverridesChange}
                   pack={pack}
-                  unavailableItems={unavailableItemCauses}
+                  unavailableItems={unavailableInputCauses}
                   targetItemIds={targetItemIds}
                   supplyRateByItem={supplyRateByItem}
                   catalystAccount={catalystAccount}

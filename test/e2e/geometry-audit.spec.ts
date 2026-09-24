@@ -129,7 +129,7 @@ test.describe("DOM geometry audit", () => {
   for (const scenario of AUDIT_SCENARIOS) {
     test(scenario.id, async ({ page }) => {
       const hash = await scenarioHash(scenario);
-      await loadScenario(page, hash);
+      await loadScenario(page, hash, scenario.area);
 
       const {
         chips,
@@ -721,10 +721,15 @@ const ENDPOINT_PARITY_TOL: Record<string, number> = {
   "script43-xiranite": 0.5,
 };
 
-async function loadScenario(page: Page, hash: string): Promise<void> {
+async function loadScenario(
+  page: Page,
+  hash: string,
+  area: string | undefined,
+): Promise<void> {
   await bootExamPage(page, {
     url: `/#${hash}`,
     locale: "en",
+    area,
     readiness: "nodes",
     settle: "both",
   });
@@ -751,7 +756,7 @@ test.describe("segment placement audit", () => {
     test(scenario.id, async ({ page }) => {
       const unpinned: string[] = [];
       const hash = await scenarioHash(scenario);
-      await loadScenario(page, hash);
+      await loadScenario(page, hash, scenario.area);
 
       const geom = await page.evaluate(collectGeometry);
       const rawEdges = toRawEdges(geom.edges);
@@ -1334,7 +1339,10 @@ test.describe("chip seating census", () => {
     test(scenario.id, async ({ page }) => {
       const unpinned: string[] = [];
       const hash = await scenarioHash(scenario);
-      await loadCensusScenario(page, hash, CENSUS_ZOOM, { locale: "en" });
+      await loadCensusScenario(page, hash, CENSUS_ZOOM, {
+        locale: "en",
+        area: scenario.area,
+      });
 
       const geom = await page.evaluate(collectGeometry);
 
@@ -1655,7 +1663,10 @@ test.describe("reading-zoom census", () => {
     test(scenario.id, async ({ page }) => {
       const unpinned: string[] = [];
       const hash = await scenarioHash(scenario);
-      await loadCensusScenario(page, hash, READING_ZOOM, { locale: "en" });
+      await loadCensusScenario(page, hash, READING_ZOOM, {
+        locale: "en",
+        area: scenario.area,
+      });
 
       const geom = await page.evaluate(collectGeometry);
 
@@ -1815,7 +1826,7 @@ test.describe("edge reload determinism", () => {
         edges: Record<string, string>;
         transform: string;
       }> => {
-        await loadScenario(page, hash);
+        await loadScenario(page, hash, scenario.area);
         const { edges } = await page.evaluate(collectGeometry);
         const transform = await page.evaluate(
           () =>

@@ -46,6 +46,7 @@ test.describe("visible machine-title collisions", () => {
         await bootExamPage(page, {
           url: "/#" + (await scenarioHash(scenario)),
           locale,
+          area: scenario.area,
           readiness: "nodes",
           settle: "webfonts",
         });
@@ -119,6 +120,7 @@ test.describe("row text overlaps", () => {
         await bootExamPage(page, {
           url: "/#" + (await scenarioHash(scenario)),
           locale,
+          area: scenario.area,
           readiness: "nodes",
           settle: "webfonts",
         });

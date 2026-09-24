@@ -24,6 +24,7 @@ test.describe("placement screenshot harness", () => {
       await bootExamPage(page, {
         url: `/#${hash}`,
         locale: "en",
+        area: scenario.area,
         readiness: "nodes",
         settle: "both",
       });
