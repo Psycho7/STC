@@ -468,8 +468,7 @@
 }
 
 /* Override the generic .ak-app-shell button rule inside the topbar so the
-   locale switcher + action buttons keep their topbar look. */
-.ak-app-shell .topbar select,
+   action buttons keep their topbar look. */
 .ak-app-shell .topbar button {
   background: var(--ak-bg-canvas);
   border: 1px solid var(--ak-divider);
@@ -483,7 +482,6 @@
   line-height: 26px;
 }
 
-.ak-app-shell .topbar select:hover,
 .ak-app-shell .topbar button:hover:not(:disabled) {
   border-color: var(--ak-divider-strong);
   color: var(--ak-text-primary);
@@ -2780,6 +2778,21 @@
   color: var(--ak-text-decoration);
   letter-spacing: 0.22em;
   text-transform: uppercase;
+}
+/* The dialog portals out of .ak-app-shell, so the shell-wide control rules
+   never reach the locale select; it restates them here. */
+.settings-dialog select {
+  background: var(--ak-bg-tertiary);
+  color: var(--ak-text-primary);
+  border: 1px solid var(--ak-divider);
+  padding: 4px 6px;
+  font-family: var(--font-ui);
+  font-size: 13px;
+}
+.settings-dialog select:focus {
+  outline: 1px solid var(--ak-accent-cyan);
+  outline-offset: -1px;
+  border-color: var(--ak-accent-cyan);
 }
 .settings-reset {
   background: transparent;

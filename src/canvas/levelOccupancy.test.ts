@@ -18,21 +18,18 @@ import {
   type FrameLine,
   type LevelPorts,
   type RunBand,
-} from "../../src/canvas/levelOccupancy";
-import {
-  PORT_STUB,
-  drawnEdge,
-  horizontalRuns,
-} from "../../src/canvas/edgePath";
-import { drawnPortsOf, nodeIndexOf } from "../../src/canvas/nodeGeometry";
-import type { RFAnyNode } from "../../src/canvas/layout";
+} from "./levelOccupancy";
+import { PORT_STUB, drawnEdge, horizontalRuns } from "./edgePath";
+import { CONTAINER_JOG_GAP, OBSTACLE_PAD_Y } from "./busRouting";
+import { drawnPortsOf, nodeIndexOf } from "./nodeGeometry";
+import type { RFAnyNode } from "./layout";
 import {
   containerNode,
   inputProductNode,
   mkEdge,
   orderedRecipeNode,
   productNode,
-} from "./busRouting.testkit";
+} from "./levelOccupancy.testkit";
 
 // A band at `y` spanning [left, right], for the queries that take bands as
 // data. The port rows default to values no `self` below coincides with, so a
@@ -208,7 +205,9 @@ describe("candidate levels", () => {
   it("offers a frame line the consumer's gap above and below the raw border", () => {
     // The F family's candidate arm: a jog asking for CONTAINER_JOG_GAP (24) on
     // top of the OBSTACLE_PAD_Y (8) its card rects carry gets levels 32 off the
-    // border the reader sees, on both sides, and nothing closer.
+    // border the reader sees, on both sides, and nothing closer. The gap comes
+    // from the constants rather than a literal, so retuning CONTAINER_JOG_GAP
+    // fails here against the expected 1032 / 968.
     const frame: FrameLine = { nodeId: "loop", y: 1000, left: 0, right: 500 };
     expect(
       levelCandidates({
@@ -217,7 +216,7 @@ describe("candidate levels", () => {
         x1: 500,
         bands: [],
         frames: [frame],
-        frameGap: 32,
+        frameGap: CONTAINER_JOG_GAP + OBSTACLE_PAD_Y,
         cards: [],
         pad: 8,
       }),
