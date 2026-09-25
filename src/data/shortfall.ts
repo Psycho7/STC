@@ -18,18 +18,10 @@
 //
 // Several supported explanations are all shown; there is no "area wins" rule.
 
-import type { ProducerUnavailableCause } from "./plan";
+import { CAUSE_PRECEDENCE, type ProducerUnavailableCause } from "./plan";
 import type { I18nIndex, UiKey } from "./i18n";
 
 type RestrictionKind = ProducerUnavailableCause["kind"];
-
-// Restriction clauses are emitted in this order, matching the cause precedence
-// plan validation reports with: the outermost switch first.
-const CLAUSE_ORDER: ReadonlyArray<RestrictionKind> = [
-  "area",
-  "event",
-  "manual",
-];
 
 /**
  * One supported explanation, with the items it holds for. `detail` carries the
@@ -94,10 +86,12 @@ export function attributeShortfall(facts: ShortfallFacts): ShortfallReport {
     });
   }
 
+  // Restriction clauses follow the cause precedence plan validation reports
+  // with: the outermost switch first.
   const clauses: ShortfallClause[] = [...grouped.values()].sort(
     (a, b) =>
-      CLAUSE_ORDER.indexOf(a.kind as RestrictionKind) -
-      CLAUSE_ORDER.indexOf(b.kind as RestrictionKind),
+      CAUSE_PRECEDENCE.indexOf(a.kind as RestrictionKind) -
+      CAUSE_PRECEDENCE.indexOf(b.kind as RestrictionKind),
   );
 
   if (facts.cappedAtLimit.length > 0) {

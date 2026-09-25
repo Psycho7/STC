@@ -39,6 +39,7 @@ import {
   solveForRender,
   solveFromPlan,
 } from "../../src/pipeline/solveForRender";
+import { isInputProductUnit } from "../../src/pipeline/types";
 import { CLOSED_FORM_FIXTURES } from "../../src/solver/closed-form-fixtures";
 import { defaultPlan, type ItemOverride, type Plan } from "../../src/data/plan";
 import { pack } from "../../src/data/load";
@@ -151,6 +152,35 @@ describe("solveFromPlan: the caps the drawn plan exhausts", () => {
 
     expect(out.underDelivered).toEqual([]);
     expect(out.cappedAtLimit).toEqual([]);
+  });
+
+  it("reports a cap the plan draws in full through a fanout pool", () => {
+    vi.stubEnv("DEV", false);
+    try {
+      // bottled_food_5 draws liquid_water into a container loop plus loose
+      // consumers, so the boundary emits an aggregate plus isFanout slices.
+      // The aggregate alone carries the pool's rateCap and the item's total
+      // draw; each slice carries only its per-container share and no cap, so
+      // the fanout skip is what stops a slice's share from reading as the
+      // item's draw.
+      const out = solveFromPlan({
+        ...defaultPlan(pack),
+        targets: [
+          { itemId: "bottled_food_5", ratePerSec: { num: "1", denom: "1" } },
+        ],
+        itemOverrides: [
+          { itemId: "liquid_water", ratePerSec: { num: "10", denom: "1" } },
+        ],
+      });
+
+      const waterUnits = out.plan.units
+        .filter(isInputProductUnit)
+        .filter((u) => u.itemId === "liquid_water");
+      expect(waterUnits.some((u) => u.isFanout)).toBe(true);
+      expect(out.cappedAtLimit).toEqual(["liquid_water"]);
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 });
 

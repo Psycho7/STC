@@ -5,7 +5,7 @@
 // sentence, because the wording is the whole point of the attribution rules.
 import { describe, expect, it } from "vitest";
 import { attributeShortfall, shortfallText } from "./shortfall";
-import type { ProducerUnavailableCause } from "./plan";
+import { CAUSE_PRECEDENCE, type ProducerUnavailableCause } from "./plan";
 import { loadI18n } from "./i18n";
 
 const en = loadI18n("en");
@@ -122,6 +122,27 @@ describe("attributeShortfall", () => {
     expect(text).toContain("far_item");
     expect(text).toContain("mid");
     expect(text).toContain("ore");
+  });
+
+  it("orders restriction clauses by the cause precedence plan validation reports", () => {
+    const report = attributeShortfall(
+      facts({
+        deficitItemIds: ["m_item", "e_item", "a_item"],
+        itemCauses: new Map<string, ProducerUnavailableCause>([
+          ["m_item", { kind: "manual", recipeId: "make_mid" }],
+          ["e_item", { kind: "event", cohort: "v1.5" }],
+          ["a_item", { kind: "area", area: "tundra" }],
+        ]),
+        cappedAtLimit: ["ore"],
+      }),
+    );
+
+    // One clause per restriction kind, in CAUSE_PRECEDENCE order (the order
+    // plan validation and the picker hint name causes in), cap clause last.
+    expect(report.clauses.map((c) => c.kind)).toEqual([
+      ...CAUSE_PRECEDENCE,
+      "cap",
+    ]);
   });
 
   it("groups two items blocked by the same settlement into one sentence", () => {

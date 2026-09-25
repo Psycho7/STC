@@ -94,9 +94,15 @@ export async function waitForCanvasReady(
 export type BootLocale = "en" | "zh";
 // "none" waits for nothing - a boot expected to land on the error splash, where
 // no canvas node ever appears; "nodes" is a laid-out graph; "ready"
-// additionally waits for the READY annotation the exam CLIs judge a page
-// examinable by.
+// additionally waits for an examinable-status annotation (below).
 export type BootReadiness = "none" | "nodes" | "ready";
+
+// The statuses that make a page examinable: a drawn plan, met (READY) or
+// delivering below its declared rates (SHORTFALL). Both drew a graph, and the
+// exam CLIs exist to look at shortfall plans as much as met ones; SOLVING and
+// ERROR drew nothing. Matched against the bottom-right annotation's
+// `STATUS · <state>` text.
+export const EXAMINABLE_STATUS_PATTERN = /\b(?:READY|SHORTFALL)\b/;
 // Which post-load waits run before the boot resolves. A spec that only clicks
 // needs none; anything that MEASURES wants the webfonts in and the camera
 // parked, because both move text and rects after the nodes appear.
@@ -197,7 +203,9 @@ export async function bootExamPage(
     await waitForCanvasReady(page, timeout);
     if (opts.readiness === "ready") {
       await page
-        .locator(".canvas-annot.bottom-right", { hasText: "READY" })
+        .locator(".canvas-annot.bottom-right", {
+          hasText: EXAMINABLE_STATUS_PATTERN,
+        })
         .waitFor({ state: "visible", timeout });
     }
   }

@@ -983,12 +983,15 @@ function AppInner() {
   // canvas reads as ERROR and stays ERROR after the banner is dismissed until
   // the next successful solve; a drawn plan with unmet demand - a deliberate
   // cap included - reads as SHORTFALL; only a plan that meets every declared
-  // rate is READY.
+  // rate is READY. The gate is the tolerant under-delivery list the strip's
+  // attribution also reads, NOT the raw deficit map: the LP can leave a
+  // sub-tolerance residue there (a rate that snapped against its demand), and
+  // gating on the raw map would flip a met plan to SHORTFALL over that noise.
   const status: CanvasStatus = pending
     ? "SOLVING"
     : stale
       ? "ERROR"
-      : shortfall.unmetItemIds.length > 0
+      : underDelivered.length > 0
         ? "SHORTFALL"
         : "READY";
 
@@ -1121,7 +1124,10 @@ function AppInner() {
             </button>
           </div>
         ) : null}
-        {shortfall.unmetItemIds.length > 0 ? (
+        {/* The strip's gate mirrors the status gate above (the tolerant
+            under-delivery list, not the raw deficit map) so the two can never
+            disagree: no "unmet demand" sentence under a READY header. */}
+        {underDelivered.length > 0 ? (
           <div
             role="status"
             data-testid="shortfall-strip"
