@@ -1837,7 +1837,10 @@ export function auditChipNearCard(
   edges: ReadonlyArray<RawEdge>,
   nodes: ReadonlyArray<NodeRect>,
   clearance = CHIP_CARD_CLEARANCE,
-  eps = CARD_INTRUSION_EPS,
+  // The seating slide rounds a seat to the 0.01 grid r() emits, so a seat
+  // cut exactly `clearance` out can read a hair under it; tolerate one grid
+  // step, not the 1e-3 the intrusion audit gets away with.
+  eps = 0.01,
 ): ChipCensusHit[] {
   const cards = nodes.filter((n) => n.type !== "group");
   const edgeById = new Map(edges.map((e) => [e.id, e] as const));
