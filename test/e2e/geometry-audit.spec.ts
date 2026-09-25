@@ -383,7 +383,10 @@ const CROSSING_BASELINE: Record<string, number> = {
   // FAN-IN TRUNK KEY 2026-09-19 (#154): 27 -> 25. The card's catalyst row and
   // input row of gas_xiranite stopped merging into one fan-in trunk, so gap 2
   // drops a junction column and the layers right of it move 32 units left.
-  "battery5-xiranite": 25,
+  //
+  // #192 pair cost relation: 25 -> 23, the gap order weighs both orders of
+  // every column pair and entry rows take slots one at a time across cards.
+  "battery5-xiranite": 23,
   crystal: 1,
   // CATALYST NODE 2026-09-14 (PR B): 1 -> 2. The plan's one catalyst charge
   // moved to its own card, one layer further from its consumer. UP move,
@@ -412,7 +415,10 @@ const CROSSING_BASELINE: Record<string, number> = {
   // ruling. The sewage members e:27 / e:31 no longer ride the collector's row
   // from x ~3250; they jog to their own levels and descend at the trunk column,
   // where their bevels cross the members already descending it. All cued.
-  multi6: 97,
+  //
+  // #192 pair cost relation: 97 -> 95, the gap order weighs both orders of
+  // every column pair and entry rows take slots one at a time across cards.
+  multi6: 95,
   tundra: 0,
   // CATALYST NODE 2026-09-14 (PR B of the catalyst supply pools plan): every
   // catalyst charge now leaves the item's own u:cat:* boundary card instead of
@@ -440,7 +446,9 @@ const CROSSING_BASELINE: Record<string, number> = {
   // describe different graphs, and all 21 crossings carry a drawn cue. UP move,
   // ruled by the user.
   "coupon-web": 21,
-  "gas-web": 18,
+  // #192 pair cost relation: 18 -> 16, the gap order weighs both orders of
+  // every column pair and entry rows take slots one at a time across cards.
+  "gas-web": 16,
   "rot-bottled_food_3": 2,
   "rot-bottled_food_4": 3,
   // CATALYST NODE 2026-09-14 (PR B of the catalyst supply pools plan): every
@@ -453,7 +461,10 @@ const CROSSING_BASELINE: Record<string, number> = {
   // taller cards moved. UP move, listed for ruling.
   //
   // #192 gap column order: 24 -> 22, e:1 x e:11 no longer cross.
-  transmuters: 22,
+  //
+  // #192 pair cost relation: 22 -> 20, the gap order weighs both orders of
+  // every column pair and entry rows take slots one at a time across cards.
+  transmuters: 20,
   // ROUTING FINDINGS 2026-09-14 (docs/plans/2026-09-14-render-findings.md): the
   // two reported plans join the corpus. Both route several flows through one
   // corridor (a 14x refinery fan-in on script43-xiranite), so these are first

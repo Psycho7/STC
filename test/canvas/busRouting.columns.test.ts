@@ -467,18 +467,26 @@ describe("assignEntryColumns", () => {
   });
 
   it("keeps a fan-in member from voting its row from above", () => {
-    // m's top row is fed by a fan-in trunk member whose source sits above it, and
-    // its bottom row by a late drop from above. The member draws on its trunk's
-    // merge column, not on the row's entry column, so it does not count as a
-    // from-above arrival: the drop keeps the default rightmost column instead of
-    // swapping with a row whose slot cannot move.
+    // m's top row is fed by a fan-in trunk whose members' sources sit above it,
+    // and its bottom row by a late drop from above. A member draws on its
+    // trunk's merge column, not on the row's entry column, so it does not count
+    // as a from-above arrival: the drop keeps the default rightmost column
+    // instead of swapping with a row whose slot cannot move. The trunk has two
+    // members so the gap order sees it as a trunk too; a lone member would read
+    // to it as a late drop, which nests with the one below.
     const nodes: RFAnyNode[] = [
       orderedRecipeNode("m", 600, 0, ["p", "q"]),
       recipeNode("sp", 0, -300, mkRecipe("sp", [], ["p"])),
+      recipeNode("sp2", 0, -400, mkRecipe("sp2", [], ["p"])),
       recipeNode("sq", 0, -250, mkRecipe("sq", [], ["q"])),
     ];
     const member: Edge = {
       ...mkEdge("e:0:sp->m:p", "sp", "m", "p"),
+      type: "bus",
+      data: { item: "p", fanin: true, trunkKey: "k", junctionX: 500 },
+    };
+    const member2: Edge = {
+      ...mkEdge("e:2:sp2->m:p", "sp2", "m", "p"),
       type: "bus",
       data: { item: "p", fanin: true, trunkKey: "k", junctionX: 500 },
     };
@@ -487,7 +495,7 @@ describe("assignEntryColumns", () => {
     const portsMember = edgePortsModel(member, byId)!;
     expect(portsMember.sy).toBeLessThan(portsMember.ty); // member comes from above
 
-    const out = assignEntryColumns(nodes, [member, eQ]);
+    const out = assignEntryColumns(nodes, [member, member2, eQ]);
     // Premise: the member does hold an arrival row of its own, so the card has
     // two rows to fan and the exclusion is what keeps the sense default.
     expect(entryOf(out, member.id)).toBe(600 - PORT_STUB - ENTRY_SLOT_PITCH);
