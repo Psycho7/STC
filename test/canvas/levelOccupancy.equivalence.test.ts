@@ -28,6 +28,12 @@
 // this cluster's sites name, pinned through the fixture rotating.json rather
 // than left to whatever EXAM_EXTRA_SCENARIOS happens to hold in the
 // environment.
+//
+// One exception to "written from the base commit": gas-web.json was rewritten
+// when a free-supply target's export stopped drawing from a card of its own
+// and joined its item's input card. That change removes a node and renumbers
+// the plan's edges, so no per-edge table could name it; gas-web carries no
+// entries in the tables below because its fixture already holds their moves.
 
 import { describe, it, expect } from "vitest";
 import { readFileSync, writeFileSync } from "node:fs";
@@ -507,10 +513,6 @@ const CHIP_SEATS_MOVED: Readonly<Record<string, ReadonlyArray<string>>> = {
     "e:26:u:class:q:27->u:class:q:18:copper_nugget",
     "e:46:u:class:q:54->u:class:q:14:plant_grass_2",
   ],
-  // Not one of the 12 sites: e:25's rule seat stood 6 units off a foreign
-  // vertical, inside the CHAMFER pad, so the slide clears the pad as well as
-  // the stroke.
-  "gas-web": ["e:25:u:in:liquid_water->u:class:q:9:liquid_water"],
   transmuters: [
     "e:3:u:cat:liquid_xiranite->u:class:q:11:liquid_xiranite",
     "e:11:u:class:q:4->u:class:q:0:copper_nugget",
@@ -546,11 +548,6 @@ const FAR_OWNERS_SEATED: Readonly<Record<string, ReadonlyArray<string>>> = {
     "e:0:u:cat:gas_xiranite->u:class:q:20:gas_xiranite",
     "e:25:u:in:gas_inert->u:class:q:3:gas_inert",
     "e:27:u:in:gas_xiranite->u:class:q:1:gas_xiranite",
-  ],
-  "gas-web": [
-    "e:0:u:cat:gas_xiranite->u:class:q:0:gas_xiranite",
-    "e:18:u:in:gas_inert->u:class:q:7:gas_inert",
-    "e:21:u:in:gas_xiranite->u:class:q:0:gas_xiranite",
   ],
   "rot-bottled_food_4": ["e:12:u:in:iron_ore->u:class:q:3:iron_ore"],
   transmuters: [

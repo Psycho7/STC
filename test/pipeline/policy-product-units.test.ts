@@ -109,7 +109,7 @@ describe("render policy / boundary product units", () => {
   });
 
   it("target = copper_ore (raw): renders as an import -> export passthrough", () => {
-    const { inputs, outputs } = emitProducts(
+    const { inputs, outputs, plan } = emitProducts(
       [
         {
           itemId: "copper_ore",
@@ -119,14 +119,18 @@ describe("render policy / boundary product units", () => {
       [],
     );
     // copper_ore is raw: the LP runs nothing and reports a boundary draw, so
-    // the render emits the target output fed by a dedicated passthrough
-    // import of the same item.
+    // the render emits the target output fed by the item's one input card.
+    // The export is an ordinary consumer of that card, never a card of its own.
     const outputItems = new Set(outputs.map((u) => u.itemId));
     expect(outputItems).toContain("copper_ore");
-    const passthrough = inputs.find((u) => u.id === "u:in:copper_ore:target");
-    expect(passthrough).toBeDefined();
-    expect(passthrough!.itemId).toBe("copper_ore");
-    expect(passthrough!.rate).toEqual({ num: "1", denom: "1" });
+    const oreCards = inputs.filter((u) => u.itemId === "copper_ore");
+    expect(oreCards.map((u) => u.id)).toEqual(["u:in:copper_ore"]);
+    expect(oreCards[0]!.rate).toEqual({ num: "1", denom: "1" });
+    const exportEdges = plan.edges.filter(
+      (e) => e.toUnit === "u:out:copper_ore",
+    );
+    expect(exportEdges.map((e) => e.fromUnit)).toEqual(["u:in:copper_ore"]);
+    expect(exportEdges[0]!.rate.equals(new Fraction(1))).toBe(true);
   });
 
   it("target = copper_nugget, override copper_ore: plan=true seeds nothing and drops the ore from the plan", () => {
@@ -1588,6 +1592,59 @@ describe("render policy / input fan-out per container", () => {
     expect(aggSum.equals(new Fraction(`${aggRate.num}/${aggRate.denom}`))).toBe(
       true,
     );
+  });
+
+  it("free-target export with container-only consumers: aggregate + tap slice, export off the aggregate", () => {
+    // water is raw (free) and also a declared target. Its only in-plan
+    // consumer sits in a container, so the export is the pool's loose bucket:
+    // the pool emits an aggregate carrying consumer draw + export shortfall, a
+    // tap slice for the container, and the export edge straight off the
+    // aggregate.
+    const [v_a] = makeConsumers({ containerA: "grp:A" });
+    const plan = foldRender({
+      containers: { containers: [], containerByMember: new Map() },
+      machineGraph: { vertices: [v_a!], edges: [] },
+      targets: [
+        { itemId: "out_a", ratePerSec: { num: "1", denom: "1" } },
+        { itemId: "water", ratePerSec: { num: "1", denom: "2" } },
+      ],
+      itemOverrides: [],
+      itemById,
+      recipeById,
+      supply: mkSupply(itemById),
+      boundaryShare: new Map(),
+    });
+    const inputs = plan.units
+      .filter(isInputProductUnit)
+      .filter((u) => u.itemId === "water");
+    expect(inputs.map((u) => u.id).sort()).toEqual([
+      "u:in:water",
+      "u:in:water:grp:A",
+    ]);
+    const byId = new Map(inputs.map((u) => [u.id, u]));
+    const aggregate = byId.get("u:in:water")!;
+    expect(aggregate.isAggregate).toBe(true);
+    expect(aggregate.rate).toEqual({ num: "3", denom: "2" });
+    const slice = byId.get("u:in:water:grp:A")!;
+    expect(slice.isFanout).toBe(true);
+    expect(slice.rate).toEqual({ num: "1", denom: "1" });
+    expect(slice.parentRate).toEqual({ num: "3", denom: "2" });
+
+    const aggregateOut = plan.edges.filter(
+      (e) => e.fromUnit === "u:in:water" && e.item === "water",
+    );
+    expect(aggregateOut.map((e) => e.toUnit).sort()).toEqual([
+      "u:in:water:grp:A",
+      "u:out:water",
+    ]);
+    const exportEdge = aggregateOut.find((e) => e.toUnit === "u:out:water")!;
+    expect(exportEdge.rate.equals(new Fraction(1, 2))).toBe(true);
+    // Nothing else feeds the export.
+    expect(
+      plan.edges
+        .filter((e) => e.toUnit === "u:out:water")
+        .map((e) => e.fromUnit),
+    ).toEqual(["u:in:water"]);
   });
 
   it("finite cap below total demand: aggregate carries cap + total rate; fanouts prorate (mass-balance invariant)", () => {
