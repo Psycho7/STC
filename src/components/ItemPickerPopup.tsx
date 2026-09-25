@@ -149,14 +149,15 @@ export function ItemPickerPopup({
   // One row up or down from navIds[from]. Inside the group the column is kept
   // and clamped to a partial last row; off the group's first or last row the
   // move enters the neighbouring group at the same column, clamped again to the
-  // row it lands in. Off the outermost group it returns an out-of-range index
-  // for the caller's clamp.
+  // row it lands in. A step off either end of the whole list stays put: an
+  // out-of-range index here would let the caller's blind clamp move the focus
+  // sideways to the list's first or last tile.
   function rowStep(from: number, dir: 1 | -1, cols: number): number {
     const at = groupSpans.findIndex(
       (s) => from >= s.start && from < s.start + s.size,
     );
     const span = groupSpans[at];
-    if (span === undefined) return from + dir * cols;
+    if (span === undefined) return from;
 
     const col = (from - span.start) % cols;
     const row = Math.floor((from - span.start) / cols);
@@ -166,7 +167,7 @@ export function ItemPickerPopup({
     }
 
     const into = groupSpans[at + dir];
-    if (into === undefined) return from + dir * cols;
+    if (into === undefined) return from;
     // Downwards the entry row is the neighbour's first; upwards it is its last.
     const entryRow = dir === 1 ? 0 : Math.floor((into.size - 1) / cols) * cols;
     return into.start + Math.min(entryRow + col, into.size - 1);

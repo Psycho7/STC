@@ -453,9 +453,9 @@ test("row steps follow the filtered groups, not the unfiltered ones", async () =
   expect(document.activeElement).toBe(tile("aa3"));
 });
 
-// Off the outermost group the step returns an out-of-range index that the
-// handler clamps, so on a sole end tile the outcome is the same at any width;
-// the width is only there to send the step through the multi-column branch.
+// Off the outermost group the step stays put by returning the source index,
+// so on a sole end tile the outcome is the same at any width; the width is
+// only there to send the step through the multi-column branch.
 test("a row step past either end stays put", () => {
   renderPopup();
   mockColumns(2);
@@ -467,6 +467,31 @@ test("a row step past either end stays put", () => {
   alpha.focus();
   fireEvent.keyDown(alpha, { key: "ArrowUp" });
   expect(document.activeElement).toBe(alpha);
+});
+
+// The two ends of the WHOLE list, each stepped off a tile the sideways clamp
+// used to reach: Up off a non-zero column of the overall first row clamped to
+// tile 0, Down off a non-last column of the partial last row clamped to the
+// last tile. The ruling: a step off either end stays put.
+test("ArrowUp off the top from a non-zero column stays on the same tile", () => {
+  renderPopup(WIDE);
+  mockColumns(4);
+  // a3 is column 2 of tier 1's - and the list's - first row (pre-fix: a1).
+  const a3 = tile("a3")!;
+  a3.focus();
+  fireEvent.keyDown(a3, { key: "ArrowUp" });
+  expect(document.activeElement).toBe(a3);
+});
+
+test("ArrowDown off the bottom from a non-last column of the partial last row stays put", () => {
+  renderPopup(WIDE);
+  mockColumns(4);
+  // The Infinity bucket's single row c1 c2 is partial at four columns, so c1
+  // is a non-last column of the overall last row (pre-fix: c2).
+  const c1 = tile("c1")!;
+  c1.focus();
+  fireEvent.keyDown(c1, { key: "ArrowDown" });
+  expect(document.activeElement).toBe(c1);
 });
 
 // Upstream renames some item icons to opaque hashes; a tile that looked the
