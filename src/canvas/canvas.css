@@ -1166,6 +1166,47 @@
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.04);
 }
 
+/* Loop paint (loopPaint.ts): one SVG in the viewport portal at z-index -1,
+   under the edge SVGs and the cards. Fill only, no border, so a stroke that
+   crosses it reads as crossing a tint, not a frame. The opacity sits on the SVG
+   so overlapping rects composite once. */
+.loop-paint {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 1px;
+  height: 1px;
+  overflow: visible;
+  z-index: -1;
+  pointer-events: none;
+  opacity: 0.1;
+}
+.loop-paint rect {
+  fill: var(--ak-accent-cyan-soft);
+}
+
+/* The loop caption, on its own band of the paint: the old loop box's caption
+   type, with no strip of its own. */
+.loop-caption {
+  position: absolute;
+  left: 0;
+  top: 0;
+  z-index: -1;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  padding: 0 10px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--ak-text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .rf-group-box {
   position: absolute;
   inset: 0;

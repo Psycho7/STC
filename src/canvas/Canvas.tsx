@@ -5,6 +5,7 @@ import {
   useReactFlow,
   useNodesInitialized,
   useStore,
+  ViewportPortal,
   type Node,
   type Edge,
   type OnNodesChange,
@@ -25,7 +26,7 @@ import {
 } from "react";
 import { flushSync } from "react-dom";
 import RecipeNode from "./RecipeNode";
-import GroupNode from "./GroupNode";
+import GroupNode, { groupCaption } from "./GroupNode";
 import LoopNode from "./LoopNode";
 import ProductNode from "./ProductNode";
 import ItemEdge, { edgeStrokeWidth, withFocusFlags } from "./ItemEdge";
@@ -40,6 +41,7 @@ import {
 } from "./busRouting";
 import { SegmentHoverContext, type SegmentHover } from "./hoverSegment";
 import type { RFAnyNode } from "./layout";
+import { loopPaints } from "./loopPaint";
 import type { GapRecord } from "./layerModel";
 import { ExportModeProvider } from "./exportMode";
 import { capturePlanPng, exportFrame, withInlinedSprites } from "./exportPng";
@@ -74,6 +76,9 @@ const nodeTypes = {
   product: ProductNode,
 };
 const edgeTypes = { item: ItemEdge, bus: BusEdge };
+
+// Corner radius of each loop paint rect.
+const LOOP_PAINT_RADIUS = 8;
 
 // Let fitView zoom far enough out that a big production graph fits on screen.
 // React Flow's default minZoom of 0.5 clamps the fit, so large plans overflow
@@ -716,6 +721,12 @@ function CanvasInner({
     [edges, focus],
   );
 
+  // The loop paints, recomputed from the live nodes so a drag carries them.
+  const paints = useMemo(
+    () => loopPaints(nodes as RFAnyNode[], edges),
+    [nodes, edges],
+  );
+
   // Memoized on nodes: the annotation re-renders every zoom tick (this
   // component subscribes to zoom), but the unit count changes only with nodes.
   const unitCount = useMemo(
@@ -773,6 +784,51 @@ function CanvasInner({
             disableKeyboardA11y
           >
             <Controls aria-label={i18n.t("canvas.controls.panel")} />
+            {paints.length > 0 && (
+              <ViewportPortal>
+                {/* Under the edge strokes and the cards, no border: a loop is
+                    tinted, not boxed. One SVG with its opacity set once, so
+                    where two rects of a paint overlap the tint does not
+                    darken. */}
+                <svg className="loop-paint" aria-hidden="true">
+                  {paints.flatMap((paint) =>
+                    paint.rects.map((r, i) => (
+                      <rect
+                        key={`${paint.members[0]}:${i}`}
+                        x={r.left}
+                        y={r.top}
+                        width={r.right - r.left}
+                        height={r.bottom - r.top}
+                        rx={LOOP_PAINT_RADIUS}
+                      />
+                    )),
+                  )}
+                </svg>
+                {paints.map((paint) => {
+                  if (paint.caption === undefined) return null;
+                  const caption = groupCaption(
+                    { titleItems: paint.titleItems },
+                    (id) => i18n.displayName(id),
+                  );
+                  const { left, top, right, bottom } = paint.caption;
+                  return (
+                    <div
+                      key={paint.members[0]}
+                      className="loop-caption"
+                      data-testid="loop-caption"
+                      title={caption}
+                      style={{
+                        transform: `translate(${left}px, ${top}px)`,
+                        width: right - left,
+                        height: bottom - top,
+                      }}
+                    >
+                      {caption}
+                    </div>
+                  );
+                })}
+              </ViewportPortal>
+            )}
           </ReactFlow>
         </SegmentHoverContext.Provider>
       </ExportModeProvider>

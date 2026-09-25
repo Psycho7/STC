@@ -1826,38 +1826,42 @@ describe("checkProductUnitRates: boundary-unit chips and inputProduct edges", ()
     ).toBe(true);
   });
 
-  // The aggregate-input plan: liquid_water fans out u:in:liquid_water ->
-  // per-container slices. Both aggregate-edge corruption classes passed every
-  // checker before. legacyPack: the v1.4 gas route displaces the water-fed
-  // chain, so the aggregate fanout only forms on the pre-gas topology.
-  it("clean aggregate plan reports no violations", () => {
+  // The loop-fed input plan: u:in:liquid_water feeds consumers inside loops
+  // straight, the edges that used to leave a per-container slice. legacyPack:
+  // the v1.4 gas route displaces the water-fed chain, so the loop-fed draw only
+  // forms on the pre-gas topology.
+  it("clean loop-fed plan reports no violations", () => {
     const result = checkProductUnitRates(
       mutableArgs(["xiranite_enr_powder"], legacyPack),
     );
     expect(result.violations).toEqual([]);
   });
 
-  it("fires on a corrupted aggregate->fanout edge (x10)", () => {
+  it("fires on a corrupted card->loop-member edge (x10)", () => {
     const args = mutableArgs(["xiranite_enr_powder"], legacyPack);
-    const inputIds = new Set(
-      args.plan.units.filter((u) => isInputProductUnit(u)).map((u) => u.id),
+    const loopMembers = new Set(
+      args.plan.units
+        .filter((u) => isRecipeUnit(u) && u.containerId !== undefined)
+        .map((u) => u.id),
     );
     const edge = args.plan.edges.find(
-      (e) => e.fromUnit === "u:in:liquid_water" && inputIds.has(e.toUnit),
+      (e) => e.fromUnit === "u:in:liquid_water" && loopMembers.has(e.toUnit),
     );
-    if (!edge) throw new Error("missing aggregate->fanout edge");
+    if (!edge) throw new Error("missing card->loop-member edge");
     edge.rate = edge.rate.mul(10);
     const result = checkProductUnitRates(args);
     expect(result.violations.length).toBeGreaterThan(0);
   });
 
-  it("fires on a dropped aggregate->fanout edge", () => {
+  it("fires on a dropped card->loop-member edge", () => {
     const args = mutableArgs(["xiranite_enr_powder"], legacyPack);
-    const inputIds = new Set(
-      args.plan.units.filter((u) => isInputProductUnit(u)).map((u) => u.id),
+    const loopMembers = new Set(
+      args.plan.units
+        .filter((u) => isRecipeUnit(u) && u.containerId !== undefined)
+        .map((u) => u.id),
     );
     const idx = args.plan.edges.findIndex(
-      (e) => e.fromUnit === "u:in:liquid_water" && inputIds.has(e.toUnit),
+      (e) => e.fromUnit === "u:in:liquid_water" && loopMembers.has(e.toUnit),
     );
     expect(idx).toBeGreaterThanOrEqual(0);
     (args.plan.edges as RenderEdge[]).splice(idx, 1);

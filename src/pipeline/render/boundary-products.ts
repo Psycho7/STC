@@ -1,6 +1,5 @@
 import Fraction from "fraction.js";
 import type {
-  ContainerId,
   ItemId,
   MachineGraph,
   MachineVertexId,
@@ -20,77 +19,37 @@ import { pushInto } from "../../util/multimap";
 import { rationalFromString, rationalToString } from "./rational";
 import {
   unitIdForCatalystAggregate,
-  unitIdForCatalystContainer,
   unitIdForInputAggregate,
-  unitIdForInputContainer,
   unitIdForOutputProduct,
   unitIdForSurplus,
 } from "./unit-ids";
 
-// A boundary item's consumers are grouped per pool and then into buckets: one
-// bucket per real container (an SCC loop or blueprint group,
-// `u:in:<item>:<container>`) plus a single shared "loose" bucket holding every
-// consumer that sits in no container. Only a container bucket ever gets its own
-// card, because an edge must enter a compound node once; loose consumers draw
-// straight from the item's input card and their per-branch rate chip already
-// states the amount.
+// A boundary item's consumers are grouped per pool, and each pool draws one
+// card that every consumer takes a direct edge from; the per-edge rate chip
+// states each consumer's amount.
 //
 // The pool is the consumer's role: ordinary consumption draws from the `u:in:`
 // family, a cycled catalyst charge from the `u:cat:` family. The two are
 // accounted apart end to end, so an item consumed as a reagent AND cycled as a
-// catalyst emits one node of each rather than one node carrying both draws.
+// catalyst emits one card of each rather than one card carrying both draws.
 //
-// Topology per (item, role), decided once:
-//   - Loose bucket only: one node `u:in:<item>`, consumer edges direct.
-//   - One container bucket and nothing loose: one node `u:in:<item>:<ctr>`.
-//   - Otherwise: an aggregate node `u:in:<item>` carrying the pool's rateCap
-//     and the sum of all bucket rates (loose included), one `isFanout` slice
-//     per container bucket, and the loose consumers' edges straight off the
-//     aggregate.
+// A consumer's containerId is not read. A container used to get a tap card of
+// its own because an edge had to enter a compound node once, but no container
+// reaches the layout any more (a loop is painted, not boxed). That is exact
+// only while the render policy mints loop-box containers alone (PillarsOnly
+// does): a policy that mints another container kind which the canvas draws as
+// a node has to decide its taps here again.
 type BoundaryRole = "ordinary" | "catalyst";
-type BoundaryBucket =
-  | { kind: "container"; containerId: ContainerId }
-  | { kind: "loose" };
-const LOOSE_BUCKET: BoundaryBucket = { kind: "loose" };
-const bucketFor = (containerId: ContainerId | undefined): BoundaryBucket =>
-  containerId === undefined ? LOOSE_BUCKET : { kind: "container", containerId };
-// BoundaryBucket is local to this file, so these stay here as thin dispatchers
-// over the shared constructors.
-const unitIdForAggregate = (item: ItemId, role: BoundaryRole): RenderUnitId =>
+const unitIdForPool = (item: ItemId, role: BoundaryRole): RenderUnitId =>
   role === "catalyst"
     ? unitIdForCatalystAggregate(item)
     : unitIdForInputAggregate(item);
-const unitIdForContainer = (
-  item: ItemId,
-  role: BoundaryRole,
-  containerId: ContainerId,
-): RenderUnitId =>
-  role === "catalyst"
-    ? unitIdForCatalystContainer(item, containerId)
-    : unitIdForInputContainer(item, containerId);
-const unitIdForInputBucket = (
-  item: ItemId,
-  role: BoundaryRole,
-  bucket: BoundaryBucket,
-): RenderUnitId =>
-  bucket.kind === "container"
-    ? unitIdForContainer(item, role, bucket.containerId)
-    : unitIdForAggregate(item, role);
-// The pool an item's consumers are grouped under, and the key both the
-// per-bucket and the per-pool maps below hang off. `\0` sorts below every id
+// The key the per-pool maps below hang off. `\0` sorts below every id
 // character, so sorting pool keys keeps an item's ordinary pool next to its
 // catalyst pool and the items themselves in id order.
 type PoolKey = string;
 const poolKey = (item: ItemId, role: BoundaryRole): PoolKey =>
   role === "catalyst" ? `${item}\0cat` : item;
-const boundaryKey = (
-  item: ItemId,
-  role: BoundaryRole,
-  bucket: BoundaryBucket,
-): string =>
-  bucket.kind === "container"
-    ? `${poolKey(item, role)}\0c\0${bucket.containerId}`
-    : `${poolKey(item, role)}\0loose`;
 
 const FRAC_ONE = new Fraction(1);
 
@@ -214,7 +173,6 @@ export function deriveBoundaryProducts(
     // than by re-reading the vertices further down. No unit mixes the two: a
     // class collects the vertices of one replica, a loop those of one sccId.
     kind: "recipe" | "loop";
-    containerId: ContainerId | undefined;
     produced: Map<ItemId, Fraction>;
     consumed: Map<ItemId, Fraction>;
     /** Cycled catalyst charge, held per machine rather than consumed per cycle. */
@@ -235,7 +193,6 @@ export function deriveBoundaryProducts(
     if (!facts) {
       facts = {
         kind: isMachineRecipeVertex(v) ? "recipe" : "loop",
-        containerId: v.containerId,
         produced: new Map(),
         consumed: new Map(),
         catalyst: new Map(),
@@ -511,7 +468,6 @@ export function deriveBoundaryProducts(
     toUnit: RenderUnitId;
     item: ItemId;
     rate: Fraction;
-    containerId: ContainerId | undefined;
     // A cycled catalyst charge rather than ordinary consumption. It bypasses
     // every skip rule collectConsumed applies and never takes part in the
     // share split below: the plan draws the whole charge from the boundary.
@@ -522,7 +478,6 @@ export function deriveBoundaryProducts(
     toUnit: RenderUnitId,
     itemId: ItemId,
     rate: Fraction,
-    containerId: ContainerId | undefined,
   ): void => {
     const item = itemById.get(itemId);
     if (!item) return;
@@ -542,12 +497,7 @@ export function deriveBoundaryProducts(
         new Fraction(0);
       const deficit = rate.sub(recap);
       if (deficit.compare(new Fraction(0)) <= 0) return;
-      boundaryConsumers.push({
-        toUnit,
-        item: itemId,
-        rate: deficit,
-        containerId,
-      });
+      boundaryConsumers.push({ toUnit, item: itemId, rate: deficit });
       return;
     }
     // Finite positive supply -> dual-emit: the boundary input carries the
@@ -561,7 +511,7 @@ export function deriveBoundaryProducts(
       const share = boundaryShare.get(itemId);
       if (share === undefined || share.compare(FRAC_ONE) >= 0) return;
     }
-    boundaryConsumers.push({ toUnit, item: itemId, rate, containerId });
+    boundaryConsumers.push({ toUnit, item: itemId, rate });
   };
   // An SCC unit's consumption comes from its netIO, a recipe unit's from its
   // inputs; the rollup above already holds both, so one loop covers them. A
@@ -569,7 +519,7 @@ export function deriveBoundaryProducts(
   // product this way.
   for (const [unitId, facts] of unitFacts) {
     for (const [item, rate] of facts.consumed) {
-      collectConsumed(unitId, item, rate, facts.containerId);
+      collectConsumed(unitId, item, rate);
     }
     // Catalysts are boundary supply unconditionally: the machine holds the
     // charge and hands it back, so no producer is ever expanded for it and none
@@ -585,7 +535,6 @@ export function deriveBoundaryProducts(
         toUnit: unitId,
         item,
         rate,
-        containerId: facts.containerId,
         catalyst: true,
       });
     }
@@ -610,43 +559,29 @@ export function deriveBoundaryProducts(
       toUnit: unitIdForOutputProduct(outItem),
       item: outItem,
       rate: shortfall,
-      containerId: undefined,
     });
   }
 
   // Precompute realized rates before emitting product units. Each input
-  // ProductNode shows its rate as primary chrome; keying is `(itemId,
-  // containerId)` so a high-fan-out raw consumed across several blueprint-group
-  // containers emits one node per container, each pinned near its consumers.
-  //
-  // The supply cap is item-level (effectiveSupply is keyed by item). To keep
-  // the mass-balance invariant -- split input-rate sums equal the pre-split
-  // single-input rate -- compute the cap once per item, then give each
-  // (item, container) ProductNode the per-container slice
-  //   realizedRate(item, ctr) = consumedSupply(item) * containerDemand(item, ctr)
-  //                                                     / totalDemand(item)
-  // Per-edge rate inside a container is `c.rate * consumedSupply(item) /
-  // totalDemand(item)`, same as the single-node formula; the split just
-  // redistributes the same total across more ProductNodes.
-  type ConsumerKey = string;
-  const consumersByKey = new Map<ConsumerKey, BoundaryConsumer[]>();
-  const itemByKey = new Map<ConsumerKey, ItemId>();
-  const roleByKey = new Map<ConsumerKey, BoundaryRole>();
-  const bucketByKey = new Map<ConsumerKey, BoundaryBucket>();
+  // ProductNode shows its rate as primary chrome, the sum of its pool's edge
+  // rates. The supply cap is item-level (effectiveSupply is keyed by item), so
+  // the realized draw is computed once per item and each ordinary consumer's
+  // edge carries `c.rate * consumedSupply(item) / totalDemand(item)`.
+  const consumersByPool = new Map<PoolKey, BoundaryConsumer[]>();
+  const poolItem = new Map<PoolKey, ItemId>();
+  const poolRole = new Map<PoolKey, BoundaryRole>();
   // Ordinary consumption and the cycled catalyst charge are accounted
   // separately: only ordinary demand takes the boundary share split, while a
-  // catalyst charge is drawn whole. Every rate below (per-edge, per-bucket
-  // node, aggregate) is a sum over the same per-consumer rule, so the node
-  // chip and its outbound edges can never disagree.
+  // catalyst charge is drawn whole. The card rate and its edge rates are sums
+  // over the same per-consumer rule, so the card chip and its outbound edges
+  // can never disagree.
   const ordinaryDemandByItem = new Map<ItemId, Fraction>();
   for (const c of boundaryConsumers) {
-    const bucket = bucketFor(c.containerId);
     const role: BoundaryRole = c.catalyst ? "catalyst" : "ordinary";
-    const k = boundaryKey(c.item, role, bucket);
-    pushInto(consumersByKey, k, c);
-    itemByKey.set(k, c.item);
-    roleByKey.set(k, role);
-    bucketByKey.set(k, bucket);
+    const pool = poolKey(c.item, role);
+    pushInto(consumersByPool, pool, c);
+    poolItem.set(pool, c.item);
+    poolRole.set(pool, role);
     if (c.catalyst) continue;
     ordinaryDemandByItem.set(
       c.item,
@@ -687,37 +622,9 @@ export function deriveBoundaryProducts(
     return c.rate.mul(consumed).div(ordinaryDemand);
   };
 
-  const realizedRateByKey = new Map<ConsumerKey, Fraction>();
-  for (const [key, consumers] of consumersByKey) {
-    realizedRateByKey.set(
-      key,
-      consumers.reduce((acc, c) => acc.add(edgeRateOf(c)), new Fraction(0)),
-    );
-  }
-
-  // Group keys by pool so the topology decision (single bucket vs aggregate +
-  // container fanout slices) is made once per (item, role). An item with one
-  // ordinary bucket and one catalyst bucket has one bucket in each pool, so it
-  // emits two single-bucket nodes and no aggregate.
-  const keysByPool = new Map<PoolKey, ConsumerKey[]>();
-  const poolItem = new Map<PoolKey, ItemId>();
-  const poolRole = new Map<PoolKey, BoundaryRole>();
-  for (const key of consumersByKey.keys()) {
-    const itemId = itemByKey.get(key)!;
-    const role = roleByKey.get(key)!;
-    const pool = poolKey(itemId, role);
-    pushInto(keysByPool, pool, key);
-    poolItem.set(pool, itemId);
-    poolRole.set(pool, role);
-  }
-
+  // One card per pool, in pool-key order.
   const inputProducts: RenderUnitInputProduct[] = [];
-  const emittedKeys = new Set<ConsumerKey>();
-  // aggregateIdByPool[pool] is set iff that pool emitted an aggregate node; the
-  // edge emission below uses it to wire aggregate -> fanout slices.
-  const aggregateIdByPool = new Map<PoolKey, RenderUnitId>();
-  const sortedPools = [...keysByPool.keys()].sort();
-  for (const pool of sortedPools) {
+  for (const pool of [...consumersByPool.keys()].sort()) {
     const itemId = poolItem.get(pool)!;
     const role = poolRole.get(pool)!;
     const roleField = role === "catalyst" ? ({ role } as const) : {};
@@ -726,7 +633,7 @@ export function deriveBoundaryProducts(
     // collectConsumed, which drops zero supply outright, so a target item with
     // no override is raw with unlimited supply and its consumers stay
     // boundary-fed like any other free item (the declared export is one more
-    // loose consumer of this pool). An overridden or recapture-deficit target
+    // consumer of this pool). An overridden or recapture-deficit target
     // renders BOTH as an input (pinned FIRST) and a target output (pinned
     // LAST): the override path imports a capped portion, the
     // recapture-deficit path draws the demand its target-claimed production
@@ -735,74 +642,20 @@ export function deriveBoundaryProducts(
       role === "catalyst"
         ? catalystOverrideByItem.get(itemId)
         : overrideByItem.get(itemId);
-    const keys = keysByPool.get(pool)!.slice().sort();
-
-    if (keys.length <= 1) {
-      // Single bucket: emit one node with the per-bucket id, no fanout.
-      const key = keys[0]!;
-      const bucket = bucketByKey.get(key)!;
-      const realizedRate = realizedRateByKey.get(key) ?? new Fraction(0);
-      const base: Omit<RenderUnitInputProduct, "rateCap"> = {
-        id: unitIdForInputBucket(itemId, role, bucket),
-        kind: "inputProduct",
-        itemId,
-        count: 1,
-        rate: rationalToString(realizedRate),
-        ...roleField,
-      };
-      inputProducts.push(
-        ov?.ratePerSec !== undefined
-          ? { ...base, rateCap: ov.ratePerSec }
-          : base,
-      );
-      emittedKeys.add(key);
-      continue;
-    }
-
-    // Multiple buckets: emit an aggregate node plus one fanout slice per
-    // container bucket. The aggregate carries the pool's rateCap and the
-    // total realized rate (loose share included); each slice carries only its
-    // per-container rate, so the slice label reads as a tap rather than another
-    // item-level cap.
-    const aggregateId = unitIdForAggregate(itemId, role);
-    aggregateIdByPool.set(pool, aggregateId);
-    const aggregateRate = keys.reduce(
-      (acc, k) => acc.add(realizedRateByKey.get(k) ?? new Fraction(0)),
-      new Fraction(0),
-    );
-    const aggregateBase: Omit<RenderUnitInputProduct, "rateCap"> = {
-      id: aggregateId,
+    const realizedRate = consumersByPool
+      .get(pool)!
+      .reduce((acc, c) => acc.add(edgeRateOf(c)), new Fraction(0));
+    const base: Omit<RenderUnitInputProduct, "rateCap"> = {
+      id: unitIdForPool(itemId, role),
       kind: "inputProduct",
       itemId,
       count: 1,
-      rate: rationalToString(aggregateRate),
-      isAggregate: true,
+      rate: rationalToString(realizedRate),
       ...roleField,
     };
     inputProducts.push(
-      ov?.ratePerSec !== undefined
-        ? { ...aggregateBase, rateCap: ov.ratePerSec }
-        : aggregateBase,
+      ov?.ratePerSec !== undefined ? { ...base, rateCap: ov.ratePerSec } : base,
     );
-    for (const key of keys) {
-      const bucket = bucketByKey.get(key)!;
-      emittedKeys.add(key);
-      // The loose bucket gets no card of its own: its consumers hang off the
-      // aggregate directly.
-      if (bucket.kind !== "container") continue;
-
-      const realizedRate = realizedRateByKey.get(key) ?? new Fraction(0);
-      inputProducts.push({
-        id: unitIdForContainer(itemId, role, bucket.containerId),
-        kind: "inputProduct",
-        itemId,
-        count: 1,
-        rate: rationalToString(realizedRate),
-        isFanout: true,
-        parentRate: rationalToString(aggregateRate),
-        ...roleField,
-      });
-    }
   }
 
   // Boundary edges connect each emitted input product to its recipe/SCC
@@ -831,19 +684,14 @@ export function deriveBoundaryProducts(
   //  - finite cap, draw 0: gated in collectConsumed (no input product, no
   //    boundary edges).
   //  - effectiveSupply == 0: gated upstream (no input product emitted).
-  for (const [key, consumers] of consumersByKey) {
-    if (!emittedKeys.has(key)) continue;
-    const itemId = itemByKey.get(key)!;
-    const role = roleByKey.get(key)!;
-    const bucket = bucketByKey.get(key)!;
+  for (const [pool, consumers] of consumersByPool) {
+    const itemId = poolItem.get(pool)!;
+    const role = poolRole.get(pool)!;
     const item = itemById.get(itemId);
     if (!item) continue;
-    // With an aggregate, a container bucket's consumer edges originate from its
-    // fanout slice and the loose bucket's originate from the aggregate itself;
-    // without one, from the single-bucket node (which is either the container
-    // card or the bare `u:in:<item>` / `u:cat:<item>` card). Every catalyst
-    // edge leaves the catalyst pool's node, never the ordinary one.
-    const fromUnit = unitIdForInputBucket(itemId, role, bucket);
+    // Every catalyst edge leaves the catalyst pool's card, never the ordinary
+    // one.
+    const fromUnit = unitIdForPool(itemId, role);
     // Avoid 0/0 when every ordinary consumer's rate collapses to zero. A
     // catalyst consumer takes no share of that demand, so its charge is still
     // drawn (collectConsumed already dropped any zero-rate catalyst).
@@ -860,34 +708,6 @@ export function deriveBoundaryProducts(
         rate,
         transportKind: item.transportKind,
         ...(c.catalyst ? { toPortKind: "catalyst" as const } : {}),
-        ...(role === "catalyst" ? { fromPool: "catalyst" as const } : {}),
-      });
-    }
-  }
-
-  // Aggregate -> fanout slice edges: one per slice per aggregate-emitting pool,
-  // carrying the slice's realized rate. Emitted after the per-bucket consumer
-  // edges so aggregate edges always trail their pool's consumer edges (stable
-  // ordering).
-  for (const pool of sortedPools) {
-    const aggregateId = aggregateIdByPool.get(pool);
-    if (aggregateId === undefined) continue;
-    const itemId = poolItem.get(pool)!;
-    const role = poolRole.get(pool)!;
-    const item = itemById.get(itemId);
-    if (!item) continue;
-    const keys = keysByPool.get(pool)!.slice().sort();
-    for (const key of keys) {
-      const bucket = bucketByKey.get(key)!;
-      if (bucket.kind !== "container") continue;
-
-      const realizedRate = realizedRateByKey.get(key) ?? new Fraction(0);
-      boundaryEdges.push({
-        fromUnit: aggregateId,
-        toUnit: unitIdForContainer(itemId, role, bucket.containerId),
-        item: itemId,
-        rate: realizedRate,
-        transportKind: item.transportKind,
         ...(role === "catalyst" ? { fromPool: "catalyst" as const } : {}),
       });
     }

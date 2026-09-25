@@ -29,11 +29,17 @@
 // than left to whatever EXAM_EXTRA_SCENARIOS happens to hold in the
 // environment.
 //
-// One exception to "written from the base commit": gas-web.json was rewritten
-// when a free-supply target's export stopped drawing from a card of its own
-// and joined its item's input card. That change removes a node and renumbers
-// the plan's edges, so no per-edge table could name it; gas-web carries no
-// entries in the tables below because its fixture already holds their moves.
+// Exceptions to "written from the base commit", each rewritten by a change
+// that removes nodes and renumbers a plan's edges, which no per-edge table can
+// name. Such a fixture already holds every move the families below name for
+// its plan, so the tables carry no entries for it:
+// - gas-web.json, when a free-supply target's export stopped drawing from a
+//   card of its own and joined its item's input card (written on the stack
+//   with the gap column order and the hierarchical greedy switch);
+// - every plan with a loop (battery5, battery5-xiranite, crystal, equip4,
+//   multi6, rot-bottled_food_3, rot-bottled_food_4, rot-bottled_rec_hp_1,
+//   rot-proc_bomb_1), when the loop boxes left the layout: the box node and
+//   the per-loop boundary tap cards are gone and every member card moved.
 
 import { describe, it, expect } from "vitest";
 import { readFileSync, writeFileSync } from "node:fs";
@@ -217,9 +223,9 @@ function flatten(snapshot: Snapshot): Map<string, unknown> {
 //      e:22, e:25, e:33; coupon-web e:11, e:13, e:17, e:20; equip4 e:0,
 //      e:13; multi6 e:3, e:4, e:5, e:7, e:8, e:9, e:10, e:15, e:18, e:20,
 //      e:24, e:26, e:30, e:38, e:39, e:40, e:41, e:56, e:60, e:61, e:62,
-//      e:63, e:64, e:71, e:91; script43 e:0, e:6, e:7, e:14, e:15, e:20,
-//      e:22, e:29; script43-xiranite e:0, e:6, e:7, e:14, e:21, e:23,
-//      e:30; transmuters e:0, e:1, e:11.
+//      e:63, e:64, e:71, e:91; script43 e:0, e:6, e:7, e:14, e:15, e:16,
+//      e:17, e:20, e:22, e:29; script43-xiranite e:0, e:6, e:7, e:14,
+//      e:17, e:18, e:21, e:23, e:30; transmuters e:0, e:1, e:11.
 //   P  the gap order weighs both orders of every column pair, merges first
 //      and crossings second, and entry columns take their slots one row at a
 //      time across cards: battery5-xiranite e:0, e:5, e:11, e:20, e:21,
@@ -228,15 +234,6 @@ function flatten(snapshot: Snapshot): Map<string, unknown> {
 //      e:5, e:11, e:12; multi6 e:1, e:32, e:85, e:86, e:89, e:90; script43
 //      e:8, e:9, e:10, e:11; script43-xiranite e:2, e:8, e:9, e:10, e:11,
 //      e:20, e:22, e:29; transmuters e:13, e:14.
-//   N  bends and descents that tie on port row rank by numeric ELK index
-//      (e:2 before e:10), not by candidate id text. Only multi6 e:13 draws
-//      differently (its bend one slot right); the rest restamp the bendX of a
-//      column they do not draw: gas-web e:9, e:10; multi6 e:13, e:35;
-//      rot-bottled_food_3 e:5, e:15; rot-bottled_food_4 e:5, e:6, e:11;
-//      script43 e:12; script43-xiranite e:12; transmuters e:4, e:7, e:10.
-//      It also returns script43 e:16, e:17 and script43-xiranite e:17, e:18
-//      to their base geometry (they left G), and draws script43 and
-//      script43-xiranite e:6, still G, three slots further left.
 //   S  the hierarchical greedy switch reorders cards inside their ELK layers
 //      (NODES_MOVED below), so the edges on a moved card, and the ones that
 //      take the rows and columns those vacate, redraw: battery5-xiranite
@@ -249,43 +246,6 @@ function flatten(snapshot: Snapshot): Map<string, unknown> {
 //      e:89, e:90. Some of these already sit under an earlier family.
 // An edge key is the short `e:NN` head of the routed edge id.
 const MOVED: Readonly<Record<string, ReadonlyArray<string>>> = {
-  battery5: [
-    "e:0",
-    "e:2",
-    "e:4",
-    "e:6",
-    "e:11",
-    "e:12",
-    "e:13",
-    "e:15",
-    "e:16",
-    "e:17",
-    "e:19",
-    "e:22",
-  ],
-  "battery5-xiranite": [
-    "e:0",
-    "e:4",
-    "e:5",
-    "e:7",
-    "e:9",
-    "e:10",
-    "e:11",
-    "e:13",
-    "e:14",
-    "e:18",
-    "e:20",
-    "e:21",
-    "e:23",
-    "e:24",
-    "e:25",
-    "e:26",
-    "e:27",
-    "e:28",
-    "e:29",
-    "e:33",
-    "e:35",
-  ],
   "copper-script43": [
     "e:1",
     "e:2",
@@ -326,75 +286,6 @@ const MOVED: Readonly<Record<string, ReadonlyArray<string>>> = {
     "e:29",
   ],
   default: ["e:5"],
-  equip4: ["e:0", "e:13"],
-  multi6: [
-    "e:1",
-    "e:3",
-    "e:4",
-    "e:5",
-    "e:6",
-    "e:7",
-    "e:8",
-    "e:9",
-    "e:10",
-    "e:12",
-    "e:13",
-    "e:15",
-    "e:18",
-    "e:20",
-    "e:23",
-    "e:24",
-    "e:26",
-    "e:27",
-    "e:28",
-    "e:30",
-    "e:31",
-    "e:32",
-    "e:35",
-    "e:38",
-    "e:39",
-    "e:40",
-    "e:41",
-    "e:42",
-    "e:43",
-    "e:44",
-    "e:45",
-    "e:46",
-    "e:47",
-    "e:48",
-    "e:49",
-    "e:50",
-    "e:52",
-    "e:53",
-    "e:54",
-    "e:55",
-    "e:56",
-    "e:60",
-    "e:61",
-    "e:62",
-    "e:63",
-    "e:64",
-    "e:67",
-    "e:69",
-    "e:71",
-    "e:73",
-    "e:74",
-    "e:77",
-    "e:78",
-    "e:79",
-    "e:81",
-    "e:83",
-    "e:84",
-    "e:85",
-    "e:86",
-    "e:87",
-    "e:88",
-    "e:89",
-    "e:90",
-    "e:91",
-  ],
-  "rot-bottled_food_3": ["e:5", "e:15"],
-  "rot-bottled_food_4": ["e:5", "e:6", "e:9", "e:11", "e:14"],
   script43: [
     "e:0",
     "e:6",
@@ -403,9 +294,10 @@ const MOVED: Readonly<Record<string, ReadonlyArray<string>>> = {
     "e:9",
     "e:10",
     "e:11",
-    "e:12",
     "e:14",
     "e:15",
+    "e:16",
+    "e:17",
     "e:20",
     "e:22",
     "e:27",
@@ -420,8 +312,9 @@ const MOVED: Readonly<Record<string, ReadonlyArray<string>>> = {
     "e:9",
     "e:10",
     "e:11",
-    "e:12",
     "e:14",
+    "e:17",
+    "e:18",
     "e:20",
     "e:21",
     "e:22",
@@ -430,32 +323,7 @@ const MOVED: Readonly<Record<string, ReadonlyArray<string>>> = {
     "e:29",
     "e:30",
   ],
-  transmuters: [
-    "e:0",
-    "e:1",
-    "e:4",
-    "e:7",
-    "e:10",
-    "e:11",
-    "e:13",
-    "e:14",
-    "e:15",
-  ],
-  "gas-web": [
-    "e:3",
-    "e:4",
-    "e:5",
-    "e:6",
-    "e:9",
-    "e:10",
-    "e:11",
-    "e:12",
-    "e:17",
-    "e:18",
-    "e:19",
-    "e:24",
-    "e:25",
-  ],
+  transmuters: ["e:0", "e:1", "e:11", "e:13", "e:14", "e:15"],
 };
 
 // `edge:e:43:u:class:q:51->...plant_grass_1.railY` -> `e:43`.
@@ -467,40 +335,7 @@ const edgeHeadOf = (key: string): string | null =>
 // in x or y; every other node still compares exact, and a listed node that
 // stops moving fails like any stale entry.
 const NODES_MOVED: Readonly<Record<string, ReadonlyArray<string>>> = {
-  "battery5-xiranite": [
-    "u:class:q:7",
-    "u:class:q:8",
-    "u:class:q:18",
-    "u:out:proc_battery_5",
-    "u:surplus:liquid_sewage",
-  ],
   "copper-script43": ["u:class:q:12", "u:in:copper_ore", "u:in:liquid_water"],
-  "gas-web": [
-    "u:class:q:2",
-    "u:class:q:5",
-    "u:class:q:6",
-    "u:in:copper_ore",
-    "u:in:gas_inert",
-    "u:in:liquid_water",
-  ],
-  multi6: [
-    "loop:plant_grass_1",
-    "loop:plant_grass_2",
-    "u:class:q:5",
-    "u:class:q:6",
-    "u:class:q:7",
-    "u:class:q:10",
-    "u:class:q:13",
-    "u:class:q:15",
-    "u:class:q:25",
-    "u:class:q:39",
-    "u:class:q:59",
-    "u:in:iron_ore",
-    "u:in:liquid_water:loop:plant_grass_1",
-    "u:in:liquid_water:loop:plant_grass_2",
-    "u:in:originium_ore",
-    "u:out:proc_battery_3",
-  ],
 };
 
 // `node:u:class:q:18.y` -> `u:class:q:18`.
@@ -519,27 +354,11 @@ const nodeIdOf = (key: string): string | null =>
 // waiver.
 const SEAT_FIELDS = ["chipX", "chipY", "labelAnchor"] as const;
 const CHIP_SEATS_MOVED: Readonly<Record<string, ReadonlyArray<string>>> = {
-  battery5: [
-    "e:16:u:class:q:5->u:surplus:copper_nugget:copper_nugget",
-    "e:18:u:class:q:9->u:class:q:10:liquid_xiranite_lowpoly",
-  ],
-  "battery5-xiranite": [
-    "e:6:u:class:q:14->u:class:q:16:liquid_xiranite_lowpoly",
-    "e:18:u:class:q:28->u:class:q:8:xiranite_poly",
-  ],
-  // e:63 left this list with J (see MOVED): the vertical its chip slid off
-  // was e:12's jog descent, which the drawn-frame floor no longer draws.
-  multi6: [
-    "e:26:u:class:q:27->u:class:q:18:copper_nugget",
-    "e:46:u:class:q:54->u:class:q:14:plant_grass_2",
-  ],
   transmuters: [
     "e:3:u:cat:liquid_xiranite->u:class:q:11:liquid_xiranite",
     "e:11:u:class:q:4->u:class:q:0:copper_nugget",
   ],
   "copper-script43": ["e:26:u:class:q:9->u:class:q:32:gas_xiranite_enr"],
-  "rot-bottled_rec_hp_1": ["e:4:u:class:q:4->u:class:q:5:plant_moss_1"],
-  "rot-proc_bomb_1": ["e:4:u:class:q:4->u:class:q:5:plant_bbflower_1"],
 };
 
 // The third named delta: family H gives a fan-out trunk with no near member a
@@ -551,14 +370,6 @@ const CHIP_SEATS_MOVED: Readonly<Record<string, ReadonlyArray<string>>> = {
 // regenerating them would prove nothing.
 const TOTAL_FIELDS = ["trunkAnchor"] as const;
 const FAR_OWNERS_SEATED: Readonly<Record<string, ReadonlyArray<string>>> = {
-  "battery5-xiranite": [
-    "e:0:u:cat:gas_xiranite->u:class:q:23:gas_xiranite",
-    "e:30:u:in:gas_xiranite->u:class:q:2:gas_xiranite",
-  ],
-  multi6: [
-    "e:0:u:cat:gas_xiranite->u:class:q:12:gas_xiranite",
-    "e:65:u:in:copper_ore->u:class:q:22:copper_ore",
-  ],
   script43: [
     "e:0:u:cat:gas_xiranite->u:class:q:20:gas_xiranite",
     "e:24:u:in:gas_inert->u:class:q:1:gas_inert",
@@ -569,7 +380,6 @@ const FAR_OWNERS_SEATED: Readonly<Record<string, ReadonlyArray<string>>> = {
     "e:25:u:in:gas_inert->u:class:q:3:gas_inert",
     "e:27:u:in:gas_xiranite->u:class:q:1:gas_xiranite",
   ],
-  "rot-bottled_food_4": ["e:12:u:in:iron_ore->u:class:q:3:iron_ore"],
   transmuters: [
     "e:0:u:cat:gas_xiranite->u:class:q:13:gas_xiranite",
     "e:20:u:in:gas_xiranite->u:class:q:2:gas_xiranite",

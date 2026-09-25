@@ -369,7 +369,10 @@ const CROSSING_BASELINE: Record<string, number> = {
   // ruling (extended from multi6). e:19 no longer rides q:16's row from
   // x ~3025; it jogs to 720 and joins at the fan-in dot, and its bevel crosses
   // e:3's descent at the trunk column. Cued.
-  battery5: 16,
+  //
+  // FLAT LOOPS: 16 -> 6, the loop boxes left the layout (members are root
+  // cards, the loop is painted) and the per-loop boundary tap cards went.
+  battery5: 6,
   // CATALYST NODE 2026-09-14 (PR B): 21 -> 26. Both xiranite pools took their
   // own boundary card, and their supply runs cross the chain. Measured 25 with
   // the rail deconfliction switched off, so four of the five added crossings
@@ -388,12 +391,20 @@ const CROSSING_BASELINE: Record<string, number> = {
   // every column pair and entry rows take slots one at a time across cards.
   //
   // ELK GREEDY SWITCH: 23 -> 22, hierarchical greedy switch on.
-  "battery5-xiranite": 22,
-  crystal: 1,
+  //
+  // FLAT LOOPS: 22 -> 12, the loop boxes left the layout (members are root
+  // cards, the loop is painted) and the per-loop boundary tap cards went.
+  "battery5-xiranite": 12,
+  // FLAT LOOPS: 1 -> 0, the loop boxes left the layout (members are root
+  // cards, the loop is painted) and the per-loop boundary tap cards went.
+  crystal: 0,
   // CATALYST NODE 2026-09-14 (PR B): 1 -> 2. The plan's one catalyst charge
   // moved to its own card, one layer further from its consumer. UP move,
   // listed for ruling.
-  equip4: 2,
+  //
+  // FLAT LOOPS: 2 -> 1, the loop boxes left the layout (members are root
+  // cards, the loop is painted) and the per-loop boundary tap cards went.
+  equip4: 1,
   // ROUTING FINDINGS 2026-09-14: 90 -> 88, re-measured on this branch.
   //
   // CATALYST EXAM FIXES 2026-09-15 (T7 with T6): 88 -> 90. The plan's loop
@@ -422,7 +433,10 @@ const CROSSING_BASELINE: Record<string, number> = {
   // every column pair and entry rows take slots one at a time across cards.
   //
   // ELK GREEDY SWITCH: 95 -> 74, hierarchical greedy switch on.
-  multi6: 74,
+  //
+  // FLAT LOOPS: 74 -> 72, the loop boxes left the layout (members are root
+  // cards, the loop is painted) and the per-loop boundary tap cards went.
+  multi6: 72,
   tundra: 0,
   // CATALYST NODE 2026-09-14 (PR B of the catalyst supply pools plan): every
   // catalyst charge now leaves the item's own u:cat:* boundary card instead of
@@ -460,8 +474,16 @@ const CROSSING_BASELINE: Record<string, number> = {
   // now leaves the item's one pool card and its straight run to the output
   // card crosses the band at right angles. UP move, ruled by stc-13.
   "gas-web": 21,
-  "rot-bottled_food_3": 2,
-  "rot-bottled_food_4": 3,
+  // FLAT LOOPS: 2 -> 1, the loop boxes left the layout (members are root
+  // cards, the loop is painted) and the per-loop boundary tap cards went.
+  "rot-bottled_food_3": 1,
+  // FLAT LOOPS (R5, one boundary card per pool): 3 -> 8. The loop's water tap
+  // card went, so the tail Planting Unit's supply e:16 is a far fan-out member
+  // of the FIRST-layer u:in:liquid_water card and takes the nearest clear
+  // level to its target row, y 209.5, which runs under the cycle: it crosses
+  // the return rail's two verticals, e:9's dip twice and e:3. UP move, ruled by
+  // stc-13.
+  "rot-bottled_food_4": 8,
   // CATALYST NODE 2026-09-14 (PR B of the catalyst supply pools plan): every
   // catalyst charge now leaves the item's own u:cat:* boundary card instead of
   // its ordinary u:in:* one, so each transmuter plan gained a card and a set of
@@ -512,7 +534,10 @@ const PADDED_GRAZE_BASELINE: Record<string, number> = {
   // CATALYST NODE 2026-09-14 (PR B): 0 -> 2. The gas_xiranite catalyst card
   // sits one column off the chain it feeds, and two of its supply runs clip a
   // foreign card's padding overhang on the way. UP move, listed for ruling.
-  multi6: 2,
+  //
+  // FLAT LOOPS: 2 -> 0, the loop boxes left the layout (members are root
+  // cards, the loop is painted) and the per-loop boundary tap cards went.
+  multi6: 0,
   tundra: 0,
   // CATALYST EXAM FIXES 2026-09-15 (T6): script43 0 -> 1, script43-xiranite
   // 0 -> 1. One graze, the same on both plans: the charge run
@@ -524,7 +549,11 @@ const PADDED_GRAZE_BASELINE: Record<string, number> = {
   "coupon-web": 0,
   "gas-web": 0,
   "rot-bottled_food_3": 0,
-  "rot-bottled_food_4": 0,
+  // FLAT LOOPS (R5, one boundary card per pool): 0 -> 1. e:16, the far
+  // fan-out member of the crossing cell, takes the nearest clear level under
+  // the cycle, y 209.5, and clips u:class:q:7's padding there. UP move, ruled
+  // by stc-13.
+  "rot-bottled_food_4": 1,
   // ROUTING FINDINGS 2026-09-14: 1 -> 0. e:24's liquid_xiranite supply run no
   // longer clips u:class:q:13's padding.
   transmuters: 0,
@@ -664,7 +693,10 @@ const FRAME_RIDE_BASELINE: Record<string, number> = {
   // bottom border (its ports sit half a unit apart, so it is not straight in
   // isStraightRun's sense and still counts); no level search ever reaches it,
   // so it needs a jog trigger, not a gap, and is out of this task's scope.
-  "rot-bottled_food_4": 1,
+  //
+  // FLAT LOOPS: 1 -> 0, the loop boxes left the layout, so no border is left
+  // for e:12 to run along.
+  "rot-bottled_food_4": 0,
   transmuters: 0,
   "copper-script43": 0,
   "script43-xiranite": 0,
