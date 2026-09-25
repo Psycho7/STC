@@ -104,14 +104,11 @@ describe("rerouteEdges (the drag-stop replay)", () => {
   ): string[] => {
     const byId = nodeIndexOf(moved);
     const rectById = new Map<string, CardRect>(
-      cardRectsFor(moved, byId).map((r) => [r.id, r]),
+      cardRectsFor(moved).map((r) => [r.id, r]),
     );
     const hits: string[] = [];
     for (const edge of edges) {
       if (edge.source !== movedId && edge.target !== movedId) continue;
-      // Group slabs are skipped: no edge targets one, and a run legitimately
-      // lives inside its own container.
-      if (byId.get(edge.target)?.type === "group") continue;
       const target = rectById.get(edge.target);
       if (target === undefined) continue;
       const ports = drawnPortsOf(edge, byId);

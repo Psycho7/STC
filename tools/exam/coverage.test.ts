@@ -391,8 +391,6 @@ function emptyCoverage(pack: RecipePack): CoverageReport {
     featureTotals: {
       loopBoxes: 0,
       loopMembers: 0,
-      fanoutInputs: 0,
-      aggregateInputs: 0,
       partialStamps: 0,
       multiplicityTotal: "0",
     },

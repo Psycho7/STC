@@ -79,7 +79,6 @@ export type UiKey =
   | "product.dir.out"
   | "product.class.raw"
   | "product.class.import"
-  | "product.class.tap"
   | "product.class.catalyst"
   | "product.catalyst.fromCatalyst"
   | "product.catalyst.fromGeneral"
@@ -239,7 +238,6 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "product.dir.out": "输出",
     "product.class.raw": "原料",
     "product.class.import": "进口",
-    "product.class.tap": "分接",
     "product.class.catalyst": "催化",
     "product.catalyst.fromCatalyst": "来自催化供给 {rate}/分",
     "product.catalyst.fromGeneral": "来自普通供给 {rate}/分",
@@ -392,7 +390,6 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "product.dir.out": "Out",
     "product.class.raw": "raw",
     "product.class.import": "import",
-    "product.class.tap": "tap",
     "product.class.catalyst": "catalyst",
     "product.catalyst.fromCatalyst": "from catalyst supply {rate}/min",
     "product.catalyst.fromGeneral": "from general supply {rate}/min",

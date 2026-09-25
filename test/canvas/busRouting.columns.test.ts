@@ -18,8 +18,6 @@ import {
   rawCardRects,
   gutterWidth,
   ENTRY_SLOT_PITCH,
-  CONTAINER_COLUMN_GAP,
-  CONTAINER_RAIL_GAP,
   OBSTACLE_PAD_Y,
 } from "../../src/canvas/busRouting";
 import {
@@ -637,8 +635,7 @@ describe("paddedObstacles", () => {
     expect(plated.bottom - bare.bottom).toBe(ENV_ROW_HEIGHT);
     // The pierce audit's rect model grows by the same row and no more, so the
     // two models cannot disagree about where the plate is.
-    const drawnOf = (node: RFAnyNode) =>
-      cardRectsFor([node], nodeIndexOf([node]))[0]!;
+    const drawnOf = (node: RFAnyNode) => cardRectsFor([node])[0]!;
     const drawnBare = drawnOf(plain);
     const drawnPlated = drawnOf(env);
     expect(drawnPlated.top).toBe(drawnBare.top);
@@ -713,57 +710,7 @@ describe("clampBackwardRails overhang clearance", () => {
     expect(railY! > midBottom + CHAMFER || railY! < 0 - CHAMFER).toBe(true);
   });
 
-  // A container (loop / SCC slab) box wrapping its members. Only geometry
-  // matters to the rail clearance, so the data payload is minimal.
-  const containerNode = (
-    id: string,
-    x: number,
-    y: number,
-    width: number,
-    height: number,
-  ): RFAnyNode =>
-    ({
-      id,
-      type: "group",
-      position: { x, y },
-      width,
-      height,
-      data: {
-        containerKind: "blueprint-group",
-        containerId: id,
-        memberCount: 1,
-      },
-    }) as unknown as RFAnyNode;
-
-  it("clears a container slab by the wider container gap, not the plain CHAMFER", () => {
-    // Backward edge src -> tgt with a container slab ("G") straddling the
-    // corridor between them; the rail's preferred y falls inside the slab. A
-    // return edge and the slab border in a near-identical gray read as one line
-    // when the rail hugs the border at the plain gap, so a container obstacle
-    // gets the wider CONTAINER_RAIL_GAP clearance (#29).
-    const gTop = -20;
-    const gBottom = 100;
-    const nodes: RFAnyNode[] = [
-      inputProductNode("src", "water", 800, 0, 148, 60),
-      inputProductNode("tgt", "water", 0, 0, 148, 60),
-      containerNode("G", 200, gTop, 400, gBottom - gTop),
-    ];
-    const edges = [mkEdge("e0", "src", "tgt", "water")];
-    const out = clampBackwardRails(nodes, edges);
-    const railY = (out[0]!.data as { railY?: number }).railY;
-    expect(railY).toBeDefined();
-    // Rail sits at least (OBSTACLE_PAD_Y + CONTAINER_RAIL_GAP) off the slab's
-    // raw border on whichever side it exits.
-    const clearance = OBSTACLE_PAD_Y + CONTAINER_RAIL_GAP;
-    expect(railY! <= gTop - clearance || railY! >= gBottom + clearance).toBe(
-      true,
-    );
-  });
-
-  it("clears a plain card of the same shape by only the CHAMFER gap", () => {
-    // The load-bearing half of the container distinction: an ordinary card
-    // (not a group / loop slab) at the same geometry keeps the plain clearance,
-    // so only container obstacles get the wider gap.
+  it("clears a plain card by the CHAMFER gap", () => {
     const cTop = -20;
     const cBottom = 100;
     const nodes: RFAnyNode[] = [
@@ -775,103 +722,16 @@ describe("clampBackwardRails overhang clearance", () => {
     const out = clampBackwardRails(nodes, edges);
     const railY = (out[0]!.data as { railY?: number }).railY;
     expect(railY).toBeDefined();
-    const wide = OBSTACLE_PAD_Y + CONTAINER_RAIL_GAP;
     const plain = OBSTACLE_PAD_Y + CHAMFER;
-    // Cleared off the card (on whichever side) by the plain gap...
-    expect(railY! <= cTop - plain || railY! >= cBottom + plain).toBe(true);
-    // ...but NOT by the wide container clearance.
-    expect(railY! > cTop - wide && railY! < cBottom + wide).toBe(true);
+    // Cleared off the card, on whichever side is nearer, by exactly the plain
+    // gap and no more.
+    expect([cTop - plain, cBottom + plain]).toContain(railY);
   });
 });
 
 // -- clampBackwardRails loop returns -----------------------------------------
 
 describe("clampBackwardRails loop returns", () => {
-  // A container (loop / SCC slab) box wrapping its members. Only geometry
-  // matters to the rail clearance, so the data payload is minimal.
-  const containerNode = (
-    id: string,
-    x: number,
-    y: number,
-    width: number,
-    height: number,
-  ): RFAnyNode =>
-    ({
-      id,
-      type: "group",
-      position: { x, y },
-      width,
-      height,
-      data: {
-        containerKind: "blueprint-group",
-        containerId: id,
-        memberCount: 1,
-      },
-    }) as unknown as RFAnyNode;
-
-  it("keeps both rail columns of a same-container return off the slab border", () => {
-    // Loop-backedge family: source and target are both members of one
-    // container, each sitting one ELK inset (12 here) off a side border, so
-    // the default columns -- one stub out of the source port, one stub before
-    // the target port -- land 12 units off the raw border and the return's
-    // verticals braid the frame. Both resolved columns must sit at least
-    // CONTAINER_COLUMN_GAP off the raw slab border (either side).
-    const gLeft = 200;
-    const gRight = 800;
-    const sx = 788; // src's absolute right edge (640 + 148)
-    const tx = 212; // tgt's absolute left edge
-    const nodes: RFAnyNode[] = [
-      containerNode("G", gLeft, 0, gRight - gLeft, 260),
-      { ...productNode("src", 440, 80, 148, 78), parentId: "G" },
-      { ...productNode("tgt", 12, 80, 148, 78), parentId: "G" },
-    ];
-    const out = clampBackwardRails(nodes, [mkEdge("e0", "src", "tgt", "w")]);
-    const railXRight =
-      (out[0]!.data as { railXRight?: number }).railXRight ?? sx + PORT_STUB;
-    const railXLeft =
-      (out[0]!.data as { railXLeft?: number }).railXLeft ?? tx - PORT_STUB;
-    const offFrame = (x: number): number =>
-      Math.min(Math.abs(x - gLeft), Math.abs(x - gRight));
-    // Today both defaults sit 12 off a border, inside the gap.
-    expect(offFrame(railXRight)).toBeGreaterThanOrEqual(CONTAINER_COLUMN_GAP);
-    expect(offFrame(railXLeft)).toBeGreaterThanOrEqual(CONTAINER_COLUMN_GAP);
-    // And the columns actually moved (the defaults are stamped, not kept).
-    expect((out[0]!.data as { railXRight?: number }).railXRight).toBeDefined();
-    expect((out[0]!.data as { railXLeft?: number }).railXLeft).toBeDefined();
-  });
-
-  it("keeps a one-endpoint return's member-side column off the slab border", () => {
-    // Round-2 finding 2: only the SOURCE is a member of the container (the
-    // target sits outside it, to the left), so the shared-parent un-exemption
-    // never fires and the source's own container stays fully exempt: its
-    // default column -- one stub out of the port, 12 off the right border
-    // here -- rides the frame exactly like the both-endpoint case did. Each
-    // endpoint's OWN container joins ITS side's scan as border bands, so the
-    // member-side column must hold the same CONTAINER_COLUMN_GAP off the raw
-    // border, while the outside target's column keeps today's unstamped
-    // default (no container is its own geometry).
-    const gLeft = 200;
-    const gRight = 800;
-    const sx = 788; // src's absolute right edge (200 + 440 + 148)
-    const tx = -400; // tgt's absolute left edge, outside the slab
-    const nodes: RFAnyNode[] = [
-      containerNode("G", gLeft, 0, gRight - gLeft, 260),
-      { ...productNode("src", 440, 80, 148, 78), parentId: "G" },
-      productNode("tgt", tx, 80, 148, 78),
-    ];
-    const out = clampBackwardRails(nodes, [mkEdge("e0", "src", "tgt", "w")]);
-    const railXRight =
-      (out[0]!.data as { railXRight?: number }).railXRight ?? sx + PORT_STUB;
-    const offFrame = (x: number): number =>
-      Math.min(Math.abs(x - gLeft), Math.abs(x - gRight));
-    // Today the default rides 12 off the right border, inside the gap.
-    expect(offFrame(railXRight)).toBeGreaterThanOrEqual(CONTAINER_COLUMN_GAP);
-    // And the column actually moved (the default is stamped, not kept).
-    expect((out[0]!.data as { railXRight?: number }).railXRight).toBeDefined();
-    // Per-side: the outside target's column is no container's business.
-    expect((out[0]!.data as { railXLeft?: number }).railXLeft).toBeUndefined();
-  });
-
   it("clears the rail over only the connected band of obstacles around the preferred y", () => {
     // The y-window: a backward rail whose preferred y strikes a LOCAL card
     // must escape just off that card's band, not over every x-overlapping
@@ -1184,51 +1044,18 @@ describe("jogForwardLegs", () => {
     expect(out[0]).toBe(edges[0]);
   });
 
-  // A container ("group") box, the obstacle kind whose exemption this fixture
-  // exercises. Only geometry matters to the jog, so data is minimal.
-  const containerNode = (
-    id: string,
-    x: number,
-    y: number,
-    width: number,
-    height: number,
-  ): RFAnyNode => ({
-    id,
-    type: "group",
-    position: { x, y },
-    width,
-    height,
-    data: {
-      containerKind: "blueprint-group",
-      containerId: id,
-      memberCount: 1,
-    },
-  });
-
-  it("exempts the endpoints' own container but jogs around a foreign one", () => {
-    // The straight leg at ty would strike a group box straddling the target row.
-    // When that box is the TARGET's own container (parentId), the leg legitimately
-    // enters it, so the exemption drops it and no jog is stamped. An identically
-    // placed FOREIGN container (no endpoint's parent) stays an obstacle, so the
-    // leg jogs around it. Same geometry, opposite outcome -- the parentId
-    // exemption is what separates them.
-    const own: RFAnyNode[] = [
-      inputProductNode("s", "ore", 0, 0, 148, 78), // right 148, port y 39
-      { ...inputProductNode("t", "ore", 760, 100, 148, 78), parentId: "G" },
-      containerNode("G", 700, 50, 300, 200), // wraps t, straddles the leg
-    ];
+  it("jogs around a foreign card straddling the leg", () => {
+    // The straight leg at ty would strike a card in an intermediate layer that
+    // belongs to neither endpoint, so it stays an obstacle and the leg jogs
+    // around it.
     const edge: Edge = {
       ...mkEdge("e0", "s", "t", "ore"),
       data: { item: "ore", rate: new Fraction(1), bendX: 200 },
     };
-    const ownOut = jogForwardLegs(own, [edge]);
-    expect(legYOf(ownOut, "e0")).toBeUndefined();
-    expect(ownOut[0]).toBe(edge);
-
     const foreign: RFAnyNode[] = [
       inputProductNode("s", "ore", 0, 0, 148, 78),
       inputProductNode("t", "ore", 760, 100, 148, 78),
-      containerNode("F", 360, 80, 220, 120), // intermediate, no endpoint's parent
+      inputProductNode("F", "ore", 360, 80, 220, 120), // intermediate card
     ];
     const foreignOut = jogForwardLegs(foreign, [edge]);
     expect(legYOf(foreignOut, "e0")).toBeDefined();

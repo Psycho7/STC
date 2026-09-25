@@ -292,10 +292,7 @@ describe("a far member whose named run cannot hold its chip", () => {
     expect(drawn.shape).toBe("item");
     if (drawn.shape !== "item") return;
 
-    const cards = cardRectsFor(
-      widened.nodes.filter((n) => n.type !== "group"),
-      byId,
-    );
+    const cards = cardRectsFor(widened.nodes);
     const halfW = chipSeatHalfW(rateChipText(laid), false);
     const runs = horizontalRuns(drawn.pts);
     const last = runs[runs.length - 1]!;
@@ -366,10 +363,7 @@ describe("the chip slide's obstacle tiers", () => {
       edge("e:2", "p2", "t2"),
     ]);
     const byId = nodeIndexOf(nodes);
-    const cards = cardRectsFor(
-      nodes.filter((n) => n.type !== "group"),
-      byId,
-    );
+    const cards = cardRectsFor(nodes);
     const withFurniture = cards.flatMap((card) => [
       card as { left: number; right: number; top: number; bottom: number },
       portKeepOutRect(card, "source"),
@@ -633,10 +627,7 @@ describe("a slide seat whose ideal position is off the 0.01 grid", () => {
     expect(drawn.shape).toBe("item");
     if (drawn.shape !== "item") return;
 
-    const cards = cardRectsFor(
-      nodes.filter((n) => n.type !== "group"),
-      byId,
-    );
+    const cards = cardRectsFor(nodes);
     const halfW = chipSeatHalfW(rateChipText(laid), false);
     const runs = horizontalRuns(drawn.pts);
     const blk = cards.find((c) => c.id === "blk")!;
@@ -688,10 +679,7 @@ describe("a run centre whose ideal position is off the 0.01 grid", () => {
     expect(drawn.shape).toBe("item");
     if (drawn.shape !== "item") return;
 
-    const cards = cardRectsFor(
-      nodes.filter((n) => n.type !== "group"),
-      byId,
-    );
+    const cards = cardRectsFor(nodes);
     const halfW = chipSeatHalfW(rateChipText(laid), false);
     const runs = horizontalRuns(drawn.pts);
     const centre = (runs[0]!.lo + runs[0]!.hi) / 2;

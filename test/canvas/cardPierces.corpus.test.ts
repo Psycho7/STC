@@ -51,7 +51,7 @@ describe("no drawn segment enters a foreign card", () => {
         solveForRender({ targets, pack }),
       );
       const byId = nodeIndexOf(nodes);
-      const rects: NodeRect[] = cardRectsFor(nodes, byId).map((c) => ({
+      const rects: NodeRect[] = cardRectsFor(nodes).map((c) => ({
         nodeId: c.id,
         type: byId.get(c.id)?.type ?? "",
         left: c.left,

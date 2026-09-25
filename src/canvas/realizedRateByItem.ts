@@ -17,11 +17,7 @@ export type RealizedRatesByRole = {
 };
 
 // Fold the realized demand per input item out of the React Flow product nodes
-// the layout layer wrote. An input item that fans out across containers emits
-// an aggregate node (item total, no fanout flag) followed by per-container
-// fanout slices (partial rates, isFanout) that share the same itemId. Skipping
-// the fanout slices keeps the item-level total: aggregate and single-bucket
-// nodes both carry the total and neither carries isFanout.
+// the layout layer wrote: one node per item and pool, carrying the total.
 export function buildRealizedRateByItem(
   nodes: readonly Node[],
 ): ReadonlyMap<string, RealizedRatesByRole> {
@@ -30,9 +26,6 @@ export function buildRealizedRateByItem(
     if (n.type !== "product") continue;
     const data = n.data as Partial<ProductNodeData>;
     if (data.kind !== "inputProduct") continue;
-    // Fanout slices carry only a per-container partial rate; skip them so a
-    // slice cannot overwrite the item's aggregate total.
-    if (data.isFanout) continue;
     if (data.itemId === undefined || data.rate === undefined) continue;
     const entry = map.get(data.itemId) ?? {};
     if (data.role === "catalyst") {

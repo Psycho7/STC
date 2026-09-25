@@ -158,14 +158,13 @@ describe("contentBounds: dense plan", () => {
     };
     const laid = await layoutSolved(solveFromPlan(plan, pack));
 
-    const byId = new Map(laid.nodes.map((n) => [n.id, n]));
     let nl = Infinity;
     let nt = Infinity;
     let nr = -Infinity;
     let nb = -Infinity;
     for (const n of laid.nodes) {
-      const x = absoluteLeft(n, byId);
-      const y = absoluteTop(n, byId);
+      const x = absoluteLeft(n);
+      const y = absoluteTop(n);
       nl = Math.min(nl, x);
       nt = Math.min(nt, y);
       nr = Math.max(nr, x + nodeWidth(n));

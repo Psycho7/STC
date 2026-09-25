@@ -17,11 +17,7 @@ import { layoutSolved } from "../../src/canvas/layoutSolved";
 import type { RFAnyNode } from "../../src/canvas/layout";
 import { loopPaints, type LoopPaint } from "../../src/canvas/loopPaint";
 import { seatedChipBoxes } from "../../src/canvas/chipSeating";
-import {
-  nodeIndexOf,
-  nodeRectOf,
-  type Rect,
-} from "../../src/canvas/nodeGeometry";
+import { nodeRectOf, type Rect } from "../../src/canvas/nodeGeometry";
 import { pack } from "../../src/data/load";
 import { solveForRender } from "../../src/pipeline/solveForRender";
 import { SCENARIOS } from "../e2e/scenarios";
@@ -66,7 +62,6 @@ describe("loop paint", () => {
     const painted: string[] = [];
     for (const scenario of SCENARIOS) {
       const { nodes, edges } = await layOut(scenario.id);
-      const byId = nodeIndexOf(nodes);
       const cards = nodes.filter(
         (n) => n.type === "recipe" || n.type === "product",
       );
@@ -85,7 +80,7 @@ describe("loop paint", () => {
         const members = new Set(paint.members);
         for (const card of cards) {
           if (members.has(card.id)) continue;
-          const rect = nodeRectOf(card, byId);
+          const rect = nodeRectOf(card);
           if (paint.rects.some((r) => overlaps(r, rect))) {
             foreign.push(`${scenario.id}: ${card.id} in ${paint.members[0]}`);
           }
@@ -96,7 +91,7 @@ describe("loop paint", () => {
           continue;
         }
         for (const card of cards) {
-          if (overlaps(caption, nodeRectOf(card, byId))) {
+          if (overlaps(caption, nodeRectOf(card))) {
             captionHits.push(`${scenario.id}: caption on card ${card.id}`);
           }
         }

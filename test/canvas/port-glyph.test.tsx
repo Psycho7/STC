@@ -369,7 +369,6 @@ describe("ProductNode port glyphs", () => {
       kind: "inputProduct",
       itemId: "copper_ore",
       rate: { num: "1", denom: "1" },
-      isFanout: true,
       portTransportKinds,
     });
     const glyphs = container.querySelectorAll<HTMLElement>("[data-glyph]");

@@ -25,12 +25,7 @@ import type { Edge } from "@xyflow/react";
 import { PORT_STUB, drawnEdge, horizontalRuns } from "./edgePath";
 import { CHIP_HALF_H } from "./chipMetrics";
 import { COLUMN_MIN_PITCH } from "./layerModel";
-import {
-  drawnPortsOf,
-  nodeIndexOf,
-  nodeRectOf,
-  type Rect,
-} from "./nodeGeometry";
+import { drawnPortsOf, type Rect } from "./nodeGeometry";
 import type { RFAnyNode } from "./layout";
 
 // The y clearance two forward horizontal runs of different edges keep where
@@ -66,16 +61,6 @@ export type RunBand = LevelPorts & {
   right: number;
 };
 
-// A container's top or bottom border as a ZERO-HEIGHT line at the RAW border
-// the reader sees. The clearance a consumer owes it is the consumer's own
-// constant, not a property of the line, so no floor is baked in here.
-export type FrameLine = {
-  nodeId: string;
-  y: number;
-  left: number;
-  right: number;
-};
-
 // One edge's drawn horizontal runs, as bands for the OTHER edges' runs. Read
 // off the drawn polyline rather than the stamps, so the band covers the line
 // the reader sees; a backward detour contributes none (its rail level is
@@ -104,22 +89,6 @@ export function runBandsOfEdge(
     bottom: run.y + FORWARD_LEVEL_FLOOR,
     y: run.y,
   }));
-}
-
-// Every container's top and bottom border. Which of them a run is exempt from
-// (its own containers) is the consumer's filter, not this derivation's.
-export function containerFrameLines(
-  nodes: ReadonlyArray<RFAnyNode>,
-): FrameLine[] {
-  const byId = nodeIndexOf(nodes);
-  const frames: FrameLine[] = [];
-  for (const node of nodes) {
-    if (node.type !== "group" && node.type !== "loop") continue;
-    const r = nodeRectOf(node, byId);
-    frames.push({ nodeId: node.id, y: r.top, left: r.left, right: r.right });
-    frames.push({ nodeId: node.id, y: r.bottom, left: r.left, right: r.right });
-  }
-  return frames;
 }
 
 // Do these two runs draw as ONE line on purpose? They do when they coincide on
@@ -163,59 +132,31 @@ export function runFloorHit(
   );
 }
 
-// Does a horizontal at `y` from x0 to x1 lie within `floor` of a frame line the
-// span reaches? Unlike the run floor, ANY x-overlap counts: a frame is a border
-// the reader already follows, so a stroke drawn beside it merges with it over
-// whatever length they share rather than needing a stub's worth of company.
-// `floor` is the consumer's clearance, since the line carries none of its own.
-export function frameFloorHit(
-  frames: ReadonlyArray<FrameLine>,
-  y: number,
-  x0: number,
-  x1: number,
-  floor: number,
-): boolean {
-  const lo = Math.min(x0, x1);
-  const hi = Math.max(x0, x1);
-  return frames.some(
-    (f) => f.right > lo && f.left < hi && Math.abs(y - f.y) < floor,
-  );
-}
-
 // The levels a horizontal spanning [x0, x1] may relocate to, in acceptance
-// order: every spanned card's padded escape, every spanned band's own edges as
-// well as those edges padded, and every spanned frame line at `frameGap` above
-// and below the raw border. A band already carries the clearance it wants, so
+// order: every spanned card's padded escape, and every spanned band's own edges
+// as well as those edges padded. A band already carries the clearance it wants, so
 // its own edge IS a candidate level; offering only the padded one would skip
 // the level that just clears a neighbouring line and land on the line past it.
 // Both are offered, since a candidate further out of a band is no less clear of
 // it.
 //
-// `frameGap` is a DISTANCE FROM THE RAW BORDER, and the consumer states it:
-// the jog and the rail owe a container frame different clearances, and each one
-// stacks its policy constant on the padding its own obstacle rects carry. The
-// module holds no clearance policy of its own.
-//
 // The span is given in BOTH frames, because the inputs are built in two: the
 // bands are read off the drawn polylines (runBandsOfEdge), while the cards are
-// the routing passes' model rects and the frame lines are the model node rects
-// (containerFrameLines). Each input is filtered by the span in its own frame,
-// so the drift between the two never decides what the run spans.
+// the routing passes' model rects. Each input is filtered by the span in its
+// own frame, so the drift between the two never decides what the run spans.
 //
 // Sorted nearest to `anchorY` first -- the smallest vertical excursion wins --
 // with the row value as the tie-break, so the order never depends on the order
 // the obstacles were handed in.
 export function levelCandidates(args: {
   anchorY: number;
-  // The run's x-span in the MODEL frame, for the cards and the frame lines.
+  // The run's x-span in the MODEL frame, for the cards.
   x0: number;
   x1: number;
   // The same span in the DRAWN frame, for the bands.
   drawnX0: number;
   drawnX1: number;
   bands: ReadonlyArray<RunBand>;
-  frames: ReadonlyArray<FrameLine>;
-  frameGap: number;
   cards: ReadonlyArray<Rect>;
   pad: number;
 }): number[] {
@@ -236,11 +177,6 @@ export function levelCandidates(args: {
     levels.add(band.bottom);
     levels.add(band.top - args.pad);
     levels.add(band.bottom + args.pad);
-  }
-  for (const frame of args.frames) {
-    if (frame.right <= lo || frame.left >= hi) continue;
-    levels.add(frame.y - args.frameGap);
-    levels.add(frame.y + args.frameGap);
   }
   return [...levels].sort(
     (a, b) => Math.abs(a - args.anchorY) - Math.abs(b - args.anchorY) || a - b,

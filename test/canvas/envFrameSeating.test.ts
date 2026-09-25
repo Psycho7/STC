@@ -33,9 +33,8 @@ describe("cardRectsFor leaves an environment card at its drawn border box", () =
   it("adds no frame term, and the plate rides inside the box through nodeHeight", () => {
     const node = recipeNode("r", 1000, 400, envRecipe);
     const nodes: RFAnyNode[] = [node];
-    const byId = new Map(nodes.map((n) => [n.id, n]));
 
-    const [rect] = cardRectsFor(nodes, byId);
+    const [rect] = cardRectsFor(nodes);
 
     expect(rect).toEqual({
       id: "r",
@@ -54,9 +53,8 @@ describe("cardRectsFor leaves an environment card at its drawn border box", () =
   it("leaves a plain recipe card at the drawn border box", () => {
     const node = recipeNode("r", 1000, 400, mkRecipe("r", ["a"], ["b"]));
     const nodes: RFAnyNode[] = [node];
-    const byId = new Map(nodes.map((n) => [n.id, n]));
 
-    const [rect] = cardRectsFor(nodes, byId);
+    const [rect] = cardRectsFor(nodes);
     expect(rect?.left).toBe(1000);
     expect(rect?.top).toBe(400);
     expect(rect?.right).toBe(1000 + RECIPE_WIDTH + 2 * CARD_BORDER);
@@ -89,7 +87,7 @@ async function plateViolations(
     solveForRender({ targets, pack }),
   );
   const byId = nodeIndexOf(nodes);
-  const envCards = cardRectsFor(nodes, byId).filter(
+  const envCards = cardRectsFor(nodes).filter(
     (r): boolean =>
       byId.get(r.id)?.type === "recipe" &&
       (byId.get(r.id)?.data as { recipe?: { environment?: string } }).recipe

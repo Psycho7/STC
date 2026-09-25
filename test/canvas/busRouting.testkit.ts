@@ -5,14 +5,7 @@
 // they are re-exported here so the borrowed suites keep one import path. No
 // assertions here -- just constructors.
 
-import type {
-  RFContainerNode,
-  RFProductNode,
-  RFRecipeNode,
-} from "../../src/canvas/layout";
-
 export {
-  containerNode,
   emptyPorts,
   inputProductNode,
   mkEdge,
@@ -21,12 +14,3 @@ export {
   productNode,
   recipeNode,
 } from "../../src/canvas/levelOccupancy.testkit";
-
-// Re-parent a laid-out node into a container: the caller hands in the
-// node's PARENT-RELATIVE position, the same frame ELK's children come back in.
-export const inContainer = <
-  T extends RFRecipeNode | RFProductNode | RFContainerNode,
->(
-  node: T,
-  parentId: string,
-): T => ({ ...node, parentId });

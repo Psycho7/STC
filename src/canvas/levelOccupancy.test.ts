@@ -10,25 +10,20 @@ import { describe, it, expect } from "vitest";
 import {
   FORWARD_LEVEL_FLOOR,
   chooseLevel,
-  containerFrameLines,
   levelCandidates,
   runBandsOfEdge,
   runFloorHit,
   sharesPortRow,
-  type FrameLine,
   type LevelPorts,
   type RunBand,
 } from "./levelOccupancy";
 import { PORT_STUB, drawnEdge, horizontalRuns } from "./edgePath";
-import { CONTAINER_JOG_GAP, OBSTACLE_PAD_Y } from "./busRouting";
 import { drawnPortsOf, nodeIndexOf } from "./nodeGeometry";
 import type { RFAnyNode } from "./layout";
 import {
-  containerNode,
   inputProductNode,
   mkEdge,
   orderedRecipeNode,
-  productNode,
 } from "./levelOccupancy.testkit";
 
 // A band at `y` spanning [left, right], for the queries that take bands as
@@ -99,26 +94,6 @@ describe("run bands are the drawn horizontals of one edge", () => {
   });
 });
 
-describe("container frame lines", () => {
-  it("takes the top and bottom border of every container and nothing else", () => {
-    const nodes: RFAnyNode[] = [
-      containerNode("g", 100, 50, 400, 300),
-      productNode("plain", 700, 20, 120, 60),
-    ];
-    expect(containerFrameLines(nodes)).toEqual([
-      { nodeId: "g", y: 50, left: 100, right: 500 },
-      { nodeId: "g", y: 350, left: 100, right: 500 },
-    ]);
-  });
-
-  it("carries no clearance of its own, so the line sits on the raw border", () => {
-    const nodes: RFAnyNode[] = [containerNode("g", 0, 0, 200, 120)];
-    const [top, bottom] = containerFrameLines(nodes);
-    expect(top!.y).toBe(0);
-    expect(bottom!.y).toBe(120);
-  });
-});
-
 describe("the port-row waiver", () => {
   it("waives a band that coincides on a shared source row", () => {
     const band = bandAt(100, 0, 500, { source: "s", sy: 100 });
@@ -183,10 +158,6 @@ describe("the run floor", () => {
 
 describe("candidate levels", () => {
   const card = { left: 0, right: 500, top: 200, bottom: 300 };
-  // The frame arm is off unless a case asks for it. The gap is a distance from
-  // the raw border and belongs to the consumer, so it is only meaningful where
-  // frames are actually handed in.
-  const NO_FRAMES = { frames: [] as FrameLine[], frameGap: 0 };
 
   it("offers each spanned card its padded escapes", () => {
     expect(
@@ -197,57 +168,10 @@ describe("candidate levels", () => {
         drawnX0: 0,
         drawnX1: 500,
         bands: [],
-        ...NO_FRAMES,
         cards: [card],
         pad: 8,
       }),
     ).toEqual([192, 308]);
-  });
-
-  it("offers a frame line the consumer's gap above and below the raw border", () => {
-    // The F family's candidate arm: a jog asking for CONTAINER_JOG_GAP (24) on
-    // top of the OBSTACLE_PAD_Y (8) its card rects carry gets levels 32 off the
-    // border the reader sees, on both sides, and nothing closer. The gap comes
-    // from the constants rather than a literal, so retuning CONTAINER_JOG_GAP
-    // fails here against the expected 1032 / 968.
-    const frame: FrameLine = { nodeId: "loop", y: 1000, left: 0, right: 500 };
-    expect(
-      levelCandidates({
-        anchorY: 1010,
-        x0: 0,
-        x1: 500,
-        drawnX0: 0,
-        drawnX1: 500,
-        bands: [],
-        frames: [frame],
-        frameGap: CONTAINER_JOG_GAP + OBSTACLE_PAD_Y,
-        cards: [],
-        pad: 8,
-      }),
-    ).toEqual([1032, 968]);
-  });
-
-  it("skips a frame line the span does not reach", () => {
-    const elsewhere: FrameLine = {
-      nodeId: "loop",
-      y: 1000,
-      left: 900,
-      right: 1200,
-    };
-    expect(
-      levelCandidates({
-        anchorY: 1010,
-        x0: 0,
-        x1: 500,
-        drawnX0: 0,
-        drawnX1: 500,
-        bands: [],
-        frames: [elsewhere],
-        frameGap: 32,
-        cards: [],
-        pad: 8,
-      }),
-    ).toEqual([]);
   });
 
   it("offers a band its own edges and those edges padded", () => {
@@ -260,7 +184,6 @@ describe("candidate levels", () => {
         drawnX0: 0,
         drawnX1: 500,
         bands: [band],
-        ...NO_FRAMES,
         cards: [],
         pad: 8,
       }),
@@ -281,7 +204,6 @@ describe("candidate levels", () => {
       drawnX0: 0,
       drawnX1: 500,
       bands: [],
-      ...NO_FRAMES,
       cards: [far, card],
       pad: 8,
     });
@@ -299,7 +221,6 @@ describe("candidate levels", () => {
       drawnX0: 0,
       drawnX1: 500,
       bands: [],
-      ...NO_FRAMES,
       pad: 8,
     };
     expect(levelCandidates({ ...args, cards: [symmetric] })).toEqual([
@@ -320,7 +241,6 @@ describe("candidate levels", () => {
         drawnX0: 0,
         drawnX1: 500,
         bands: [],
-        ...NO_FRAMES,
         cards: [card, twin],
         pad: 8,
       }),
@@ -341,7 +261,6 @@ describe("candidate levels", () => {
         drawnX0: 5,
         drawnX1: 505,
         bands: [bandOnlyDrawn],
-        ...NO_FRAMES,
         cards: [cardOnlyModel],
         pad: 8,
       }),
@@ -365,7 +284,6 @@ describe("candidate levels", () => {
         drawnX0: 0,
         drawnX1: 500,
         bands: [bandAt(100, 900, 1200)],
-        ...NO_FRAMES,
         cards: [elsewhere],
         pad: 8,
       }),

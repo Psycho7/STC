@@ -7,6 +7,7 @@ import { describe, expect, it } from "vitest";
 import {
   LOOP_CAPTION_HEIGHT,
   LOOP_PAINT_PAD,
+  loopCaption,
   loopMemberSets,
   loopPaints,
 } from "../../src/canvas/loopPaint";
@@ -79,5 +80,25 @@ describe("loop paint", () => {
     const lid2 = recipeNode("u:lid2", 400, 140, mkRecipe("r:lid2", [], ["q"]));
     const pushed = loopPaints([...pair, lid, lid2], edges)[0]!;
     expect(pushed.caption!.top).toBeGreaterThan(200);
+  });
+});
+
+describe("loop caption", () => {
+  it("names the loop by its items, resolved through the display-name lookup", () => {
+    expect(loopCaption(["a", "b"], (id) => id.toUpperCase())).toBe(
+      "LOOP · A · B",
+    );
+  });
+
+  // Two loops of the same size must not caption identically; the member items
+  // are what tells them apart.
+  it("distinguishes two loops of the same size", () => {
+    expect(loopCaption(["plant_moss_3", "plant_moss_seed_3"])).not.toBe(
+      loopCaption(["liquid_xiranite_poly", "xiranite_poly"]),
+    );
+  });
+
+  it("is empty when no member item resolves", () => {
+    expect(loopCaption([])).toBe("");
   });
 });

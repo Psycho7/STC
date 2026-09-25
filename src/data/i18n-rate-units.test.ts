@@ -21,5 +21,5 @@ for (const locale of NON_LATIN_UNIT_LOCALES) {
 }
 
 test("en keeps the Latin unit", () => {
-  expect(loadI18n("en").t("product.tap.share", { rate: "1" })).toBe("of 1/min");
+  expect(loadI18n("en").t("inputs.needed", { rate: "1" })).toBe("needed 1/min");
 });

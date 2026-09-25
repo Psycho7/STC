@@ -56,6 +56,16 @@ export type LoopPaint = {
   caption: Rect | undefined;
 };
 
+// The caption text: the loop named by the items its members make, so two loops
+// of the same size read differently. Empty when no member item resolves.
+export function loopCaption(
+  titleItems: ReadonlyArray<ItemId>,
+  displayName: (id: string) => string = (id) => id,
+): string {
+  if (titleItems.length === 0) return "";
+  return `LOOP · ${titleItems.map(displayName).join(" · ")}`;
+}
+
 // Strongly connected recipe-card sets of size >= 2 over the drawn edges, each
 // in node order, sorted by first member.
 export function loopMemberSets(
@@ -115,7 +125,7 @@ export function loopPaints(
   const byId = nodeIndexOf(nodes);
   const cards = nodes
     .filter((n) => n.type === "recipe" || n.type === "product")
-    .map((n) => ({ id: n.id, rect: nodeRectOf(n, byId) }));
+    .map((n) => ({ id: n.id, rect: nodeRectOf(n) }));
   const chips = seatedChipBoxes(nodes, edges).map((c) => ({
     left: c.x - c.halfW,
     right: c.x + c.halfW,
@@ -131,7 +141,7 @@ export function loopPaints(
     const padded = new Map(
       members.map((id) => [
         id,
-        grow(nodeRectOf(byId.get(id)!, byId), LOOP_PAINT_PAD),
+        grow(nodeRectOf(byId.get(id)!), LOOP_PAINT_PAD),
       ]),
     );
     const rects = [...padded.values()];

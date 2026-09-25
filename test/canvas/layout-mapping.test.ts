@@ -340,7 +340,9 @@ describe("layoutRenderPlan: end-to-end", () => {
       itemById: new Map(),
     });
     expect(result.nodes.find((n) => n.id === "g:1")).toBeUndefined();
-    expect(result.nodes.some((n) => n.type === "group")).toBe(false);
+    expect(result.nodes.some((n) => (n.type as string) === "group")).toBe(
+      false,
+    );
     const members = result.nodes.filter((n) =>
       ["u:a", "u:b", "u:c"].includes(n.id),
     );

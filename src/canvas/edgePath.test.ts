@@ -26,26 +26,11 @@ test("clearRailY clears all spanned cards at once", () => {
   }
 });
 
-test("clearRailY pushes a moat-preferred rail out to the full container band", () => {
-  // A rail whose preferred y misses the container's padded rect but lands in
-  // the moat between the border and the wide clearance band would otherwise be
-  // left hugging the slab; the widened container strike band pushes it out.
-  const slab: ObstacleRect = {
-    left: 100,
-    right: 400,
-    top: 100,
-    bottom: 200,
-    container: true,
-  };
-  const y = clearRailY(91, 120, 380, [slab], 8, 48);
-  expect(y).toBe(slab.top - 48);
-});
-
-test("clearRailY leaves a moat-preferred rail alone off a plain card", () => {
-  // Same geometry without the container flag: 91 is outside the card's rect,
-  // so a plain obstacle keeps the narrow strike band and the rail stays put.
+test("clearRailY leaves a rail just outside a card's rect alone", () => {
+  // 91 is outside the card's rect, so the strike band is the rect itself and
+  // the rail stays put.
   const card: ObstacleRect = { left: 100, right: 400, top: 100, bottom: 200 };
-  expect(clearRailY(91, 120, 380, [card], 8, 48)).toBe(91);
+  expect(clearRailY(91, 120, 380, [card], 8)).toBe(91);
 });
 
 test("clearRailY re-escapes when the nearer landing parks inside a foreign card's gap clearance", () => {
@@ -58,7 +43,7 @@ test("clearRailY re-escapes when the nearer landing parks inside a foreign card'
   // into the band, and recompute to the below escape, A.bottom + gap = 208.
   const a: ObstacleRect = { left: 100, right: 400, top: 100, bottom: 200 };
   const b: ObstacleRect = { left: 120, right: 380, top: 0, bottom: 91 };
-  expect(clearRailY(150, 120, 380, [a, b], 8, 48)).toBe(208);
+  expect(clearRailY(150, 120, 380, [a, b], 8)).toBe(208);
 });
 
 test("chamferStepPath honors a railY override in its backward branch", () => {
