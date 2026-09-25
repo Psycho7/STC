@@ -10,7 +10,10 @@ import { describe, it, expect } from "vitest";
 import {
   FORWARD_LEVEL_FLOOR,
   chooseLevel,
+  chooseLevelByCost,
   levelCandidates,
+  levelCrossingCost,
+  levelNearCardCount,
   runBandsOfEdge,
   runFloorHit,
   sharesPortRow,
@@ -319,5 +322,126 @@ describe("choosing a level", () => {
 
   it("keeps the preferred level when there are no candidates at all", () => {
     expect(chooseLevel(50, [], () => true)).toBe(50);
+  });
+});
+
+describe("the crossings a jog level draws", () => {
+  // A jog leaving its source row 0 at column C = 100, running at R = 200 out to
+  // the descent D = 500, and descending to its target row 300.
+  const SHAPE = { sy: 0, C: 100, R: 200, D: 500, ty: 300 };
+  const column = (x: number, top: number, bottom: number) => ({
+    left: x,
+    top,
+    bottom,
+  });
+  const run = (y: number, left: number, right: number) => ({ y, left, right });
+
+  it("counts a vertical strictly inside [C, D] that spans R once", () => {
+    expect(levelCrossingCost(SHAPE, [column(300, 150, 250)], [])).toBe(1);
+  });
+
+  it("does not count a vertical that only touches the run", () => {
+    // One ends on R, one stands on the descent column itself.
+    expect(
+      levelCrossingCost(
+        SHAPE,
+        [column(300, 200, 250), column(500, 150, 250)],
+        [],
+      ),
+    ).toBe(0);
+  });
+
+  it("does not count a horizontal run that stops short of the stub", () => {
+    expect(levelCrossingCost(SHAPE, [], [run(100, 0, 90)])).toBe(0);
+    // Premise: the same run reaching past C is a crossing.
+    expect(levelCrossingCost(SHAPE, [], [run(100, 0, 150)])).toBe(1);
+  });
+
+  it("counts a run crossing the descent", () => {
+    expect(levelCrossingCost(SHAPE, [], [run(250, 450, 700)])).toBe(1);
+  });
+
+  it("adds the crossings of two verticals", () => {
+    expect(
+      levelCrossingCost(
+        SHAPE,
+        [column(250, 150, 250), column(350, 0, 400)],
+        [],
+      ),
+    ).toBe(2);
+  });
+});
+
+describe("the cards a jog level passes close to", () => {
+  // A run from x 100 to 500 at level R; cards as the router pads them.
+  const card = (left: number, right: number, top: number, bottom: number) => ({
+    left,
+    right,
+    top,
+    bottom,
+  });
+  const PAD = 8;
+
+  it("counts a card whose bottom lies within the pad of the level", () => {
+    expect(
+      levelNearCardCount(205, 100, 500, [card(200, 300, 0, 200)], PAD),
+    ).toBe(1);
+  });
+
+  it("counts a card whose top lies within the pad of the level", () => {
+    expect(
+      levelNearCardCount(95, 100, 500, [card(200, 300, 100, 200)], PAD),
+    ).toBe(1);
+  });
+
+  it("does not count the card's own escape level, one pad off its edge", () => {
+    expect(
+      levelNearCardCount(208, 100, 500, [card(200, 300, 0, 200)], PAD),
+    ).toBe(0);
+  });
+
+  it("does not count a card outside the run's x-extent", () => {
+    expect(
+      levelNearCardCount(205, 100, 500, [card(600, 700, 0, 200)], PAD),
+    ).toBe(0);
+  });
+
+  it("counts each near card once", () => {
+    expect(
+      levelNearCardCount(
+        205,
+        500,
+        100,
+        [card(150, 250, 0, 200), card(300, 400, 210, 300)],
+        PAD,
+      ),
+    ).toBe(2);
+  });
+});
+
+describe("choosing a level by its crossings", () => {
+  it("takes a farther level that crosses fewer lines", () => {
+    // Nearest first: 209.5 crosses 8 lines, 77 crosses 3.
+    const cost = (y: number): number[] => [y === 209.5 ? 8 : 3, 0];
+    expect(chooseLevelByCost([209.5, 77], cost)).toBe(77);
+  });
+
+  it("keeps the nearer level on a tie", () => {
+    expect(chooseLevelByCost([209.5, 77], () => [3, 0])).toBe(209.5);
+  });
+
+  it("breaks a crossing tie by the cards a level passes close to", () => {
+    // 958 and 965 cross two lines each; 958 runs a unit under a card.
+    const cost = (y: number): number[] => [2, y === 958 ? 1 : 0];
+    expect(chooseLevelByCost([958, 965], cost)).toBe(965);
+  });
+
+  it("never trades a crossing for a near card", () => {
+    const cost = (y: number): number[] => (y === 958 ? [2, 1] : [3, 0]);
+    expect(chooseLevelByCost([958, 965], cost)).toBe(958);
+  });
+
+  it("has no answer when nothing was accepted", () => {
+    expect(chooseLevelByCost([], () => [0, 0])).toBeUndefined();
   });
 });

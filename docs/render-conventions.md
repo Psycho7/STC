@@ -185,7 +185,10 @@ right of it.
 Forward horizontals keep a floor off each other, the horizontal sibling of the
 column floor under Fan-out and fan-in. Where two such runs of DIFFERENT edges
 share more than a port stub of x, they stay at least a chip box apart in y, and
-the one routed later jogs to the nearest clear level to buy it. A run between a
+the one routed later jogs to the clear level crossing the fewest of the columns
+and runs already placed. Among those, it takes the level that passes the fewest
+cards inside the router's card clearance, and the nearest such level breaks any
+tie that remains. A run between a
 port and its column cannot move to another level, so the column order keeps it
 clear, and it puts a merge before any number of crossings. Where no order
 can -- the pairwise choices form a cycle, or two runs on the same

@@ -43,7 +43,11 @@ import {
   routingHintsFromData,
 } from "../../src/canvas/edgePath";
 import { chipNaturalWidth, rateChipText } from "../../src/canvas/chipMetrics";
-import { ENTRY_SLOT_PITCH, edgePortsModel } from "../../src/canvas/busRouting";
+import {
+  columnsBreakPitch,
+  edgePortsModel,
+  sharesTrunk,
+} from "../../src/canvas/busRouting";
 import {
   buildLayerModel,
   classifyTrunks,
@@ -198,18 +202,8 @@ describe("two verticals in one gap keep the column pitch floor", () => {
         solveForRender({ targets, pack }),
       );
       const byId = nodeIndexOf(nodes);
-      const { trunkByEdgeId } = classifyTrunks(nodes, edges);
       // Two members of one trunk draw on the trunk's shared column by design.
-      const sharesTrunk = (a: string, b: string): boolean => {
-        const keysOf = (id: string): string[] => {
-          const sides = trunkByEdgeId.get(id);
-          return [sides?.fanOut?.key, sides?.fanIn?.key].filter(
-            (key): key is string => key !== undefined,
-          );
-        };
-        const keys = keysOf(b);
-        return keysOf(a).some((key) => keys.includes(key));
-      };
+      const { trunkByEdgeId } = classifyTrunks(nodes, edges);
 
       // Bucket by gap: the floor is a rule about the columns of ONE gap, and a
       // vertical standing in no gap (a jog's last-resort column inside a layer's
@@ -232,12 +226,13 @@ describe("two verticals in one gap keep the column pitch floor", () => {
             const a = list[i]!;
             const b = list[j]!;
             if (a.edge === b.edge) continue;
-            if (sharesTrunk(a.edge, b.edge)) continue;
+            if (sharesTrunk(trunkByEdgeId, a.edge, b.edge)) continue;
             // Disjoint rows: the two columns never draw beside each other.
             if (a.bottom <= b.top || b.bottom <= a.top) continue;
             checked += 1;
+            // The rule itself is the one the jog's level search keeps.
+            if (!columnsBreakPitch(a, b)) continue;
             const dx = Math.abs(a.x - b.x);
-            if (dx >= ENTRY_SLOT_PITCH - EPS) continue;
             tight.push({
               plan: scenario.id,
               gap: index,

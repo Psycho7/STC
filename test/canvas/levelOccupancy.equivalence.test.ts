@@ -39,7 +39,16 @@
 // - every plan with a loop (battery5, battery5-xiranite, crystal, equip4,
 //   multi6, rot-bottled_food_3, rot-bottled_food_4, rot-bottled_rec_hp_1,
 //   rot-proc_bomb_1), when the loop boxes left the layout: the box node and
-//   the per-loop boundary tap cards are gone and every member card moved.
+//   the per-loop boundary tap cards are gone and every member card moved;
+// - battery5-xiranite.json, gas-web.json, multi6.json and
+//   rot-bottled_food_4.json again, when the jog level choice began counting
+//   crossings and near cards, and kept its columns off the pitch floor
+//   (family L below): battery5-xiranite e:0 and e:7,
+//   gas-web e:23 and e:24, multi6 e:1, e:2, e:13, e:25, e:27, e:28, e:31,
+//   e:45, e:71, e:82, e:84, e:85 and e:86 and rot-bottled_food_4 e:16 take
+//   other levels; multi6 rails e:47 and e:49 and rot-bottled_food_4 rail e:2
+//   take the rail levels those vacate, and multi6 e:8, e:9, e:28 and e:71
+//   reseat their chips.
 
 import { describe, it, expect } from "vitest";
 import { readFileSync, writeFileSync } from "node:fs";
@@ -244,11 +253,22 @@ function flatten(snapshot: Snapshot): Map<string, unknown> {
 //      e:49, e:50, e:52, e:53, e:54, e:55, e:56, e:62, e:67, e:69, e:73,
 //      e:74, e:77, e:78, e:79, e:81, e:83, e:84, e:85, e:86, e:87, e:88,
 //      e:89, e:90. Some of these already sit under an earlier family.
+//   L  the jog takes the clear level crossing the fewest columns and runs
+//      already placed, then the one passing the fewest cards inside the card
+//      clearance, the nearest breaking a tie: coupon-web e:2, e:3 and e:28,
+//      copper-script43 e:3, script43 e:1, e:2 and e:28, script43-xiranite e:1
+//      and transmuters e:3 move their levels; script43 e:21, e:23 and e:30
+//      and script43-xiranite e:24 and e:31 reseat their chips.
+//      The same change moves copper-script43 e:8, e:18, e:32 and e:33,
+//      coupon-web e:27 and e:29, script43 e:0, e:6, e:14 and e:29,
+//      script43-xiranite e:0, e:2, e:6, e:14, e:17, e:29 and e:30 and
+//      transmuters e:0, e:1 and e:15, which an earlier family already lists.
 // An edge key is the short `e:NN` head of the routed edge id.
 const MOVED: Readonly<Record<string, ReadonlyArray<string>>> = {
   "copper-script43": [
     "e:1",
     "e:2",
+    "e:3",
     "e:6",
     "e:7",
     "e:8",
@@ -275,6 +295,8 @@ const MOVED: Readonly<Record<string, ReadonlyArray<string>>> = {
     "e:35",
   ],
   "coupon-web": [
+    "e:2",
+    "e:3",
     "e:6",
     "e:7",
     "e:8",
@@ -283,11 +305,14 @@ const MOVED: Readonly<Record<string, ReadonlyArray<string>>> = {
     "e:17",
     "e:20",
     "e:27",
+    "e:28",
     "e:29",
   ],
   default: ["e:5"],
   script43: [
     "e:0",
+    "e:1",
+    "e:2",
     "e:6",
     "e:7",
     "e:8",
@@ -299,12 +324,17 @@ const MOVED: Readonly<Record<string, ReadonlyArray<string>>> = {
     "e:16",
     "e:17",
     "e:20",
+    "e:21",
     "e:22",
+    "e:23",
     "e:27",
+    "e:28",
     "e:29",
+    "e:30",
   ],
   "script43-xiranite": [
     "e:0",
+    "e:1",
     "e:2",
     "e:6",
     "e:7",
@@ -319,11 +349,13 @@ const MOVED: Readonly<Record<string, ReadonlyArray<string>>> = {
     "e:21",
     "e:22",
     "e:23",
+    "e:24",
     "e:28",
     "e:29",
     "e:30",
+    "e:31",
   ],
-  transmuters: ["e:0", "e:1", "e:11", "e:13", "e:14", "e:15"],
+  transmuters: ["e:0", "e:1", "e:3", "e:11", "e:13", "e:14", "e:15"],
 };
 
 // `edge:e:43:u:class:q:51->...plant_grass_1.railY` -> `e:43`.
@@ -353,11 +385,11 @@ const nodeIdOf = (key: string): string | null =>
 // differing fails whichever table lists it, so no list can rot into a blanket
 // waiver.
 const SEAT_FIELDS = ["chipX", "chipY", "labelAnchor"] as const;
+//
+// transmuters e:3 left this table for MOVED with family L: it moves its
+// level now, which carries its chip seat with it.
 const CHIP_SEATS_MOVED: Readonly<Record<string, ReadonlyArray<string>>> = {
-  transmuters: [
-    "e:3:u:cat:liquid_xiranite->u:class:q:11:liquid_xiranite",
-    "e:11:u:class:q:4->u:class:q:0:copper_nugget",
-  ],
+  transmuters: ["e:11:u:class:q:4->u:class:q:0:copper_nugget"],
   "copper-script43": ["e:26:u:class:q:9->u:class:q:32:gas_xiranite_enr"],
 };
 

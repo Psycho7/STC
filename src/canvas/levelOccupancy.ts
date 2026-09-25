@@ -4,9 +4,11 @@
 // This module holds one kind of geometry and nothing else -- lines that run
 // along x at some y. Two consumers read it. jogForwardLegs asks it for the
 // forward runs of the other edges and for the levels a relocated run may take;
-// clampBackwardRails asks it for the same runs once they are final. It is not a
-// registry of everything occupied: verticals live in the chip pass's own
-// segment index, and reserved chip boxes are not here at all.
+// clampBackwardRails asks it for the same runs once they are final. The jog
+// pass also asks it to count what a clear level crosses, handing in the other
+// edges' drawn verticals as data, and how many cards it passes close to. It
+// is not a registry of everything occupied: verticals live in the chip pass's
+// own segment index, and reserved chip boxes are not here at all.
 //
 // Two rules the module states and neither consumer restates:
 //   - the port-row waiver. Two runs that coincide on a port row their edges
@@ -197,4 +199,97 @@ export function chooseLevel(
     if (acceptable(y)) return y;
   }
   return preferred;
+}
+
+// A jog's three movable pieces, in the drawn frame: the column at C from the
+// source row sy down / up to the level R, the run at R from C to D, and the
+// descent at D from R to the target row ty.
+export type JogShape = {
+  sy: number;
+  C: number;
+  R: number;
+  D: number;
+  ty: number;
+};
+
+// Another edge's drawn vertical, zero-width at x = left (the shape
+// drawnColumnBands hands back).
+export type ColumnLine = { left: number; top: number; bottom: number };
+
+// Another edge's drawn horizontal run at y from left to right.
+export type RunLine = { y: number; left: number; right: number };
+
+// How many of the lines already drawn the jog's three pieces cross. Only
+// PROPER crossings count, strictly inside both segments: a line that ends on
+// the jog, or that the jog ends on, meets it at a corner and draws no X.
+// Axis-aligned throughout, so each test is two open-interval checks.
+export function levelCrossingCost(
+  shape: JogShape,
+  columns: ReadonlyArray<ColumnLine>,
+  runs: ReadonlyArray<RunLine>,
+): number {
+  const inside = (v: number, a: number, b: number): boolean =>
+    v > Math.min(a, b) && v < Math.max(a, b);
+  const { sy, C, R, D, ty } = shape;
+  let count = 0;
+  for (const col of columns) {
+    if (inside(col.left, C, D) && inside(R, col.top, col.bottom)) count += 1;
+  }
+  for (const run of runs) {
+    if (inside(C, run.left, run.right) && inside(run.y, sy, R)) count += 1;
+    if (inside(D, run.left, run.right) && inside(run.y, R, ty)) count += 1;
+  }
+  return count;
+}
+
+// How many cards a run at R from x0 to x1 passes closer than `pad` to: a card
+// the run's x-extent reaches, whose top or bottom lies strictly within `pad`
+// of R, counts once. `pad` is the router's own card-candidate pad, the one
+// levelCandidates offers a card's escape at, so a card's own escape level sits
+// exactly one pad off it and is not near.
+export function levelNearCardCount(
+  R: number,
+  x0: number,
+  x1: number,
+  cards: ReadonlyArray<Rect>,
+  pad: number,
+): number {
+  const lo = Math.min(x0, x1);
+  const hi = Math.max(x0, x1);
+  let count = 0;
+  for (const card of cards) {
+    if (card.right <= lo || card.left >= hi) continue;
+    if (Math.abs(R - card.top) < pad || Math.abs(R - card.bottom) < pad) {
+      count += 1;
+    }
+  }
+  return count;
+}
+
+// The candidate with the lowest cost, compared term by term, the earliest in
+// the given order breaking a full tie; undefined when there are none.
+// Candidates arrive nearest-first, so the last tie-break is the smallest
+// excursion without recomputing it. Stops at the first all-zero cost, which
+// nothing after it can beat.
+export function chooseLevelByCost<T>(
+  candidates: Iterable<T>,
+  cost: (candidate: T) => ReadonlyArray<number>,
+): T | undefined {
+  let best: T | undefined;
+  let bestCost: ReadonlyArray<number> | undefined;
+  for (const candidate of candidates) {
+    const c = cost(candidate);
+    if (bestCost !== undefined && !lexLess(c, bestCost)) continue;
+    best = candidate;
+    bestCost = c;
+    if (c.every((term) => term === 0)) break;
+  }
+  return best;
+}
+
+function lexLess(a: ReadonlyArray<number>, b: ReadonlyArray<number>): boolean {
+  for (let i = 0; i < Math.min(a.length, b.length); i += 1) {
+    if (a[i]! !== b[i]!) return a[i]! < b[i]!;
+  }
+  return false;
 }

@@ -436,7 +436,16 @@ const CROSSING_BASELINE: Record<string, number> = {
   //
   // FLAT LOOPS: 74 -> 72, the loop boxes left the layout (members are root
   // cards, the loop is painted) and the per-loop boundary tap cards went.
-  multi6: 72,
+  //
+  // CROSSING-AWARE JOG LEVELS: 72 -> 51. A jog takes the clear level crossing
+  // the fewest columns and runs already placed, then the one passing the
+  // fewest cards inside the card clearance, the nearest breaking a tie, and
+  // never a level whose columns break the pitch floor against a placed
+  // column; thirteen runs change level. Without that last check the count
+  // was 50, measured with e:71's descent merged into e:2's stroke, which hid
+  // a crossing; the pitch check separates them into one cued crossing, which
+  // ranks above a merge.
+  multi6: 51,
   tundra: 0,
   // CATALYST NODE 2026-09-14 (PR B of the catalyst supply pools plan): every
   // catalyst charge now leaves the item's own u:cat:* boundary card instead of
@@ -447,7 +456,9 @@ const CROSSING_BASELINE: Record<string, number> = {
   // e:0 is the loser of the new forward floor against the raw supply run it used
   // to shadow, and crosses one more corridor at its new level. UP move, listed
   // for ruling.
-  script43: 32,
+  //
+  // CROSSING-AWARE JOG LEVELS: 32 -> 26.
+  script43: 26,
   // CATALYST NODE 2026-09-14 (PR B of the catalyst supply pools plan): every
   // catalyst charge now leaves the item's own u:cat:* boundary card instead of
   // its ordinary u:in:* one, so each transmuter plan gained a card and a set of
@@ -463,7 +474,9 @@ const CROSSING_BASELINE: Record<string, number> = {
   // cell was measured on a graph that could not reach them. The two counts
   // describe different graphs, and all 21 crossings carry a drawn cue. UP move,
   // ruled by the user.
-  "coupon-web": 21,
+  //
+  // CROSSING-AWARE JOG LEVELS: 21 -> 15.
+  "coupon-web": 15,
   // #192 pair cost relation: 18 -> 16, the gap order weighs both orders of
   // every column pair and entry rows take slots one at a time across cards.
   //
@@ -473,7 +486,10 @@ const CROSSING_BASELINE: Record<string, number> = {
   // Inergen target no longer draws its own :target card at the top; the export
   // now leaves the item's one pool card and its straight run to the output
   // card crosses the band at right angles. UP move, ruled by stc-13.
-  "gas-web": 21,
+  //
+  // CROSSING-AWARE JOG LEVELS: 21 -> 19, e:23 and e:24 take levels
+  // below the chain.
+  "gas-web": 19,
   // FLAT LOOPS: 2 -> 1, the loop boxes left the layout (members are root
   // cards, the loop is painted) and the per-loop boundary tap cards went.
   "rot-bottled_food_3": 1,
@@ -483,7 +499,10 @@ const CROSSING_BASELINE: Record<string, number> = {
   // level to its target row, y 209.5, which runs under the cycle: it crosses
   // the return rail's two verticals, e:9's dip twice and e:3. UP move, ruled by
   // stc-13.
-  "rot-bottled_food_4": 8,
+  //
+  // CROSSING-AWARE JOG LEVELS: 8 -> 3. e:16 takes level 77 above the cycle,
+  // 5.5 units further than 209.5 and five crossings fewer.
+  "rot-bottled_food_4": 3,
   // CATALYST NODE 2026-09-14 (PR B of the catalyst supply pools plan): every
   // catalyst charge now leaves the item's own u:cat:* boundary card instead of
   // its ordinary u:in:* one, so each transmuter plan gained a card and a set of
@@ -497,7 +516,9 @@ const CROSSING_BASELINE: Record<string, number> = {
   //
   // #192 pair cost relation: 22 -> 20, the gap order weighs both orders of
   // every column pair and entry rows take slots one at a time across cards.
-  transmuters: 20,
+  //
+  // CROSSING-AWARE JOG LEVELS: 20 -> 13.
+  transmuters: 13,
   // ROUTING FINDINGS 2026-09-14 (docs/plans/2026-09-14-render-findings.md): the
   // two reported plans join the corpus. Both route several flows through one
   // corridor (a 14x refinery fan-in on script43-xiranite), so these are first
@@ -517,8 +538,11 @@ const CROSSING_BASELINE: Record<string, number> = {
   // table. Both cells: UP moves, listed for ruling.
   //
   // #192 gap column order: 38 -> 36, e:8 x e:18 no longer cross.
-  "copper-script43": 36,
-  "script43-xiranite": 31,
+  //
+  // CROSSING-AWARE JOG LEVELS: copper-script43 36 -> 29,
+  // script43-xiranite 31 -> 28.
+  "copper-script43": 29,
+  "script43-xiranite": 28,
 };
 
 // Padding-graze ratchet (tier 3): segments that clip only a foreign card's
@@ -545,7 +569,11 @@ const PADDED_GRAZE_BASELINE: Record<string, number> = {
   // used to shadow by the forward floor, clips u:class:q:23's padding overhang
   // at the level it lands on. The padding, not the box -- tier 1 stays at zero.
   // Both cells: UP moves, listed for ruling.
-  script43: 1,
+  //
+  // CROSSING-AWARE JOG LEVELS: script43 1 -> 0, script43-xiranite 1 -> 0.
+  // e:0 takes 27.5, the clear level it ties on crossings with that passes no
+  // card inside the card clearance, and clips no padding.
+  script43: 0,
   "coupon-web": 0,
   "gas-web": 0,
   "rot-bottled_food_3": 0,
@@ -553,12 +581,15 @@ const PADDED_GRAZE_BASELINE: Record<string, number> = {
   // fan-out member of the crossing cell, takes the nearest clear level under
   // the cycle, y 209.5, and clips u:class:q:7's padding there. UP move, ruled
   // by stc-13.
-  "rot-bottled_food_4": 1,
+  //
+  // CROSSING-AWARE JOG LEVELS: 1 -> 0. e:16 runs above the cycle at 77 and
+  // clips nothing.
+  "rot-bottled_food_4": 0,
   // ROUTING FINDINGS 2026-09-14: 1 -> 0. e:24's liquid_xiranite supply run no
   // longer clips u:class:q:13's padding.
   transmuters: 0,
   "copper-script43": 0,
-  "script43-xiranite": 1,
+  "script43-xiranite": 0,
 };
 
 // Chip-segment ratchet: (segment, chip) pairs where a foreign flow's line passes
