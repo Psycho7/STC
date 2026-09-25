@@ -977,11 +977,11 @@ function arrivalRowOf(
 // cards of one layer a slot index means one absolute x -- the columns are
 // measured off the gap, not off the card
 // -- so two cards using index 0 draw their drops on one line wherever their
-// verticals share rows. So each card keeps its rows in port order and the card
-// as a whole is pushed to the first base offset at which none of its rows meets
-// an already-placed row of another card on the same slot: an interval colouring,
-// with the cards taken top to bottom and rows whose verticals miss each other in
-// y free to share a slot. The column zone is charged one pitch per forward edge
+// verticals share rows. So each card keeps its rows in fan sequence and every
+// row takes the first slot beyond the rows it must stand left of at which it
+// meets no already-placed row: an interval colouring, one row at a time across
+// the layer's cards, with rows whose verticals miss each other in y free to
+// share a slot. The column zone is charged one pitch per forward edge
 // (gapRequirements), which is the worst case this can ask for.
 //
 // Which way "monotonic" runs depends on the SIDE the runs approach from, and
@@ -997,9 +997,8 @@ function arrivalRowOf(
 // arrives from above take their offsets in reverse among themselves; the other
 // rows keep the old sense, and the two classes keep the offsets port order
 // gave them, which is what keeps the card's total width unchanged. That sense
-// is the tie-break: where the gap's column order constrains two rows (one
-// row's source run lies within the floor of the other's port row), the
-// constraint wins.
+// is the tie-break: where the gap's column order constrains two rows, of one
+// card or of two, the constraint wins.
 // Beside the slots it hands back the row key of every arriving edge, by edge
 // index, so a caller placing the columns need not resolve the rows again.
 function arrivalSlots(
@@ -1106,52 +1105,82 @@ function arrivalSlots(
     return out;
   };
 
+  // The rows of one layer take their slots one at a time, across cards: a
+  // row waits until every row it must stand left of has a slot, then takes
+  // the first free slot beyond all of them. "Must stand left of" is the gap
+  // order's constraint, and inside a card also its fan sequence (the #151
+  // sense where the order is silent). Among waiting rows: the potentials
+  // first (their slot is shared with no row, so they pack best at the right),
+  // then cards top to bottom, each from its rightmost row. A slot is free
+  // where no placed row's vertical shares rows with this one.
+  type SlotRow = {
+    row: ArrivalRow;
+    id: string;
+    // Rows of its own card after it in fan sequence: it stands left of them.
+    before: ArrivalRow[];
+  };
   const slots = new Map<string, number>();
   for (const [layerKey, cards] of byLayer) {
-    const placed: Array<{ slot: number; yLo: number; yHi: number }> = [];
-    for (const row of leadByLayer.get(layerKey) ?? []) {
-      let slot = 0;
-      while (placed.some((other) => other.slot === slot)) slot += 1;
-      slots.set(row.key, slot);
-      placed.push({ slot, yLo: row.yLo, yHi: row.yHi });
-    }
-    // Offsets count 0 at the rightmost column, so the card's first row in
-    // sequence takes the leftmost of its columns.
-    const ordered = [...cards.entries()]
-      .map(([targetId, list]) => ({
-        targetId,
-        rows: cardSequence([
-          ...list,
-          ...(potentialsByCard.get(targetId) ?? []),
-        ]),
-      }))
+    const sequences = [...cards.entries()]
+      .map(([targetId, list]) =>
+        cardSequence([...list, ...(potentialsByCard.get(targetId) ?? [])]),
+      )
       .sort(
         (a, b) =>
-          Math.min(...a.rows.map((row) => row.y)) -
-          Math.min(...b.rows.map((row) => row.y)),
+          Math.min(...a.map((row) => row.y)) -
+          Math.min(...b.map((row) => row.y)),
       );
-    for (const card of ordered) {
-      const offsets = card.rows.map((_, rank) => card.rows.length - 1 - rank);
-      const slotAt = (base: number, rank: number): number =>
-        base + offsets[rank]!;
-      let base = 0;
+    const rowsInTurn: SlotRow[] = [
+      ...(leadByLayer.get(layerKey) ?? []).map((row) => ({
+        row,
+        id: orderIdOf(row),
+        before: [],
+      })),
+      ...sequences.flatMap((sequence) =>
+        sequence
+          .map((row, rank) => ({
+            row,
+            id: orderIdOf(row),
+            before: sequence.slice(rank + 1),
+          }))
+          .reverse(),
+      ),
+    ];
+    const isPotential = (entry: SlotRow): boolean =>
+      order.byId.get(entry.id)?.potential === true;
+    const queue = [
+      ...rowsInTurn.filter(isPotential),
+      ...rowsInTurn.filter((entry) => !isPotential(entry)),
+    ];
+    const standsLeftOf = (a: SlotRow, b: SlotRow): boolean =>
+      a.before.includes(b.row) || order.mustStandLeft(a.id, b.id);
+    const placed: Array<{ entry: SlotRow; slot: number }> = [];
+    const waiting = new Set(queue);
+    while (waiting.size > 0) {
+      const ready = (entry: SlotRow): boolean =>
+        [...waiting].every(
+          (other) => other === entry || !standsLeftOf(entry, other),
+        );
+      const next =
+        queue.find((entry) => waiting.has(entry) && ready(entry)) ??
+        queue.find((entry) => waiting.has(entry))!;
+      waiting.delete(next);
+      let slot = 0;
+      for (const { entry, slot: at } of placed) {
+        if (standsLeftOf(next, entry)) slot = Math.max(slot, at + 1);
+      }
       while (
-        card.rows.some((row, rank) =>
-          placed.some(
-            (other) =>
-              other.slot === slotAt(base, rank) &&
-              other.yLo < row.yHi &&
-              row.yLo < other.yHi,
-          ),
+        placed.some(
+          ({ entry, slot: at }) =>
+            at === slot &&
+            entry.row.yLo < next.row.yHi &&
+            next.row.yLo < entry.row.yHi,
         )
       ) {
-        base += 1;
+        slot += 1;
       }
-      card.rows.forEach((row, rank) => {
-        const slot = slotAt(base, rank);
-        slots.set(row.key, slot);
-        placed.push({ slot, yLo: row.yLo, yHi: row.yHi });
-      });
+      slots.set(next.row.key, slot);
+      placed.push({ entry: next, slot });
     }
   }
   return { slots, rowKeyByIndex };

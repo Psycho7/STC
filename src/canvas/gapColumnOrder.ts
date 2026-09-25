@@ -21,24 +21,36 @@
 //             A POTENTIAL descent (an edge that arrives only if it jogs) has no
 //             left row: its level is the jog's to choose, never guessed here.
 //
-// Constraint. A stands left of B when a left row of A lies within
-// FORWARD_LEVEL_FLOOR of a right row of B:
+// Constraint. A column is its left runs (port to column, on its left rows), its
+// vertical (the span of all its rows) and its right runs (column to port, on
+// its right rows). Put X left of Y: X's right runs pass Y's column and Y's
+// left runs pass X's column, and the two share the stretch between them. That
+// order costs one FLOOR break per X right row and Y left row within
+// FORWARD_LEVEL_FLOOR, and one CROSSING per passing run strictly inside the
+// other's vertical. The two orders of a pair compare by (floor, crossing),
+// lexicographically, and the cheaper one is the constraint:
 //
-//     B's run leaves B's column on row r          A    B
-//     A's run arrives at A's column on row r'     |    |
+//     floor: B's right row r, A's left row r'     A    B
 //     |r - r'| < floor, so A must stand left:   --+    +--
 //
-// With A right of B the two runs share the stretch between the columns and
-// read as one line (or put a junction dot on a foreign stroke).
+// Floor first: two runs within the floor merge and read as one line, which no
+// reader can undo, while a crossing is drawn with a cue and stays legible.
+//
+// Nesting falls out of it. Two rising bends with the lower one left cross
+// twice (its right run crosses the upper's vertical, the upper's left run
+// crosses the lower's), so the upper stands left; two falling bends, the lower.
+//
+// Only an exact tie with a cost is UNAVOIDABLE: counted, and left
+// unconstrained. Two free orders say nothing either.
 //
 // Order. Kahn over the constraints; the tie-break is each kind's existing
 // sense, so wherever no constraint speaks the columns keep the order they had.
 // Only constraint edges carry meaning: a consumer placing a column honours its
 // constraints, not its tie-break neighbours.
 //
-// Cycles. A strongly connected set of constraints has no satisfying order. Its
-// later-routed member (numeric ELK edge index) owes a jog and drops its
-// constraints; the rest are ordered. That is "the one routed later jogs".
+// Cycles. Pairwise choices need not be transitive, so the constraints can
+// close a cycle, which no order satisfies. Its later-routed member (numeric
+// ELK edge index) owes a jog and drops its constraints; the rest are ordered. That is "the one routed later jogs".
 //
 // Same side. Two LEFT rows within the floor overlap on the stretch from their
 // ports to the nearer column however the columns are ordered, and two RIGHT
@@ -108,6 +120,8 @@ export type GapOrder = {
   rank: ReadonlyMap<string, number>;
 };
 
+export type UnavoidablePair = { gapKey: string; a: string; b: string };
+
 export type GapColumnOrder = {
   gaps: ReadonlyMap<string, GapOrder>;
   byId: ReadonlyMap<string, ColumnCandidate>;
@@ -128,6 +142,10 @@ export type GapColumnOrder = {
   laneColumn: (id: string) => number | undefined;
   // Edges owing a jog because their column sits in a constraint cycle.
   cycleOwed: ReadonlySet<string>;
+  // Constraint cycles found, broken or not, over every gap.
+  cycles: number;
+  // Pairs whose two orders cost exactly the same, `a` before `b` in tie order.
+  unavoidable: ReadonlyArray<UnavoidablePair>;
   // Same-side owed jogs, given where the columns stand.
   sameSideOwed: (columnX: (id: string) => number | undefined) => Set<string>;
 };
@@ -252,18 +270,22 @@ export function buildGapColumnOrder(
     });
     const leftRows: OrderRow[] = [];
     const rightRows: OrderRow[] = [];
+    // The port row is tagged with a member drawn on this trunk where there is
+    // one: a member drawn on the other trunk (a dual member) only hands over
+    // to this column, so the row is not its line.
     let portRow: OrderRow | undefined;
+    let drawnPortRow: OrderRow | undefined;
     for (const id of trunk.members) {
       const member = edgeById.get(id);
       if (member === undefined) continue;
       const ports = edgePortsModel(member, byId);
       if (ports === null) continue;
       const reach = reachOf.get(id)?.[trunk.kind];
-      if (fanOut) {
-        portRow ??= { y: ports.sy, edgeId: id, portX: ports.sx };
-      } else {
-        portRow ??= { y: ports.ty, edgeId: id, portX: ports.tx };
-      }
+      const row: OrderRow = fanOut
+        ? { y: ports.sy, edgeId: id, portX: ports.sx }
+        : { y: ports.ty, edgeId: id, portX: ports.tx };
+      portRow ??= row;
+      if (drawnOn(id) === trunk.kind) drawnPortRow ??= row;
       if (reach === undefined || reach === "backward") continue;
       if (drawnOn(id) !== trunk.kind) continue;
       // Only a NEAR member's row counts. A far member's leg rides its target
@@ -278,6 +300,7 @@ export function buildGapColumnOrder(
         leftRows.push({ y: ports.sy, edgeId: id, portX: ports.sx });
       }
     }
+    portRow = drawnPortRow ?? portRow;
     if (portRow === undefined) continue;
     if (fanOut) leftRows.unshift(portRow);
     else rightRows.unshift(portRow);
@@ -512,15 +535,66 @@ function tieOrder(list: ReadonlyArray<ColumnCandidate>): ColumnCandidate[] {
   return [...fanOuts, ...bends, ...cards.flat(), ...fanIns];
 }
 
-// Does a left row of A lie within the floor of a right row of B? Rows of one
-// edge never constrain each other: a line does not braid itself.
-function constrains(a: ColumnCandidate, b: ColumnCandidate): boolean {
-  return a.leftRows.some((l) =>
-    b.rightRows.some(
-      (r) => l.edgeId !== r.edgeId && Math.abs(l.y - r.y) < FORWARD_LEVEL_FLOOR,
-    ),
-  );
+// What one order of a pair costs, and the edges of each column its breaks
+// involve (a cycle's jog is owed by one of them).
+type Breaks = {
+  floor: number;
+  cross: number;
+  left: Set<string>;
+  right: Set<string>;
+};
+
+const rowsOf = (c: ColumnCandidate): ReadonlyArray<OrderRow> => [
+  ...c.leftRows,
+  ...c.rightRows,
+];
+
+// Does a run on row y cross the vertical of `c`? Only strictly inside its
+// span: a run on an end row meets the column's own run there, which the
+// floor (or the same-side check) speaks for. A run of one of c's own edges
+// never crosses it: a line does not braid itself.
+function crossesVertical(run: OrderRow, c: ColumnCandidate): boolean {
+  const rows = rowsOf(c);
+  if (rows.some((r) => r.edgeId === run.edgeId)) return false;
+  const ys = rows.map((r) => r.y);
+  return Math.min(...ys) < run.y && run.y < Math.max(...ys);
 }
+
+// The cost of `left` standing left of `right`: left's right runs pass right's
+// column, right's left runs pass left's column, and those runs share the
+// stretch between the two columns.
+function breaksWhen(left: ColumnCandidate, right: ColumnCandidate): Breaks {
+  const out: Breaks = { floor: 0, cross: 0, left: new Set(), right: new Set() };
+  const allOf = (c: ColumnCandidate, into: Set<string>): void => {
+    for (const r of rowsOf(c)) into.add(r.edgeId);
+  };
+  for (const run of left.rightRows) {
+    if (!crossesVertical(run, right)) continue;
+    out.cross += 1;
+    out.left.add(run.edgeId);
+    allOf(right, out.right);
+  }
+  for (const run of right.leftRows) {
+    if (!crossesVertical(run, left)) continue;
+    out.cross += 1;
+    out.right.add(run.edgeId);
+    allOf(left, out.left);
+  }
+  for (const r of left.rightRows) {
+    for (const l of right.leftRows) {
+      if (r.edgeId === l.edgeId) continue;
+      if (Math.abs(r.y - l.y) >= FORWARD_LEVEL_FLOOR) continue;
+      out.floor += 1;
+      out.left.add(r.edgeId);
+      out.right.add(l.edgeId);
+    }
+  }
+  return out;
+}
+
+// Negative when order x is cheaper than order y: floor breaks, then crossings.
+const byCost = (x: Breaks, y: Breaks): number =>
+  x.floor - y.floor || x.cross - y.cross;
 
 // Tarjan's strongly connected components, in a deterministic order.
 function sccs(
@@ -576,6 +650,9 @@ function orderCandidates(
   const leftOf = new Map<string, Set<string>>();
   const rightOf = new Map<string, Set<string>>();
   const cycleOwed = new Set<string>();
+  const unavoidable: UnavoidablePair[] = [];
+  // Cycles as first found, before any is broken.
+  let cycles = 0;
   const gapOrders = new Map<string, GapOrder>();
   const rank = new Map<string, number>();
   // Lane columns (see below), by candidate id.
@@ -585,43 +662,51 @@ function orderCandidates(
     const tie = tieOrder(list);
     const ids = tie.map((c) => c.id);
     const out = new Map<string, Set<string>>(ids.map((id) => [id, new Set()]));
-    for (const a of tie) {
-      for (const b of tie) {
-        if (a !== b && constrains(a, b)) out.get(a.id)!.add(b.id);
+    // Per constraint a -> b, the cost of the ruled-out order (b left of a):
+    // a cycle's jog is owed by one of the edges it involves.
+    const why = new Map<string, Map<string, Breaks>>();
+    tie.forEach((a, i) => {
+      for (const b of tie.slice(i + 1)) {
+        const aLeft = breaksWhen(a, b);
+        const bLeft = breaksWhen(b, a);
+        const cmp = byCost(aLeft, bLeft);
+        if (cmp === 0) {
+          if (aLeft.floor + aLeft.cross > 0) {
+            unavoidable.push({ gapKey, a: a.id, b: b.id });
+          }
+          continue;
+        }
+        if (cmp < 0) {
+          out.get(a.id)!.add(b.id);
+          why.set(a.id, (why.get(a.id) ?? new Map()).set(b.id, bLeft));
+        } else {
+          out.get(b.id)!.add(a.id);
+          why.set(b.id, (why.get(b.id) ?? new Map()).set(a.id, aLeft));
+        }
       }
-    }
+    });
 
     // Break every cycle at its later-routed member: it owes a jog, and its
     // constraints stop binding the rest.
-    for (;;) {
+    for (let pass = 0; ; pass += 1) {
       const cyclic = sccs(ids, out).filter((component) => component.length > 1);
       if (cyclic.length === 0) break;
+      if (pass === 0) cycles += cyclic.length;
       let broke = false;
       for (const component of cyclic) {
         const members = new Set(component);
         // A member's jog-capable edges that take part in the cycle.
+        // In a constraint c -> o the ruled-out order has o on the left, so c
+        // is its `right` side; in o -> c, its `left` side.
         const inCycle = (c: ColumnCandidate): string[] => {
           const edges = new Set<string>();
           for (const other of component) {
             if (other === c.id) continue;
-            const o = candidateById.get(other)!;
-            for (const l of c.leftRows) {
-              if (
-                o.rightRows.some(
-                  (r) => Math.abs(l.y - r.y) < FORWARD_LEVEL_FLOOR,
-                )
-              ) {
-                edges.add(l.edgeId);
-              }
+            for (const e of why.get(c.id)?.get(other)?.right ?? []) {
+              edges.add(e);
             }
-            for (const r of c.rightRows) {
-              if (
-                o.leftRows.some(
-                  (l) => Math.abs(l.y - r.y) < FORWARD_LEVEL_FLOOR,
-                )
-              ) {
-                edges.add(r.edgeId);
-              }
+            for (const e of why.get(other)?.get(c.id)?.left ?? []) {
+              edges.add(e);
             }
           }
           return [...edges].filter((e) => c.jogEdges.includes(e));
@@ -795,6 +880,8 @@ function orderCandidates(
     rankOf: (id) => rank.get(id),
     laneColumn: (id) => laneX.get(id),
     cycleOwed,
+    cycles,
+    unavoidable,
     sameSideOwed,
   };
 }

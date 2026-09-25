@@ -3,11 +3,11 @@
 // check, not each column pass's own logic, is the proof that the passes read
 // one order.
 //
-// The list below is what no pass can keep. coupon-web's sewage bend e:8 must
-// stand left of the descent of e:29, but the only room right of the bend in
-// that gap's column zone is held by e:3's descent into the same card, which is
-// routed first; the descent takes the nearest free slot and the pair stays
-// inverted.
+// The list below is what no pass can keep, and it is empty. coupon-web's
+// sewage bend e:8 once stood right of the descent of e:29 that it must precede;
+// under the pairwise cost relation the bend is ordered in its gap as well (it
+// now stands at 1034, left of the copper_nugget trunk's walk) and the descent
+// keeps right of it.
 
 import { describe, it, expect } from "vitest";
 
@@ -33,10 +33,7 @@ const PLANS = [
   },
 ];
 
-const EXPECTED: ReadonlyArray<string> = [
-  "coupon-web: b:e:8:u:class:q:10->u:surplus:liquid_sewage:liquid_sewage" +
-    " -> d:e:29:u:in:gas_xiranite->u:class:q:7:gas_xiranite",
-];
+const EXPECTED: ReadonlyArray<string> = [];
 
 describe("the gap column order is honoured", () => {
   it("breaks only the listed constraints on the corpus", async () => {
