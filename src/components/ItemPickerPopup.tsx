@@ -101,6 +101,20 @@ export function ItemPickerPopup({
   );
   const firstEnabled = navIds.find((id) => !disabledIds.has(id)) ?? null;
 
+  // Where each group sits in navIds. A row move happens inside one group's own
+  // grid, so stepping by a flat column count over navIds lands a column off
+  // whenever a group's last row is partial, and skips tiles whenever a group is
+  // narrower than the step.
+  const groupSpans = useMemo(() => {
+    const spans: { start: number; size: number }[] = [];
+    let start = 0;
+    for (const g of groups) {
+      spans.push({ start, size: g.items.length });
+      start += g.items.length;
+    }
+    return spans;
+  }, [groups]);
+
   // The grid is ONE tab stop, not one per tile: on the shipped pack a tabbable
   // tile per item would put ~250 stops between the search box and the end of
   // the dialog. The stop starts on the row's current item when there is one, so
@@ -132,6 +146,33 @@ export function ItemPickerPopup({
     );
   }
 
+  // One row up or down from navIds[from]. Inside the group the column is kept
+  // and clamped to a partial last row; off the group's first or last row the
+  // move enters the neighbouring group at the same column, clamped again to the
+  // row it lands in. A step off either end of the whole list stays put: an
+  // out-of-range index here would let the caller's blind clamp move the focus
+  // sideways to the list's first or last tile.
+  function rowStep(from: number, dir: 1 | -1, cols: number): number {
+    const at = groupSpans.findIndex(
+      (s) => from >= s.start && from < s.start + s.size,
+    );
+    const span = groupSpans[at];
+    if (span === undefined) return from;
+
+    const col = (from - span.start) % cols;
+    const row = Math.floor((from - span.start) / cols);
+    const rows = Math.ceil(span.size / cols);
+    if (row + dir >= 0 && row + dir < rows) {
+      return span.start + Math.min((row + dir) * cols + col, span.size - 1);
+    }
+
+    const into = groupSpans[at + dir];
+    if (into === undefined) return from;
+    // Downwards the entry row is the neighbour's first; upwards it is its last.
+    const entryRow = dir === 1 ? 0 : Math.floor((into.size - 1) / cols) * cols;
+    return into.start + Math.min(entryRow + col, into.size - 1);
+  }
+
   function onDialogKeyDown(e: ReactKeyboardEvent<HTMLDivElement>) {
     // Tab stops are the close button, the search box, and the grid's single
     // roving stop; the shared trap wraps them.
@@ -157,11 +198,11 @@ export function ItemPickerPopup({
       // Only the row moves need the column count, and reading it forces a
       // style recalc, so the sideways keys never pay for it.
       case "ArrowDown":
-        to = from + columnsFor(tile);
+        to = rowStep(from, 1, columnsFor(tile));
         step = 1;
         break;
       case "ArrowUp":
-        to = from - columnsFor(tile);
+        to = rowStep(from, -1, columnsFor(tile));
         step = -1;
         break;
       case "Home":

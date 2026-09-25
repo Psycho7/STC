@@ -35,6 +35,35 @@ const TIERS = new Map<string, number>([
   ["echo", Number.POSITIVE_INFINITY],
 ]);
 
+// jsdom computes no grid template, so columnsFor falls back to one column and
+// Up/Down degrade into Left/Right. Every row-step test has to report a width.
+// Call it after render: it also checks the live grid reports n columns, so a
+// selector that drifts from the component's cannot fall back to one column
+// without a word. The row-step assertions are picked to fail at one column.
+function mockColumns(n: number) {
+  const real = window.getComputedStyle.bind(window);
+  vi.spyOn(window, "getComputedStyle").mockImplementation(((el: Element) =>
+    el.classList?.contains("recipe-picker-grid")
+      ? ({
+          gridTemplateColumns: "40px ".repeat(n).trim(),
+        } as CSSStyleDeclaration)
+      : real(el)) as typeof window.getComputedStyle);
+  const grid = document.querySelector(".recipe-picker-grid");
+  expect(grid).not.toBeNull();
+  expect(getComputedStyle(grid!).gridTemplateColumns.split(" ")).toHaveLength(
+    n,
+  );
+}
+
+// items plus tierByItemId from one id -> tier map, for grids the default
+// fixture cannot shape.
+function tiered(tiers: Record<string, number>) {
+  return {
+    items: Object.keys(tiers).map(mkItem),
+    tierByItemId: new Map(Object.entries(tiers)),
+  };
+}
+
 function renderPopup(
   overrides: Partial<ComponentProps<typeof ItemPickerPopup>> = {},
 ) {
@@ -230,16 +259,10 @@ test("arrow keys walk the grid and skip disabled tiles", () => {
 });
 
 test("Up and Down step a whole grid row, not one tile", () => {
-  // jsdom computes no grid template, so columnsFor falls back to one column and
-  // Up/Down would silently degrade into Left/Right - which is exactly the drift
-  // this test exists to catch. Report two columns and tier 1 lays out as
-  // alpha, bravo / delta, so Down from alpha must reach delta, not bravo.
-  const real = window.getComputedStyle.bind(window);
-  vi.spyOn(window, "getComputedStyle").mockImplementation(((el: Element) =>
-    el.classList?.contains("recipe-picker-grid")
-      ? ({ gridTemplateColumns: "40px 40px" } as CSSStyleDeclaration)
-      : real(el)) as typeof window.getComputedStyle);
+  // Two columns lay tier 1 out as alpha, bravo / delta, so Down from alpha must
+  // reach delta, not bravo - the drift a one-column fallback would produce.
   renderPopup();
+  mockColumns(2);
   const alpha = tile("alpha")!;
   alpha.focus();
   fireEvent.keyDown(alpha, { key: "ArrowDown" });
@@ -314,6 +337,161 @@ test("the roving stop never lands on a disabled tile", () => {
   // the first enabled tile rather than park somewhere unfocusable.
   renderPopup({ selectedId: "alpha", disabledIds: new Set(["alpha"]) });
   expect(tabStopIds()).toEqual(["bravo"]);
+});
+
+// Each tier group is its own grid, so a row step has to respect that group's
+// own rows. Stepping by a flat column count over the whole tile list lands one
+// cell sideways of the column it started in whenever a group's last row is
+// partial, and skips whole tiles when a group is narrower than the step. The
+// default fixture has no group wider than a row, where a clamp is the same as
+// the one-column fallback, so these tests use a wider one: at four columns
+// tier 1 is a1 a2 a3 a4 / a5 a6, tier 2 is b1 b2 b3 and the Infinity bucket
+// is c1 c2. Each comment names the tile a one-column fallback would give.
+const WIDE = tiered({
+  a1: 1,
+  a2: 1,
+  a3: 1,
+  a4: 1,
+  a5: 1,
+  a6: 1,
+  b1: 2,
+  b2: 2,
+  b3: 2,
+  c1: Number.POSITIVE_INFINITY,
+  c2: Number.POSITIVE_INFINITY,
+});
+
+test("ArrowDown off a full row clamps to the group's partial last row", () => {
+  renderPopup(WIDE);
+  mockColumns(4);
+  // a3 sits in column 2 of the full row; the row below holds only a5 a6, so
+  // Down clamps to a6 (one column: a4).
+  const a3 = tile("a3")!;
+  a3.focus();
+  fireEvent.keyDown(a3, { key: "ArrowDown" });
+  expect(document.activeElement).toBe(tile("a6"));
+});
+
+test("ArrowUp into a partial last row keeps the column", () => {
+  renderPopup(WIDE);
+  mockColumns(4);
+  // b1 is column 0 of tier 2. Up enters tier 1 at its last row, a5 a6, in
+  // column 0, so it lands on a5 (one column: a6).
+  const b1 = tile("b1")!;
+  b1.focus();
+  fireEvent.keyDown(b1, { key: "ArrowUp" });
+  expect(document.activeElement).toBe(tile("a5"));
+});
+
+test("ArrowUp past the end of a partial last row clamps to the group's last tile", () => {
+  renderPopup(WIDE);
+  mockColumns(4);
+  // b3 is column 2 of tier 2, and tier 1's last row a5 a6 has no column 2, so
+  // Up clamps to a6 rather than overshooting (one column: b2).
+  const b3 = tile("b3")!;
+  b3.focus();
+  fireEvent.keyDown(b3, { key: "ArrowUp" });
+  expect(document.activeElement).toBe(tile("a6"));
+});
+
+test("ArrowDown off a partial last row keeps the column into the next group", () => {
+  renderPopup(WIDE);
+  mockColumns(4);
+  // a6 is column 1 of tier 1's partial last row. Down crosses into tier 2 at
+  // the same column, landing on b2 - not b3, the clamp target a regression to
+  // "last tile of the neighbour" would give (one column: b1).
+  const a6 = tile("a6")!;
+  a6.focus();
+  fireEvent.keyDown(a6, { key: "ArrowDown" });
+  expect(document.activeElement).toBe(tile("b2"));
+});
+
+test("a row step into a shorter group clamps to that group's last tile", () => {
+  renderPopup(WIDE);
+  mockColumns(4);
+  // Down from b3 (column 2) enters the Infinity bucket, whose single row c1 c2
+  // ends at column 1, so it clamps to c2 (one column: c1).
+  const b3 = tile("b3")!;
+  b3.focus();
+  fireEvent.keyDown(b3, { key: "ArrowDown" });
+  expect(document.activeElement).toBe(tile("c2"));
+});
+
+test("a row step onto a disabled tile walks on in the direction of travel", () => {
+  renderPopup({ ...WIDE, disabledIds: new Set(["a6"]) });
+  mockColumns(4);
+  // Down from a3 clamps onto a6, which takes no focus, so the walk continues
+  // forward into tier 2 (one column: a4).
+  const a3 = tile("a3")!;
+  a3.focus();
+  fireEvent.keyDown(a3, { key: "ArrowDown" });
+  expect(document.activeElement).toBe(tile("b1"));
+});
+
+test("row steps follow the filtered groups, not the unfiltered ones", async () => {
+  const user = userEvent.setup();
+  // aa1-aa4 -> tier 1; mid -> tier 2; aa8 -> Infinity. Searching "aa" empties
+  // the middle group, leaving tier 1 adjacent to the Infinity bucket.
+  renderPopup(
+    tiered({
+      aa1: 1,
+      aa2: 1,
+      aa3: 1,
+      aa4: 1,
+      mid: 2,
+      aa8: Number.POSITIVE_INFINITY,
+    }),
+  );
+  mockColumns(2);
+  await user.type(screen.getByLabelText(/search/i), "aa");
+  expect(tile("mid")).toBeNull();
+  // Tier 1 now reads aa1 aa2 / aa3 aa4, so Up from aa8 lands on aa3 (one
+  // column: aa4).
+  const aa8 = tile("aa8")!;
+  aa8.focus();
+  fireEvent.keyDown(aa8, { key: "ArrowUp" });
+  expect(document.activeElement).toBe(tile("aa3"));
+});
+
+// Off the outermost group the step stays put by returning the source index,
+// so on a sole end tile the outcome is the same at any width; the width is
+// only there to send the step through the multi-column branch.
+test("a row step past either end stays put", () => {
+  renderPopup();
+  mockColumns(2);
+  const echo = tile("echo")!;
+  echo.focus();
+  fireEvent.keyDown(echo, { key: "ArrowDown" });
+  expect(document.activeElement).toBe(echo);
+  const alpha = tile("alpha")!;
+  alpha.focus();
+  fireEvent.keyDown(alpha, { key: "ArrowUp" });
+  expect(document.activeElement).toBe(alpha);
+});
+
+// The two ends of the WHOLE list, each stepped off a tile the sideways clamp
+// used to reach: Up off a non-zero column of the overall first row clamped to
+// tile 0, Down off a non-last column of the partial last row clamped to the
+// last tile. The ruling: a step off either end stays put.
+test("ArrowUp off the top from a non-zero column stays on the same tile", () => {
+  renderPopup(WIDE);
+  mockColumns(4);
+  // a3 is column 2 of tier 1's - and the list's - first row (pre-fix: a1).
+  const a3 = tile("a3")!;
+  a3.focus();
+  fireEvent.keyDown(a3, { key: "ArrowUp" });
+  expect(document.activeElement).toBe(a3);
+});
+
+test("ArrowDown off the bottom from a non-last column of the partial last row stays put", () => {
+  renderPopup(WIDE);
+  mockColumns(4);
+  // The Infinity bucket's single row c1 c2 is partial at four columns, so c1
+  // is a non-last column of the overall last row (pre-fix: c2).
+  const c1 = tile("c1")!;
+  c1.focus();
+  fireEvent.keyDown(c1, { key: "ArrowDown" });
+  expect(document.activeElement).toBe(c1);
 });
 
 // Upstream renames some item icons to opaque hashes; a tile that looked the
