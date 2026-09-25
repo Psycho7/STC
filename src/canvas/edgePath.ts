@@ -694,7 +694,14 @@ export function cardClearRunAnchor(
         card.bottom > run.y - CHIP_HALF_H - CHIP_CARD_CLEARANCE + BOX_EPS &&
         card.top < run.y + CHIP_HALF_H + CHIP_CARD_CLEARANCE - BOX_EPS,
     );
-    if (clears(centre, run.y, blockers)) return [r(centre), r(run.y)];
+    // Round the centre BEFORE validating it, same rule as the candidates
+    // below: the run bounds are on the grid but their midpoint can land on a
+    // half-hundredth, and rounding it afterward can drift it up to 0.005
+    // toward the very card the unrounded centre cleared.
+    const roundedCentre = r(centre);
+    if (clears(roundedCentre, run.y, blockers)) {
+      return [roundedCentre, r(run.y)];
+    }
     // Round each candidate to the 0.01 grid BEFORE validating it: the caller
     // re-checks the emitted point, and a card edge off the grid makes the raw
     // flush seat off-grid too -- rounding it afterward can drift it up to
