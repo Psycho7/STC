@@ -138,15 +138,15 @@ function buildPnNameTitle(data: ProductNodeData, i18n: I18nIndex): string {
   return [name, ...lines].join("\n");
 }
 
-// Name-row budget of a catalyst boundary card, pinned to canvas.css:
-// .product-node is a 124px content column (the PRODUCT_WIDTH box less its 10px
-// of side padding, the 1px border and the 3px accent tab), the head row spends
-// 28px on the item sprite and 8px of gap, and the CATALYST badge rides the
+// Name-row budget of a boundary card, pinned to canvas.css: .product-node is a
+// 124px content column (the PRODUCT_WIDTH box less its 10px of side padding,
+// the 1px border and the 3px accent tab), the head row spends 28px on the item
+// sprite and 8px of gap, and on a catalyst card the CATALYST badge rides the
 // name's own line box with a 6px margin and 10px of chrome (2x4px padding +
 // 2x1px border) around its measured text. The visible name elides against
-// whatever is left, so the row keeps fitting the way every other elided
-// surface does (assumption A4); the width estimates err high, so the elision
-// errs early -- the safe direction for a line that must not overflow.
+// whatever is left, so the row stays one line the way every other elided
+// surface does; the width estimates err high, so the elision errs early --
+// the safe direction for a line that must not overflow.
 const PN_NAME_COLUMN_PX = 124;
 const PN_HEAD_SPRITE_PX = 28;
 const PN_HEAD_GAP_PX = 8;
@@ -202,26 +202,25 @@ export default function ProductNode({
 
   // The catalyst boundary card's one drawn word (ruling R3): a yellow boxed
   // CATALYST after the name. It is aria-hidden because the spoken label above
-  // already names the pool, and the visible name gives way to it: its elision
-  // budget is the name column less the badge's margin, chrome and measured
-  // text, so the pair fits the row the way an ordinary name fits its row.
+  // already names the pool. Every card's visible name elides against the name
+  // column, less the badge's margin, chrome and measured text when there is
+  // one, so a long name keeps its head on one line instead of wrapping.
   const badgeText =
     isInput && data.role === "catalyst"
       ? i18n.t("inputs.catalyst.badge")
       : null;
-  const visibleName =
+  const badgePx =
     badgeText === null
-      ? displayName
-      : elideName(
-          displayName,
-          PN_NAME_COLUMN_PX -
-            PN_HEAD_SPRITE_PX -
-            PN_HEAD_GAP_PX -
-            PN_BADGE_GAP_PX -
-            (measureTextWidth(badgeText, PN_BADGE_FONT) + PN_BADGE_CHROME_PX),
-          widthFnFor(PN_NAME_FONT),
-          "pn-name-12",
-        );
+      ? 0
+      : PN_BADGE_GAP_PX +
+        measureTextWidth(badgeText, PN_BADGE_FONT) +
+        PN_BADGE_CHROME_PX;
+  const visibleName = elideName(
+    displayName,
+    PN_NAME_COLUMN_PX - PN_HEAD_SPRITE_PX - PN_HEAD_GAP_PX - badgePx,
+    widthFnFor(PN_NAME_FONT),
+    "pn-name-12",
+  );
 
   // Primary rate. For inputs this is realized demand; for outputs the target or
   // surplus rate.

@@ -1803,8 +1803,14 @@
    font's own `normal`: PRODUCT_HEIGHT is the model box of every boundary card,
    and it is summed from these two rows plus the card's padding, border and gap.
    A line height the font metrics decide would make the drawn card disagree with
-   the model, and the port would leave the card's vertical centre. */
+   the model, and the port would leave the card's vertical centre. ProductNode
+   elides the name to fit the row; nowrap and the clip are the fallback that
+   keeps the row one line if an estimate ever runs short. */
 .pn-name {
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
   font-size: 12px;
   font-weight: 700;
   letter-spacing: -0.01em;

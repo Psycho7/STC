@@ -36,6 +36,17 @@ function renderProduct(
   );
 }
 
+// The card shows `fullName`: whole on the hover title, and as the visible text
+// or its elided head. jsdom has no canvas metrics, so elision runs on the
+// char-class upper bound there and cuts names that fit in a browser.
+function expectNameShown(container: HTMLElement, fullName: string): void {
+  const name = container.querySelector(".pn-name");
+  expect(name?.getAttribute("title")).toBe(fullName);
+  const head = (name?.textContent ?? "").replace(/\u2026$/, "");
+  expect(head.length).toBeGreaterThan(0);
+  expect(fullName.startsWith(head)).toBe(true);
+}
+
 describe("ProductNode", () => {
   it("renders input flavor with locale-aware display name, rate badge, and a source handle", () => {
     const { container } = renderProduct(
@@ -49,7 +60,7 @@ describe("ProductNode", () => {
     );
     // i18n.displayName under the pinned en locale maps copper_ore -> Cuprium Ore.
     expect(screen.queryByText("copper_ore")).toBeNull();
-    expect(screen.getByText("Cuprium Ore")).toBeInTheDocument();
+    expectNameShown(container, "Cuprium Ore");
     // Rate badge. (1/2) /s * 60 = 30/min
     expect(screen.getByText("30")).toBeInTheDocument();
     // Flavor marker.
@@ -580,8 +591,32 @@ describe("ProductNode", () => {
     });
   });
 
+  // One elision rule on every name surface: a plain card whose name overruns
+  // the name column keeps its head plus an ellipsis, like the badged card, and
+  // the hover title keeps the whole name. "Buck Capsule [C]" is the en name
+  // that wrapped onto two lines on rot-bottled_rec_hp_1's output card.
+  it("elides a plain card's long name to its head and keeps the full name on the title", () => {
+    const { container } = renderProduct(
+      {
+        kind: "outputProduct",
+        itemId: "bottled_rec_hp_1",
+        rate: { num: "1", denom: "1" },
+        flavor: "target",
+      },
+      [makeItem("bottled_rec_hp_1", false)],
+    );
+    const name = container.querySelector(".pn-name");
+    expect(name?.getAttribute("title")).toBe("Buck Capsule [C]");
+    const visible = name?.textContent ?? "";
+    expect(visible.endsWith("\u2026")).toBe(true);
+    const head = visible.slice(0, -1);
+    expect(head.length).toBeGreaterThan(0);
+    expect(head.length).toBeLessThan("Buck Capsule [C]".length);
+    expect("Buck Capsule [C]".startsWith(head)).toBe(true);
+  });
+
   it("falls back to the raw id when i18n has no translation for the item", () => {
-    renderProduct(
+    const { container } = renderProduct(
       {
         kind: "inputProduct",
         itemId: "no-such-item",
@@ -589,6 +624,6 @@ describe("ProductNode", () => {
       },
       [makeItem("no-such-item", true)],
     );
-    expect(screen.getByText("no-such-item")).toBeInTheDocument();
+    expectNameShown(container, "no-such-item");
   });
 });
