@@ -5,7 +5,7 @@ import { loadI18n, type Locale } from "./i18n";
 // zh localizes the unit as the CJK minute glyph; a Latin "min" leaking into
 // that locale is the Z1 exam family.
 const NON_LATIN_UNIT_LOCALES: Locale[] = ["zh"];
-const RATE_KEYS = ["product.tap.share", "inputs.needed"] as const;
+const RATE_KEYS = ["inputs.needed"] as const;
 
 for (const locale of NON_LATIN_UNIT_LOCALES) {
   for (const key of RATE_KEYS) {
@@ -17,5 +17,5 @@ for (const locale of NON_LATIN_UNIT_LOCALES) {
 }
 
 test("en keeps the Latin unit", () => {
-  expect(loadI18n("en").t("product.tap.share", { rate: "1" })).toBe("of 1/min");
+  expect(loadI18n("en").t("inputs.needed", { rate: "1" })).toBe("needed 1/min");
 });

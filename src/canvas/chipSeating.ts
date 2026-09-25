@@ -231,12 +231,9 @@ function cardBorder(type: string | undefined): number {
 // Exported so a unit test can observe the growth actually being applied: the
 // e2e card-frame criterion rebuilds the same constants and so cannot see this
 // call site at all.
-export function cardRectsFor(
-  nodes: ReadonlyArray<RFAnyNode>,
-  byId: ReadonlyMap<string, RFAnyNode>,
-): CardRect[] {
+export function cardRectsFor(nodes: ReadonlyArray<RFAnyNode>): CardRect[] {
   return nodes.map((n) => {
-    const r = nodeRectOf(n, byId);
+    const r = nodeRectOf(n);
     const growth = cardGrowth(n.type);
     return {
       id: n.id,
@@ -479,8 +476,8 @@ export function deconflictChipAnchors(
       const anchorOf = (nodeId: string): { x: number; y: number } => {
         const node = byId.get(nodeId)!;
         return {
-          x: Math.round(absoluteLeft(node, byId) * 100) / 100,
-          y: Math.round(absoluteTop(node, byId) * 100) / 100,
+          x: Math.round(absoluteLeft(node) * 100) / 100,
+          y: Math.round(absoluteTop(node) * 100) / 100,
         };
       };
       return {
@@ -703,10 +700,7 @@ export function deconflictChipAnchors(
   // cue is a misread and a buried card label is worse.
   const chipSeatByIndex = new Map<number, { x: number; y: number }>();
   {
-    const cards = cardRectsFor(
-      nodes.filter((node) => node.type !== "group"),
-      byId,
-    );
+    const cards = cardRectsFor(nodes);
     const withFurniture: PortZoneRect[] = cards.flatMap((card) => [
       card,
       portKeepOutRect(card, "source"),
@@ -926,14 +920,13 @@ export function contentBounds(
   edges: ReadonlyArray<Edge>,
 ): ContentRect | null {
   if (nodes.length === 0) return null;
-  const byId = nodeIndexOf(nodes);
 
   let left = Infinity;
   let top = Infinity;
   let right = -Infinity;
   let bottom = -Infinity;
   for (const n of nodes) {
-    const r = nodeRectOf(n, byId);
+    const r = nodeRectOf(n);
     left = Math.min(left, r.left);
     top = Math.min(top, r.top);
     right = Math.max(right, r.right);

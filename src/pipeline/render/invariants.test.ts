@@ -1872,9 +1872,7 @@ describe("checkProductUnitRates: boundary-unit chips and inputProduct edges", ()
   it("fires on a spurious boundary edge into a non-consumer", () => {
     const args = mutableArgs(["xiranite_enr_powder"]);
     const recipeById = new Map(fullPack.recipes.map((r) => [r.id, r]));
-    const inU = args.plan.units.find(
-      (u) => isInputProductUnit(u) && !u.isAggregate,
-    );
+    const inU = args.plan.units.find((u) => isInputProductUnit(u));
     if (!inU || !isInputProductUnit(inU)) throw new Error("missing input");
     const victim = args.plan.units.find((u) => {
       if (!isRecipeUnit(u)) return false;

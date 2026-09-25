@@ -135,20 +135,6 @@ export type RenderUnitLoop = {
 // computed demand so the node shows a real number instead of an "uncapped"
 // placeholder. `rateCap` stays optional and only appears when the user actually
 // limited the supply.
-//
-// `isFanout` is true only when the node is a per-container slice sitting below
-// an aggregate input node. A fanout slice has one inbound edge from the
-// aggregate and outbound edges to the consumers in its own container; a
-// container needs its own card because an edge must enter a compound node
-// once. Consumers in no container draw straight from the aggregate and get no
-// slice card. The aggregate is pinned to FIRST_SEPARATE -- its own layer just
-// before FIRST -- which keeps the aggregate-to-fanout edge a valid downhill
-// edge, while the fanouts themselves float and settle near their containers.
-// Not set on aggregate nodes or on single-bucket plans.
-//
-// `isAggregate` is true only when the node is the aggregate feeding one or more
-// fanout slices for the same item. Layout reads it to put the node on the
-// FIRST_SEPARATE layer so the aggregate-to-fanout edges stay valid.
 export type RenderUnitInputProduct = {
   id: RenderUnitId;
   kind: "inputProduct";
@@ -156,17 +142,11 @@ export type RenderUnitInputProduct = {
   count: 1;
   rate: RationalString;
   rateCap?: RationalString;
-  // Set on the boundary nodes of the catalyst pool (`u:cat:<item>` and its
-  // container slices), which feed `cat:` ports only. Absent on an ordinary
-  // node, whose rate is ordinary consumption and never a cycled charge. The
-  // two pools of one item are accounted separately, so an item can carry a
-  // node of each.
+  // Set on the boundary node of the catalyst pool (`u:cat:<item>`), which
+  // feeds `cat:` ports only. Absent on an ordinary node, whose rate is
+  // ordinary consumption and never a cycled charge. The two pools of one item
+  // are accounted separately, so an item can carry a node of each.
   role?: "catalyst";
-  isFanout?: true;
-  isAggregate?: true;
-  // The parent aggregate's total realized rate, stamped on every fanout slice
-  // so the card can show its share of the source it taps.
-  parentRate?: RationalString;
 };
 
 export type RenderUnitOutputProduct = {

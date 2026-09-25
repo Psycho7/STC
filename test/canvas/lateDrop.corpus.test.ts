@@ -125,7 +125,7 @@ describe("two flows into one card share only its approach band", () => {
         // whatever of its layer it sits behind is band the drop cannot skip --
         // plus the port stub of slot depth the arrival columns take.
         const allowed =
-          PORT_STUB + (absoluteLeft(target, byId) - gap.targetZone.left);
+          PORT_STUB + (absoluteLeft(target) - gap.targetZone.left);
         for (let i = 0; i < list.length; i += 1) {
           for (let j = i + 1; j < list.length; j += 1) {
             const a = list[i]!;

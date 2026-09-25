@@ -62,7 +62,6 @@ import type { LoopNodeData } from "./LoopNode";
 import type { ProductNodeData } from "./ProductNode";
 import type { RecipeNodeData } from "./RecipeNode";
 import type {
-  Container,
   ContainerId,
   GroupId,
   ItemId,
@@ -238,7 +237,6 @@ const RECIPE_LAYOUT_OPTIONS: Readonly<Record<string, string>> = {
 export const ELK_LAYER_CONSTRAINT_KEY =
   "org.eclipse.elk.layered.layering.layerConstraint";
 export const ELK_LAYER_FIRST = "FIRST";
-export const ELK_LAYER_FIRST_SEPARATE = "FIRST_SEPARATE";
 export const ELK_LAYER_LAST = "LAST";
 
 // Per-port transport-kind lookup attached to every render-pipeline RF node.
@@ -254,21 +252,8 @@ export type PortTransportKinds = ReadonlyMap<string, TransportKindId>;
 // `portTransportKinds` and `inputOrder` through `unitToRFNode`.
 export type RFRecipeNode = RFNode<RecipeNodeData, "recipe">;
 export type RFLoopNode = RFNode<LoopNodeData, "loop">;
-export type RFContainerNode = RFNode<
-  {
-    containerKind: Container["kind"];
-    containerId: ContainerId;
-    memberCount: number;
-    // Primary output of each member recipe, deduped in plan order. The caption
-    // resolves these ids to names at render time, so switching locale never
-    // forces a relayout. Absent when no member resolves to a recipe.
-    titleItems?: ItemId[];
-  },
-  "group"
->;
 // Which pool covered an item's catalyst charge, for the card's name tooltip.
-// Item-level accounting, so a card carries it only when it is the aggregate or
-// single-bucket catalyst card of its item, never on a per-container slice.
+// Item-level accounting, carried on the item's one catalyst card.
 export type CatalystBreakdown = {
   fromCatalyst: RationalString;
   fromGeneral: RationalString;
@@ -277,11 +262,7 @@ export type CatalystBreakdown = {
 
 export type RFProductNode = RFNode<ProductNodeData, "product">;
 
-export type RFAnyNode =
-  | RFRecipeNode
-  | RFLoopNode
-  | RFContainerNode
-  | RFProductNode;
+export type RFAnyNode = RFRecipeNode | RFLoopNode | RFProductNode;
 
 // renderPlanToElkGraph: build the ELK graph from a RenderPlan.
 
@@ -451,46 +432,17 @@ function inputProductUnitToElk(
   u: RenderUnitInputProduct,
   kindOf: KindOf,
 ): ElkNode {
-  // Aggregate and single-bucket input products sit on the leftmost layer with a
-  // single source port on the east side. Fanout slices skip the FIRST-layer
-  // constraint so ELK can drop each one near its consumers, and they add a sink
-  // port on the west side to receive the edge from the aggregate.
-  //
-  // So the input products fall into three tiers:
-  //   - Aggregate (isAggregate): FIRST_SEPARATE, its own layer ahead of FIRST,
-  //     so the aggregate -> fanout edge is a valid forward edge into FIRST or
-  //     beyond. ELK does not support a FIRST-to-FIRST edge.
-  //   - Fanout slice (isFanout): unconstrained, so ELK barycenters each
-  //     per-container slice next to the consumers it feeds instead of pinning
-  //     it beside the aggregate. This collapses the long boundary-supply edges.
-  //   - Single-bucket input (neither isFanout nor isAggregate): FIRST, the older
-  //     placement for items with one bucket or no fanouts at all.
-  let layoutOptions: ElkNode["layoutOptions"];
-  if (u.isAggregate) {
-    layoutOptions = {
-      ...RECIPE_LAYOUT_OPTIONS,
-      [ELK_LAYER_CONSTRAINT_KEY]: ELK_LAYER_FIRST_SEPARATE,
-    };
-  } else if (!u.isFanout) {
-    layoutOptions = {
-      ...RECIPE_LAYOUT_OPTIONS,
-      [ELK_LAYER_CONSTRAINT_KEY]: ELK_LAYER_FIRST,
-    };
-  } else {
-    layoutOptions = { ...RECIPE_LAYOUT_OPTIONS };
-  }
-  const ports = u.isFanout
-    ? [
-        productPort(u.id, "in", u.itemId, 0, kindOf),
-        productPort(u.id, "out", u.itemId, 0, kindOf),
-      ]
-    : [productPort(u.id, "out", u.itemId, 0, kindOf)];
+  // An input product sits on the leftmost layer with a single source port on
+  // the east side.
   return {
     id: u.id,
     width: PRODUCT_WIDTH,
     height: PRODUCT_HEIGHT,
-    layoutOptions,
-    ports,
+    layoutOptions: {
+      ...RECIPE_LAYOUT_OPTIONS,
+      [ELK_LAYER_CONSTRAINT_KEY]: ELK_LAYER_FIRST,
+    },
+    ports: [productPort(u.id, "out", u.itemId, 0, kindOf)],
   };
 }
 
@@ -690,10 +642,8 @@ function resolveInputOrder(node: ElkNode): {
 // The catalyst pool split for one input card, in the spread-in shape the
 // product data uses for its other optional fields.
 //
-// The account is item-level, and so is the split: only the card that carries
-// the item's whole charge (the aggregate, or the single bucket when there is
-// just one) gets it. A per-container slice holds a share of the charge that no
-// pool was ever assigned, so it takes nothing.
+// The account is item-level, and so is the split: the item's one catalyst card
+// carries it.
 function catalystBreakdownOf(
   unit: RenderUnitInputProduct,
   catalystAccount: CatalystAccount | undefined,
@@ -701,7 +651,7 @@ function catalystBreakdownOf(
   Extract<RFProductNode["data"], { kind: "inputProduct" }>,
   "catalystBreakdown"
 > {
-  if (unit.role !== "catalyst" || unit.isFanout) return {};
+  if (unit.role !== "catalyst") return {};
   const entry = catalystAccount?.get(unit.itemId);
   if (entry === undefined) return {};
   return {
@@ -767,11 +717,7 @@ function unitToRFNode(
         portTransportKinds,
         ...(unit.rateCap !== undefined ? { rateCap: unit.rateCap } : {}),
         ...(unit.role !== undefined ? { role: unit.role } : {}),
-        ...(unit.isFanout ? { isFanout: true } : {}),
         ...catalystBreakdownOf(unit, catalystAccount),
-        ...(unit.parentRate !== undefined
-          ? { parentRate: unit.parentRate }
-          : {}),
       };
       return {
         id: unit.id,

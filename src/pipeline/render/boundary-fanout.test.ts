@@ -84,9 +84,6 @@ describe("boundary inputs: loose consumers share one card", () => {
     ]);
 
     const node = inputs.find((u) => u.id === `u:in:${LOOSE_ONLY_ITEM}`)!;
-    expect(node.isAggregate).toBeUndefined();
-    expect(node.isFanout).toBeUndefined();
-    expect(node.parentRate).toBeUndefined();
 
     // One direct edge per consumer, and no edge lands on another input card.
     const outEdges = edgesFrom(plan, node.id, LOOSE_ONLY_ITEM);
@@ -112,9 +109,6 @@ describe("boundary inputs: loop members draw from the item's one card", () => {
     const inputs = inputsForItem(plan, "liquid_water");
     expect(inputs.map((u) => u.id)).toEqual(["u:in:liquid_water"]);
     const card = inputs[0]!;
-    expect(card.isAggregate).toBeUndefined();
-    expect(card.isFanout).toBeUndefined();
-    expect(card.parentRate).toBeUndefined();
 
     const outEdges = edgesFrom(plan, card.id, "liquid_water");
     const consumers = new Set(
@@ -138,7 +132,6 @@ describe("boundary inputs: loop and loose consumers share one card", () => {
     const inputs = inputsForItem(plan, MIXED_ITEM);
     expect(inputs.map((u) => u.id)).toEqual([`u:in:${MIXED_ITEM}`]);
     const card = inputs[0]!;
-    expect(card.isAggregate).toBeUndefined();
 
     const outEdges = edgesFrom(plan, card.id, MIXED_ITEM);
     const inLoop = new Set(

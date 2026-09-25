@@ -57,10 +57,10 @@ describe("drawnPortsOf: the drawn port drift", () => {
 
     expect(ports).not.toBeNull();
     expect(ports!.sourceX).toBe(
-      absoluteLeft(src, byId) + nodeWidth(src) + DRIFT.recipe.sourceDx,
+      absoluteLeft(src) + nodeWidth(src) + DRIFT.recipe.sourceDx,
     );
     expect(ports!.sourceY).toBe(
-      absoluteTop(src, byId) + portOffsetY(src, ITEM, "out") + DRIFT.recipe.dy,
+      absoluteTop(src) + portOffsetY(src, ITEM, "out") + DRIFT.recipe.dy,
     );
   });
 
@@ -71,9 +71,9 @@ describe("drawnPortsOf: the drawn port drift", () => {
 
     const ports = drawnPortsOf(itemEdge("src", "tgt"), byId)!;
 
-    expect(ports.targetX).toBe(absoluteLeft(tgt, byId) + DRIFT.recipe.targetDx);
+    expect(ports.targetX).toBe(absoluteLeft(tgt) + DRIFT.recipe.targetDx);
     expect(ports.targetY).toBe(
-      absoluteTop(tgt, byId) + portOffsetY(tgt, ITEM, "in") + DRIFT.recipe.dy,
+      absoluteTop(tgt) + portOffsetY(tgt, ITEM, "in") + DRIFT.recipe.dy,
     );
   });
 
@@ -85,16 +85,14 @@ describe("drawnPortsOf: the drawn port drift", () => {
     const ports = drawnPortsOf(itemEdge("src", "tgt"), byId)!;
 
     expect(ports.sourceX).toBe(
-      absoluteLeft(src, byId) + nodeWidth(src) + DRIFT.product.sourceDx,
+      absoluteLeft(src) + nodeWidth(src) + DRIFT.product.sourceDx,
     );
     expect(ports.sourceY).toBe(
-      absoluteTop(src, byId) + portOffsetY(src, ITEM, "out") + DRIFT.product.dy,
+      absoluteTop(src) + portOffsetY(src, ITEM, "out") + DRIFT.product.dy,
     );
-    expect(ports.targetX).toBe(
-      absoluteLeft(tgt, byId) + DRIFT.product.targetDx,
-    );
+    expect(ports.targetX).toBe(absoluteLeft(tgt) + DRIFT.product.targetDx);
     expect(ports.targetY).toBe(
-      absoluteTop(tgt, byId) + portOffsetY(tgt, ITEM, "in") + DRIFT.product.dy,
+      absoluteTop(tgt) + portOffsetY(tgt, ITEM, "in") + DRIFT.product.dy,
     );
   });
 
@@ -126,9 +124,7 @@ describe("drawnPortsOf: the drawn port drift", () => {
     };
     const ports = drawnPortsOf(supply, byId)!;
 
-    expect(ports.targetY).toBe(
-      absoluteTop(tgt, byId) + catRow + DRIFT.recipe.dy,
-    );
+    expect(ports.targetY).toBe(absoluteTop(tgt) + catRow + DRIFT.recipe.dy);
     // The in: row reading of the very same card and item, which this edge must
     // NOT have taken.
     expect(ports.targetY).not.toBe(
@@ -151,6 +147,6 @@ describe("drawnPortsOf: the drawn port drift", () => {
     expect(centre).toBe(
       portOffsetY(tgt, undefined, "in"), // the fallback, not a row
     );
-    expect(ports.targetY).toBe(absoluteTop(tgt, byId) + centre);
+    expect(ports.targetY).toBe(absoluteTop(tgt) + centre);
   });
 });

@@ -98,9 +98,8 @@ describe("cardRectsFor grows the model box into the drawn frame", () => {
   it("grows a recipe card by one border per side, origin fixed", () => {
     const node = recipeNode("r", 1000, 400, mkRecipe("r", ["a"], ["b"]));
     const nodes: RFAnyNode[] = [node];
-    const byId = new Map(nodes.map((n) => [n.id, n]));
 
-    const [rect] = cardRectsFor(nodes, byId);
+    const [rect] = cardRectsFor(nodes);
 
     expect(rect).toEqual({
       id: "r",
@@ -120,11 +119,10 @@ describe("cardRectsFor grows the model box into the drawn frame", () => {
   it("leaves a product card at its model box", () => {
     const node = productNode("p", 200, 60, PRODUCT_WIDTH, PRODUCT_HEIGHT);
     const nodes: RFAnyNode[] = [node];
-    const byId = new Map(nodes.map((n) => [n.id, n]));
 
     // Absolute, like the recipe case above: the model box IS the drawn box for
     // a product, so a growth applied here would show up as a moved edge.
-    expect(cardRectsFor(nodes, byId)).toEqual([
+    expect(cardRectsFor(nodes)).toEqual([
       { id: "p", left: 200, top: 60, right: 348, bottom: 60 + 71, border: 0 },
     ]);
   });

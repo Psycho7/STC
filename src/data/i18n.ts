@@ -68,12 +68,10 @@ export type UiKey =
   | "product.dir.out"
   | "product.class.raw"
   | "product.class.import"
-  | "product.class.tap"
   | "product.class.catalyst"
   | "product.catalyst.fromCatalyst"
   | "product.catalyst.fromGeneral"
   | "product.catalyst.short"
-  | "product.tap.share"
   | "product.flavor.target"
   | "product.flavor.surplus"
   | "canvas.controls.panel"
@@ -204,12 +202,10 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "product.dir.out": "输出",
     "product.class.raw": "原料",
     "product.class.import": "进口",
-    "product.class.tap": "分接",
     "product.class.catalyst": "催化",
     "product.catalyst.fromCatalyst": "来自催化供给 {rate}/分",
     "product.catalyst.fromGeneral": "来自普通供给 {rate}/分",
     "product.catalyst.short": "催化不足 {rate}/分",
-    "product.tap.share": "共 {rate}/分",
     "product.flavor.target": "目标",
     "product.flavor.surplus": "过剩",
     "canvas.controls.panel": "控制面板",
@@ -334,12 +330,10 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "product.dir.out": "Out",
     "product.class.raw": "raw",
     "product.class.import": "import",
-    "product.class.tap": "tap",
     "product.class.catalyst": "catalyst",
     "product.catalyst.fromCatalyst": "from catalyst supply {rate}/min",
     "product.catalyst.fromGeneral": "from general supply {rate}/min",
     "product.catalyst.short": "catalyst short by {rate}/min",
-    "product.tap.share": "of {rate}/min",
     "product.flavor.target": "target",
     "product.flavor.surplus": "surplus",
     "canvas.controls.panel": "Control panel",

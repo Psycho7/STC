@@ -11,15 +11,12 @@
 //      name, because comparing a model value against a DRAWN rect is wrong by
 //      1-2 units, exactly at the thresholds the ratcheted occlusion and
 //      crossing counts live on.
-//   2. One level of nesting only. absoluteLeft / absoluteTop resolve a single
-//      parentId hop; a grandchild would be wrong. A parent missing from `byId`
-//      is treated as the origin (0), never an error.
-//   3. Fallbacks. Recipe and loop nodes carry no top-level width or height.
+//   2. Fallbacks. Recipe and loop nodes carry no top-level width or height.
 //      nodeWidth derives loop width from loopBoxDimensions and otherwise
 //      falls back to RECIPE_WIDTH when node.width is absent; nodeHeight
 //      derives recipe height from measureRecipe and loop height from
 //      loopBoxDimensions, and returns node.height ?? 0 otherwise.
-//   4. portOffsetY returns a NODE-LOCAL y (add absoluteTop for absolute). It
+//   3. portOffsetY returns a NODE-LOCAL y (add absoluteTop for absolute). It
 //      resolves the row via orderByItem over the node's inputOrder (input
 //      side only; output rows read in the recipe's declared order, ruling R4,
 //      so no output order exists; catalyst rows read in the recipe's declared
@@ -39,7 +36,7 @@
 //          never divisible by 11 either.
 //      driftedPortY below depends on that discriminator, so the fallback value
 //      must not change and must not be pre-drifted.
-//   5. Total and pure. No throws, no React, no mutation of inputs,
+//   4. Total and pure. No throws, no React, no mutation of inputs,
 //      deterministic for a given node map.
 
 import type { Edge } from "@xyflow/react";
@@ -91,35 +88,21 @@ export function nodeIndexOf(
   return new Map<string, RFAnyNode>(nodes.map((n) => [n.id, n]));
 }
 
-// Absolute left-edge x for a node. Container children store a parent-relative
-// position, so resolve one level of `parentId` and add the parent's own x.
-// Mirrors test/canvas/edgeSpans.ts.
-export function absoluteLeft(
-  node: RFAnyNode,
-  byId: ReadonlyMap<string, RFAnyNode>,
-): number {
-  const localX = node.position?.x ?? 0;
-  if (node.parentId === undefined) return localX;
-  const parent = byId.get(node.parentId);
-  return localX + (parent?.position?.x ?? 0);
+// Absolute left-edge x for a node. Every node sits at the root, so its
+// position is already absolute.
+export function absoluteLeft(node: RFAnyNode): number {
+  return node.position?.x ?? 0;
 }
 
-// Absolute top-edge y for a node, resolving one level of `parentId` (same rule
-// as absoluteLeft, on the vertical axis).
-export function absoluteTop(
-  node: RFAnyNode,
-  byId: ReadonlyMap<string, RFAnyNode>,
-): number {
-  const localY = node.position?.y ?? 0;
-  if (node.parentId === undefined) return localY;
-  const parent = byId.get(node.parentId);
-  return localY + (parent?.position?.y ?? 0);
+// Absolute top-edge y for a node (same rule as absoluteLeft, on the vertical
+// axis).
+export function absoluteTop(node: RFAnyNode): number {
+  return node.position?.y ?? 0;
 }
 
 // Width of a node. Recipe and loop nodes omit an explicit width: a recipe node
 // is a fixed RECIPE_WIDTH, a loop node is sized from its interior by the same
-// helper the layout and LoopNode use. Product and container nodes carry width
-// on the node. Mirrors test/canvas/edgeSpans.ts.
+// helper the layout and LoopNode use. Product nodes carry width on the node. Mirrors test/canvas/edgeSpans.ts.
 export function nodeWidth(node: RFAnyNode): number {
   if (node.type === "loop") return loopBoxDimensions(node.data.interior).width;
   return node.width ?? RECIPE_WIDTH;
@@ -127,7 +110,7 @@ export function nodeWidth(node: RFAnyNode): number {
 
 // Height of a node. Recipe and loop nodes carry no top-level `height` (React
 // Flow measures them at render), so derive it from the same geometry helpers
-// the layout uses; product and container nodes carry height directly.
+// the layout uses; product nodes carry height directly.
 export function nodeHeight(node: RFAnyNode): number {
   switch (node.type) {
     case "recipe":
@@ -149,12 +132,9 @@ export type Rect = {
 
 // A node's absolute model box: absoluteLeft / absoluteTop plus its width and
 // height. Callers pad or grow the edges they need from here.
-export function nodeRectOf(
-  node: RFAnyNode,
-  byId: ReadonlyMap<string, RFAnyNode>,
-): Rect {
-  const left = absoluteLeft(node, byId);
-  const top = absoluteTop(node, byId);
+export function nodeRectOf(node: RFAnyNode): Rect {
+  const left = absoluteLeft(node);
+  const top = absoluteTop(node);
   return {
     left,
     right: left + nodeWidth(node),
@@ -281,7 +261,7 @@ export function edgeTargetSide(edge: Edge): PortSide {
 //   product: the 148-wide wrapper carries no such width discrepancy, so its
 //     handle boxes give a symmetric [-4, +4]; the handles are CSS-centred on a
 //     wrapper inline-sized to node.height, so dy is 0.
-//   loop / container: no measured drift and no edge endpoints on them in any
+//   loop: no measured drift and no edge endpoints on them in any
 //     corpus plan, so they stay at zero rather than borrowing another kind's
 //     numbers.
 // Re-derive these if the card borders or paddings change, if handle sizing or
@@ -348,11 +328,9 @@ export function drawnPortsOf(
   const targetSide = edgeTargetSide(edge);
   return {
     sourceX:
-      absoluteLeft(source, byId) +
-      nodeWidth(source) +
-      portDrift(source).sourceDx,
-    sourceY: absoluteTop(source, byId) + driftedPortY(source, item, "out"),
-    targetX: absoluteLeft(target, byId) + portDrift(target).targetDx,
-    targetY: absoluteTop(target, byId) + driftedPortY(target, item, targetSide),
+      absoluteLeft(source) + nodeWidth(source) + portDrift(source).sourceDx,
+    sourceY: absoluteTop(source) + driftedPortY(source, item, "out"),
+    targetX: absoluteLeft(target) + portDrift(target).targetDx,
+    targetY: absoluteTop(target) + driftedPortY(target, item, targetSide),
   };
 }
