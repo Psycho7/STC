@@ -28,7 +28,7 @@
 //   0  the probe ran and every requested step succeeded
 //   1  harness failure (bad flags, missing element, browser error)
 //   2  --base-url is not serving
-//   3  the page never became examinable (no READY, no exam hook)
+//   3  the page never became examinable (no READY or SHORTFALL, no exam hook)
 //
 // Whatever happens, a JSON object reaches stdout: an op or an evaluation that
 // hangs is bounded, and the tail of the run is bounded too, because a refuter
@@ -923,7 +923,7 @@ async function probe(
         ok: false,
         transform: null,
         consoleErrors: [],
-        error: `never reached READY at ${examUrl(opts.baseUrl, opts.hash)}: ${String(err)}`,
+        error: `never reached an examinable status (READY or SHORTFALL) at ${examUrl(opts.baseUrl, opts.hash)}: ${String(err)}`,
       },
       code: 3,
     };

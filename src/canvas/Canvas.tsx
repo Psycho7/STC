@@ -93,9 +93,10 @@ const FIT_BOUNDS_OPTIONS = { padding: FIT_VIEW_OPTIONS.padding };
 const RESIZE_REFIT_MS = 100;
 
 // The solve + layout lifecycle state surfaced by the status annotation and the
-// header chip. READY = idle, SOLVING = a generation is in flight, ERROR = the
-// last solve or load failed.
-export type CanvasStatus = "READY" | "SOLVING" | "ERROR";
+// header chip. READY = every declared target rate is met, SOLVING = a generation
+// is in flight, SHORTFALL = the drawn plan leaves demand unmet, ERROR = the last
+// solve or load failed.
+export type CanvasStatus = "READY" | "SOLVING" | "SHORTFALL" | "ERROR";
 
 // What the header's export button drives. Canvas owns the ReactFlowProvider and
 // the container element, so App cannot reach the viewport node itself; this is

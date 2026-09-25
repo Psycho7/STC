@@ -29,7 +29,8 @@
 //   0  captured; status is "complete" or a labelled "partial"
 //   1  harness failure (bad flags, degenerate geometry, browser error)
 //   2  --base-url is not serving
-//   3  the page never became examinable (no READY, no exam hook, empty graph)
+//   3  the page never became examinable (no READY or SHORTFALL, no exam hook,
+//      empty graph)
 //   4  the served build cannot name itself: it predates the provenance stamp,
 //      or was built with no git history. Redeploy, do not drop the plan
 //
@@ -517,7 +518,7 @@ async function capture(opts: Options): Promise<number> {
       ({ page, consoleErrors } = await bootPage(browser, opts));
     } catch (err: unknown) {
       console.error(
-        `error: ${opts.planId} never reached READY at ${examUrl(opts.baseUrl, opts.hash)}: ${String(err)}`,
+        `error: ${opts.planId} never reached an examinable status (READY or SHORTFALL) at ${examUrl(opts.baseUrl, opts.hash)}: ${String(err)}`,
       );
       return 3;
     }

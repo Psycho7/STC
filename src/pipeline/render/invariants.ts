@@ -664,6 +664,28 @@ export function targetOutputShortfalls(
 }
 
 /**
+ * The deficit map's item ids filtered by the tolerance targetOutputShortfalls
+ * applies: a sub-tolerance residue is LP float noise, not unmet demand, so it
+ * must not feed the shortfall strip's attribution. An item's slack scales with
+ * its declared demand the same way (a target's deficit survives exactly when
+ * its delivery would read as under-delivered; a non-target deficit is judged
+ * against the plan's scale floor alone).
+ */
+export function deficitItemsBeyondTolerance(
+  deficits: ReadonlyMap<ItemId, Fraction>,
+  targets: ReadonlyArray<ItemTarget>,
+): ItemId[] {
+  const scaleFloor = planScaleFloor(targets);
+  const demandOf = demandByItem(targets);
+  const items: ItemId[] = [];
+  for (const [item, rate] of deficits) {
+    const demand = demandOf.get(item) ?? 0;
+    if (rate.valueOf() > relSlack(scaleFloor, demand)) items.push(item);
+  }
+  return items;
+}
+
+/**
  * Every recipe unit must have a positive rate. A unit whose recipeId is absent
  * from rates, or whose rate is <= 0, is an orphan: the render pipeline
  * materialized a unit the solver never ran.

@@ -21,6 +21,7 @@
 // tools/exam/coverage) run this chain headless. The layout step lives behind
 // its own module.
 
+import Fraction from "fraction.js";
 import { pack as shippedPack } from "../data/load";
 import type { ItemOverride, Plan } from "../data/plan";
 import type { ItemTarget } from "../data/targets";
@@ -30,6 +31,8 @@ import { planToSolverArgs } from "../solver/planToSolverArgs";
 import type { RecipeId } from "../solver/types";
 import { renderPlanFromSolve, type RenderPipelineOutput } from "./driver";
 import { targetOutputShortfalls } from "./render/invariants";
+import { rationalFromString } from "./render/rational";
+import { isInputProductUnit, type RenderPlan } from "./types";
 
 export type SolveForRenderRequest = {
   targets: ReadonlyArray<ItemTarget>;
@@ -98,7 +101,62 @@ export type SolveFromPlanOutput = SolveForRenderOutput & {
    * graph does not meet the declared intent.
    */
   underDelivered: string[];
+  /**
+   * Items carrying an explicit finite supply cap the drawn plan pulls in full.
+   * The only evidence that lets the UI name a supply cap as a reason for a
+   * shortfall: a cap the plan does not exhaust constrains nothing.
+   */
+  cappedAtLimit: string[];
 };
+
+/**
+ * The items of `itemOverrides` whose cap the drawn plan draws in full, read off
+ * the boundary input units the render pipeline emitted (their `rate` is what the
+ * solve pulled, their `rateCap` the declared limit). Fan-out slices are skipped:
+ * only the whole node carries the item's total draw.
+ *
+ * Only the role-less pool's overrides can bind here: a catalyst pool's charge
+ * is drawn whole by design and the LP never charges it against a cap
+ * (assertSolvable already drops catalyst rows from its capped set for that
+ * reason), so a catalyst cap can never cause a shortfall and naming one would
+ * misattribute.
+ */
+export function boundaryCapsAtLimit(
+  plan: RenderPlan,
+  itemOverrides: ReadonlyArray<ItemOverride>,
+): string[] {
+  const capByItem = new Map(
+    itemOverrides.flatMap((ov) =>
+      ov.ratePerSec === undefined || ov.role !== undefined
+        ? []
+        : ([[ov.itemId, ov.ratePerSec]] as const),
+    ),
+  );
+  if (capByItem.size === 0) return [];
+
+  const atLimit = new Set<string>();
+  const drawn = new Set<string>();
+  for (const unit of plan.units) {
+    if (!isInputProductUnit(unit)) continue;
+    if (unit.isFanout) continue;
+    if (unit.role === "catalyst") continue;
+    if (!capByItem.has(unit.itemId)) continue;
+    drawn.add(unit.itemId);
+    if (unit.rateCap === undefined) continue;
+    const cap = rationalFromString(unit.rateCap);
+    if (rationalFromString(unit.rate).compare(cap) < 0) continue;
+    atLimit.add(unit.itemId);
+  }
+  // A capped item the render pipeline emitted no unit for was drawn 0
+  // (collectConsumed drops zero-supply items outright), so it is at its limit
+  // exactly when that limit is 0 - otherwise a cap above 0 constrains nothing.
+  const zero = new Fraction(0);
+  for (const [item, cap] of capByItem) {
+    if (drawn.has(item)) continue;
+    if (rationalFromString(cap).compare(zero) === 0) atLimit.add(item);
+  }
+  return [...atLimit].sort();
+}
 
 /**
  * The Plan-driven half of the seam: convert the plan to solver arguments, solve
@@ -124,5 +182,6 @@ export function solveFromPlan(
     underDelivered: targetOutputShortfalls(out.plan, out.targets).map(
       (s) => s.item,
     ),
+    cappedAtLimit: boundaryCapsAtLimit(out.plan, out.itemOverrides),
   };
 }

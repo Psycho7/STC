@@ -30,6 +30,7 @@ import {
   validatePlan,
 } from "./data/plan";
 import type { ItemOverride, Plan, PlanLoadError } from "./data/plan";
+import { attributeShortfall, shortfallText } from "./data/shortfall";
 import {
   defaultTransportConfig,
   loadTransportConfig,
@@ -58,8 +59,10 @@ import {
 import { SettingsPanel } from "./components/SettingsPanel";
 import type { LogicalGraph } from "./canvas/layout";
 import { LpInfeasibleError } from "./solver";
+import type Fraction from "fraction.js";
 import type { CatalystAccount } from "./solver/catalyst";
 import { solveFromPlan } from "./pipeline/solveForRender";
+import { deficitItemsBeyondTolerance } from "./pipeline/render/invariants";
 import type { RationalString } from "./pipeline/types";
 import { LocaleProvider, useI18n } from "./data/i18n-context";
 import type { I18nIndex } from "./data/i18n";
@@ -190,6 +193,8 @@ type SideSection = "targets" | "inputs";
 const SIDE_SECTION_ORDER: SideSection[] = ["targets", "inputs"];
 
 const EMPTY_CATALYST_ACCOUNT: CatalystAccount = new Map();
+const EMPTY_DEFICITS: ReadonlyMap<string, Fraction> = new Map();
+const NO_ITEMS: ReadonlyArray<string> = [];
 
 // Boundary supply per general ROW KEY, folded out of the input ProductNode
 // data the layout layer wrote.
@@ -393,6 +398,15 @@ function AppInner() {
   const [underDelivered, setUnderDelivered] = useState<ReadonlyArray<string>>(
     [],
   );
+  // The same solve's item-keyed feasibility deficits (items per second left
+  // unmet) and the explicitly capped items it drew to their limit. They sit
+  // beside underDelivered because the strip's sentence is built from all three:
+  // a deficit can land on an item that is not a target at all, and a cap may be
+  // named only when the plan actually exhausted it.
+  const [deficits, setDeficits] =
+    useState<ReadonlyMap<string, Fraction>>(EMPTY_DEFICITS);
+  const [cappedAtLimit, setCappedAtLimit] =
+    useState<ReadonlyArray<string>>(NO_ITEMS);
   // True while the rendered canvas is stale relative to the latest committed
   // intent: a mutation or navigation solve failed and the old graph is still on
   // screen. It stays true after the banner is dismissed, so the ERROR status
@@ -562,6 +576,8 @@ function AppInner() {
       setGaps(laid.gaps);
       setBaseEdges(laid.baseEdges);
       setUnderDelivered(solved.underDelivered);
+      setDeficits(solved.full.feasibility.deficits);
+      setCappedAtLimit(solved.cappedAtLimit);
       setLayoutGeneration((g) => g + 1);
     },
     [setNodes, setEdges, setGaps, setBaseEdges],
@@ -954,10 +970,33 @@ function AppInner() {
     );
   }
 
-  // An in-flight generation reads as SOLVING even if the previous one errored
-  // (a retry is under way); a stale canvas reads as ERROR and stays ERROR after
-  // the banner is dismissed until the next successful solve; otherwise READY.
-  const status: CanvasStatus = pending ? "SOLVING" : stale ? "ERROR" : "READY";
+  // What the strip may say about the plan on screen, and about what: the unmet
+  // items of the latest solve plus every explanation its evidence supports. The
+  // deficit ids go through the same tolerance the under-delivery read applies,
+  // so a sub-tolerance residue names no cause the item does not have.
+  const shortfall = attributeShortfall({
+    underDelivered,
+    deficitItemIds: deficitItemsBeyondTolerance(deficits, plan.targets),
+    itemCauses: unavailableItemCauses,
+    cappedAtLimit,
+  });
+
+  // Ruling R9: the status reports FULFILLMENT. An in-flight generation reads as
+  // SOLVING even if the previous one errored (a retry is under way); a stale
+  // canvas reads as ERROR and stays ERROR after the banner is dismissed until
+  // the next successful solve; a drawn plan with unmet demand - a deliberate
+  // cap included - reads as SHORTFALL; only a plan that meets every declared
+  // rate is READY. The gate is the tolerant under-delivery list the strip's
+  // attribution also reads, NOT the raw deficit map: the LP can leave a
+  // sub-tolerance residue there (a rate that snapped against its demand), and
+  // gating on the raw map would flip a met plan to SHORTFALL over that noise.
+  const status: CanvasStatus = pending
+    ? "SOLVING"
+    : stale
+      ? "ERROR"
+      : underDelivered.length > 0
+        ? "SHORTFALL"
+        : "READY";
 
   // Localized banner copy. A bad link uses the load wrapper and a rejected edit
   // its own wrapper; a solver exception maps to a body that names the
@@ -1037,7 +1076,7 @@ function AppInner() {
               className={
                 status === "ERROR"
                   ? "stat-chip err"
-                  : status === "SOLVING"
+                  : status === "SOLVING" || status === "SHORTFALL"
                     ? "stat-chip warn"
                     : "stat-chip"
               }
@@ -1050,8 +1089,13 @@ function AppInner() {
               data-testid="export-png"
               aria-label={i18n.t("export.png.label")}
               title={i18n.t("export.png.label")}
+              // A SHORTFALL plan is a drawn plan, so it exports: only an
+              // in-flight solve or a stale canvas has nothing worth a PNG.
               disabled={
-                status !== "READY" || nodes.length === 0 || exportingPng
+                status === "SOLVING" ||
+                status === "ERROR" ||
+                nodes.length === 0 ||
+                exportingPng
               }
               onClick={() => void handleExportPng()}
             >
@@ -1083,17 +1127,16 @@ function AppInner() {
             </button>
           </div>
         ) : null}
+        {/* The strip's gate mirrors the status gate above (the tolerant
+            under-delivery list, not the raw deficit map) so the two can never
+            disagree: no "unmet demand" sentence under a READY header. */}
         {underDelivered.length > 0 ? (
           <div
             role="status"
             data-testid="shortfall-strip"
             style={shortfallStripStyle}
           >
-            {i18n.t("app.error.infeasible", {
-              items: underDelivered
-                .map((id) => i18n.displayName(id))
-                .join(", "),
-            })}
+            {shortfallText(shortfall, i18n)}
           </div>
         ) : null}
       </div>
