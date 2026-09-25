@@ -68,15 +68,10 @@ describe("layoutSolved on a catalyst-cycling recipe", () => {
     for (const card of catalystCards) {
       const data = card.data as {
         itemId: string;
-        isFanout?: boolean;
         catalystBreakdown?: { fromCatalyst: unknown };
       };
       const entry = solved.full.catalystAccount.get(data.itemId);
       expect(entry).toBeDefined();
-      if (data.isFanout) {
-        expect(data.catalystBreakdown).toBeUndefined();
-        continue;
-      }
       expect(data.catalystBreakdown).toEqual({
         fromCatalyst: rationalToString(entry!.fromCatalyst),
         fromGeneral: rationalToString(entry!.fromGeneral),

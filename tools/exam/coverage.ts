@@ -51,7 +51,6 @@ import { pack as shippedPack } from "../../src/data/load";
 import { rationalFromString } from "../../src/data/targets";
 import { solveForRender } from "../../src/pipeline/solveForRender";
 import {
-  isInputProductUnit,
   isRecipeUnit,
   type Container,
   type RenderPlan,
@@ -107,8 +106,6 @@ export type PackFingerprint = {
 export type FeatureCounts = {
   loopBoxes: number;
   loopMembers: number;
-  fanoutInputs: number;
-  aggregateInputs: number;
   /** Replica classes whose machine count is not a whole number. */
   partialStamps: number;
   multiplicityTotal: string;
@@ -208,8 +205,6 @@ function featuresOf(plan: RenderPlan): FeatureCounts {
     plan.containers.filter(isLoopBox).map((c) => c.id),
   );
   let loopMembers = 0;
-  let fanoutInputs = 0;
-  let aggregateInputs = 0;
   let partialStamps = 0;
   let multiplicity = new Fraction(0);
 
@@ -223,17 +218,12 @@ function featuresOf(plan: RenderPlan): FeatureCounts {
       // multiplicity badge, one per replica class, so the figure is unchanged.
       if (!count.equals(count.floor(0))) partialStamps += 1;
       multiplicity = multiplicity.add(count);
-    } else if (isInputProductUnit(u)) {
-      if (u.isFanout) fanoutInputs += 1;
-      if (u.isAggregate) aggregateInputs += 1;
     }
   }
 
   return {
     loopBoxes: loopBoxIds.size,
     loopMembers,
-    fanoutInputs,
-    aggregateInputs,
     partialStamps,
     multiplicityTotal: multiplicity.toFraction(),
   };
@@ -292,8 +282,6 @@ export async function collectCoverage(
   const totals: FeatureCounts = {
     loopBoxes: 0,
     loopMembers: 0,
-    fanoutInputs: 0,
-    aggregateInputs: 0,
     partialStamps: 0,
     multiplicityTotal: "0",
   };
@@ -306,8 +294,6 @@ export async function collectCoverage(
       union.selfConsumingRecipeIds.add(id);
     totals.loopBoxes += p.features.loopBoxes;
     totals.loopMembers += p.features.loopMembers;
-    totals.fanoutInputs += p.features.fanoutInputs;
-    totals.aggregateInputs += p.features.aggregateInputs;
     totals.partialStamps += p.features.partialStamps;
     multiplicity = multiplicity.add(new Fraction(p.features.multiplicityTotal));
   }
@@ -662,8 +648,6 @@ function formatReport(
     "machines",
     "loopBox",
     "loopMem",
-    "fanout",
-    "aggregate",
     "partial",
     "multiplicity",
   ];
@@ -673,8 +657,6 @@ function formatReport(
     String(p.machineIds.length),
     String(p.features.loopBoxes),
     String(p.features.loopMembers),
-    String(p.features.fanoutInputs),
-    String(p.features.aggregateInputs),
     String(p.features.partialStamps),
     p.features.multiplicityTotal,
   ]);
@@ -685,8 +667,6 @@ function formatReport(
     String(report.union.machineIds.size),
     String(t.loopBoxes),
     String(t.loopMembers),
-    String(t.fanoutInputs),
-    String(t.aggregateInputs),
     String(t.partialStamps),
     t.multiplicityTotal,
   ]);

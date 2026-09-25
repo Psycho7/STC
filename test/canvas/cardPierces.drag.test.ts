@@ -77,16 +77,14 @@ describe("no drawn segment of a dragged card's edges enters a card", () => {
       const rerouted = rerouteEdges(movedNodes, baseEdges, { gaps });
 
       const movedById = nodeIndexOf(movedNodes);
-      const rects: NodeRect[] = cardRectsFor(movedNodes, movedById).map(
-        (c) => ({
-          nodeId: c.id,
-          type: movedById.get(c.id)?.type ?? "",
-          left: c.left,
-          top: c.top,
-          right: c.right,
-          bottom: c.bottom,
-        }),
-      );
+      const rects: NodeRect[] = cardRectsFor(movedNodes).map((c) => ({
+        nodeId: c.id,
+        type: movedById.get(c.id)?.type ?? "",
+        left: c.left,
+        top: c.top,
+        right: c.right,
+        bottom: c.bottom,
+      }));
 
       // The drawn polylines of the moved card's incident edges only, rebuilt
       // the way the render rebuilds them (drawnPortsOf + drawnEdge).

@@ -7,7 +7,7 @@ import Fraction from "fraction.js";
 import type { Recipe } from "@aef/schema";
 import type { Edge } from "@xyflow/react";
 
-import type { RFContainerNode, RFProductNode, RFRecipeNode } from "./layout";
+import type { RFProductNode, RFRecipeNode } from "./layout";
 
 export const emptyPorts = new Map<string, never>();
 
@@ -109,28 +109,5 @@ export const productNode = (
     itemId: "w",
     rate: { num: "1", denom: "1" },
     portTransportKinds: emptyPorts,
-  },
-});
-
-// A container ("group") node: a root-level box with an absolute position and an
-// explicit size, whose children carry `parentId` and a PARENT-RELATIVE position
-// (what fromElkRenderLayout emits, no React Flow `extent`).
-export const containerNode = (
-  id: string,
-  x: number,
-  y: number,
-  width: number,
-  height: number,
-): RFContainerNode => ({
-  id,
-  type: "group",
-  position: { x, y },
-  width,
-  height,
-  style: { width, height },
-  data: {
-    containerKind: "blueprint-group",
-    containerId: id,
-    memberCount: 0,
   },
 });

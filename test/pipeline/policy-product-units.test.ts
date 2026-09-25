@@ -1420,8 +1420,6 @@ describe("render policy / one input card per pool, containers or not", () => {
     expect(inputs.map((u) => u.id)).toEqual(["u:in:water"]);
     const card = inputs[0]!;
     expect(card.rate).toEqual({ num: "2", denom: "1" });
-    expect(card.isAggregate).toBeUndefined();
-    expect(card.isFanout).toBeUndefined();
     const out = plan.edges.filter(
       (e) => e.fromUnit === "u:in:water" && e.item === "water",
     );
@@ -1481,9 +1479,6 @@ describe("render policy / one input card per pool, containers or not", () => {
     // one direct edge per consumer.
     expect(inputs.map((u) => u.id)).toEqual(["u:in:water"]);
     const node = inputs[0]!;
-    expect(node.isAggregate).toBeUndefined();
-    expect(node.isFanout).toBeUndefined();
-    expect(node.parentRate).toBeUndefined();
     const outEdges = plan.edges.filter(
       (e) => e.fromUnit === "u:in:water" && e.item === "water",
     );
@@ -1519,8 +1514,6 @@ describe("render policy / one input card per pool, containers or not", () => {
       .filter((u) => u.itemId === "water");
     expect(inputs.length).toBe(1);
     expect(inputs[0]!.id).toBe("u:in:water");
-    expect(inputs[0]!.isAggregate).toBeUndefined();
-    expect(inputs[0]!.isFanout).toBeUndefined();
   });
 
   it("mixed grouped + loose consumer: one card feeds both", () => {

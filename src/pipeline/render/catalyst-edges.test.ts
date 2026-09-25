@@ -210,10 +210,6 @@ describe("catalyst supply edges", () => {
       `u:cat:${GAS_XIRANITE}`,
       `u:in:${GAS_XIRANITE}`,
     ]);
-    for (const n of nodes) {
-      expect(n.isAggregate, n.id).toBeUndefined();
-      expect(n.isFanout, n.id).toBeUndefined();
-    }
 
     const inbound = plan.edges.filter(
       (e) => e.toUnit === unit!.id && e.item === GAS_XIRANITE,
@@ -302,8 +298,6 @@ describe("catalyst supply edges", () => {
     );
     expect(nodes.map((u) => u.id)).toEqual([`u:cat:${LIQUID_XIRANITE}`]);
     const card = nodes[0]!;
-    expect(card.isAggregate).toBeUndefined();
-    expect(card.isFanout).toBeUndefined();
     const need = full.catalystAccount.get(LIQUID_XIRANITE)!.need;
     expect(rationalFromString(card.rate).equals(need)).toBe(true);
 

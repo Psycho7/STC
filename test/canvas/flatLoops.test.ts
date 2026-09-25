@@ -62,9 +62,9 @@ describe("flat loops", () => {
 
   it("lays battery5-xiranite out with no group node and no parentId", async () => {
     const { nodes } = await layoutSolved(solveScenario("battery5-xiranite"));
-    expect(nodes.filter((n) => n.type === "group").map((n) => n.id)).toEqual(
-      [],
-    );
+    expect(
+      nodes.filter((n) => (n.type as string) === "group").map((n) => n.id),
+    ).toEqual([]);
     expect(
       nodes.filter((n) => n.parentId !== undefined).map((n) => n.id),
     ).toEqual([]);

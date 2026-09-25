@@ -26,7 +26,6 @@ import {
 } from "react";
 import { flushSync } from "react-dom";
 import RecipeNode from "./RecipeNode";
-import GroupNode, { groupCaption } from "./GroupNode";
 import LoopNode from "./LoopNode";
 import ProductNode from "./ProductNode";
 import ItemEdge, { edgeStrokeWidth, withFocusFlags } from "./ItemEdge";
@@ -41,7 +40,7 @@ import {
 } from "./busRouting";
 import { SegmentHoverContext, type SegmentHover } from "./hoverSegment";
 import type { RFAnyNode } from "./layout";
-import { loopPaints } from "./loopPaint";
+import { loopCaption, loopPaints } from "./loopPaint";
 import type { GapRecord } from "./layerModel";
 import { ExportModeProvider } from "./exportMode";
 import { capturePlanPng, exportFrame, withInlinedSprites } from "./exportPng";
@@ -65,13 +64,11 @@ const canvasThemeStyle: CSSProperties = {
   ["--icons-url" as string]: `url(${iconSheetUrl})`,
 };
 
-// Node type table covers both the older fixtures (recipe + group only) and the
-// current render pipeline (recipe + loop). Edge type "item" is the
-// label renderer; older edges with no type fall back to React Flow's default
-// rendering.
+// Node type table for the render pipeline (recipe, loop, product). Edge type
+// "item" is the label renderer; older edges with no type fall back to React
+// Flow's default rendering.
 const nodeTypes = {
   recipe: RecipeNode,
-  group: GroupNode,
   loop: LoopNode,
   product: ProductNode,
 };
@@ -158,35 +155,18 @@ function withDimmed(className: string | undefined): string {
   return className ? `${className} dimmed` : "dimmed";
 }
 
-function withLitContainer(className: string | undefined): string {
-  return className ? `${className} lit-container` : "lit-container";
-}
+// The dimmed node copy handed to React Flow, one per source node. A copy is a
+// pure function of its source, so reusing it keeps the object React Flow sees
+// stable across drag frames: a drag hands Canvas a new array every frame but
+// touches only the dragged node, and every other node keeps its wrapper
+// instead of re-rendering.
+const dimmedCopies = new WeakMap<Node, Node>();
 
-// The dimmed / lit-container node copies handed to React Flow, one per source
-// node and variant. A copy is a pure function of its source, so reusing it
-// keeps the object React Flow sees stable across drag frames: a drag hands
-// Canvas a new array every frame but touches only the dragged node, and every
-// other node keeps its wrapper instead of re-rendering.
-type FocusVariant = "dimmed" | "litContainer";
-const focusCopies = new WeakMap<
-  object,
-  Partial<Record<FocusVariant, object>>
->();
-
-function focusCopy<T extends object>(
-  source: T,
-  variant: FocusVariant,
-  build: (source: T) => T,
-): T {
-  let copies = focusCopies.get(source);
-  if (copies === undefined) {
-    copies = {};
-    focusCopies.set(source, copies);
-  }
-  const hit = copies[variant];
-  if (hit !== undefined) return hit as T;
-  const copy = build(source);
-  copies[variant] = copy;
+function dimmedCopy(source: Node): Node {
+  const hit = dimmedCopies.get(source);
+  if (hit !== undefined) return hit;
+  const copy = { ...source, className: withDimmed(source.className) };
+  dimmedCopies.set(source, copy);
   return copy;
 }
 
@@ -197,31 +177,9 @@ export function focusNodes(
   focus: { nodeIds: Set<string> } | null,
 ): Node[] {
   if (!focus) return nodes;
-  // Container boxes (`type: "group"`) never dim while any of their child nodes
-  // is in the focus set, so the frame around a lit cluster does not read as
-  // faded. With no focused child they dim like any other node.
-  const litContainers = new Set<string>();
-  for (const node of nodes) {
-    if (node.parentId && focus.nodeIds.has(node.id)) {
-      litContainers.add(node.parentId);
-    }
-  }
-  return nodes.map((node) => {
-    if (focus.nodeIds.has(node.id)) return node;
-    // A container lit only because a child is focused keeps a lit border but a
-    // still-translucent fill, so it does not read as a bright empty slab over
-    // its dimmed members.
-    if (node.type === "group" && litContainers.has(node.id)) {
-      return focusCopy(node, "litContainer", (n) => ({
-        ...n,
-        className: withLitContainer(n.className),
-      }));
-    }
-    return focusCopy(node, "dimmed", (n) => ({
-      ...n,
-      className: withDimmed(n.className),
-    }));
-  });
+  return nodes.map((node) =>
+    focus.nodeIds.has(node.id) ? node : dimmedCopy(node),
+  );
 }
 
 // Stamp the hover focus onto the edges React Flow renders. Idle (`focus` null)
@@ -557,9 +515,6 @@ function CanvasInner({
   // prop identity every render and re-reconciles the whole graph.
   const handleNodeMouseEnter = useCallback<NodeMouseHandler<Node>>(
     (_, node) => {
-      // Group boxes are hover-inert: they own no edges, so lighting one dims
-      // the whole graph for zero payoff. Skip them entirely.
-      if (node.type === "group") return;
       scheduleHover({ kind: "node", id: node.id });
     },
     [scheduleHover],
@@ -771,9 +726,8 @@ function CanvasInner({
             minZoom={0.05}
             ariaLabelConfig={ariaLabelConfig}
             // The graph is a solved plan, not an editable document: nothing puts a
-            // deleted unit or edge back, and the export would ship the hole (a
-            // deleted container box takes its members with it). null unbinds the
-            // delete keys entirely - onBeforeDelete would still run the delete
+            // deleted unit or edge back, and the export would ship the hole. null
+            // unbinds the delete keys entirely - onBeforeDelete would still run the delete
             // plumbing, and the per-element opt-out in this version is the
             // optional `deletable` field on nodes and edges.
             deleteKeyCode={null}
@@ -806,9 +760,8 @@ function CanvasInner({
                 </svg>
                 {paints.map((paint) => {
                   if (paint.caption === undefined) return null;
-                  const caption = groupCaption(
-                    { titleItems: paint.titleItems },
-                    (id) => i18n.displayName(id),
+                  const caption = loopCaption(paint.titleItems, (id) =>
+                    i18n.displayName(id),
                   );
                   const { left, top, right, bottom } = paint.caption;
                   return (
@@ -840,9 +793,9 @@ function CanvasInner({
       <div className="canvas-annot top-left">
         BLUEPRINT VIEW · LEFT ALIGN GUIDES
       </div>
-      {/* Rendered recipe units only: the node array also carries group
-          containers and product chips, and clustering may aggregate replicas
-          into class units - hence UNITS, not REPLICAS. */}
+      {/* Rendered recipe units only: the node array also carries product
+          chips, and clustering may aggregate replicas into class units -
+          hence UNITS, not REPLICAS. */}
       <div className="canvas-annot top-right">{`UNITS:${unitCount}`}</div>
       <div className="canvas-annot bottom-right">{`STATUS · ${status}`}</div>
     </div>

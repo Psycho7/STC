@@ -35,7 +35,6 @@ import { layoutSolved } from "../../src/canvas/layoutSolved";
 import {
   absoluteLeft,
   edgeTargetSide,
-  nodeIndexOf,
   nodeWidth,
 } from "../../src/canvas/nodeGeometry";
 import type { RFAnyNode } from "../../src/canvas/layout";
@@ -56,12 +55,10 @@ const OUT =
 // Laid-out width of a plan: the leaf nodes' bounding span in x. Containers are
 // skipped because they only wrap their children.
 function plannedWidth(nodes: ReadonlyArray<RFAnyNode>): number {
-  const byId = nodeIndexOf(nodes);
   let left = Infinity;
   let right = -Infinity;
   for (const node of nodes) {
-    if (node.type === "group") continue;
-    const l = absoluteLeft(node, byId);
+    const l = absoluteLeft(node);
     left = Math.min(left, l);
     right = Math.max(right, l + nodeWidth(node));
   }

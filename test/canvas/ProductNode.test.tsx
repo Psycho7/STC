@@ -148,21 +148,6 @@ describe("ProductNode", () => {
     }
   });
 
-  it("draws nothing but the name and the figure on a tap card", () => {
-    const { container } = renderProduct(
-      {
-        kind: "inputProduct",
-        itemId: "copper_ore",
-        rate: { num: "1", denom: "2" },
-        isFanout: true,
-        parentRate: { num: "9", denom: "2" },
-      },
-      [makeItem("copper_ore", true)],
-    );
-    expect(container.querySelector(".pn-kind")).toBeNull();
-    expect(leftoverText(container)).toBe("");
-  });
-
   it("speaks the direction and class of an input card in en and zh", () => {
     const label = (locale: "en" | "zh"): string => {
       const { container } = renderProduct(
@@ -269,41 +254,6 @@ describe("ProductNode", () => {
     expect(container.textContent ?? "").not.toContain("uncapped");
   });
 
-  it("renders a fanout slice with tap chrome and the parent share", () => {
-    // rate 1/2 per sec = 30/min; parentRate 9/2 per sec = 270/min.
-    const { container } = renderProduct(
-      {
-        kind: "inputProduct",
-        itemId: "copper_ore",
-        rate: { num: "1", denom: "2" },
-        isFanout: true,
-        parentRate: { num: "9", denom: "2" },
-      },
-      [makeItem("copper_ore", true)],
-    );
-    const node = container.querySelector(".product-node");
-    expect(node?.classList.contains("tap")).toBe(true);
-    expect(node?.getAttribute("aria-label")).toBe("In, tap");
-    expect(container.querySelector(".pn-rate__of")?.textContent).toBe(
-      "of 270/min",
-    );
-  });
-
-  it("a non-fanout input keeps the raw chrome with no share chip", () => {
-    const { container } = renderProduct(
-      {
-        kind: "inputProduct",
-        itemId: "copper_ore",
-        rate: { num: "9", denom: "2" },
-      },
-      [makeItem("copper_ore", true)],
-    );
-    expect(
-      container.querySelector(".product-node")?.classList.contains("tap"),
-    ).toBe(false);
-    expect(container.querySelector(".pn-rate__of")).toBeNull();
-  });
-
   it("renders output flavor (target) with rate badge", () => {
     const { container } = renderProduct(
       {
@@ -357,25 +307,6 @@ describe("ProductNode", () => {
       const zh = label("zh");
       expect(zh).toContain("催化");
       expect(zh).not.toMatch(/raw|import|catalyst/);
-    });
-
-    it("keeps the catalyst word on a fanout slice of the pool in en and zh", () => {
-      // A per-container slice of a catalyst card is still catalyst supply, so
-      // the tap word joins the catalyst word instead of replacing it.
-      const slice = catalystData({ isFanout: true });
-      const en = renderProduct(slice, [makeItem("gas_xiranite", true)]);
-      expect(
-        en.container
-          .querySelector("[data-testid='product-node']")
-          ?.getAttribute("aria-label"),
-      ).toBe("In, catalyst, tap");
-      cleanup();
-      const zh = renderProduct(slice, [makeItem("gas_xiranite", true)], "zh");
-      expect(
-        zh.container
-          .querySelector("[data-testid='product-node']")
-          ?.getAttribute("aria-label"),
-      ).toBe("输入, 催化, 分接");
     });
 
     it("marks the card with data-role=catalyst and leaves an ordinary card unmarked", () => {
@@ -439,26 +370,6 @@ describe("ProductNode", () => {
         container.querySelector(".pn-name")?.getAttribute("title") ?? "";
       expect(title).toContain("from catalyst supply 6/min");
       expect(title).not.toContain("short");
-    });
-
-    it("leaves a fanout slice's name tooltip plain", () => {
-      // The split is item-level accounting; a per-container slice has no share
-      // of it, so its tooltip is the bare display name.
-      const { container } = renderProduct(
-        catalystData({
-          isFanout: true,
-          parentRate: { num: "1", denom: "5" },
-          catalystBreakdown: {
-            fromCatalyst: { num: "1", denom: "20" },
-            fromGeneral: { num: "0", denom: "1" },
-            unmet: { num: "0", denom: "1" },
-          },
-        }),
-        [makeItem("gas_xiranite", true)],
-      );
-      expect(container.querySelector(".pn-name")?.getAttribute("title")).toBe(
-        "Xiragen",
-      );
     });
 
     it("draws the ordinary box plus the one ruled word: element skeleton, one height constant", () => {

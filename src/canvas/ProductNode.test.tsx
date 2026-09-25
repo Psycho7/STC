@@ -42,17 +42,6 @@ function outputProps() {
   });
 }
 
-function fanoutInputProps() {
-  return makeProductNodeProps({
-    kind: "inputProduct",
-    itemId: "ore",
-    rate: { num: "1", denom: "2" },
-    rateCap: { num: "1", denom: "1" },
-    isFanout: true,
-    parentRate: { num: "9", denom: "2" },
-  });
-}
-
 // React Flow passes the wrapper's `selected` flag as a NodeProp; the inner
 // .product-node must forward it so the card gets a visible selection treatment.
 test("selected prop forwards the selected class onto the card", () => {
@@ -91,13 +80,13 @@ test("pn-rate unit is localized in zh", () => {
   expect(rate!.textContent).not.toMatch(/min/i);
 });
 
-// Surface-level gate: a fanout input lights up every fine-print line at once
-// (rate, tap share), so scanning the whole card catches any rate unit that
-// skipped the i18n table. The catalyst card joins it because it now draws a word
-// of its own (ruling R3): under zh that word must be the localized 催化, never
-// the Latin CATALYST. The output card covers the target/surplus arm.
+// Surface-level gate: an input card's fine-print line (the rate), so scanning
+// the whole card catches any rate unit that skipped the i18n table. The
+// catalyst card joins it because it now draws a word of its own (ruling R3):
+// under zh that word must be the localized 催化, never the Latin CATALYST.
+// The output card covers the target/surplus arm.
 test("zh product cards render no Latin min anywhere", () => {
-  const { container } = wrap(<ProductNode {...fanoutInputProps()} />, "zh");
+  const { container } = wrap(<ProductNode {...inputProps()} />, "zh");
   expect(container.textContent).not.toMatch(/min/i);
   cleanup();
   const catalyst = wrap(
