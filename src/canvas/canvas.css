@@ -1180,8 +1180,10 @@
   z-index: -1;
   pointer-events: none;
   opacity: 0.1;
-}
-.loop-paint rect {
+  /* On the SVG root, not the rects: the PNG export (html-to-image) inlines the
+     computed style of an <svg> root only and copies its children bare, with no
+     stylesheet behind them, so a rule on the rects never reaches the image.
+     The rects inherit the root's fill in the live canvas and in the clone. */
   fill: var(--ak-accent-cyan-soft);
 }
 

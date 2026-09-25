@@ -6,7 +6,7 @@ import { readFile } from "node:fs/promises";
 
 import { expect, test } from "@playwright/test";
 
-import { exportFrame } from "../../src/canvas/exportPng";
+import { EXPORT_MARGIN, exportFrame } from "../../src/canvas/exportPng";
 import { SCENARIOS, scenarioHash } from "./scenarios";
 import { bootExamPage } from "./viewport";
 
@@ -62,4 +62,139 @@ test("the export button downloads the plan canvas as a framed PNG", async ({
     width: Math.floor(frame.width * frame.pixelRatio),
     height: Math.floor(frame.height * frame.pixelRatio),
   });
+});
+
+// Flow units a sample keeps from every card, chip, caption and edge stroke, so
+// an antialiased border or a stroke's hit band never lands in the sample.
+const TINT_SAMPLE_CLEARANCE = 16;
+// Flow-unit pitch of the candidate grid laid over each paint rect.
+const TINT_SAMPLE_PITCH = 12;
+// How many member-only points the tint check reads.
+const TINT_SAMPLE_COUNT = 12;
+// Smallest per-channel distance from the background that counts as tinted.
+// The paint is cyan at opacity 0.1 over a near-black canvas, which moves the
+// green and blue channels by well over this; an untinted pixel moves by 0.
+const TINT_MIN_DELTA = 4;
+
+test("the export keeps the loop paint tint", async ({ page }, testInfo) => {
+  const scenario = SCENARIOS.find((s) => s.id === "battery5-xiranite")!;
+  await bootExamPage(page, {
+    url: "/#" + (await scenarioHash(scenario)),
+    locale: "en",
+    readiness: "ready",
+    settle: "both",
+  });
+
+  const bounds = await page.evaluate(() => window.__stcExam!.contentBounds());
+  expect(bounds).not.toBeNull();
+  const frame = exportFrame(bounds!);
+
+  // Member-only points, in flow units: inside a paint rect, clear of every
+  // card, chip and caption box, and with no edge under or near them. Read
+  // from the live canvas, where hit testing and client rects are real.
+  const points = await page.evaluate(
+    ({ clearance, pitch }) => {
+      const viewport = document.querySelector<HTMLElement>(
+        ".react-flow__viewport",
+      )!;
+      const origin = viewport.parentElement!.getBoundingClientRect();
+      const m = new DOMMatrixReadOnly(getComputedStyle(viewport).transform);
+      const zoom = m.a;
+      const toScreen = (x: number, y: number) => ({
+        x: origin.left + m.e + x * zoom,
+        y: origin.top + m.f + y * zoom,
+      });
+
+      const boxes = Array.from(
+        document.querySelectorAll(
+          ".react-flow__node, .react-flow__edgelabel-renderer *, .loop-caption",
+        ),
+      ).map((el) => el.getBoundingClientRect());
+      const pad = clearance * zoom;
+      const nearBox = (s: { x: number; y: number }) =>
+        boxes.some(
+          (b) =>
+            s.x > b.left - pad &&
+            s.x < b.right + pad &&
+            s.y > b.top - pad &&
+            s.y < b.bottom + pad,
+        );
+      const nearEdge = (s: { x: number; y: number }) =>
+        [
+          [0, 0],
+          [pad, 0],
+          [-pad, 0],
+          [0, pad],
+          [0, -pad],
+        ].some(([dx, dy]) =>
+          document
+            .elementsFromPoint(s.x + dx!, s.y + dy!)
+            .some((el) => el.closest(".react-flow__edges") !== null),
+        );
+
+      const found: { x: number; y: number }[] = [];
+      for (const rect of document.querySelectorAll(".loop-paint rect")) {
+        const left = Number(rect.getAttribute("x"));
+        const top = Number(rect.getAttribute("y"));
+        const right = left + Number(rect.getAttribute("width"));
+        const bottom = top + Number(rect.getAttribute("height"));
+        for (let y = top + clearance; y <= bottom - clearance; y += pitch) {
+          for (let x = left + clearance; x <= right - clearance; x += pitch) {
+            const s = toScreen(x, y);
+            if (!nearBox(s) && !nearEdge(s)) found.push({ x, y });
+          }
+        }
+      }
+      return found;
+    },
+    { clearance: TINT_SAMPLE_CLEARANCE, pitch: TINT_SAMPLE_PITCH },
+  );
+  expect(points.length).toBeGreaterThanOrEqual(TINT_SAMPLE_COUNT);
+  const step = Math.floor(points.length / TINT_SAMPLE_COUNT);
+  const samples = Array.from(
+    { length: TINT_SAMPLE_COUNT },
+    (_, i) => points[i * step]!,
+  );
+
+  const downloadPromise = page.waitForEvent("download");
+  await page.getByTestId("export-png").click();
+  const file = await (await downloadPromise).path();
+  await testInfo.attach("export-png", { path: file, contentType: "image/png" });
+
+  // Decode in a blank page: the export's own frame maps a flow point to its
+  // device pixel, and the top-left margin pixel is the bare background.
+  const decoder = await page.context().newPage();
+  const pixels = await decoder.evaluate(
+    async ({ b64, px }) => {
+      const img = new Image();
+      img.src = "data:image/png;base64," + b64;
+      await img.decode();
+      const canvas = document.createElement("canvas");
+      canvas.width = img.naturalWidth;
+      canvas.height = img.naturalHeight;
+      const ctx = canvas.getContext("2d")!;
+      ctx.drawImage(img, 0, 0);
+      const read = ([x, y]: number[]) =>
+        Array.from(ctx.getImageData(x!, y!, 1, 1).data.slice(0, 3));
+      return { background: read([1, 1]), samples: px.map(read) };
+    },
+    {
+      b64: (await readFile(file)).toString("base64"),
+      px: samples.map((p) => [
+        Math.round((p.x - bounds!.x + EXPORT_MARGIN) * frame.pixelRatio),
+        Math.round((p.y - bounds!.y + EXPORT_MARGIN) * frame.pixelRatio),
+      ]),
+    },
+  );
+  await decoder.close();
+
+  for (const [i, sample] of pixels.samples.entries()) {
+    const delta = Math.max(
+      ...sample.map((c, ch) => Math.abs(c - pixels.background[ch]!)),
+    );
+    expect(
+      delta,
+      `pixel ${JSON.stringify(sample)} at flow ${JSON.stringify(samples[i])} vs background ${JSON.stringify(pixels.background)}`,
+    ).toBeGreaterThanOrEqual(TINT_MIN_DELTA);
+  }
 });
