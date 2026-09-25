@@ -280,9 +280,7 @@ test.describe("InputsPanel golden-path coverage", () => {
     // Let the add's own hash rewrite land before baselining the cap's. Reading
     // the URL straight after the pick can capture it pre-rewrite, and then the
     // cap poll below is satisfied by the ADD's rewrite instead: the assertions
-    // that follow would sample a canvas that is still uncapped, where the item
-    // has both an import unit and a target passthrough and the bare node
-    // locator matches two elements.
+    // that follow would sample a canvas that is still uncapped.
     await expect
       .poll(() => page.url(), { timeout: 5_000 })
       .not.toBe(urlBeforeAdd);
@@ -428,18 +426,14 @@ test.describe("InputsPanel golden-path coverage", () => {
 
     await waitForCanvasReady(page);
 
-    // A free-supply target item now also gets a dedicated passthrough import
-    // unit (u:in:copper_powder:target) feeding its export directly, so a bare
-    // inputProduct locator matches two nodes. Pin each input unit by its exact
-    // React Flow data-id: the consumer-feeding input must render, and so must
-    // the intentional target-feed passthrough.
+    // A free-supply target item's export draws from the same input card as its
+    // in-graph consumers: one input node for the item, pinned by its exact
+    // React Flow data-id, with the export's share on the same card.
+    const copperPowderInputs = page.locator(
+      '[data-testid="product-node"][data-flavor="inputProduct"][data-item-id="copper_powder"]',
+    );
     const copperPowderInput = page
       .locator('.react-flow__node[data-id="u:in:copper_powder"]')
-      .locator(
-        '[data-testid="product-node"][data-flavor="inputProduct"][data-item-id="copper_powder"]',
-      );
-    const copperPowderTargetFeed = page
-      .locator('.react-flow__node[data-id="u:in:copper_powder:target"]')
       .locator(
         '[data-testid="product-node"][data-flavor="inputProduct"][data-item-id="copper_powder"]',
       );
@@ -447,8 +441,8 @@ test.describe("InputsPanel golden-path coverage", () => {
       '[data-testid="product-node"][data-flavor="outputProduct"][data-item-id="copper_powder"]',
     );
 
+    await expect(copperPowderInputs).toHaveCount(1);
     await expect(copperPowderInput).toBeAttached();
-    await expect(copperPowderTargetFeed).toBeAttached();
     await expect(copperPowderOutput).toBeAttached();
 
     await expectNoConsoleErrors(log);

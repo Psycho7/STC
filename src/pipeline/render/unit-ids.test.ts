@@ -5,7 +5,6 @@ import {
   unitIdForClass,
   unitIdForInputAggregate,
   unitIdForInputContainer,
-  unitIdForInputTargetFeed,
   unitIdForOutputProduct,
   unitIdForScc,
   unitIdForSurplus,
@@ -39,10 +38,6 @@ test("unitIdForCatalystAggregate pins the item-level catalyst form", () => {
 
 test("unitIdForCatalystContainer pins the per-container catalyst form", () => {
   expect(unitIdForCatalystContainer("water", "c0")).toBe("u:cat:water:c0");
-});
-
-test("unitIdForInputTargetFeed pins the passthrough-feed form", () => {
-  expect(unitIdForInputTargetFeed("water")).toBe("u:in:water:target");
 });
 
 test("unitIdForOutputProduct pins the export form", () => {

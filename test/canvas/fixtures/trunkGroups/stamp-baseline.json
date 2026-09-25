@@ -55,9 +55,9 @@
   },
   "gas-web": {
     "stampCount": 6,
-    "stampSha": "f83eaa6e051c015f150609de68ceaa613880338bb7c63916d66cf2154e86cacd",
+    "stampSha": "0be003bc124b2afccce4231b803baae3f7485a0b2ccbf094b431443b4f9c2c2d",
     "chipCount": 30,
-    "chipSha": "0abb33527cb9e3452e4714f0c3a28888d650d5c491392b91efcf32d355ccf664"
+    "chipSha": "b1f268abce0a82e27479aec500fc77a5817f792322e10bb48a26c5fcaebb6357"
   },
   "rot-bottled_food_3": {
     "stampCount": 5,

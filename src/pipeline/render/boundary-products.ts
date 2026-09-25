@@ -23,7 +23,6 @@ import {
   unitIdForCatalystContainer,
   unitIdForInputAggregate,
   unitIdForInputContainer,
-  unitIdForInputTargetFeed,
   unitIdForOutputProduct,
   unitIdForSurplus,
 } from "./unit-ids";
@@ -125,8 +124,8 @@ export type DeriveBoundaryProductsResult = {
  * items become output products (at their target rate); items consumed in the
  * plan with nonzero `effectiveSupply` become input products (with a rate cap
  * when overridden); surplus byproducts become amber output products; a
- * free-supply target item gets a dedicated passthrough import sized to the
- * slice of its declared rate that in-plan production spare does not cover.
+ * free-supply target item's export draws the slice of its declared rate that
+ * in-plan production spare does not cover from the item's own input card.
  * Per-consumer flow conservation holds when a boundary input coexists with an
  * in-graph producer for the same item.
  *
@@ -394,6 +393,114 @@ export function deriveBoundaryProducts(
   }
   for (const e of recaptureEdges) boundaryEdges.push(e);
 
+  // Output boundary edges: each target-recipe unit's per-item spare = produced -
+  // outgoing machine edges for that item. Units with positive spare get a target
+  // edge; the declared rate splits across them in proportion to spare. For a
+  // single leaf target recipe this collapses to the whole declared rate on one
+  // edge. For a target inside a recycling loop (or feeding internal consumers),
+  // the rule routes the declared net rate to whatever spare exists; a
+  // purely-internal unit (spare <= 0) emits no target edge and the surplus pass
+  // sees no leftover production from it.
+  //
+  // outgoingByUnitItem is built once here and reused by the surplus pass. Both
+  // passes need the post-target-emission view of outgoing flow so the same
+  // production is not counted as both delivered (to the target port) and
+  // surplus.
+  //
+  // This pass runs before the input pools are grouped because the part of a
+  // free-supply target that in-plan spare leaves uncovered is boundary draw:
+  // the export joins its item's pool as a consumer (see below). Its edges are
+  // held back and appended after the input edges, their original order.
+  const targetEdges: RenderEdge[] = [];
+  const outgoingByUnitItem = new Map<string, Fraction>();
+  const unitItemKey = (unitId: RenderUnitId, item: ItemId): string =>
+    `${unitId}\0${item}`;
+  const addOutgoing = (
+    unitId: RenderUnitId,
+    item: ItemId,
+    rate: Fraction,
+  ): void => {
+    const key = unitItemKey(unitId, item);
+    outgoingByUnitItem.set(
+      key,
+      (outgoingByUnitItem.get(key) ?? new Fraction(0)).add(rate),
+    );
+  };
+  for (const e of machineGraph.edges) {
+    const fromUnit = unitIdByVertex.get(e.from);
+    if (fromUnit === undefined) continue;
+    addOutgoing(fromUnit, e.item, e.rate);
+  }
+  // Recapture edges route byproduct production to in-plan consumers; count them
+  // as outgoing so the surplus pass nets the recaptured amount.
+  for (const [key, rate] of recaptureSendByUnitItem) {
+    const sep = key.indexOf("\0");
+    addOutgoing(key.slice(0, sep) as RenderUnitId, key.slice(sep + 1), rate);
+  }
+
+  type TargetUnitSpare = {
+    unitId: RenderUnitId;
+    spare: Fraction;
+  };
+  // Produced and outgoing are both whole-unit quantities, and the spare is taken
+  // once at that level. Differencing per machine vertex instead discarded one
+  // vertex's deficit against its sibling's spare and inflated the unit's apparent
+  // spare, so the proportional split below over-fed it past its production. This
+  // mirrors the surplus pass further down; the two passes must agree.
+  //
+  // Collect from EVERY recipe unit producing target item X, not just the one the
+  // target seeded. When an SCC target recipe co-produces the looped item with a
+  // leaf recipe (e.g. iron_nugget from both iron_nugget-iron_ore and
+  // iron_nugget-iron_powder), the leaf's spare must also reach the target output
+  // unit, or the target edge is under-fed and the leaf's spare becomes a phantom
+  // surplus. The rollup holds every output item, not just a recipe's primary
+  // one, so a co-produced target is captured too; the proportional split then
+  // routes the declared rate across pooled spare.
+  //
+  // Loop units are excluded: an SCC stand-in states net I/O, and its net output
+  // is already what its members failed to consume internally, so it feeds the
+  // surplus pass rather than a target edge.
+  const unitsByTargetOutItem = new Map<ItemId, TargetUnitSpare[]>();
+  for (const [unitId, facts] of unitFacts) {
+    if (facts.kind !== "recipe") continue;
+    for (const [outItem, produced] of facts.produced) {
+      if (!targetItemSet.has(outItem)) continue;
+      const outgoing =
+        outgoingByUnitItem.get(unitItemKey(unitId, outItem)) ?? new Fraction(0);
+      const spare = produced.sub(outgoing);
+      if (spare.compare(0) <= 0) continue;
+      pushInto(unitsByTargetOutItem, outItem, { unitId, spare });
+    }
+  }
+  const targetBilledByItem = new Map<ItemId, Fraction>();
+  for (const [outItem, units] of unitsByTargetOutItem) {
+    const total = targetRateByItem.get(outItem);
+    if (!total || units.length === 0) continue;
+    const item = itemById.get(outItem);
+    if (!item) continue;
+    const totalSpare = units.reduce(
+      (acc, u) => acc.add(u.spare),
+      new Fraction(0),
+    );
+    if (totalSpare.equals(new Fraction(0))) continue;
+    // Cap at totalSpare so a solver under-production never invents rate
+    // downstream. A correct solve produces totalSpare >= total for any
+    // reachable target recipe.
+    const distributed = total.compare(totalSpare) > 0 ? totalSpare : total;
+    targetBilledByItem.set(outItem, distributed);
+    for (const u of units) {
+      const rate = u.spare.mul(distributed).div(totalSpare);
+      targetEdges.push({
+        fromUnit: u.unitId,
+        toUnit: unitIdForOutputProduct(outItem),
+        item: outItem,
+        rate,
+        transportKind: item.transportKind,
+      });
+      addOutgoing(u.unitId, outItem, rate);
+    }
+  }
+
   // Boundary item := consumed by a machine, produced by no machine in the plan,
   // and surfaced by `effectiveSupply` (Infinity or positive Fraction). Items an
   // in-plan recipe produces upstream stay internal. Track each consumer with
@@ -482,6 +589,29 @@ export function deriveBoundaryProducts(
         catalyst: true,
       });
     }
+  }
+
+  // Free-boundary target export. A target item with unlimited free supply
+  // (raw:true, or plan:true via an override) builds no LP row: nothing is
+  // forced to run and the solver meets the declared rate with a reported
+  // boundary draw. The slice of the declared rate that in-plan spare did not
+  // cover above arrives from the boundary, so the export is one more loose
+  // consumer of the item's ordinary pool. It then draws from the same card as
+  // every other consumer (one boundary card per imported item) and the pool
+  // topology below applies to it unchanged. Finite-supply target items never
+  // take this path: the LP builds a real row for them.
+  for (const [outItem, total] of targetRateByItem) {
+    if (!supplyTable.isFree(outItem)) continue;
+    if (!itemById.has(outItem)) continue;
+    const billed = targetBilledByItem.get(outItem) ?? new Fraction(0);
+    const shortfall = total.sub(billed);
+    if (shortfall.compare(0) <= 0) continue;
+    boundaryConsumers.push({
+      toUnit: unitIdForOutputProduct(outItem),
+      item: outItem,
+      rate: shortfall,
+      containerId: undefined,
+    });
   }
 
   // Precompute realized rates before emitting product units. Each input
@@ -595,8 +725,8 @@ export function deriveBoundaryProducts(
     // product: every item that reaches this loop was admitted by
     // collectConsumed, which drops zero supply outright, so a target item with
     // no override is raw with unlimited supply and its consumers stay
-    // boundary-fed like any other free item (the declared export gets its own
-    // passthrough import below). An overridden or recapture-deficit target
+    // boundary-fed like any other free item (the declared export is one more
+    // loose consumer of this pool). An overridden or recapture-deficit target
     // renders BOTH as an input (pinned FIRST) and a target output (pinned
     // LAST): the override path imports a capped portion, the
     // recapture-deficit path draws the demand its target-claimed production
@@ -763,141 +893,7 @@ export function deriveBoundaryProducts(
     }
   }
 
-  // Output boundary edges: each target-recipe unit's per-item spare = produced -
-  // outgoing machine edges for that item. Units with positive spare get a target
-  // edge; the declared rate splits across them in proportion to spare. For a
-  // single leaf target recipe this collapses to the whole declared rate on one
-  // edge. For a target inside a recycling loop (or feeding internal consumers),
-  // the rule routes the declared net rate to whatever spare exists; a
-  // purely-internal unit (spare <= 0) emits no target edge and the surplus pass
-  // sees no leftover production from it.
-  //
-  // outgoingByUnitItem is built once here and reused by the surplus pass. Both
-  // passes need the post-target-emission view of outgoing flow so the same
-  // production is not counted as both delivered (to the target port) and
-  // surplus.
-  const outgoingByUnitItem = new Map<string, Fraction>();
-  const unitItemKey = (unitId: RenderUnitId, item: ItemId): string =>
-    `${unitId}\0${item}`;
-  const addOutgoing = (
-    unitId: RenderUnitId,
-    item: ItemId,
-    rate: Fraction,
-  ): void => {
-    const key = unitItemKey(unitId, item);
-    outgoingByUnitItem.set(
-      key,
-      (outgoingByUnitItem.get(key) ?? new Fraction(0)).add(rate),
-    );
-  };
-  for (const e of machineGraph.edges) {
-    const fromUnit = unitIdByVertex.get(e.from);
-    if (fromUnit === undefined) continue;
-    addOutgoing(fromUnit, e.item, e.rate);
-  }
-  // Recapture edges route byproduct production to in-plan consumers; count them
-  // as outgoing so the surplus pass nets the recaptured amount.
-  for (const [key, rate] of recaptureSendByUnitItem) {
-    const sep = key.indexOf("\0");
-    addOutgoing(key.slice(0, sep) as RenderUnitId, key.slice(sep + 1), rate);
-  }
-
-  type TargetUnitSpare = {
-    unitId: RenderUnitId;
-    spare: Fraction;
-  };
-  // Produced and outgoing are both whole-unit quantities, and the spare is taken
-  // once at that level. Differencing per machine vertex instead discarded one
-  // vertex's deficit against its sibling's spare and inflated the unit's apparent
-  // spare, so the proportional split below over-fed it past its production. This
-  // mirrors the surplus pass directly below; the two passes must agree.
-  //
-  // Collect from EVERY recipe unit producing target item X, not just the one the
-  // target seeded. When an SCC target recipe co-produces the looped item with a
-  // leaf recipe (e.g. iron_nugget from both iron_nugget-iron_ore and
-  // iron_nugget-iron_powder), the leaf's spare must also reach the target output
-  // unit, or the target edge is under-fed and the leaf's spare becomes a phantom
-  // surplus. The rollup holds every output item, not just a recipe's primary
-  // one, so a co-produced target is captured too; the proportional split then
-  // routes the declared rate across pooled spare.
-  //
-  // Loop units are excluded: an SCC stand-in states net I/O, and its net output
-  // is already what its members failed to consume internally, so it feeds the
-  // surplus pass rather than a target edge.
-  const unitsByTargetOutItem = new Map<ItemId, TargetUnitSpare[]>();
-  for (const [unitId, facts] of unitFacts) {
-    if (facts.kind !== "recipe") continue;
-    for (const [outItem, produced] of facts.produced) {
-      if (!targetItemSet.has(outItem)) continue;
-      const outgoing =
-        outgoingByUnitItem.get(unitItemKey(unitId, outItem)) ?? new Fraction(0);
-      const spare = produced.sub(outgoing);
-      if (spare.compare(0) <= 0) continue;
-      pushInto(unitsByTargetOutItem, outItem, { unitId, spare });
-    }
-  }
-  const targetBilledByItem = new Map<ItemId, Fraction>();
-  for (const [outItem, units] of unitsByTargetOutItem) {
-    const total = targetRateByItem.get(outItem);
-    if (!total || units.length === 0) continue;
-    const item = itemById.get(outItem);
-    if (!item) continue;
-    const totalSpare = units.reduce(
-      (acc, u) => acc.add(u.spare),
-      new Fraction(0),
-    );
-    if (totalSpare.equals(new Fraction(0))) continue;
-    // Cap at totalSpare so a solver under-production never invents rate
-    // downstream. A correct solve produces totalSpare >= total for any
-    // reachable target recipe.
-    const distributed = total.compare(totalSpare) > 0 ? totalSpare : total;
-    targetBilledByItem.set(outItem, distributed);
-    for (const u of units) {
-      const rate = u.spare.mul(distributed).div(totalSpare);
-      boundaryEdges.push({
-        fromUnit: u.unitId,
-        toUnit: unitIdForOutputProduct(outItem),
-        item: outItem,
-        rate,
-        transportKind: item.transportKind,
-      });
-      addOutgoing(u.unitId, outItem, rate);
-    }
-  }
-
-  // ----- Free-boundary target passthrough -------------------------------------
-  //
-  // A target item with unlimited free supply (raw:true, or plan:true via an
-  // override) builds no LP row: nothing is forced to run and the solver meets
-  // the declared rate with a reported boundary draw. Whatever slice of the
-  // declared rate in-plan spare did not cover above must therefore arrive
-  // from the boundary: emit a dedicated import unit and a passthrough edge
-  // into the target output, sized to the shortfall. Finite-supply target
-  // items never take this path (their import is the capped override dual
-  // render and the LP builds a real row for them).
-  for (const [outItem, total] of targetRateByItem) {
-    if (!supplyTable.isFree(outItem)) continue;
-    const billed = targetBilledByItem.get(outItem) ?? new Fraction(0);
-    const shortfall = total.sub(billed);
-    if (shortfall.compare(0) <= 0) continue;
-    const item = itemById.get(outItem);
-    if (!item) continue;
-    const importId = unitIdForInputTargetFeed(outItem);
-    inputProducts.push({
-      id: importId,
-      kind: "inputProduct",
-      itemId: outItem,
-      count: 1,
-      rate: rationalToString(shortfall),
-    });
-    boundaryEdges.push({
-      fromUnit: importId,
-      toUnit: unitIdForOutputProduct(outItem),
-      item: outItem,
-      rate: shortfall,
-      transportKind: item.transportKind,
-    });
-  }
+  for (const e of targetEdges) boundaryEdges.push(e);
 
   // Surplus output products: any item produced beyond its outgoing consumption
   // (internal MachineEdges + the target output edges above) surfaces as an amber
