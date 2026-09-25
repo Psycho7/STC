@@ -17,6 +17,7 @@ import Fraction from "fraction.js";
 
 import {
   BETWEEN_LAYERS_SPACING,
+  DOT_KEEPOFF,
   ENTRY_GUTTER_OVERHANG,
   RECIPE_WIDTH,
 } from "./dimensions";
@@ -74,6 +75,7 @@ import {
   levelCandidates,
   levelCrossingCost,
   levelNearCardCount,
+  levelPassesDot,
   runBandsOfEdge,
   runFloorHit,
   sharesPortRow,
@@ -81,6 +83,7 @@ import {
   type LevelPorts,
   type RunBand,
 } from "./levelOccupancy";
+import { junctionDotSites } from "./junctionDots";
 import { pushInto } from "../util/multimap";
 import type { RFAnyNode, RoutingCtx } from "./layout";
 // Type-only: ItemEdge.tsx declares the base canvas edge payload these passes
@@ -2941,6 +2944,9 @@ export function jogForwardLegs(
   for (const edge of edges) {
     columnBands.set(edge.id, drawnColumnBands(edge, byId));
   }
+  // The edges as they draw now, for the junction dots a level keeps off: a
+  // jog scanned earlier moves where its flow peels off its shared row.
+  const current = [...edges];
 
   const legYByIndex = new Map<number, number>();
   const descentXByIndex = new Map<number, number>();
@@ -3278,6 +3284,39 @@ export function jogForwardLegs(
         pitchColumns.push({ x: c.left, top: c.top, bottom: c.bottom });
       }
     }
+    // The trunk pass stood every fan-out split and fan-in merge before any
+    // level is chosen, so a junction dot is placed geometry exactly as a
+    // column is: a level whose column, run or descent passes within a dot's
+    // keep-off of a foreign dot draws a false join. Foreign is the audit's
+    // reading: a dot marks one item leaving (or reaching) one unit, and a
+    // member of that flow is drawn through it on purpose.
+    //
+    // The clearance is DOT_KEEPOFF, in the model frame: a layout rule cannot
+    // depend on the viewing zoom. The geometry audit's dot-on-foreign-stroke
+    // check is its render-time counterpart, measuring the drawn disc plus half
+    // a stroke at the fit zoom (about 4.5 / zoom); the two agree at fit zooms
+    // of 0.28 and above.
+    const foreignDots = junctionDotSites(current, byId).filter(
+      (dot) =>
+        dot.item !== edgeItem(edge) ||
+        dot.unit !== (dot.side === "source" ? edge.source : edge.target),
+    );
+    const passesDot = (
+      jog: { C: number; R: number; D: number },
+      shape: JogShape,
+      zoned: boolean,
+    ): boolean => {
+      const stamps = stampsOf(jog, zoned);
+      return levelPassesDot(
+        {
+          ...shape,
+          C: stamps.srcColX ?? shape.C,
+          D: stamps.jogDescentX ?? shape.D,
+        },
+        foreignDots,
+        DOT_KEEPOFF,
+      );
+    };
     // The candidate's own verticals where the drawer puts them: read off the
     // stamps the jog would write, its columns settled as they would be.
     const breaksPitch = (
@@ -3506,7 +3545,8 @@ export function jogForwardLegs(
         });
       }
       const consistent = accepted.filter(
-        ({ jog }) => !breaksPitch(jog, !relaxed),
+        ({ jog, shape }) =>
+          !breaksPitch(jog, !relaxed) && !passesDot(jog, shape, !relaxed),
       );
       const best = chooseLevelByCost(consistent, ({ shape }) => [
         levelCrossingCost(shape, foreignColumns, foreignRuns),
@@ -3584,6 +3624,7 @@ export function jogForwardLegs(
     };
     levelBands.set(edge.id, runBandsOfEdge(resolved, byId));
     columnBands.set(edge.id, drawnColumnBands(resolved, byId));
+    current[index] = resolved;
   });
 
   if (

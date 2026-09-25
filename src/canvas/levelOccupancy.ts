@@ -24,7 +24,7 @@
 
 import type { Edge } from "@xyflow/react";
 
-import { PORT_STUB, drawnEdge, horizontalRuns } from "./edgePath";
+import { PORT_STUB, clamp, drawnEdge, horizontalRuns } from "./edgePath";
 import { CHIP_HALF_H } from "./chipMetrics";
 import { COLUMN_MIN_PITCH } from "./layerModel";
 import { drawnPortsOf, type Rect } from "./nodeGeometry";
@@ -240,6 +240,29 @@ export function levelCrossingCost(
     if (inside(D, run.left, run.right) && inside(run.y, R, ty)) count += 1;
   }
   return count;
+}
+
+// Does the jog's column, run or descent pass strictly within `clearance` of
+// any of the dot centres? A line that close runs through the dot's disc and
+// reads as a member of the split or merge the dot marks.
+export function levelPassesDot(
+  shape: JogShape,
+  dots: ReadonlyArray<{ x: number; y: number }>,
+  clearance: number,
+): boolean {
+  const { sy, C, R, D, ty } = shape;
+  const pieces: ReadonlyArray<readonly [number, number, number, number]> = [
+    [C, sy, C, R],
+    [C, R, D, R],
+    [D, R, D, ty],
+  ];
+  return dots.some((dot) =>
+    pieces.some(([x0, y0, x1, y1]) => {
+      const dx = dot.x - clamp(dot.x, Math.min(x0, x1), Math.max(x0, x1));
+      const dy = dot.y - clamp(dot.y, Math.min(y0, y1), Math.max(y0, y1));
+      return Math.hypot(dx, dy) < clearance;
+    }),
+  );
 }
 
 // How many cards a run at R from x0 to x1 passes closer than `pad` to: a card

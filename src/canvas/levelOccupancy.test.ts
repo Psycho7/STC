@@ -14,6 +14,7 @@ import {
   levelCandidates,
   levelCrossingCost,
   levelNearCardCount,
+  levelPassesDot,
   runBandsOfEdge,
   runFloorHit,
   sharesPortRow,
@@ -369,6 +370,32 @@ describe("the crossings a jog level draws", () => {
         [],
       ),
     ).toBe(2);
+  });
+});
+
+describe("the dots a jog level passes", () => {
+  // The same jog as above: column C = 100 from row 0 down to R = 200, the run
+  // at R out to D = 500, the descent at D down to row 300.
+  const SHAPE = { sy: 0, C: 100, R: 200, D: 500, ty: 300 };
+  const CLEARANCE = 16;
+
+  it("passes a dot beside the run inside the clearance", () => {
+    expect(levelPassesDot(SHAPE, [{ x: 300, y: 197.5 }], CLEARANCE)).toBe(true);
+  });
+
+  it("passes a dot beside either column inside the clearance", () => {
+    expect(levelPassesDot(SHAPE, [{ x: 90, y: 50 }], CLEARANCE)).toBe(true);
+    expect(levelPassesDot(SHAPE, [{ x: 510, y: 250 }], CLEARANCE)).toBe(true);
+  });
+
+  it("does not pass a dot exactly one clearance off", () => {
+    expect(levelPassesDot(SHAPE, [{ x: 300, y: 216 }], CLEARANCE)).toBe(false);
+  });
+
+  it("does not pass a dot beyond the run's ends", () => {
+    // Past D on the run's row, and past the column's foot below R.
+    expect(levelPassesDot(SHAPE, [{ x: 520, y: 200 }], CLEARANCE)).toBe(false);
+    expect(levelPassesDot(SHAPE, [{ x: 100, y: -20 }], CLEARANCE)).toBe(false);
   });
 });
 

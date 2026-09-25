@@ -71,6 +71,44 @@ describe("the jog level sees what it crosses", () => {
   });
 });
 
+describe("the jog level keeps off a foreign junction dot", () => {
+  // e0 runs s -> t (source row -21, target row 139) past the tall card F, so
+  // it jogs over F. d splits its water to u1 (down, column 216) and u2 (up,
+  // column 232), so its divergence dot stands at (208, 67), where the first
+  // member peels off. Level 64, F's escape, is the nearest of the clear levels
+  // and ties 47, the level floor's escape off d's row, on crossings: both
+  // cross u2's column. But 64 runs 3 off the dot's centre and would draw e0
+  // into d's split.
+  it("skips the nearer level whose run passes the dot", () => {
+    const nodes: RFAnyNode[] = [
+      inputProductNode("s", "ore", 0, -60), // right 148, port y -21
+      inputProductNode("t", "ore", 760, 100), // left 760, port y 139
+      inputProductNode("F", "ore", 360, 80, 220, 220), // y 80..300
+      inputProductNode("d", "water", 0, 28), // right 148, port y 67
+      inputProductNode("u1", "water", 900, 361), // port y 400
+      inputProductNode("u2", "water", 900, -139), // port y -100
+    ];
+    const edges: Edge[] = [
+      {
+        ...mkEdge("e0", "s", "t", "ore"),
+        data: { item: "ore", rate: new Fraction(1), bendX: 200 },
+      },
+      {
+        ...mkEdge("w1", "d", "u1", "water"),
+        data: { item: "water", rate: new Fraction(1), bendX: 216 },
+      },
+      {
+        ...mkEdge("w2", "d", "u2", "water"),
+        data: { item: "water", rate: new Fraction(1), bendX: 232 },
+      },
+    ];
+    const out = jogForwardLegs(nodes, edges);
+    expect(legYOf(out, "e0")).toBe(47);
+    expect(legYOf(out, "w1")).toBeUndefined();
+    expect(legYOf(out, "w2")).toBeUndefined();
+  });
+});
+
 describe("the column pitch floor between two verticals", () => {
   const col = (x: number, top: number, bottom: number) => ({ x, top, bottom });
 

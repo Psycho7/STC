@@ -476,7 +476,9 @@ const CROSSING_BASELINE: Record<string, number> = {
   // ruled by the user.
   //
   // CROSSING-AWARE JOG LEVELS: 21 -> 15.
-  "coupon-web": 15,
+  // FOREIGN DOTS ARE PLACED GEOMETRY: 15 -> 14. e:27 takes level 471, off the
+  // Xiragen catalyst divergence dot its level 626 ran 7.5 from.
+  "coupon-web": 14,
   // #192 pair cost relation: 18 -> 16, the gap order weighs both orders of
   // every column pair and entry rows take slots one at a time across cards.
   //
@@ -776,10 +778,11 @@ const DOT_FOREIGN_STROKE_BASELINE: Record<string, number> = {
   multi6: 0,
   tundra: 0,
   script43: 0,
-  // Both cells are the same site: the gas_xiranite CATALYST divergence dot with
-  // the item's ordinary supply run inside its disc, the pair the forward level
-  // floor separated as lines but not as dot and line.
-  "coupon-web": 1,
+  // FOREIGN DOTS ARE PLACED GEOMETRY: 1 -> 0. The gas_xiranite CATALYST
+  // divergence dot had the item's ordinary supply run e:27 7.5 off its centre;
+  // the jog level search now rejects a level within a dot keep-off of a
+  // foreign dot, and e:27 runs at 471.
+  "coupon-web": 0,
   // ONE INPUT CARD PER ITEM (free-target export joins the item's pool): 1 -> 0.
   "gas-web": 0,
   "rot-bottled_food_3": 0,
