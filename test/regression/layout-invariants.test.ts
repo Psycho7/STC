@@ -3,6 +3,7 @@
 // will fail loudly:
 //   - elk.layout() runs exactly once per top-level layout cycle.
 //   - hierarchyHandling = INCLUDE_CHILDREN on the root.
+//   - hierarchical greedy switch = TWO_SIDED on the root.
 //   - recipe and loop render-unit kinds get non-default, non-zero dimensions.
 //   - every ELK port has PORT_WIDTH x PORT_HEIGHT (non-zero).
 //   - React Flow edges carry markerEnd = ArrowClosed.
@@ -193,6 +194,14 @@ describe("layout-invariants: root layout options", () => {
     expect(ROOT_LAYOUT_OPTIONS["elk.layered.cycleBreaking.strategy"]).toBe(
       "DEPTH_FIRST",
     );
+  });
+
+  it("hierarchical greedy switch = TWO_SIDED", () => {
+    const key =
+      "org.eclipse.elk.layered.crossingMinimization.greedySwitchHierarchical.type";
+    const g = renderPlanToElkGraph(buildInput());
+    expect(g.layoutOptions?.[key]).toBe("TWO_SIDED");
+    expect(ROOT_LAYOUT_OPTIONS[key]).toBe("TWO_SIDED");
   });
 });
 
