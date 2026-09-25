@@ -2,9 +2,9 @@
 //
 // The noise twin of App.shortfall.test.tsx. A plan whose targets the tolerant
 // compare (targetOutputShortfalls, relSlack) holds as delivered can still
-// carry a sub-tolerance entry in the LP's raw deficit map - the 1/666660 per
-// second iron_powder residue the snapped recipe rate leaves behind is the
-// model. The status gate reads the same tolerant under-delivery list the strip
+// carry a sub-tolerance entry in the LP's raw deficit map - a 1/2000000 per
+// second iron_powder residue (strictly under the tolerance's 1e-6 slack) is
+// the model. The status gate reads the same tolerant under-delivery list the strip
 // attribution does, so such a plan stays READY with no strip; the raw deficit
 // map would flip it to SHORTFALL over float noise.
 //
@@ -87,7 +87,7 @@ afterEach(() => {
 });
 
 test("a within-tolerance deficit keeps a met plan READY with no strip", async () => {
-  injected.deficits = [["iron_powder", "1/666660"]];
+  injected.deficits = [["iron_powder", "1/2000000"]];
   window.location.hash = "#" + (await encodePlan(defaultPlan(pack)));
   render(<App />);
 
