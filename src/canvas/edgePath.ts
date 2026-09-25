@@ -695,15 +695,20 @@ export function cardClearRunAnchor(
         card.top < run.y + CHIP_HALF_H + CHIP_CARD_CLEARANCE - BOX_EPS,
     );
     if (clears(centre, run.y, blockers)) return [r(centre), r(run.y)];
+    // Round each candidate to the 0.01 grid BEFORE validating it: the caller
+    // re-checks the emitted point, and a card edge off the grid makes the raw
+    // flush seat off-grid too -- rounding it afterward can drift it up to
+    // 0.005 toward the very card it just cleared, and the re-check drops the
+    // slide. The emitted seat is exactly the validated value.
     const seats = blockers
       .flatMap((card) => [
-        card.left - halfW - CHIP_CARD_CLEARANCE,
-        card.right + halfW + CHIP_CARD_CLEARANCE,
+        r(card.left - halfW - CHIP_CARD_CLEARANCE),
+        r(card.right + halfW + CHIP_CARD_CLEARANCE),
       ])
       .filter((x) => x >= run.lo && x <= run.hi && clears(x, run.y, blockers))
       .sort((a, b) => Math.abs(a - centre) - Math.abs(b - centre) || a - b);
     const seat = seats[0];
-    if (seat !== undefined) return [r(seat), r(run.y)];
+    if (seat !== undefined) return [seat, r(run.y)];
   }
   const [x, y] = longestRunAnchor(pts);
   return [x, y];
