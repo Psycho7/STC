@@ -76,11 +76,15 @@ const EPS = 1e-6;
 // script43-xiranite's `u:class:q:27` is a boundary supply, which is what a
 // far-only fan-out mostly is: a raw input feeding consumers deep in the graph.
 const FAR_ONLY_TRUNKS: Readonly<Record<string, ReadonlyArray<string>>> = {
-  "battery5-xiranite": [
+  // Re-measured when the loop boxes went flat: battery5-xiranite's
+  // u:in:gas_xiranite gained a near member, and on multi6 copper_ore gained one
+  // while iron_ore and originium_ore lost theirs.
+  "battery5-xiranite": ["gas_xiranite|u:cat:gas_xiranite"],
+  multi6: [
     "gas_xiranite|u:cat:gas_xiranite",
-    "gas_xiranite|u:in:gas_xiranite",
+    "iron_ore|u:in:iron_ore",
+    "originium_ore|u:in:originium_ore",
   ],
-  multi6: ["copper_ore|u:in:copper_ore", "gas_xiranite|u:cat:gas_xiranite"],
   script43: [
     "gas_inert|u:in:gas_inert",
     "gas_xiranite|u:cat:gas_xiranite",

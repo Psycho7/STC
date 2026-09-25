@@ -131,10 +131,10 @@ describe("catalyst supply edges", () => {
     expect(
       sumRates(cat).equals(full.catalystAccount.get(LIQUID_XIRANITE)!.need),
     ).toBe(true);
-    // The consumer sits in a loop container, so it taps that container's
-    // catalyst slice rather than the bare aggregate.
+    // The consumer sits in a loop, and still draws from the item's one
+    // catalyst card.
     for (const e of cat) {
-      expect(e.fromUnit.startsWith(`u:cat:${LIQUID_XIRANITE}`)).toBe(true);
+      expect(e.fromUnit).toBe(`u:cat:${LIQUID_XIRANITE}`);
     }
   }, 60000);
 
@@ -283,16 +283,15 @@ describe("catalyst supply edges", () => {
     expect(cycled.role).toBe("catalyst");
   }, 60000);
 
-  // Catalyst consumers spread over more than one bucket follow the ordinary
-  // fanout rule: an aggregate carrying the item's whole need plus one slice per
-  // container, each slice carrying its own edges.
-  it("fans a multi-bucket catalyst item out to container slices", () => {
+  // Catalyst consumers inside and outside a loop all draw from the item's one
+  // catalyst card, which carries the item's whole need.
+  it("draws a loop-spread catalyst item from one catalyst card", () => {
     const targets: ItemTarget[] = [
       { itemId: "proc_battery_5", ratePerSec: { num: "1", denom: "1" } },
     ];
     // Off the smelted-nugget route the copper chain closes a loop, and the
-    // transmuters inside that loop box are catalyst consumers while the rest of
-    // the plan's transmuters stay loose: two buckets on one catalyst item.
+    // transmuters inside that loop are catalyst consumers while the rest of the
+    // plan's transmuters sit outside it: the shape that used to fan out.
     const recipeCosts = new Map<string, number>([["copper_nugget", 1000]]);
     const out = solveForRender({ targets, recipeCosts });
     const { full, plan } = out;
@@ -301,33 +300,30 @@ describe("catalyst supply edges", () => {
     const nodes = inputsForItem(plan, LIQUID_XIRANITE).filter(
       (u) => u.role === "catalyst",
     );
-    const aggregate = nodes.find((u) => u.isAggregate);
-    expect(aggregate?.id).toBe(`u:cat:${LIQUID_XIRANITE}`);
-    expect(
-      rationalFromString(aggregate!.rate).equals(
-        full.catalystAccount.get(LIQUID_XIRANITE)!.need,
-      ),
-    ).toBe(true);
+    expect(nodes.map((u) => u.id)).toEqual([`u:cat:${LIQUID_XIRANITE}`]);
+    const card = nodes[0]!;
+    expect(card.isAggregate).toBeUndefined();
+    expect(card.isFanout).toBeUndefined();
+    const need = full.catalystAccount.get(LIQUID_XIRANITE)!.need;
+    expect(rationalFromString(card.rate).equals(need)).toBe(true);
 
-    const slices = nodes.filter((u) => u.isFanout);
-    expect(slices.length).toBeGreaterThan(0);
-    for (const slice of slices) {
-      expect(slice.id.startsWith(`u:cat:${LIQUID_XIRANITE}:`)).toBe(true);
-      expect(slice.parentRate).toEqual(aggregate!.rate);
-      const own = plan.edges.filter(
-        (e) => e.fromUnit === slice.id && e.toPortKind === "catalyst",
-      );
-      expect(own.length).toBeGreaterThan(0);
-      expect(sumRates(own).equals(rationalFromString(slice.rate))).toBe(true);
-      const inbound = plan.edges.filter((e) => e.toUnit === slice.id);
-      expect(inbound.map((e) => e.fromUnit)).toEqual([aggregate!.id]);
-    }
+    const own = plan.edges.filter(
+      (e) => e.fromUnit === card.id && e.toPortKind === "catalyst",
+    );
+    expect(sumRates(own).equals(need)).toBe(true);
+    const inLoop = new Set(
+      plan.units
+        .filter((u) => isRecipeUnit(u) && u.containerId !== undefined)
+        .map((u) => u.id),
+    );
+    // Premise: the card feeds consumers on both sides of the loop line.
+    expect(own.some((e) => inLoop.has(e.toUnit))).toBe(true);
+    expect(own.some((e) => !inLoop.has(e.toUnit))).toBe(true);
   }, 60000);
 
   // `fromPool` marks the pool an edge LEAVES, which is what the dashed catalyst
-  // stroke draws from. The fanned-out plan is the demanding case: the flag has
-  // to reach the slices' consumer edges and the aggregate-to-slice edges too,
-  // not just the edges of a single-bucket catalyst node.
+  // stroke draws from. The loop-spread plan is the demanding case: the flag has
+  // to reach every consumer edge of the catalyst card, inside the loop and out.
   it("stamps fromPool on every edge leaving the catalyst pool", () => {
     const targets: ItemTarget[] = [
       { itemId: "proc_battery_5", ratePerSec: { num: "1", denom: "1" } },
@@ -344,13 +340,6 @@ describe("catalyst supply edges", () => {
     for (const e of fromCatalyst) {
       expect(e.fromPool, `${e.fromUnit} -> ${e.toUnit}`).toBe("catalyst");
     }
-    // The aggregate-to-slice edges land on no catalyst row, so they are the
-    // ones a toPortKind-shaped rule would miss.
-    const aggregateToSlice = fromCatalyst.filter(
-      (e) => e.toUnit.startsWith("u:cat:") && e.toPortKind === undefined,
-    );
-    expect(aggregateToSlice.length).toBeGreaterThan(0);
-
     for (const e of plan.edges.filter((x) => x.fromUnit.startsWith("u:in:"))) {
       expect(e.fromPool, `${e.fromUnit} -> ${e.toUnit}`).toBeUndefined();
     }
