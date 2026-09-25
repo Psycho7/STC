@@ -454,7 +454,12 @@ const CROSSING_BASELINE: Record<string, number> = {
   // every column pair and entry rows take slots one at a time across cards.
   //
   // ELK GREEDY SWITCH: 16 -> 13, hierarchical greedy switch on.
-  "gas-web": 13,
+  //
+  // ONE BOUNDARY CARD PER IMPORTED ITEM 2026-09-25 (L3): 13 -> 21. The free
+  // Inergen target no longer draws its own :target card at the top; the export
+  // now leaves the item's one pool card and its straight run to the output
+  // card crosses the band at right angles. UP move, ruled by stc-13.
+  "gas-web": 21,
   "rot-bottled_food_3": 2,
   "rot-bottled_food_4": 3,
   // CATALYST NODE 2026-09-14 (PR B of the catalyst supply pools plan): every
@@ -712,7 +717,8 @@ const DOT_FOREIGN_STROKE_BASELINE: Record<string, number> = {
   // the item's ordinary supply run inside its disc, the pair the forward level
   // floor separated as lines but not as dot and line.
   "coupon-web": 1,
-  "gas-web": 1,
+  // ONE INPUT CARD PER ITEM (free-target export joins the item's pool): 1 -> 0.
+  "gas-web": 0,
   "rot-bottled_food_3": 0,
   "rot-bottled_food_4": 0,
   transmuters: 0,
