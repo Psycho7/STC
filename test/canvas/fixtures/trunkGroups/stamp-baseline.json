@@ -15,7 +15,7 @@
     "stampCount": 6,
     "stampSha": "e5f0d29ecc8a18d8d292ec1ef7ac1d91e1794958bd8bf1ab2c9bf7f932a5b4ba",
     "chipCount": 41,
-    "chipSha": "da443dbb931ecfd618f7241b1588cc569d553974ded60c1da92ecc148803ec44"
+    "chipSha": "1ea5ca1bdf1610e7663816e761eb53f9d268cefec42483593ef03f50f3f79b1b"
   },
   "crystal": {
     "stampCount": 2,
@@ -33,7 +33,7 @@
     "stampCount": 21,
     "stampSha": "ebd3d57b3a6e3103c16a33596a2a9c0c55a77a837aa25508b4bcae2b9606d547",
     "chipCount": 103,
-    "chipSha": "a8ba177c4819386847215c6de4246bd208539b725c3cc3a35506e34794081bb6"
+    "chipSha": "d91cc3f64129ec244fb2666ee8ebabcf678272e409e03b5a4c9f881de7090d97"
   },
   "tundra": {
     "stampCount": 0,
@@ -81,7 +81,7 @@
     "stampCount": 7,
     "stampSha": "1bc2c2fe1d47780538749feac99c7a333fbb8055ca6ae22516b9859bca7c949d",
     "chipCount": 40,
-    "chipSha": "3414438e1a4a158aebbaac794a2a5db28c4b1380c36cfed10ee15a80451e18ff"
+    "chipSha": "f81c3392344fb80b99b54ccd4c3197d031d76d643bdd86cc1512f1d28ae2a5cb"
   },
   "script43-xiranite": {
     "stampCount": 7,
