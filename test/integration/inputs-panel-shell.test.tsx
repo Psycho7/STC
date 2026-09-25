@@ -56,7 +56,7 @@ describe("inputs-panel-shell: side-panel layout", () => {
     );
     const hashBefore = window.location.hash;
 
-    const rateFields = screen.getAllByLabelText("速率");
+    const rateFields = screen.getAllByLabelText(/速率/);
     const inputRate = rateFields[rateFields.length - 1]!;
     fireEvent.change(inputRate, { target: { value: "300" } });
     // Commit on blur re-solves and rewrites the URL.

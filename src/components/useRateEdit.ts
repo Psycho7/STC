@@ -9,10 +9,15 @@ import { parsePerMinToRatePerSec } from "../data/rate-format";
 // keeps panels with differing DOM intact.
 export type RateField = {
   invalid: boolean;
+  // The field silently dropped unparseable text on blur and is showing its
+  // last-good value again. Not an error state: the value on screen is valid, so
+  // the row reports it as a status rather than marking the field invalid.
+  reverted: boolean;
   inputProps: {
     value: string;
     onChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
     onBlur: () => void;
+    onFocus: () => void;
     onKeyDown: (e: React.KeyboardEvent<HTMLInputElement>) => void;
     "aria-invalid": true | undefined;
     className: "invalid" | undefined;
@@ -88,9 +93,24 @@ export function useRateEdit(config: RateEditConfig): RateEdit {
   // aria-invalid flag and the inline error message. Typing clears the flag; a
   // successful commit or a blur-revert clears it too.
   const [invalidIds, setInvalidIds] = useState<Set<string>>(new Set());
+  // Row keys whose last blur threw the typed text away and restored the
+  // last-good value. Drives the status line that makes that revert visible;
+  // short-lived on purpose, since the state it reports is already gone from the
+  // field: typing, refocusing, a later commit or the row leaving all clear it.
+  const [revertedIds, setRevertedIds] = useState<Set<string>>(new Set());
 
   function markInvalid(rowKey: string, on: boolean) {
     setInvalidIds((prev) => {
+      if (on === prev.has(rowKey)) return prev;
+      const next = new Set(prev);
+      if (on) next.add(rowKey);
+      else next.delete(rowKey);
+      return next;
+    });
+  }
+
+  function markReverted(rowKey: string, on: boolean) {
+    setRevertedIds((prev) => {
       if (on === prev.has(rowKey)) return prev;
       const next = new Set(prev);
       if (on) next.add(rowKey);
@@ -112,6 +132,7 @@ export function useRateEdit(config: RateEditConfig): RateEdit {
     dirty.current.add(rowKey);
     // Typing clears any prior invalid cue; the value is re-checked on commit.
     markInvalid(rowKey, false);
+    markReverted(rowKey, false);
     setTexts((prev) => new Map(prev).set(rowKey, value));
   }
 
@@ -127,6 +148,7 @@ export function useRateEdit(config: RateEditConfig): RateEdit {
     function finishCommit(): void {
       dirty.current.delete(rowKey);
       markInvalid(rowKey, false);
+      markReverted(rowKey, false);
       if (!config.keepTextAfterCommit) dropText(rowKey);
     }
     // Under "uncap" an empty field is a valid commit meaning "no rate limit";
@@ -147,9 +169,14 @@ export function useRateEdit(config: RateEditConfig): RateEdit {
     if (revert) {
       dirty.current.delete(rowKey);
       markInvalid(rowKey, false);
+      // The field is valid again, so the row says what happened instead of
+      // marking it wrong: a revert the user never sees reads as the panel
+      // eating the edit.
+      markReverted(rowKey, true);
       dropText(rowKey);
     } else {
       markInvalid(rowKey, true);
+      markReverted(rowKey, false);
     }
   }
 
@@ -158,10 +185,14 @@ export function useRateEdit(config: RateEditConfig): RateEdit {
       const invalid = invalidIds.has(rowKey);
       return {
         invalid,
+        reverted: revertedIds.has(rowKey),
         inputProps: {
           value: texts.get(rowKey) ?? fallbackText,
           onChange: (e) => handleChange(rowKey, e.target.value),
           onBlur: () => commitFromLocal(rowKey, true),
+          // Coming back to the field retires the revert notice: the user is
+          // about to type over the restored value anyway.
+          onFocus: () => markReverted(rowKey, false),
           onKeyDown: (e) => {
             if (e.key === "Enter") commitFromLocal(rowKey, false);
           },
@@ -176,6 +207,7 @@ export function useRateEdit(config: RateEditConfig): RateEdit {
     clearPendingEdit(rowKey) {
       dirty.current.delete(rowKey);
       markInvalid(rowKey, false);
+      markReverted(rowKey, false);
       dropText(rowKey);
     },
     // An uncommitted edit follows the row to its new key, dirty flag and all, so
@@ -207,13 +239,15 @@ export function useRateEdit(config: RateEditConfig): RateEdit {
       for (const id of [...dirty.current]) {
         if (!liveRowKeys.has(id)) dirty.current.delete(id);
       }
-      setInvalidIds((prev) => {
+      function pruneSet(prev: Set<string>): Set<string> {
         const stale = [...prev].filter((id) => !liveRowKeys.has(id));
         if (stale.length === 0) return prev;
         const next = new Set(prev);
         for (const id of stale) next.delete(id);
         return next;
-      });
+      }
+      setInvalidIds(pruneSet);
+      setRevertedIds(pruneSet);
       setTexts((prev) => {
         const stale = [...prev.keys()].filter((id) => !liveRowKeys.has(id));
         if (stale.length === 0) return prev;

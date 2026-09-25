@@ -12,6 +12,7 @@ import type { RecipePack } from "@aef/schema";
 import { InputsPanel } from "../../src/components/InputsPanel";
 import { makePack } from "../../src/solver/closed-form-fixtures";
 import { LocaleProvider } from "../../src/data/i18n-context";
+import { loadI18n } from "../../src/data/i18n";
 import type { ItemOverride } from "../../src/data/plan";
 import {
   controlledOwner,
@@ -402,7 +403,7 @@ describe("InputsPanel", () => {
           pack={fixturePack}
         />,
       );
-      const input = screen.getAllByLabelText("速率")[0]!;
+      const input = screen.getAllByLabelText(/速率/)[0]!;
       fireEvent.change(input, { target: { value: "" } });
       expect(onChange).not.toHaveBeenCalled();
       fireEvent.blur(input);
@@ -433,7 +434,7 @@ describe("InputsPanel", () => {
         pack={fixturePack}
       />,
     );
-    const input = screen.getAllByLabelText("速率")[0]!;
+    const input = screen.getAllByLabelText(/速率/)[0]!;
     fireEvent.change(input, { target: { value: "120" } });
     fireEvent.blur(input);
     expect(onChange).toHaveBeenCalledTimes(1);
@@ -469,7 +470,7 @@ describe("InputsPanel", () => {
         assumedRawItemIds={["copper_ore"]}
       />,
     );
-    const auto = screen.getAllByLabelText("速率")[0]!;
+    const auto = screen.getAllByLabelText(/速率/)[0]!;
     fireEvent.change(auto, { target: { value: "60" } });
     fireEvent.blur(auto);
     // The commit promotes and seeds "60" into the override family.
@@ -524,7 +525,7 @@ describe("InputsPanel", () => {
           pack={fixturePack}
         />,
       );
-      const input = screen.getAllByLabelText("速率")[0]! as HTMLInputElement;
+      const input = screen.getAllByLabelText(/速率/)[0]! as HTMLInputElement;
       fireEvent.change(input, { target: { value: "-5" } });
       vi.advanceTimersByTime(150);
       expect(onChange).not.toHaveBeenCalled();
@@ -614,7 +615,7 @@ describe("InputsPanel", () => {
     // Unlimited indicator left is the rate-input placeholder.
     expect(screen.queryByTestId("input-unlimited")).toBeNull();
     expect(screen.queryByText(/^RAW$/)).toBeNull();
-    const rateFields = screen.getAllByLabelText("速率");
+    const rateFields = screen.getAllByLabelText(/速率/);
     expect(rateFields[0]!.getAttribute("placeholder")).toBe("无限");
   });
 
@@ -684,7 +685,7 @@ describe("InputsPanel", () => {
           assumedRawItemIds={["copper_ore"]}
         />,
       );
-      const input = screen.getAllByLabelText("速率")[0]!;
+      const input = screen.getAllByLabelText(/速率/)[0]!;
       fireEvent.change(input, { target: { value: "180" } });
       fireEvent.blur(input);
       expect(onChange).toHaveBeenCalledTimes(1);
@@ -710,7 +711,7 @@ describe("InputsPanel", () => {
           assumedRawItemIds={["copper_ore"]}
         />,
       );
-      const input = screen.getAllByLabelText("速率")[0]!;
+      const input = screen.getAllByLabelText(/速率/)[0]!;
       // The input starts empty; firing change with "" should be a no-op since
       // an empty value on an auto-row is the natural "Unlimited" state.
       fireEvent.change(input, { target: { value: "" } });
@@ -743,7 +744,7 @@ describe("InputsPanel", () => {
     expect(neededLine.className).toContain("b-needed");
     expect(neededLine.textContent).toContain("120");
     expect(neededLine.textContent).toMatch(/需求|needed/);
-    expect(screen.getByLabelText("速率").getAttribute("placeholder")).toBe(
+    expect(screen.getByLabelText(/速率/).getAttribute("placeholder")).toBe(
       "无限",
     );
   });
@@ -817,7 +818,7 @@ describe("InputsPanel", () => {
     expect(document.activeElement).toBe(trigger);
   });
 
-  it("rate inputs are described by their row's item name", () => {
+  it("rate fields carry no redundant name description; only errors describe them", () => {
     render(
       <InputsPanel
         itemOverrides={[{ itemId: "iron_ore" }]}
@@ -827,12 +828,17 @@ describe("InputsPanel", () => {
       />,
     );
     for (const itemId of ["copper_ore", "iron_ore"]) {
-      const nameEl = document.getElementById(`i-name-${itemId}`);
-      expect(nameEl).not.toBeNull();
+      // The name element still renders (it is the on-screen name), but the
+      // field's label already names the row, so aria-describedby omits it.
+      expect(document.getElementById(`i-name-${itemId}`)).not.toBeNull();
       const row = document.querySelector(`[data-item-id="${itemId}"]`);
       const input = row!.querySelector("input")!;
-      expect(input.getAttribute("aria-describedby")?.split(" ")).toContain(
-        `i-name-${itemId}`,
+      expect(input.getAttribute("aria-describedby")).toBeNull();
+      // An invalid entry is the one thing left to describe, by its own id.
+      fireEvent.change(input, { target: { value: "x" } });
+      fireEvent.keyDown(input, { key: "Enter" });
+      expect(input.getAttribute("aria-describedby")).toBe(
+        `i-rate-err-${itemId}`,
       );
     }
   });
@@ -902,7 +908,7 @@ describe("InputsPanel", () => {
         pack={fixturePack}
       />,
     );
-    const rate = screen.getAllByLabelText("速率")[0]!;
+    const rate = screen.getAllByLabelText(/速率/)[0]!;
     await user.click(rate);
     await user.keyboard("60");
     expect(onChange).not.toHaveBeenCalled();
@@ -1065,6 +1071,51 @@ describe("InputsPanel", () => {
     expect(onChange).toHaveBeenCalledTimes(1);
     expect(firstUpdater(onChange)([])).toEqual([
       { itemId: "gas_xiranite", role: "catalyst" },
+    ]);
+  });
+
+  it("an emptied auto row's revert copy reports a discard, not a restored rate", () => {
+    render(
+      <InputsPanel
+        itemOverrides={[]}
+        onChange={() => {}}
+        pack={fixturePack}
+        assumedRawItemIds={["copper_ore"]}
+      />,
+    );
+    const input = screen.getAllByLabelText(/速率/)[0]! as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "x" } });
+    fireEvent.blur(input);
+    expect(input.value).toBe("");
+    const status = screen.getByTestId("rate-reverted");
+    expect(status.textContent).toBe(loadI18n("zh").t("rate.reverted"));
+    // The field came back EMPTY (Unlimited), so copy claiming a rate was
+    // restored would be false on this row.
+    expect(status.textContent).not.toMatch(/原速率|恢复/);
+  });
+
+  it("the catalyst toggle names its row under zh", () => {
+    render(
+      <InputsPanel
+        itemOverrides={[
+          { itemId: "gas_xiranite" },
+          { itemId: "gas_xiranite", role: "catalyst" },
+        ]}
+        onChange={() => {}}
+        pack={catalystPack}
+      />,
+    );
+    const i18n = loadI18n("zh");
+    const name = i18n.displayName("gas_xiranite");
+    const forItem = (pool: string) =>
+      i18n.t("inputs.catalyst.role.forItem", { name, pool });
+    expect(
+      screen
+        .getAllByTestId("input-catalyst-toggle")
+        .map((el) => el.getAttribute("aria-label")),
+    ).toEqual([
+      forItem(i18n.t("inputs.pool.general")),
+      forItem(i18n.t("inputs.pool.catalyst")),
     ]);
   });
 

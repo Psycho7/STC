@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 // Aliased: the bare name would shadow the DOM MouseEvent the Add handler below
 // is typed against.
 import type { MouseEvent as ReactMouseEvent } from "react";
@@ -83,6 +83,19 @@ export function TargetsPanel({
       });
     },
   });
+  // Prune pending / seeded state for rows that left the target list by any
+  // route: handleRemove clears its own row, but an item swap also retires the
+  // old key, and a surviving revert flag would resurface as a stale status
+  // line if the same item returns.
+  const targetIds = useMemo(
+    () => new Set(targets.map((t) => t.itemId)),
+    [targets],
+  );
+  useEffect(() => {
+    rateEdit.pruneEditsTo(targetIds);
+    // rateEdit is rebuilt every render; the prune depends only on the live ids.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [targetIds]);
 
   function handleItemChange(oldItemId: string, newItemId: string) {
     const dup = targets.some((t) => t.itemId === newItemId);
@@ -201,7 +214,9 @@ export function TargetsPanel({
               <input
                 type="text"
                 inputMode="decimal"
-                aria-label={i18n.t("targets.rate.label")}
+                aria-label={i18n.t("targets.rate.forItem", {
+                  name: i18n.displayName(t.itemId),
+                })}
                 aria-describedby={
                   rate.invalid ? `t-rate-err-${t.itemId}` : undefined
                 }
@@ -217,13 +232,23 @@ export function TargetsPanel({
                 >
                   {i18n.t("rate.invalid")}
                 </span>
+              ) : rate.reverted ? (
+                <span
+                  className="b-rate-err"
+                  role="status"
+                  data-testid="rate-reverted"
+                >
+                  {i18n.t("rate.reverted")}
+                </span>
               ) : null}
             </div>
             <button
               className="b-remove"
               data-testid="remove-target"
               onClick={() => handleRemove(t.itemId)}
-              aria-label={i18n.t("targets.remove.label")}
+              aria-label={i18n.t("targets.remove.forItem", {
+                name: i18n.displayName(t.itemId),
+              })}
             >
               ×
             </button>
