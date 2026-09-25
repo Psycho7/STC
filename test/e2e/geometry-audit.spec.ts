@@ -364,7 +364,12 @@ const CROSSING_BASELINE: Record<string, number> = {
   // thick stroke) steps clear of it and crosses one more corridor on the way.
   // Measured: with that band back at zero height the count is 14 again, every
   // other cell in this file unchanged. UP move, listed for ruling.
-  battery5: 15,
+  //
+  // FAN-IN PIN SURVIVES THE JOG: 15 -> 16, UP move under the 2026-09-25 owner
+  // ruling (extended from multi6). e:19 no longer rides q:16's row from
+  // x ~3025; it jogs to 720 and joins at the fan-in dot, and its bevel crosses
+  // e:3's descent at the trunk column. Cued.
+  battery5: 16,
   // CATALYST NODE 2026-09-14 (PR B): 21 -> 26. Both xiranite pools took their
   // own boundary card, and their supply runs cross the chain. Measured 25 with
   // the rail deconfliction switched off, so four of the five added crossings
@@ -402,7 +407,12 @@ const CROSSING_BASELINE: Record<string, number> = {
   // JOG FLOOR IN THE DRAWN FRAME: 95 -> 93. e:12 stops jogging to 1722 (a
   // model-row floor query against e:28's drawn band) and no longer crosses
   // e:63 twice.
-  multi6: 93,
+  //
+  // FAN-IN PIN SURVIVES THE JOG: 93 -> 97, UP move under the 2026-09-25 owner
+  // ruling. The sewage members e:27 / e:31 no longer ride the collector's row
+  // from x ~3250; they jog to their own levels and descend at the trunk column,
+  // where their bevels cross the members already descending it. All cued.
+  multi6: 97,
   tundra: 0,
   // CATALYST NODE 2026-09-14 (PR B of the catalyst supply pools plan): every
   // catalyst charge now leaves the item's own u:cat:* boundary card instead of
