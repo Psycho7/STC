@@ -9,7 +9,11 @@ import type { CatalystAccount } from "../solver/catalyst";
 import { LocaleProvider } from "../data/i18n-context";
 import { loadI18n } from "../data/i18n";
 import { pack as realPack } from "../data/load";
-import { unavailableItems } from "../data/availability";
+import {
+  unavailableEventItems,
+  unavailableItems,
+  type AvailabilitySettings,
+} from "../data/availability";
 import type { ItemOverride } from "../data/plan";
 import { controlledOwner, pickerTile, rateInputs } from "./panel.testkit";
 
@@ -591,6 +595,13 @@ test("clearing the cap on a non-raw row outside the auto-row set keeps the overr
 const V15_OFF = unavailableItems(realPack, {
   eventOverrides: { "v1.5": false },
 });
+// The tundra with the v1.5 cohort off: both dimming causes are live at once,
+// so the map below can be told apart from the target picker's.
+const TUNDRA: AvailabilitySettings = {
+  eventOverrides: { "v1.5": false },
+  area: "tundra",
+};
+const TUNDRA_INPUTS = unavailableEventItems(realPack, TUNDRA);
 const firstCause = V15_OFF.values().next().value!;
 const COHORT = firstCause.kind === "event" ? firstCause.cohort : "";
 
@@ -654,6 +665,23 @@ test("the inputs picker's cohort hint localizes under zh with the same token par
   });
   expect(validation).toContain(COHORT);
   expect(hint).toContain(COHORT);
+});
+
+// An area restriction says where a recipe can be BUILT, which is no statement
+// about whether the item can be brought in: an input with no local producer is
+// exactly the case imports exist for. So the map the owner hands this panel
+// carries event causes only, and an area-blocked item stays pickable.
+test("an item with no producer in the selected area stays pickable as an input", () => {
+  openAddPicker("en", { unavailableItems: TUNDRA_INPUTS });
+  // copper_nugget is jinlong-tagged, so under the tundra nothing produces it.
+  expect(pickerTile("copper_nugget")!.disabled).toBe(false);
+  // Its cause is real, it just belongs to the target picker, not this one.
+  expect(unavailableItems(realPack, TUNDRA).get("copper_nugget")).toEqual({
+    kind: "area",
+    area: "tundra",
+  });
+  // The off-cohort item still dims: the event pass is the one that survives.
+  expect(pickerTile("activity_xiranite_lung")!.disabled).toBe(true);
 });
 
 // Without the map no tile dims for cohort reasons and the hint line is absent

@@ -976,7 +976,10 @@ export const ROUTING_PASSES: ReadonlyArray<{
     because:
       "Reads entryX from assignEntryColumns, which fixes the rail's left end " +
       "before the rail level is clamped, and the rail columns routeTrunkEdges " +
-      "pre-stamped on a trunk's backward members, which it keeps as given.",
+      "pre-stamped on a trunk's backward members, which it keeps as given. " +
+      "It also rescans each rail against the forward runs jogForwardLegs " +
+      "leaves behind, so it must run after that pass: a rail yields to a " +
+      "forward run, and only there are those runs final.",
   },
   // Stack crowded chips (entry, bus, midpoint) so none coincide.
   {

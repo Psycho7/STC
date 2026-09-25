@@ -4,6 +4,12 @@
 //   bun run tools/solver-cli/main.ts --hash <planHash>          [--mode full|rates|render]
 //
 // Flags and output format are documented inline below.
+//
+// The explicit verdict lines this CLI prints always run. The pipeline's own
+// internal guards (solver and render invariants, the augmented-LP-support seed
+// guard, the edge-rate capacity guard) key on import.meta.env.DEV, which Bun
+// leaves undefined; prefix the run with STC_VALIDATE=1 to arm them and have a
+// violation throw here instead of passing silently.
 
 import Fraction from "fraction.js";
 import { pack } from "../../src/data/load";

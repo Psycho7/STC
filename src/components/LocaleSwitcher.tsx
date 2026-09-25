@@ -17,7 +17,6 @@ export function LocaleSwitcher() {
       aria-label={i18n.t("app.locale.label")}
       value={locale}
       onChange={(e) => setLocale(e.target.value as Locale)}
-      style={{ fontSize: 12, padding: "2px 4px" }}
     >
       {LOCALE_OPTIONS.map((o) => (
         <option key={o.value} value={o.value}>

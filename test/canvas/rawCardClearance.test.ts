@@ -29,17 +29,21 @@ import {
 import { widenLayerGaps, type GapRecord } from "../../src/canvas/layerModel";
 import {
   CHAMFER,
+  MAX_CHAMFER,
   PORT_STUB,
   cardClearRunAnchor,
+  chamferStepPath,
   chipBoxClearsCards,
   drawnEdge,
   horizontalRuns,
+  parsePathPoints,
   routingHintsFromData,
 } from "../../src/canvas/edgePath";
 import {
   cardRectsFor,
   deconflictChipAnchors,
   portKeepOutRect,
+  verticalBlockerRects,
 } from "../../src/canvas/chipSeating";
 import { chipSeatHalfW, rateChipText } from "../../src/canvas/chipMetrics";
 import { RECIPE_WIDTH } from "../../src/canvas/dimensions";
@@ -439,6 +443,35 @@ describe("the chip slide's obstacle tiers", () => {
     expect(chipBoxClearsCards(anchor.x, anchor.y, halfW, withFurniture)).toBe(
       true,
     );
+  });
+
+  it("pads a vertical blocker by the bevel that column actually draws", () => {
+    // A bend carrying a corridor budget draws its two corner bevels at up to
+    // MAX_CHAMFER (24), three times the base CHAMFER, and each bevel is a
+    // separate diagonal segment the vertical scan skips. The column below
+    // stands at x = 100 between y = 24 and y = 76, with its two diagonals
+    // reaching 24 out in x and 24 past each end in y -- so its keep-out is the
+    // padded band [76, 124] x [0, 100], not the base-chamfer band.
+    const [d] = chamferStepPath({
+      sourceX: 0,
+      sourceY: 0,
+      targetX: 200,
+      targetY: 100,
+      bendX: 100,
+      chamferBudget: MAX_CHAMFER,
+    });
+    const segs = segmentsOf(parsePathPoints(d)).map(
+      ([a, b]) => [a[0], a[1], b[0], b[1]] as const,
+    );
+
+    expect(verticalBlockerRects(segs)).toEqual([
+      {
+        left: 100 - MAX_CHAMFER,
+        right: 100 + MAX_CHAMFER,
+        top: 24 - MAX_CHAMFER,
+        bottom: 76 + MAX_CHAMFER,
+      },
+    ]);
   });
 });
 

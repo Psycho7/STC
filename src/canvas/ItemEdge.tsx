@@ -11,7 +11,11 @@ import type Fraction from "fraction.js";
 import type { ItemId, TransportKindId } from "../pipeline/types";
 import { useI18n } from "../data/i18n-context";
 import { formatRateExactPerMin } from "../data/rate-format";
-import { rateChipText } from "./chipMetrics";
+import { aggregateChipText, rateChipText } from "./chipMetrics";
+// Type-only: the trunk-aggregate stamps routeTrunkEdges puts on a far owner,
+// plus the trunk membership it stamps on every member. Erased at compile time,
+// so it adds no runtime or bundler edge.
+import type { BusAggregate, TrunkMembership } from "./busRouting";
 import {
   CHIP_ICON_ONLY_MAX_ZOOM,
   LABEL_MIN_ZOOM,
@@ -20,9 +24,12 @@ import {
 import {
   drawnEdge,
   parsePathPoints,
+  sharedStretches,
   type DrawnEdge,
   type RoutingHints,
+  type SharedStretch,
 } from "./edgePath";
+import { useSegmentHover } from "./hoverSegment";
 import { useEffectiveZoomSelect } from "./exportMode";
 import {
   crossingCueRadius,
@@ -37,6 +44,9 @@ import { Sprite } from "./RecipeNode";
 import { BELT_COLOR, GAS_COLOR, PIPE_COLOR } from "./transportPalette";
 
 // The stamped routing hints (and their docs) live in edgePath's RoutingHints.
+// The trunk-aggregate fields intersected in at the end are set on at most ONE
+// item edge per fan-out trunk: the far owner routeTrunkEdges elects for a trunk
+// with no near member, which draws that trunk's total beside its own rate.
 export type ItemEdgeData = RoutingHints & {
   item: ItemId;
   rate: Fraction;
@@ -66,6 +76,13 @@ export type ItemEdgeData = RoutingHints & {
   // the zoom LOD gates, so the hover answers the rate question it asks instead
   // of lighting an edge that shows no number. Optional, defaults to falsy.
   focused?: boolean;
+  // Set beside `dimmed` on the member that DRAWS a trunk's aggregate while a
+  // branch of that trunk is hovered. The member is not part of the branch's
+  // focus set -- its stroke fades with every other sibling -- but the trunk's
+  // total and its junction dot are still what the reader is looking at, so those
+  // two keep full opacity. Deliberately not `focused`: that would un-dim the
+  // stroke and lift the zoom gate as well.
+  aggregateLit?: boolean;
   // Declined fan-out marker (deconflictChipAnchors, #43). Where N >= 2 edges of
   // the same (item, source) run to >= 2 distinct targets but their span falls
   // outside routeTrunkEdges' band, no bus trunk forms: the members stay plain
@@ -112,7 +129,8 @@ export type ItemEdgeData = RoutingHints & {
   // of the stamped anchors (see useLiveCrossingCues), so a node drag on
   // EITHER side of the pair drops the gap instead of floating it.
   crossingCues?: ReadonlyArray<CrossingCue>;
-};
+} & Partial<BusAggregate> &
+  TrunkMembership;
 
 // Physical stroke-width bounds. Edge strokes are drawn in graph units, so the
 // pane zoom scales them: at fit zoom a 1-unit stroke is a sub-pixel hairline. To
@@ -139,7 +157,10 @@ const focusSources = new WeakMap<object, object>();
 
 export function withFocusFlags(
   data: Record<string, unknown> | undefined,
-  flags: { dimmed: true } | { focused: true },
+  flags:
+    | { dimmed: true }
+    | { focused: true }
+    | { dimmed: true; aggregateLit: true },
 ): Record<string, unknown> {
   const copy = { ...data, ...flags };
   if (data !== undefined) focusSources.set(copy, data);
@@ -149,6 +170,47 @@ export function withFocusFlags(
 export function focusSourceOf<T>(data: T): T {
   if (typeof data !== "object" || data === null) return data;
   return (focusSources.get(data) as T | undefined) ?? data;
+}
+
+// Hit width of a shared-stretch path, in graph units. React Flow draws its own
+// invisible interaction path over every edge at this width (BaseEdge's
+// `interactionWidth` default), and the stretch paths must be exactly as easy to
+// point at as the stroke they sit on, so they take the same number.
+const EDGE_INTERACTION_WIDTH = 20;
+
+// The transparent hit targets that say "the pointer is on the trunk here": one
+// per stretch this edge shares with a trunk (see sharedStretches). They are
+// drawn AFTER the stroke so they win the hit test over React Flow's own
+// interaction path, carry no ink, and report through the segment-hover context;
+// the edge's own enter still fires underneath them, so the segment report only
+// refines which part of the edge is under the pointer. A leave without an enter
+// on another stretch is the pointer moving onto the member's own leg, which is
+// branch mode.
+export function SharedStretchPaths({
+  edgeId,
+  stretches,
+}: {
+  edgeId: string;
+  stretches: ReadonlyArray<SharedStretch>;
+}) {
+  const segment = useSegmentHover();
+  return (
+    <>
+      {stretches.map(({ group, run }) => (
+        <path
+          key={group}
+          data-testid={`edge-shared-${edgeId}-${group}`}
+          d={`M ${run.lo},${run.y} L ${run.hi},${run.y}`}
+          fill="none"
+          stroke="transparent"
+          strokeWidth={EDGE_INTERACTION_WIDTH}
+          style={{ pointerEvents: "stroke" }}
+          onMouseEnter={() => segment.enter(edgeId, group)}
+          onMouseLeave={() => segment.leave(edgeId)}
+        />
+      ))}
+    </>
+  );
 }
 
 // Inline style carrying the chip's accent color as the --chip-accent custom
@@ -180,6 +242,8 @@ export function FlowChip({
   dimmed,
   focused,
   belowDigitsGate,
+  onMouseEnter,
+  onMouseLeave,
 }: {
   testId: string;
   // Owning edge id, emitted as data-edge-id so the geometry audit can exempt an
@@ -201,6 +265,12 @@ export function FlowChip({
   // for the digits gate: a chip draws its box at its natural size at every
   // zoom. Optional -- a caller without it draws the full chip.
   belowDigitsGate?: boolean | undefined;
+  // Set by the aggregate chips alone. A chip's enter reaches its own edge's
+  // handler through the portal's fiber chain, which is branch mode -- right for
+  // a chip stating one member's rate, wrong for one stating the TRUNK's total.
+  // Those two pass the trunk's segment report here instead.
+  onMouseEnter?: (() => void) | undefined;
+  onMouseLeave?: (() => void) | undefined;
 }) {
   // Below the digits gate every chip sheds its rate digits and renders as the
   // bare item icon, so a dense fit view stops blanketing. The exact rate stays
@@ -221,6 +291,8 @@ export function FlowChip({
         }
         aria-label={label}
         title={title ?? label}
+        {...(onMouseEnter !== undefined ? { onMouseEnter } : {})}
+        {...(onMouseLeave !== undefined ? { onMouseLeave } : {})}
         style={{
           position: "absolute",
           transform: `translate(-50%, -50%) translate(${x}px, ${y}px)`,
@@ -574,6 +646,8 @@ export function rateLabel(name: string, value: string): string {
 
 export default function ItemEdge({
   id,
+  source,
+  target,
   sourceX,
   sourceY,
   targetX,
@@ -584,6 +658,7 @@ export default function ItemEdge({
 }: EdgeProps) {
   const edgeData = data as ItemEdgeData | undefined;
   const sourceData = focusSourceOf(edgeData);
+  const segment = useSegmentHover();
   // The PNG export rasterizes at unit scale, so every zoom gate below reads 1
   // and the image keeps full detail whatever the camera was parked at.
   const labelsShown = useEffectiveZoomSelect((zoom) => zoom >= LABEL_MIN_ZOOM);
@@ -634,6 +709,35 @@ export default function ItemEdge({
     [item, rate, rateStr, unit, i18n],
   );
 
+  // The trunk total this edge carries when it is the elected far owner of a
+  // fan-out with no near member: the same builder, wording and unit BusEdge's
+  // drop chip uses, so the two states of one contract read alike. Empty on
+  // every other item edge, where the payload carries no total.
+  const totalStr = useMemo(
+    () =>
+      aggregateChipText({
+        id: "",
+        source: "",
+        target: "",
+        data: sourceData,
+      } as Edge)?.body ?? "",
+    [sourceData],
+  );
+  const total = (sourceData as ItemEdgeData | undefined)?.busTotalRate;
+  const { totalLabel, totalTitle } = useMemo(
+    () =>
+      item !== undefined && total !== undefined && totalStr
+        ? {
+            totalLabel: rateLabel(i18n.displayName(item), `${totalStr}${unit}`),
+            totalTitle: rateLabel(
+              i18n.displayName(item),
+              `${formatRateExactPerMin(total)}${unit}`,
+            ),
+          }
+        : { totalLabel: "", totalTitle: "" },
+    [item, total, totalStr, unit, i18n],
+  );
+
   // The drawn shape of this edge: the polyline, its vertices and its label
   // anchor, resolved by drawnEdge from the live React Flow endpoints and this
   // edge's stamped data, so the render and the bookkeeping pass's
@@ -657,6 +761,19 @@ export default function ItemEdge({
   );
   const edgePath = drawn.path;
   const { x: labelX, y: labelY } = drawn.labelAnchor;
+
+  // The stretches this member shares with the trunks it belongs to: a far
+  // member's borrowed column or a backward member's rail makes one end of its
+  // line the trunk's own. Memoized on the drawn shape and the payload for the
+  // same reason the shape is.
+  const stretches = useMemo(
+    () => sharedStretches(drawn, { source, target, data: sourceData }),
+    [drawn, source, target, sourceData],
+  );
+  // The trunk's total and its junction dots survive the dim of a branch hover
+  // elsewhere in the trunk; the member's own rate chip does not.
+  const dimmed = edgeData?.dimmed === true;
+  const trunkChromeDimmed = dimmed && edgeData?.aggregateLit !== true;
 
   // Both junction dots mark a point the seating pass found on a GROUP of edges
   // -- where the last member merges into one port, where the first member of a
@@ -691,6 +808,15 @@ export default function ItemEdge({
     edgeData && rateStr && (labelsShown || edgeData.focused === true)
       ? `${rateStr}${unit}`
       : "";
+  // The trunk total draws only where the shape seated an anchor for it, under
+  // the label chip's own gates: a drag that re-routes this member off the trunk
+  // drops the anchor and the chip with it.
+  const totalText =
+    drawn.trunkAnchor !== undefined &&
+    totalStr &&
+    (labelsShown || edgeData?.focused === true)
+      ? `${totalStr}${unit}`
+      : "";
 
   const { stroke, style: mergedStyle } = edgeStrokeStyle(
     edgeData?.transportKind,
@@ -710,6 +836,7 @@ export default function ItemEdge({
         fromPool={edgeData?.fromPool}
         markerEnd={markerEnd}
       />
+      <SharedStretchPaths edgeId={id} stretches={stretches} />
       {chipText ? (
         <FlowChip
           testId={`item-edge-label-${id}`}
@@ -725,6 +852,30 @@ export default function ItemEdge({
           belowDigitsGate={belowDigitsGate}
         />
       ) : null}
+      {/* The trunk's aggregate, on the far owner's source stub: the counterpart
+          of the drop chip a retyped member draws from BusEdge, on the one item
+          shape that carries a trunk's aggregate stamps. */}
+      {totalText && drawn.trunkAnchor !== undefined ? (
+        <FlowChip
+          testId={`item-edge-${id}-drop`}
+          edgeId={id}
+          x={drawn.trunkAnchor.x}
+          y={drawn.trunkAnchor.y}
+          item={edgeData?.item}
+          text={totalText}
+          label={totalLabel}
+          title={totalTitle}
+          dimmed={trunkChromeDimmed}
+          focused={edgeData?.focused}
+          belowDigitsGate={belowDigitsGate}
+          {...(edgeData?.trunkKey !== undefined
+            ? {
+                onMouseEnter: () => segment.enter(id, edgeData.trunkKey!),
+                onMouseLeave: () => segment.leave(id),
+              }
+            : {})}
+        />
+      ) : null}
       {/* Declined fan-out divergence dot (#43, owner only): where coincident
           same-flow item edges leave the shared out-port run for their own
           targets. Same markup and stacking as the fan-in merge dot; dropped
@@ -736,7 +887,7 @@ export default function ItemEdge({
           x={edgeData.fanoutJunctionX}
           y={edgeData.fanoutJunctionY!}
           color={stroke}
-          dimmed={edgeData.dimmed}
+          dimmed={trunkChromeDimmed}
         />
       ) : null}
       {/* Fan-in convergence dot (owner only): where the far members of one
@@ -751,7 +902,7 @@ export default function ItemEdge({
           x={edgeData.faninJunctionX}
           y={edgeData.faninJunctionY!}
           color={stroke}
-          dimmed={edgeData.dimmed}
+          dimmed={trunkChromeDimmed}
         />
       ) : null}
     </>

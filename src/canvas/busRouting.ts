@@ -83,8 +83,9 @@ import {
 import { pushInto } from "../util/multimap";
 import type { RFAnyNode, RoutingCtx } from "./layout";
 // Type-only: ItemEdge.tsx declares the base canvas edge payload these passes
-// stamp onto and read back. Erased at compile time, so it adds no runtime or
-// bundler edge, and ItemEdge imports none of this module.
+// stamp onto and read back. ItemEdge imports BusAggregate back from here, so
+// the cycle runs both ways, but it is type-only on both sides and erased at
+// compile time, so it adds no runtime or bundler edge.
 import type { ItemEdgeData } from "./ItemEdge";
 
 // Trunk-aggregate fields of a fan-out trunk. Every
@@ -93,6 +94,9 @@ import type { ItemEdgeData } from "./ItemEdge";
 // trunk's one aggregate chip (showing the total, plus the count when > 1). The
 // other members suppress that chip, so the trunk shows its true total once
 // instead of one member's share stacked N times. trunkKey groups the members.
+// A fan-out with no near member stamps these fields on its elected FAR owner
+// alone, which stays an item edge: the stamps are the whole contract, and the
+// item shape seats the chip off them the same way a retyped member does.
 export type BusAggregate = {
   trunkKey: string;
   busTotalRate?: Fraction;
@@ -100,10 +104,11 @@ export type BusAggregate = {
   busChipOwner?: boolean;
 };
 
-// A bus member owns its trunk's shared drawings (the trunk segment, junction
-// dot, and aggregate chip) unless explicitly flagged otherwise. ABSENT data, or
-// an absent busChipOwner, counts as OWNER, so an un-annotated fixture keeps the
-// whole-group highlight and its aggregate chip. One helper owns that default
+// A bus member is the one elected to DRAW its trunk's aggregate chip unless
+// explicitly flagged otherwise. It is a drawing role and nothing else: it says
+// which member states the trunk's total, never how the flow runs. ABSENT data,
+// or an absent busChipOwner, counts as OWNER, so an un-annotated fixture still
+// draws its aggregate chip. One helper owns that default
 // for every reader that agrees with it, instead of the same `!== false` /
 // `?? true` rule being restated at each site. The parameter is PARTIAL because
 // chipSeating's flat chip-anchor view carries busChipOwner without trunkKey; the
@@ -112,20 +117,39 @@ export function isTrunkOwner(data: Partial<BusAggregate> | undefined): boolean {
   return data?.busChipOwner ?? true;
 }
 
-// Fan-out trunk member (routeTrunkEdges). Retyped `type: "bus"` -- so Canvas
-// trunk adjacency and hover-dim pick it up -- and it consolidates N
-// same-source-port edges onto one shared junction column in a single layer gap.
-// `fanout: true` is always set, so BusEdge draws the short in-corridor trunk
-// (chamferFanoutPath). `junctionX` is the shared column, the slot the trunk
-// took in its gap's reserved column zone. The aggregate reuses BusAggregate;
-// where its two chips stand is the path builder's rule, not a stamp.
-export type FanoutBusEdgeData = BusAggregate & {
-  fanout: true;
-  // The absent half of the discriminated union below, so a reader can ask
-  // either question of a BusEdgeData without narrowing it first.
-  fanin?: undefined;
-  junctionX?: number;
+// Hover membership, stamped on every member of every trunk -- including the
+// members no drawing marks as one: a far member that only borrows the junction
+// column, and a backward member that keeps its detour rail. It is kept OUT of
+// BusAggregate because the aggregate stamps are the drawing contract of ONE
+// trunk (the one a member is drawn as), while membership is the topological fact
+// about all of them, so a dual member carries two keys here and one trunkKey
+// there.
+export type TrunkMembership = {
+  trunkGroups?: string[];
 };
+
+export function trunkGroupsOf(
+  data: TrunkMembership | undefined,
+): ReadonlyArray<string> {
+  return data?.trunkGroups ?? [];
+}
+
+// Fan-out trunk member (routeTrunkEdges). Retyped `type: "bus"` so the canvas
+// hands it to BusEdge, which draws the short in-corridor trunk
+// (chamferFanoutPath) off `fanout: true`; the retype is a drawing choice only,
+// hover grouping reads TrunkMembership and never the type. It consolidates N
+// same-source-port edges onto one shared junction column in a single layer
+// gap. `junctionX` is the shared column, the slot the trunk took in its gap's
+// reserved column zone. The aggregate reuses BusAggregate; where its two chips
+// stand is the path builder's rule, not a stamp.
+export type FanoutBusEdgeData = BusAggregate &
+  TrunkMembership & {
+    fanout: true;
+    // The absent half of the discriminated union below, so a reader can ask
+    // either question of a BusEdgeData without narrowing it first.
+    fanin?: undefined;
+    junctionX?: number;
+  };
 
 // Fan-in trunk member (routeTrunkEdges), the mirror of the fan-out payload
 // above. Retyped `type: "bus"` the same way, with `fanin: true` as the
@@ -134,11 +158,12 @@ export type FanoutBusEdgeData = BusAggregate & {
 // RIGHT of its gap's reserved column zone. The aggregate reuses BusAggregate:
 // here busChipOwner marks the member that draws the trunk's one aggregate chip
 // on the shared leg into the port.
-export type FaninBusEdgeData = BusAggregate & {
-  fanin: true;
-  fanout?: undefined;
-  junctionX?: number;
-};
+export type FaninBusEdgeData = BusAggregate &
+  TrunkMembership & {
+    fanin: true;
+    fanout?: undefined;
+    junctionX?: number;
+  };
 
 // Data fields the bus pass merges onto a member edge's existing `data`: a
 // bus-typed edge is a member of one trunk or the other, so the payload is the
@@ -263,7 +288,10 @@ function legBlockedIn(
 // Slots are handed out top-to-bottom by the port row the trunk hangs off (the
 // source port for a fan-out, the target port for a fan-in), the trunk key
 // breaking ties, so the columns follow reading order and never depend on where
-// an edge sits in the input array. Without a ctx -- a hand-built fixture, or a
+// an edge sits in the input array. Fan-outs take one exception to that order:
+// where one trunk's near leg leaves on a sibling's arriving port row, the
+// leaver is moved right of the arriver (the coincident-row constraint below),
+// and only ties that constraint leaves open keep the plain order. Without a ctx -- a hand-built fixture, or a
 // caller that re-runs the passes on its own -- there is no record to read and
 // the column falls back to the midpoint of the corridor between the unit's port
 // and its nearest counterpart, clamped exactly as the path builders clamp it.
@@ -311,6 +339,28 @@ export function routeTrunkEdges(
   const model = buildLayerModel(nodes);
   const edgeById = new Map(edges.map((edge) => [edge.id, edge]));
 
+  // Hover membership, straight off the classification: every key an edge is a
+  // member of, in trunk order. It is stamped whatever treatment the passes below
+  // give the member and whether or not any geometry could be derived, because
+  // the group is the topological fact, not the drawn shape.
+  const groupsByEdgeId = new Map<string, string[]>();
+  for (const trunk of trunks) {
+    for (const id of trunk.members) {
+      pushInto(groupsByEdgeId, id, trunk.key);
+    }
+  }
+  const membership = (edge: Edge): TrunkMembership => {
+    const groups = groupsByEdgeId.get(edge.id);
+    return groups === undefined ? {} : { trunkGroups: groups };
+  };
+  // Membership alone, for an edge no other stamp touches.
+  const withMembership = (edge: Edge): Edge => {
+    const groups = groupsByEdgeId.get(edge.id);
+    return groups === undefined
+      ? edge
+      : { ...edge, data: { ...edge.data, trunkGroups: groups } };
+  };
+
   // How far the member reaches from its trunk's own layer, which is what
   // decides whether it is drawn as part of the trunk (next layer over), merely
   // pinned to its column (further away) or left to its detour rail (backward).
@@ -329,6 +379,13 @@ export function routeTrunkEdges(
     portY: number;
     fallbackColumn: number;
     reachByEdgeId: Map<string, Reach>;
+    // The rows at which a FAN-OUT trunk's NEAR members meet its column: the
+    // rows their runs arrive on (the shared source port row, for every one of
+    // them) and the rows their runs leave on (each member's own target row).
+    // Empty on a fan-in: the slot order below is the only reader and it runs
+    // the constraint for fan-outs alone.
+    arrivingRows: number[];
+    leavingRows: number[];
   };
 
   const geoms: TrunkGeom[] = [];
@@ -347,6 +404,8 @@ export function routeTrunkEdges(
     const fanOut = trunk.kind === "fanOut";
 
     const reachByEdgeId = new Map<string, Reach>();
+    const arrivingRows: number[] = [];
+    const leavingRows: number[] = [];
     // The nearest counterpart port, for the no-ctx fallback column: the leftmost
     // target for a fan-out, the rightmost source for a fan-in.
     let nearestX = fanOut ? Infinity : -Infinity;
@@ -375,6 +434,9 @@ export function routeTrunkEdges(
       nearestX = fanOut
         ? Math.min(nearestX, memberPorts.tx)
         : Math.max(nearestX, memberPorts.sx);
+      if (reach !== "near" || !fanOut) continue;
+      arrivingRows.push(memberPorts.sy);
+      leavingRows.push(memberPorts.ty);
     }
 
     geoms.push({
@@ -385,9 +447,13 @@ export function routeTrunkEdges(
         ? corridorMidColumn(ports.sx, nearestX)
         : corridorMidColumn(nearestX, ports.tx),
       reachByEdgeId,
+      arrivingRows,
+      leavingRows,
     });
   }
-  if (geoms.length === 0) return edges.map((e) => e);
+  // No trunk had geometry to reason about, so there is nothing to stamp but the
+  // membership: the trunks are classified either way and hover reads them.
+  if (geoms.length === 0) return edges.map(withMembership);
 
   // One slot per trunk in its gap's reserved zone, the two kinds filling it from
   // opposite ends so neither can land on the other's column.
@@ -405,19 +471,82 @@ export function routeTrunkEdges(
     const bySlot = (a: TrunkGeom, b: TrunkGeom): number =>
       a.portY - b.portY ||
       (a.trunk.key < b.trunk.key ? -1 : a.trunk.key > b.trunk.key ? 1 : 0);
+
+    // At a COINCIDENT ROW -- one trunk's near leg running within
+    // FORWARD_LEVEL_FLOOR of a sibling's port row -- the two share a stretch of
+    // x whenever the leaving trunk stands LEFT of the arriving one: the leg runs
+    // right from its own column across the sibling's stub, which runs right from
+    // its port to the sibling's column, and the sibling's junction dot then sits
+    // on a foreign stroke. With the leaver standing RIGHT there is no shared
+    // stretch, so this is the pairwise constraint:
+    //
+    //   plain order (bad)            B order (good)
+    //     A       B                    B       A
+    //     |       |                    |       |
+    //   --+---o---+--> A's leg       --+--> A's leg starts right of the dot
+    //     |   ^dot|                    |dot^  |
+    //
+    // Deliberately NOT a level-occupancy query (STC-0009): the rule runs before
+    // any run band exists, and its inputs are port rows, not drawn geometry.
+    // Near members only -- a far member's leg level is set later by the jog pass,
+    // so its target row is not where its leg runs.
+    const coincident = (leaver: TrunkGeom, arriver: TrunkGeom): boolean =>
+      leaver.leavingRows.some((leg) =>
+        arriver.arrivingRows.some(
+          (row) => Math.abs(leg - row) < FORWARD_LEVEL_FLOOR,
+        ),
+      );
+
+    // Topological order over those constraints, taking the plain slot order's
+    // first eligible trunk at every step, so the port-y tie-break survives wherever
+    // no constraint speaks. A cycle -- two trunks each leaving on the other's
+    // arriving row -- has no satisfying order at all, and falls back to plain.
+    const byConstraint = (kind: TrunkKind): TrunkGeom[] => {
+      const plain = group
+        .filter((geom) => geom.trunk.kind === kind)
+        .sort(bySlot);
+      const standRight = new Map<TrunkGeom, TrunkGeom[]>();
+      const owed = new Map<TrunkGeom, number>(plain.map((geom) => [geom, 0]));
+      for (const leaver of plain) {
+        for (const arriver of plain) {
+          if (leaver === arriver || !coincident(leaver, arriver)) continue;
+          pushInto(standRight, arriver, leaver);
+          owed.set(leaver, owed.get(leaver)! + 1);
+        }
+      }
+
+      const placed: TrunkGeom[] = [];
+      const left = new Set(plain);
+      while (placed.length < plain.length) {
+        const next = plain.find(
+          (geom) => left.has(geom) && owed.get(geom) === 0,
+        );
+        if (next === undefined) return plain;
+        left.delete(next);
+        placed.push(next);
+        for (const dependent of standRight.get(next) ?? []) {
+          owed.set(dependent, owed.get(dependent)! - 1);
+        }
+      }
+      return placed;
+    };
+
     const place = (
       kind: TrunkKind,
       columnOf: (slot: number) => number,
     ): void => {
-      group
-        .filter((geom) => geom.trunk.kind === kind)
-        .sort(bySlot)
-        .forEach((geom, slot) => {
-          junctionByTrunk.set(
-            geom.trunk,
-            zone === undefined ? geom.fallbackColumn : columnOf(slot),
-          );
-        });
+      // Fan-outs only: a fan-in's members meet its column on the target side,
+      // where the mirror of this rule has no corpus site to measure it on.
+      const ordered =
+        kind === "fanOut"
+          ? byConstraint(kind)
+          : group.filter((geom) => geom.trunk.kind === kind).sort(bySlot);
+      ordered.forEach((geom, slot) => {
+        junctionByTrunk.set(
+          geom.trunk,
+          zone === undefined ? geom.fallbackColumn : columnOf(slot),
+        );
+      });
     };
     place(
       "fanOut",
@@ -496,15 +625,52 @@ export function routeTrunkEdges(
   // member that is STILL near after the demotions above, i.e. one BusEdge draws
   // the fan-out shape (and therefore the trunk anchor) for. Trunk.owner is
   // elected over ALL members, so a trunk whose lex-smallest member is far or
-  // backward would hand the aggregate to an edge that draws no trunk segment and
-  // the trunk would show no total at all. A trunk with no near member draws its
-  // aggregate on nothing, the same way a fan-in trunk of all-dual members does.
+  // backward would hand the aggregate to an edge that draws no trunk segment.
   const fanoutAggOwnerByTrunk = new Map<Trunk, string>();
   for (const [id, side] of fanOutByEdgeId) {
     if (side.reach !== "near") continue;
     const owner = fanoutAggOwnerByTrunk.get(side.geom.trunk);
     if (owner === undefined || id < owner) {
       fanoutAggOwnerByTrunk.set(side.geom.trunk, id);
+    }
+  }
+
+  // Second tier: a trunk with NO near member still owes its total, so the
+  // election falls through to the far members rather than leaving the trunk
+  // silent (a reader cannot tell why one boundary port is labelled and the next
+  // is not, since layer distance is not drawn). The far owner is the
+  // lex-smallest member whose ports differ in y -- a BENDING member, the same
+  // edge that carries the divergence dot, so dot and total ride one carrier --
+  // else the lex-smallest far member. It keeps `type: "item"` and its borrowed
+  // column, and gains the aggregate stamps alone: drawnEdge then seats the
+  // total on its source stub, in the gap reserve layerModel already charged for
+  // it. A BACKWARD member is never elected -- it draws no stretch the box could
+  // stand on -- so a trunk of backward members only stays ownerless.
+  //
+  // A member that is still NEAR on its FAN-IN side is never elected either: the
+  // stamping below retypes it as a fan-in bus member before it reads the far
+  // stamps, so it would swallow the total rather than draw it. Both sides of one
+  // edge start at the same layer distance, but the fan-out demotion above can
+  // send a member far while the fan-in demotion keeps it near against the other
+  // column. A trunk whose far members are all near fan-ins stays ownerless.
+  const farAggOwnerByTrunk = new Map<Trunk, string>();
+  {
+    const farByTrunk = new Map<Trunk, string[]>();
+    for (const [id, side] of fanOutByEdgeId) {
+      if (side.reach !== "far") continue;
+      if (fanInByEdgeId.get(id)?.reach === "near") continue;
+      if (fanoutAggOwnerByTrunk.has(side.geom.trunk)) continue;
+      pushInto(farByTrunk, side.geom.trunk, id);
+    }
+    const bends = (id: string): boolean => {
+      const member = edgeById.get(id);
+      const ports = member === undefined ? null : edgePortsModel(member, byId);
+      return ports !== null && ports.sy !== ports.ty;
+    };
+    for (const [trunk, ids] of farByTrunk) {
+      const sorted = [...ids].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+      const owner = sorted.find(bends) ?? sorted[0];
+      if (owner !== undefined) farAggOwnerByTrunk.set(trunk, owner);
     }
   }
 
@@ -537,7 +703,9 @@ export function routeTrunkEdges(
   return edges.map((edge) => {
     const out = fanOutByEdgeId.get(edge.id);
     const into = fanInByEdgeId.get(edge.id);
-    if (out === undefined && into === undefined) return edge;
+    // Only the membership is left for a member whose trunk was dropped for want
+    // of geometry above; a non-member comes back by reference.
+    if (out === undefined && into === undefined) return withMembership(edge);
 
     // Pre-stamped rail columns: a backward member shares its trunk's column
     // with the forward members instead of taking its own default one stub off
@@ -555,6 +723,7 @@ export function routeTrunkEdges(
         type: "bus",
         data: {
           ...edge.data,
+          ...membership(edge),
           ...rails,
           ...aggregateOf(
             out.geom.trunk,
@@ -572,6 +741,7 @@ export function routeTrunkEdges(
         type: "bus",
         data: {
           ...edge.data,
+          ...membership(edge),
           ...rails,
           ...aggregateOf(
             into.geom.trunk,
@@ -585,6 +755,15 @@ export function routeTrunkEdges(
     // A far member borrows one column. When it is far on BOTH sides the
     // fan-out's wins: that is the column its siblings already leave the shared
     // out-port on, and a single vertical run can only stand in one gap.
+    //
+    // The elected far owner of an otherwise ownerless fan-out also carries its
+    // trunk's aggregate stamps here. The drawn shape is unchanged -- it stays an
+    // item edge through every later pass -- and drawnEdge reads the stamps alone
+    // to seat the total on its source stub.
+    const farAggregate =
+      out?.reach === "far" && farAggOwnerByTrunk.get(out.geom.trunk) === edge.id
+        ? aggregateOf(out.geom.trunk, true)
+        : {};
     const column =
       out?.reach === "far"
         ? { bendX: out.junctionX, fanoutColumn: true as const }
@@ -592,9 +771,18 @@ export function routeTrunkEdges(
           ? { bendX: into.junctionX, faninColumn: true as const }
           : {};
     if (Object.keys(column).length === 0 && Object.keys(rails).length === 0) {
-      return edge;
+      return withMembership(edge);
     }
-    return { ...edge, data: { ...edge.data, ...rails, ...column } };
+    return {
+      ...edge,
+      data: {
+        ...edge.data,
+        ...membership(edge),
+        ...rails,
+        ...farAggregate,
+        ...column,
+      },
+    };
   });
 }
 

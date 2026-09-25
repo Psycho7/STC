@@ -31,9 +31,9 @@ vi.mock("./canvas/layout", async (importOriginal) => {
 
 // A seam for the reason-only transition below: the core is left alone until a
 // test arms `recast`, at which point every derived cause keeps its recipe id
-// and swaps its kind. Nothing in the app can produce an area or manual cause
-// yet (#124/#125 own the settings that would), and the point of the case is
-// precisely that the ids do not move.
+// and swaps its kind. The app produces area causes on its own now (#124's
+// settlement picker), but no manual ones yet (#125 owns that toggle), and the
+// point of the case is precisely that the ids do not move.
 const availabilitySpy = vi.hoisted(() => ({
   recast: null as null | { kind: "manual"; recipeId: string },
   lastIds: [] as string[],
@@ -61,21 +61,11 @@ vi.mock("./canvas/Canvas", () => ({
 }));
 
 import App from "./App";
-import { defaultPlan, encodePlan, type Plan } from "./data/plan";
-import { pack } from "./data/load";
+import { encodePlan } from "./data/plan";
 import { loadI18n } from "./data/i18n";
 import { EVENT_COHORT_OVERRIDES_STORAGE_KEY } from "./data/storage-keys";
+import { LUNG_PLAN, flipStoredOverrides } from "./App.testkit";
 import { pickerTile } from "./components/panel.testkit";
-
-// The lung is v1.5 event content whose only producer is the event recipe of
-// the same id: with the cohort on it solves through that recipe, with it off
-// the target has no available producer at all.
-const LUNG_PLAN: Plan = {
-  ...defaultPlan(pack),
-  targets: [
-    { itemId: "activity_xiranite_lung", ratePerSec: { num: "1", denom: "1" } },
-  ],
-};
 
 // The localized producer-unavailable copy the splash and banner must render:
 // raw item id plus the cohort, per the T3 string.
@@ -83,17 +73,6 @@ const zhCohortError = loadI18n("zh").t("app.error.producer-unavailable.event", {
   itemId: "activity_xiranite_lung",
   cohort: "v1.5",
 });
-
-// Simulate another tab flipping a cohort: same-document writes fire no
-// `storage` event, so the test writes the key and then dispatches the event
-// the browser would have delivered to the other windows.
-function flipStoredOverrides(json: string): void {
-  window.localStorage.setItem(EVENT_COHORT_OVERRIDES_STORAGE_KEY, json);
-  fireEvent(
-    window,
-    new StorageEvent("storage", { key: EVENT_COHORT_OVERRIDES_STORAGE_KEY }),
-  );
-}
 
 beforeEach(() => {
   vi.stubGlobal(
@@ -318,10 +297,13 @@ test("a stored off override dims the cohort's items in both pickers with the hin
   const lungTile = pickerTile("activity_xiranite_lung")!;
   expect(lungTile).not.toBeNull();
   expect(lungTile.disabled).toBe(true);
+  // The target picker also carries the area line: the default settlement
+  // always leaves the other one's coupon without a producer.
   const targetHint = document.querySelector('[data-testid="picker-hint"]')!;
-  expect(targetHint.textContent).toBe(
+  expect(targetHint.textContent).toContain(
     loadI18n("zh").t("picker.event.off", { cohorts: "v1.5" }),
   );
+  expect(targetHint.textContent).toContain(loadI18n("zh").t("picker.area.off"));
   fireEvent.keyDown(document, { key: "Escape" });
 
   // Inputs picker: same cohort, same dimming, same hint line.

@@ -1,10 +1,17 @@
 import { resolve } from "node:path";
 import Fraction from "fraction.js";
 import {
+  akeMachineId,
+  akeTransportKind,
+  deriveEnvironments,
+  joinAndAssert,
+  loadAkeData,
+  type AkeSnapshot,
+} from "./akedata.ts";
+import {
   LOCALES,
   SCHEMA_VERSION,
   TRANSPORT_KIND,
-  type EnvironmentId,
   type Item,
   type Locale,
   type LocaleNames,
@@ -16,6 +23,7 @@ import {
   type Stoich,
   type Transport,
   type TransportKindId,
+  type VendorProvenance,
 } from "./schema.ts";
 import type {
   UpstreamData,
@@ -55,6 +63,13 @@ const SYNTHETIC_GAS_TRANSPORT_NAMES: Record<Locale, string> = {
   zh: "气体管道",
 };
 
+// Transport phase for the items the game's factory-item table has no row for:
+// jinlong_coupon, tundra_coupon and domain_key_tundra, none of which the player
+// ever puts on a carrier. They are drawn as belt items, which is what upstream
+// already calls them. The join pins that set exactly, so a fourth unjoined item
+// fails the extract rather than inheriting this fallback unnoticed.
+const UNJOINED_TRANSPORT_KIND = TRANSPORT_KIND.BELT;
+
 // The purification nodes the player routes into on the map. Upstream used to
 // mark them with a machine-side cost === -1 skip sentinel, but dropped that
 // field in v1.5.3, so the set is pinned by hand here. Every recipe whose
@@ -90,18 +105,6 @@ export const CATALYST_BY_PRODUCER: Record<string, string> = {
 // (time * 6 / 60) has to be subtracted back out.
 const CATALYST_PER_MINUTE = 6;
 
-// Recipes the game restricts to an atmosphere. Upstream ships no environment
-// field - the stable recipes are recognisable only by their inert-gas variant
-// naming and the acidic one only by its in-game banner - so the set is pinned
-// by hand.
-export const ENVIRONMENT_BY_RECIPE: Record<string, EnvironmentId> = {
-  "gas_copper_enr-gas_inert": "stable",
-  "gas_xiranite_enr-gas_inert": "stable",
-  "xiranite_powder-carbon_mtl": "stable",
-  activity_copper_poly_gas: "stable",
-  gas_copper_enr2: "acidic",
-};
-
 const REPO_ROOT = resolve(import.meta.dir, "../../..");
 const VENDOR_PATH = "vendor/endfield-calc";
 const INPUT_PATH = resolve(REPO_ROOT, VENDOR_PATH, "data.json");
@@ -127,6 +130,9 @@ async function main(opts: { write?: boolean } = {}): Promise<ExtractResult> {
   const write = opts.write ?? true;
   const upstream = (await Bun.file(INPUT_PATH).json()) as UpstreamData;
   const eventCohorts = await loadEventCohorts();
+  // Loaded up front, before any row is built, so a later pass can read a game
+  // table without the pipeline being reordered around it.
+  const akedata = await loadAkeData();
   const sourceMeta = (await Bun.file(
     resolve(REPO_ROOT, VENDOR_PATH, "SOURCE.json"),
   ).json()) as {
@@ -161,7 +167,10 @@ async function main(opts: { write?: boolean } = {}): Promise<ExtractResult> {
         powerKw: u.machine.usage ?? null,
         hideRate: u.machine.hideRate ?? false,
       };
-      if (u.machine.size) m.size = [u.machine.size[0], u.machine.size[1]];
+      const size = u.machine.size
+        ? ([u.machine.size[0], u.machine.size[1]] as [number, number])
+        : akeMachineSize(u.id, akedata);
+      if (size) m.size = size;
       if (u.machine.locations && u.machine.locations.length > 0)
         m.locations = [...u.machine.locations];
       if (u.machine.totalRecipe != null) m.totalRecipe = u.machine.totalRecipe;
@@ -183,7 +192,9 @@ async function main(opts: { write?: boolean } = {}): Promise<ExtractResult> {
         speed: u.pipe.speed,
       });
     } else {
-      items.push(toItem(u));
+      items.push(
+        toItem(u, akeTransportKind(u.id, akedata) ?? UNJOINED_TRANSPORT_KIND),
+      );
     }
   }
 
@@ -193,11 +204,6 @@ async function main(opts: { write?: boolean } = {}): Promise<ExtractResult> {
   for (const id of SKIP_SINK_RECIPES) {
     if (!upstreamRecipeIds.has(id)) {
       throw new Error(`skip-sink recipe "${id}" is missing from upstream`);
-    }
-  }
-  for (const id of Object.keys(ENVIRONMENT_BY_RECIPE)) {
-    if (!upstreamRecipeIds.has(id)) {
-      throw new Error(`environment recipe "${id}" is missing from upstream`);
     }
   }
 
@@ -226,6 +232,25 @@ async function main(opts: { write?: boolean } = {}): Promise<ExtractResult> {
 
   validateReferentialIntegrity({ items, machines, transports, recipes });
 
+  // Cross-check the finished rows against the game's own tables. Reads only;
+  // a disagreement fails the extract.
+  const join = joinAndAssert({ items, machines, recipes }, akedata);
+
+  // The atmosphere a recipe demands is a game-table field, so it is stamped
+  // through the join rather than during the row build. The cohort pass above
+  // has already stamped `event`, and the emitted JSON keeps insertion order, so
+  // the cohort is re-seated behind the atmosphere it was written before.
+  const environments = deriveEnvironments(akedata, join);
+  for (const r of recipes) {
+    const environment = environments.get(r.id);
+    if (!environment) continue;
+
+    const event = r.event;
+    delete r.event;
+    r.environment = environment;
+    if (event !== undefined) r.event = event;
+  }
+
   const source: SourceProvenance = {
     name: "endfield-calc/factoriolab",
     sourceRepo: sourceMeta.repo,
@@ -234,9 +259,24 @@ async function main(opts: { write?: boolean } = {}): Promise<ExtractResult> {
     extractedAt: new Date().toISOString(),
   };
 
+  const sources: VendorProvenance[] = [
+    { vendor: "endfield-calc", ...source },
+    {
+      vendor: "akedata",
+      name: akedata.source.name,
+      repo: akedata.source.repo,
+      version: akedata.source.version,
+      hotfixVersion: akedata.source.hotfixVersion,
+      publishedAt: akedata.source.publishedAt,
+      snapshotDate: akedata.source.snapshotDate,
+      tableCfgPath: akedata.source.tableCfgPath,
+    },
+  ];
+
   const pack: RecipePack = {
     schemaVersion: SCHEMA_VERSION,
     source,
+    sources,
     categories: upstream.categories.map((c) => ({
       id: c.id,
       name: c.name,
@@ -253,7 +293,7 @@ async function main(opts: { write?: boolean } = {}): Promise<ExtractResult> {
     recipes,
   };
 
-  const i18n = await buildI18nSidecar(pack, source, collapsed);
+  const i18n = await buildI18nSidecar(pack, source, sources, collapsed);
 
   if (write) {
     await Bun.write(OUTPUT_PATH, JSON.stringify(pack, null, 2) + "\n");
@@ -275,6 +315,19 @@ async function main(opts: { write?: boolean } = {}): Promise<ExtractResult> {
   }
 
   return { pack, i18n };
+}
+
+// Upstream leaves the footprint null on the five extraction machines, while the
+// game's own building table carries one for every building it ships. Machines
+// with no building row at all (the synthetic transfer, the gates, the
+// settlements) stay footprint-less.
+function akeMachineSize(
+  packId: string,
+  ake: AkeSnapshot,
+): [number, number] | undefined {
+  const row = ake.buildings[akeMachineId(packId)];
+  if (!row) return undefined;
+  return [row.range.width, row.range.depth];
 }
 
 // Read data/aef/event-cohorts.json and invert its cohorts map (cohort ->
@@ -349,19 +402,7 @@ export function tagEventCohorts(
   }
 }
 
-// Transport phase for one upstream item. Upstream carries no phase field, so the
-// signals are the stack size and the id prefix: a stack size means the item rides
-// a belt, and among the unstackable items the gas_ prefix separates gases from
-// liquids. An unstackable item with an unrecognised prefix stays on pipe rather
-// than throwing, so an upstream rename degrades to one item drawn with the wrong
-// stroke instead of a failed extract.
-function classifyTransportKind(u: UpstreamItem): TransportKindId {
-  if (typeof u.stack === "number") return TRANSPORT_KIND.BELT;
-  if (u.id.startsWith("gas_")) return TRANSPORT_KIND.GAS;
-  return TRANSPORT_KIND.PIPE;
-}
-
-function toItem(u: UpstreamItem): Item {
+function toItem(u: UpstreamItem, transportKind: TransportKindId): Item {
   const item: Item = {
     id: u.id,
     name: u.name,
@@ -371,7 +412,7 @@ function toItem(u: UpstreamItem): Item {
     // raw is computed after the collapse pass; default false here and let the
     // classifier overwrite it before emit.
     raw: false,
-    transportKind: classifyTransportKind(u),
+    transportKind,
   };
   if (typeof u.stack === "number") item.stack = u.stack;
   if (u.buildIcon && u.buildIcon.length > 0) item.buildIcon = [...u.buildIcon];
@@ -400,8 +441,6 @@ function toRecipe(u: UpstreamRecipe): Recipe {
   if (u.cost != null) recipe.cost = u.cost;
   // The hand-pinned skip sentinel wins over whatever upstream carries.
   if (SKIP_SINK_RECIPES.includes(u.id)) recipe.cost = -1;
-  const environment = ENVIRONMENT_BY_RECIPE[u.id];
-  if (environment) recipe.environment = environment;
   return recipe;
 }
 
@@ -706,6 +745,7 @@ function assertNoDuplicates(kind: string, rows: { id: string }[]): void {
 async function buildI18nSidecar(
   pack: RecipePack,
   source: SourceProvenance,
+  sources: VendorProvenance[],
   dropped: {
     droppedMachines: Set<string>;
     droppedItems: Set<string>;
@@ -769,6 +809,7 @@ async function buildI18nSidecar(
   return {
     schemaVersion: SCHEMA_VERSION,
     source,
+    sources,
     locales: [...LOCALES],
     names,
   };

@@ -468,12 +468,15 @@ export function resolveEndpoints(
 // meant to differ:
 //   - For a plain edge the app lights less than this (the hovered edge and its
 //     two endpoints only), so the app dims a superset of what is expected.
-//   - For a bus member the app lights the whole trunk group, which reaches
-//     endpoints outside the ego-network, so the expected set can name elements
-//     the app leaves lit and the observed set can name siblings the expectation
-//     kept lit. Measured on battery5-xiranite: hovering a gas tap trunk owner
-//     lights three sibling tap nodes this set expects dimmed, and dims one
-//     downstream tap edge it expects lit.
+//   - For a bus member it depends on WHERE the sample point landed. On the
+//     stretch a trunk shares, the app lights the whole trunk group, which
+//     reaches endpoints outside the ego-network, so the expected set can name
+//     elements the app leaves lit and the observed set can name siblings the
+//     expectation kept lit. Measured on battery5-xiranite: hovering a gas tap
+//     trunk's shared segment lights three sibling tap nodes this set expects
+//     dimmed, and dims one downstream tap edge it expects lit. A point on the
+//     member's own branch leg lights that edge and its endpoints alone, the
+//     plain-edge case above.
 // Predicting the app's rule exactly would mean re-implementing the code under
 // test inside its own refuter, and the two would then agree by construction.
 // The question this set makes decidable is the one a "hover produces no

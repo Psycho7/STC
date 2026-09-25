@@ -1,6 +1,7 @@
 import { type Page } from "@playwright/test";
 
 import {
+  AREA_STORAGE_KEY,
   EVENT_COHORT_OVERRIDES_STORAGE_KEY,
   LOCALE_STORAGE_KEY,
 } from "../../src/data/storage-keys";
@@ -113,6 +114,10 @@ export type BootExamPageOptions = {
   // on/off. Omitting it writes NO key, which leaves every cohort on the
   // version-rule default - same contract as `locale`.
   eventOverrides?: Record<string, boolean> | undefined;
+  // The settlement (#124) to seed before boot, a pack location id. Omitting it
+  // writes NO key, which is the latest-settlement default - same contract as
+  // `locale`.
+  area?: string | undefined;
 };
 
 // `?exam=1` only installs window.__stcExam and changes nothing the app draws,
@@ -127,8 +132,9 @@ function withExamFlag(url: string): string {
   return `${head}${head.includes("?") ? "&" : "?"}exam=1${fragment}`;
 }
 
-// Seed the view locale and the event-cohort overrides, open the page, and
-// hold until it is as settled as the caller asked for. The page belongs to the
+// Seed the view locale, the event-cohort overrides and the area, open the
+// page, and hold until it is as settled as the caller asked for. The page
+// belongs to the
 // caller: nothing here creates or closes a page or a context, so a per-spec
 // viewport keeps working untouched.
 //
@@ -153,6 +159,8 @@ export async function bootExamPage(
       locale?: string | undefined;
       eventOverridesKey: string;
       eventOverridesJson?: string | undefined;
+      areaKey: string;
+      area?: string | undefined;
     }) => {
       if (seed.locale !== undefined) {
         window.localStorage.setItem(seed.localeKey, seed.locale);
@@ -163,10 +171,15 @@ export async function bootExamPage(
           seed.eventOverridesJson,
         );
       }
+      if (seed.area !== undefined) {
+        window.localStorage.setItem(seed.areaKey, seed.area);
+      }
     },
     {
       localeKey: LOCALE_STORAGE_KEY,
       locale: opts.locale,
+      areaKey: AREA_STORAGE_KEY,
+      area: opts.area,
       eventOverridesKey: EVENT_COHORT_OVERRIDES_STORAGE_KEY,
       // JSON-stringified here so the page-side callback stays a plain writer:
       // the value under the key is exactly what readStoredEventOverrides
@@ -215,11 +228,12 @@ export async function loadCensusScenario(
   page: Page,
   hash: string,
   zoom: number,
-  seed: { locale?: BootLocale | undefined } = {},
+  seed: { locale?: BootLocale | undefined; area?: string | undefined } = {},
 ): Promise<void> {
   await bootExamPage(page, {
     url: `/#${hash}`,
     locale: seed.locale,
+    area: seed.area,
     readiness: "nodes",
     settle: "both",
   });

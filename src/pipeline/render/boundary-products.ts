@@ -120,7 +120,8 @@ export type DeriveBoundaryProductsResult = {
 
 /**
  * Derives boundary input/output product units and the edges connecting them to
- * in-graph machine units. The rules once lived inline in `NoFoldRender`: target
+ * in-graph machine units. The rules once lived inline in the render policy:
+ * target
  * items become output products (at their target rate); items consumed in the
  * plan with nonzero `effectiveSupply` become input products (with a rate cap
  * when overridden); surplus byproducts become amber output products; a
@@ -128,6 +129,9 @@ export type DeriveBoundaryProductsResult = {
  * slice of its declared rate that in-plan production spare does not cover.
  * Per-consumer flow conservation holds when a boundary input coexists with an
  * in-graph producer for the same item.
+ *
+ * Every quantity is accounted per render UNIT, not per machine vertex: the
+ * rollup below is the one place the vertex-to-unit mapping is read.
  *
  * Pure: never mutates its arguments. `unitIdByVertex` MUST map every machine
  * vertex in `machineGraph` to a render unit id, since boundary edges target
@@ -194,17 +198,87 @@ export function deriveBoundaryProducts(
     target.set(ov.itemId, ov);
   }
 
-  const producedItems = new Set<ItemId>();
+  // ----- Per-unit rollup ------------------------------------------------------
+  //
+  // Every pass below accounts at the render-unit level, because a unit is what
+  // the plan draws: its flow chips, its boundary edges and its surplus all state
+  // whole-unit quantities. Roll production, consumption and catalyst charge up
+  // to the unit once here, so no pass has to difference per machine vertex and
+  // re-aggregate afterwards (differencing first dropped a vertex's deficit
+  // against its sibling's spare and surfaced phantom surplus).
+  //
+  // `unitIdByVertex` maps every vertex by contract; a vertex it does not name has
+  // nothing to attach a boundary edge to and is skipped.
+  type UnitFacts = {
+    // What the unit draws as: a recipe class or an SCC stand-in. Only a recipe
+    // unit can feed a target output edge, so the two are told apart here rather
+    // than by re-reading the vertices further down. No unit mixes the two: a
+    // class collects the vertices of one replica, a loop those of one sccId.
+    kind: "recipe" | "loop";
+    containerId: ContainerId | undefined;
+    produced: Map<ItemId, Fraction>;
+    consumed: Map<ItemId, Fraction>;
+    /** Cycled catalyst charge, held per machine rather than consumed per cycle. */
+    catalyst: Map<ItemId, Fraction>;
+  };
+  const unitFacts = new Map<RenderUnitId, UnitFacts>();
+  const addRate = (
+    into: Map<ItemId, Fraction>,
+    item: ItemId,
+    rate: Fraction,
+  ): void => {
+    into.set(item, (into.get(item) ?? new Fraction(0)).add(rate));
+  };
   for (const v of machineGraph.vertices) {
+    const unitId = unitIdByVertex.get(v.id);
+    if (unitId === undefined) continue;
+    let facts = unitFacts.get(unitId);
+    if (!facts) {
+      facts = {
+        kind: isMachineRecipeVertex(v) ? "recipe" : "loop",
+        containerId: v.containerId,
+        produced: new Map(),
+        consumed: new Map(),
+        catalyst: new Map(),
+      };
+      unitFacts.set(unitId, facts);
+    }
     if (isMachineRecipeVertex(v)) {
       const recipe = recipeById.get(v.recipeId);
       if (!recipe) continue;
-      for (const stoich of recipe.out) producedItems.add(stoich.item);
+      for (const stoich of recipe.out) {
+        addRate(
+          facts.produced,
+          stoich.item,
+          v.executionRate.mul(new Fraction(stoich.qty)),
+        );
+      }
+      for (const stoich of recipe.in) {
+        addRate(
+          facts.consumed,
+          stoich.item,
+          v.executionRate.mul(new Fraction(stoich.qty)),
+        );
+      }
+      // A catalyst on a recipe folded into an SCC vertex is out of scope: an
+      // scc-box vertex exposes netIO only, so that charge draws no edge.
+      for (const charge of v.catalystCharge ?? []) {
+        addRate(facts.catalyst, charge.item, charge.rate);
+      }
     } else if (isMachineSccVertex(v)) {
       for (const p of v.netIO) {
-        if (p.direction === "out") producedItems.add(p.item);
+        addRate(
+          p.direction === "out" ? facts.produced : facts.consumed,
+          p.item,
+          p.rate,
+        );
       }
     }
+  }
+
+  const producedItems = new Set<ItemId>();
+  for (const facts of unitFacts.values()) {
+    for (const item of facts.produced.keys()) producedItems.add(item);
   }
 
   // ----- Byproduct recapture for unlimited-supply items ----------------------
@@ -221,7 +295,6 @@ export function deriveBoundaryProducts(
   for (const e of machineGraph.edges) machineEdgeItems.add(e.item);
 
   type RecapEnd = {
-    vertexId: MachineVertexId;
     unitId: RenderUnitId;
     rate: Fraction;
   };
@@ -235,41 +308,23 @@ export function deriveBoundaryProducts(
     if (end.rate.compare(new Fraction(0)) <= 0) return;
     pushInto(map, item, end);
   };
-  for (const v of machineGraph.vertices) {
-    const unitId = unitIdByVertex.get(v.id);
-    if (unitId === undefined) continue;
-    if (isMachineRecipeVertex(v)) {
-      const recipe = recipeById.get(v.recipeId);
-      if (!recipe) continue;
-      for (const o of recipe.out)
-        pushRecap(recapProducers, o.item, {
-          vertexId: v.id,
-          unitId,
-          rate: v.executionRate.mul(new Fraction(o.qty)),
-        });
-      for (const inp of recipe.in)
-        pushRecap(recapConsumers, inp.item, {
-          vertexId: v.id,
-          unitId,
-          rate: v.executionRate.mul(new Fraction(inp.qty)),
-        });
-    } else if (isMachineSccVertex(v)) {
-      for (const p of v.netIO) {
-        const end = { vertexId: v.id, unitId, rate: p.rate };
-        if (p.direction === "out") pushRecap(recapProducers, p.item, end);
-        else pushRecap(recapConsumers, p.item, end);
-      }
+  for (const [unitId, facts] of unitFacts) {
+    for (const [item, rate] of facts.produced) {
+      pushRecap(recapProducers, item, { unitId, rate });
+    }
+    for (const [item, rate] of facts.consumed) {
+      pushRecap(recapConsumers, item, { unitId, rate });
     }
   }
 
-  // recaptureItems: items this pass reconciles. recapturedByConsumerVertexItem:
-  // demand each consumer vertex gets internally (collectConsumed draws only the
-  // deficit from the boundary). recaptureSendByVertexItem: production each
-  // producer vertex routes out (the surplus pass nets it instead of flagging a
+  // recaptureItems: items this pass reconciles. recapturedByConsumerUnitItem:
+  // demand each consumer unit gets internally (collectConsumed draws only the
+  // deficit from the boundary). recaptureSendByUnitItem: production each
+  // producer unit routes out (the surplus pass nets it instead of flagging a
   // phantom surplus).
   const recaptureItems = new Set<ItemId>();
-  const recapturedByConsumerVertexItem = new Map<string, Fraction>();
-  const recaptureSendByVertexItem = new Map<string, Fraction>();
+  const recapturedByConsumerUnitItem = new Map<string, Fraction>();
+  const recaptureSendByUnitItem = new Map<string, Fraction>();
   const recaptureEdges: RenderEdge[] = [];
   for (const [itemId, producers] of recapProducers) {
     if (machineEdgeItems.has(itemId)) continue;
@@ -303,21 +358,19 @@ export function deriveBoundaryProducts(
       availProd.compare(totalDemand) <= 0 ? availProd : totalDemand;
     recaptureItems.add(itemId);
     for (const c of consumers) {
-      const key = `${c.vertexId}\0${itemId}`;
+      const key = `${c.unitId}\0${itemId}`;
       const recapC = c.rate.mul(recaptured).div(totalDemand);
-      recapturedByConsumerVertexItem.set(
+      recapturedByConsumerUnitItem.set(
         key,
-        (recapturedByConsumerVertexItem.get(key) ?? new Fraction(0)).add(
-          recapC,
-        ),
+        (recapturedByConsumerUnitItem.get(key) ?? new Fraction(0)).add(recapC),
       );
     }
     for (const p of producers) {
-      const key = `${p.vertexId}\0${itemId}`;
+      const key = `${p.unitId}\0${itemId}`;
       const sendP = p.rate.mul(recaptured).div(totalProd);
-      recaptureSendByVertexItem.set(
+      recaptureSendByUnitItem.set(
         key,
-        (recaptureSendByVertexItem.get(key) ?? new Fraction(0)).add(sendP),
+        (recaptureSendByUnitItem.get(key) ?? new Fraction(0)).add(sendP),
       );
       // Bipartite split: edge(p,c) routes p's share of the recapture to c's
       // share. Summing over c gives sendP; over p gives each consumer's
@@ -359,9 +412,8 @@ export function deriveBoundaryProducts(
   };
   const boundaryConsumers: BoundaryConsumer[] = [];
   const collectConsumed = (
-    vertexId: MachineVertexId,
-    itemId: ItemId,
     toUnit: RenderUnitId,
+    itemId: ItemId,
     rate: Fraction,
     containerId: ContainerId | undefined,
   ): void => {
@@ -379,7 +431,7 @@ export function deriveBoundaryProducts(
     if (supply === Infinity && producedItems.has(itemId)) {
       if (!recaptureItems.has(itemId)) return;
       const recap =
-        recapturedByConsumerVertexItem.get(`${vertexId}\0${itemId}`) ??
+        recapturedByConsumerUnitItem.get(`${toUnit}\0${itemId}`) ??
         new Fraction(0);
       const deficit = rate.sub(recap);
       if (deficit.compare(new Fraction(0)) <= 0) return;
@@ -404,45 +456,31 @@ export function deriveBoundaryProducts(
     }
     boundaryConsumers.push({ toUnit, item: itemId, rate, containerId });
   };
-  for (const v of machineGraph.vertices) {
-    if (isMachineRecipeVertex(v)) {
-      const recipe = recipeById.get(v.recipeId);
-      if (!recipe) continue;
-      const toUnit = unitIdByVertex.get(v.id);
-      if (toUnit === undefined) continue;
-      for (const stoich of recipe.in) {
-        const rate = v.executionRate.mul(new Fraction(stoich.qty));
-        collectConsumed(v.id, stoich.item, toUnit, rate, v.containerId);
-      }
-      // Catalysts are boundary supply unconditionally: the machine holds the
-      // charge and hands it back, so no producer is ever expanded for it and
-      // none of collectConsumed's rules (zero supply, an in-plan producer, a
-      // finite cap with no realized draw) can suppress the draw. The rate is
-      // the stamp's own `catalystCharge`, which is per machine rather than per
-      // cycle; a stamp with no charge (a catalyst-free recipe, or the legacy
-      // materialisation path, which has no machine speed) draws nothing. A
-      // catalyst on a recipe folded into an SCC vertex is out of scope: an
-      // scc-box vertex exposes netIO only, so that charge still draws no edge.
-      for (const charge of v.catalystCharge ?? []) {
-        if (!itemById.has(charge.item)) continue;
-        if (charge.rate.compare(new Fraction(0)) <= 0) continue;
-        boundaryConsumers.push({
-          toUnit,
-          item: charge.item,
-          rate: charge.rate,
-          containerId: v.containerId,
-          catalyst: true,
-        });
-      }
-    } else if (isMachineSccVertex(v)) {
-      // SCC vertices expose boundary I/O via netIO; a boundary item consumed
-      // only by an in-loop recipe must still surface as an input product.
-      const toUnit = unitIdByVertex.get(v.id);
-      if (toUnit === undefined) continue;
-      for (const p of v.netIO) {
-        if (p.direction === "in")
-          collectConsumed(v.id, p.item, toUnit, p.rate, v.containerId);
-      }
+  // An SCC unit's consumption comes from its netIO, a recipe unit's from its
+  // inputs; the rollup above already holds both, so one loop covers them. A
+  // boundary item consumed only by an in-loop recipe still surfaces as an input
+  // product this way.
+  for (const [unitId, facts] of unitFacts) {
+    for (const [item, rate] of facts.consumed) {
+      collectConsumed(unitId, item, rate, facts.containerId);
+    }
+    // Catalysts are boundary supply unconditionally: the machine holds the
+    // charge and hands it back, so no producer is ever expanded for it and none
+    // of collectConsumed's rules (zero supply, an in-plan producer, a finite cap
+    // with no realized draw) can suppress the draw. The rate is the unit's
+    // `catalystCharge`, which is per machine rather than per cycle; a unit with
+    // no charge (a catalyst-free recipe, or a materialisation with no machine
+    // speed to compute one from) draws nothing.
+    for (const [item, rate] of facts.catalyst) {
+      if (!itemById.has(item)) continue;
+      if (rate.compare(new Fraction(0)) <= 0) continue;
+      boundaryConsumers.push({
+        toUnit: unitId,
+        item,
+        rate,
+        containerId: facts.containerId,
+        catalyst: true,
+      });
     }
   }
 
@@ -638,7 +676,7 @@ export function deriveBoundaryProducts(
   }
 
   // Boundary edges connect each emitted input product to its recipe/SCC
-  // consumers, and each target recipe's stamps to the output product. Without
+  // consumers, and each target recipe unit to the output product. Without
   // them ELK has no signal that product nodes sit upstream or downstream of
   // recipes, so layerConstraint=FIRST/LAST collapses them into the recipes'
   // layers (boundary nodes overlap the leftmost/rightmost recipe column).
@@ -725,106 +763,78 @@ export function deriveBoundaryProducts(
     }
   }
 
-  // Output boundary edges: each target-recipe replica's per-item spare =
-  // produced - outgoing machine edges for that item. Replicas with positive
-  // spare get a target edge; the declared rate splits across them in proportion
-  // to spare. For a leaf target recipe this collapses to T/N per stamp: every
-  // replica has full spare, and equal spare yields equal per-edge rates. For a
-  // target inside a recycling loop (or feeding internal consumers), the rule
-  // routes the declared net rate to whatever spare exists; a purely-internal
-  // replica (spare <= 0) emits no target edge and the surplus pass sees no
-  // leftover production from it.
+  // Output boundary edges: each target-recipe unit's per-item spare = produced -
+  // outgoing machine edges for that item. Units with positive spare get a target
+  // edge; the declared rate splits across them in proportion to spare. For a
+  // single leaf target recipe this collapses to the whole declared rate on one
+  // edge. For a target inside a recycling loop (or feeding internal consumers),
+  // the rule routes the declared net rate to whatever spare exists; a
+  // purely-internal unit (spare <= 0) emits no target edge and the surplus pass
+  // sees no leftover production from it.
   //
-  // outgoingRateByVertexItem is built once here and reused by the surplus pass.
-  // Both passes need the post-target-emission view of outgoing flow so the same
+  // outgoingByUnitItem is built once here and reused by the surplus pass. Both
+  // passes need the post-target-emission view of outgoing flow so the same
   // production is not counted as both delivered (to the target port) and
   // surplus.
-  const outgoingRateByVertexItem = new Map<string, Fraction>();
+  const outgoingByUnitItem = new Map<string, Fraction>();
+  const unitItemKey = (unitId: RenderUnitId, item: ItemId): string =>
+    `${unitId}\0${item}`;
   const addOutgoing = (
-    vertexId: MachineVertexId,
+    unitId: RenderUnitId,
     item: ItemId,
     rate: Fraction,
   ): void => {
-    const key = `${vertexId}\0${item}`;
-    outgoingRateByVertexItem.set(
+    const key = unitItemKey(unitId, item);
+    outgoingByUnitItem.set(
       key,
-      (outgoingRateByVertexItem.get(key) ?? new Fraction(0)).add(rate),
+      (outgoingByUnitItem.get(key) ?? new Fraction(0)).add(rate),
     );
   };
-  for (const e of machineGraph.edges) addOutgoing(e.from, e.item, e.rate);
+  for (const e of machineGraph.edges) {
+    const fromUnit = unitIdByVertex.get(e.from);
+    if (fromUnit === undefined) continue;
+    addOutgoing(fromUnit, e.item, e.rate);
+  }
   // Recapture edges route byproduct production to in-plan consumers; count them
   // as outgoing so the surplus pass nets the recaptured amount.
-  for (const [key, rate] of recaptureSendByVertexItem) {
+  for (const [key, rate] of recaptureSendByUnitItem) {
     const sep = key.indexOf("\0");
-    addOutgoing(key.slice(0, sep) as MachineVertexId, key.slice(sep + 1), rate);
+    addOutgoing(key.slice(0, sep) as RenderUnitId, key.slice(sep + 1), rate);
   }
 
   type TargetUnitSpare = {
     unitId: RenderUnitId;
-    vertexId: MachineVertexId;
     spare: Fraction;
   };
-  // Aggregate target-output produced and outgoing flow per (render unit, item)
-  // BEFORE differencing, then take the spare once at the unit level. A folded
-  // unit's machine vertices each carry only a per-machine slice of the unit's
-  // outgoing edges, and the per-stamp consumer wiring lands offsetting +/-
-  // residuals across those stamps. Differencing per machine vertex (then keeping
-  // only positive residuals) discards a stamp's deficit and inflates the unit's
-  // apparent spare, so the proportional split below over-feeds it past its
-  // production. Aggregating to the unit -- the level a recipe is drawn at -- nets
-  // the slices so only genuine whole-unit spare reaches the target output. This
+  // Produced and outgoing are both whole-unit quantities, and the spare is taken
+  // once at that level. Differencing per machine vertex instead discarded one
+  // vertex's deficit against its sibling's spare and inflated the unit's apparent
+  // spare, so the proportional split below over-fed it past its production. This
   // mirrors the surplus pass directly below; the two passes must agree.
   //
-  // Collect from EVERY machine vertex producing target item X, not just the
-  // target-recipe stamps. When an SCC target recipe co-produces the looped item
-  // with a leaf recipe (e.g. iron_nugget from both iron_nugget-iron_ore and
+  // Collect from EVERY recipe unit producing target item X, not just the one the
+  // target seeded. When an SCC target recipe co-produces the looped item with a
+  // leaf recipe (e.g. iron_nugget from both iron_nugget-iron_ore and
   // iron_nugget-iron_powder), the leaf's spare must also reach the target output
   // unit, or the target edge is under-fed and the leaf's spare becomes a phantom
-  // surplus. Iterating all output stoich entries (X may be a co-product, not the
-  // primary output) captures both producers; the proportional split then routes
-  // the declared rate across pooled spare.
-  const targetUnitItemKey = (unitId: RenderUnitId, item: ItemId): string =>
-    `${unitId}\0${item}`;
-  const targetProducedByUnitItem = new Map<string, Fraction>();
-  const targetOutgoingByUnitItem = new Map<string, Fraction>();
-  const targetVertexByUnitItem = new Map<string, MachineVertexId>();
-  for (const v of machineGraph.vertices) {
-    if (!isMachineRecipeVertex(v)) continue;
-    const recipe = recipeById.get(v.recipeId);
-    if (!recipe) continue;
-    const unitId = unitIdByVertex.get(v.id);
-    if (unitId === undefined) continue;
-    for (const outStoich of recipe.out) {
-      const outItem = outStoich.item;
-      if (!targetItemSet.has(outItem)) continue;
-      const produced = v.executionRate.mul(new Fraction(outStoich.qty));
-      const outgoing =
-        outgoingRateByVertexItem.get(`${v.id}\0${outItem}`) ?? new Fraction(0);
-      const k = targetUnitItemKey(unitId, outItem);
-      targetProducedByUnitItem.set(
-        k,
-        (targetProducedByUnitItem.get(k) ?? new Fraction(0)).add(produced),
-      );
-      targetOutgoingByUnitItem.set(
-        k,
-        (targetOutgoingByUnitItem.get(k) ?? new Fraction(0)).add(outgoing),
-      );
-      // Any vertex of the unit serves as the addOutgoing key: the surplus pass
-      // rolls outgoingRateByVertexItem up to the unit, so only the per-unit total
-      // matters there.
-      if (!targetVertexByUnitItem.has(k)) targetVertexByUnitItem.set(k, v.id);
-    }
-  }
+  // surplus. The rollup holds every output item, not just a recipe's primary
+  // one, so a co-produced target is captured too; the proportional split then
+  // routes the declared rate across pooled spare.
+  //
+  // Loop units are excluded: an SCC stand-in states net I/O, and its net output
+  // is already what its members failed to consume internally, so it feeds the
+  // surplus pass rather than a target edge.
   const unitsByTargetOutItem = new Map<ItemId, TargetUnitSpare[]>();
-  for (const [k, produced] of targetProducedByUnitItem) {
-    const sep = k.indexOf("\0");
-    const unitId = k.slice(0, sep) as RenderUnitId;
-    const outItem = k.slice(sep + 1);
-    const vertexId = targetVertexByUnitItem.get(k)!;
-    const outgoing = targetOutgoingByUnitItem.get(k) ?? new Fraction(0);
-    const spare = produced.sub(outgoing);
-    if (spare.compare(0) <= 0) continue;
-    pushInto(unitsByTargetOutItem, outItem, { unitId, vertexId, spare });
+  for (const [unitId, facts] of unitFacts) {
+    if (facts.kind !== "recipe") continue;
+    for (const [outItem, produced] of facts.produced) {
+      if (!targetItemSet.has(outItem)) continue;
+      const outgoing =
+        outgoingByUnitItem.get(unitItemKey(unitId, outItem)) ?? new Fraction(0);
+      const spare = produced.sub(outgoing);
+      if (spare.compare(0) <= 0) continue;
+      pushInto(unitsByTargetOutItem, outItem, { unitId, spare });
+    }
   }
   const targetBilledByItem = new Map<ItemId, Fraction>();
   for (const [outItem, units] of unitsByTargetOutItem) {
@@ -851,7 +861,7 @@ export function deriveBoundaryProducts(
         rate,
         transportKind: item.transportKind,
       });
-      addOutgoing(u.vertexId, outItem, rate);
+      addOutgoing(u.unitId, outItem, rate);
     }
   }
 
@@ -899,60 +909,13 @@ export function deriveBoundaryProducts(
     ItemId,
     Array<{ unitId: RenderUnitId; rate: Fraction }>
   >();
-  // Aggregate production and outgoing flow per (renderUnit, item) BEFORE
-  // differencing. A folded unit's machine vertices each carry only a per-machine
-  // slice of the unit's outgoing edges, and a split SCC member's torn-arc edges
-  // land unevenly across those machines. Differencing per machine vertex (then
-  // keeping only positive residuals) turns that uneven split into a phantom
-  // surplus and drops the matching per-machine deficits. Aggregating to the unit
-  // -- the level a recipe is drawn at -- nets the slices so only genuine
-  // whole-unit overproduction surfaces.
-  const producedByUnitItem = new Map<string, Fraction>();
-  const unitItemKey = (unitId: RenderUnitId, item: ItemId): string =>
-    `${unitId}\0${item}`;
-  const addProduced = (
-    unitId: RenderUnitId,
-    item: ItemId,
-    qty: Fraction,
-  ): void => {
-    const k = unitItemKey(unitId, item);
-    producedByUnitItem.set(
-      k,
-      (producedByUnitItem.get(k) ?? new Fraction(0)).add(qty),
-    );
-  };
-  for (const v of machineGraph.vertices) {
-    const unitId = unitIdByVertex.get(v.id);
-    if (unitId === undefined) continue;
-    if (isMachineRecipeVertex(v)) {
-      const recipe = recipeById.get(v.recipeId);
-      if (!recipe) continue;
-      for (const stoich of recipe.out)
-        addProduced(
-          unitId,
-          stoich.item,
-          v.executionRate.mul(new Fraction(stoich.qty)),
-        );
-    } else if (isMachineSccVertex(v)) {
-      for (const p of v.netIO)
-        if (p.direction === "out") addProduced(unitId, p.item, p.rate);
-    }
-  }
-  // Roll per-vertex outgoing totals (machine + target + recapture edges) up to
-  // their render unit, same key space.
-  const outgoingByUnitItem = new Map<string, Fraction>();
-  for (const [key, rate] of outgoingRateByVertexItem) {
-    const sep = key.indexOf("\0");
-    const vId = key.slice(0, sep) as MachineVertexId;
-    const item = key.slice(sep + 1);
-    const unitId = unitIdByVertex.get(vId);
-    if (unitId === undefined) continue;
-    const k = unitItemKey(unitId, item);
-    outgoingByUnitItem.set(
-      k,
-      (outgoingByUnitItem.get(k) ?? new Fraction(0)).add(rate),
-    );
-  }
+  // Production and outgoing flow are both whole-unit quantities already -- the
+  // rollup at the top of this function and outgoingByUnitItem above -- and the
+  // difference is taken at that level on purpose. Differencing per machine vertex
+  // and keeping only positive residuals turned an uneven split of a unit's
+  // outgoing edges (a split SCC member's torn arcs, a per-machine consumer
+  // wiring) into a phantom surplus and clamped away the matching deficits.
+  //
   // Emit surplus = the genuine overproduction per item, exactly what
   // checkBoundaryProductsJustified validates: production - consumption - demand
   // over the whole plan. Vertex execution rates sum to the LP rates per the
@@ -969,40 +932,21 @@ export function deriveBoundaryProducts(
     ItemId,
     Array<{ unitId: RenderUnitId; rate: Fraction }>
   >();
-  for (const [key, produced] of producedByUnitItem) {
-    const sep = key.indexOf("\0");
-    const unitId = key.slice(0, sep) as RenderUnitId;
-    const item = key.slice(sep + 1);
-    producedByItem.set(
-      item,
-      (producedByItem.get(item) ?? new Fraction(0)).add(produced),
-    );
-    const residual = produced.sub(
-      outgoingByUnitItem.get(key) ?? new Fraction(0),
-    );
-    if (residual.compare(0) > 0) {
-      pushInto(positivesByItem, item, { unitId, rate: residual });
+  for (const [unitId, facts] of unitFacts) {
+    for (const [item, produced] of facts.produced) {
+      addRate(producedByItem, item, produced);
+      const residual = produced.sub(
+        outgoingByUnitItem.get(unitItemKey(unitId, item)) ?? new Fraction(0),
+      );
+      if (residual.compare(0) > 0) {
+        pushInto(positivesByItem, item, { unitId, rate: residual });
+      }
     }
   }
   const consumedByItem = new Map<ItemId, Fraction>();
-  for (const v of machineGraph.vertices) {
-    if (isMachineRecipeVertex(v)) {
-      const recipe = recipeById.get(v.recipeId);
-      if (!recipe) continue;
-      for (const inp of recipe.in)
-        consumedByItem.set(
-          inp.item,
-          (consumedByItem.get(inp.item) ?? new Fraction(0)).add(
-            v.executionRate.mul(new Fraction(inp.qty)),
-          ),
-        );
-    } else if (isMachineSccVertex(v)) {
-      for (const p of v.netIO)
-        if (p.direction === "in")
-          consumedByItem.set(
-            p.item,
-            (consumedByItem.get(p.item) ?? new Fraction(0)).add(p.rate),
-          );
+  for (const facts of unitFacts.values()) {
+    for (const [item, rate] of facts.consumed) {
+      addRate(consumedByItem, item, rate);
     }
   }
   // REL_TOL is checkBoundaryProductsJustified's tolerance: a surplus within
@@ -1039,12 +983,11 @@ export function deriveBoundaryProducts(
         if (rate.compare(0) > 0) arr.push({ unitId: p.unitId, rate });
       }
     } else {
-      for (const [key, prod] of producedByUnitItem) {
-        const sep = key.indexOf("\0");
-        if (key.slice(sep + 1) !== item) continue;
+      for (const [unitId, facts] of unitFacts) {
+        const prod = facts.produced.get(item);
+        if (prod === undefined) continue;
         const rate = genuine.mul(prod).div(produced);
-        if (rate.compare(0) > 0)
-          arr.push({ unitId: key.slice(0, sep) as RenderUnitId, rate });
+        if (rate.compare(0) > 0) arr.push({ unitId, rate });
       }
     }
     surplusContributors.set(item, arr);

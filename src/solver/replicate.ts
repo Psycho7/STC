@@ -1338,10 +1338,11 @@ function walkFromTargets(state: ReplicateState): void {
   // only, not dispatch). Registering the seed in targetSeeded makes the guard
   // at the top of processProducer reuse it when a chain sibling's frame later
   // reaches it as a producer; without that reuse the feeder double-mints.
-  // Augmented nodes are singleton SCCs (asserted at the pipeline layer), so no
-  // SCC handling applies here; that also keeps them disjoint from
-  // byproductSharedSources, so unlike the target loop no dedup against the
-  // byproduct-shared cache is needed.
+  // The seed applies whatever the node's SCC looks like: an augmented node in a
+  // cycle is still reached through the targetSeeded guard, never through
+  // sccApportionment (the pipeline layer asserts that outcome). Seeds are also
+  // disjoint from byproductSharedSources, so unlike the target loop no dedup
+  // against the byproduct-shared cache is needed.
   for (const recipeId of state.augmented) {
     if (!state.g.nodes.has(recipeId)) continue;
     // Disjoint from the target-producer seeds by construction (augmentation

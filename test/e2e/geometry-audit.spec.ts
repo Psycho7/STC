@@ -129,7 +129,7 @@ test.describe("DOM geometry audit", () => {
   for (const scenario of AUDIT_SCENARIOS) {
     test(scenario.id, async ({ page }) => {
       const hash = await scenarioHash(scenario);
-      await loadScenario(page, hash);
+      await loadScenario(page, hash, scenario.area);
 
       const {
         chips,
@@ -346,7 +346,14 @@ test.describe("DOM geometry audit", () => {
 // edges, at fit zoom. An upper bound that ratchets down, not a target -- a plan
 // that routes more flows through one corridor legitimately crosses more.
 const CROSSING_BASELINE: Record<string, number> = {
-  default: 2,
+  // CANVAS DEFECT CASEBOOK 2026-09-19 (family B): 2 -> 4. The gap's two fan-out
+  // columns swap, so the Cuprium Ore split dot comes off the Clean Water leg.
+  // With two trunks in one gap both orders force a crossing -- the ore column
+  // crosses the water stub whenever it stands left, the water column crosses the
+  // ore leg whenever it stands right -- and the old order hid one of them inside
+  // the dot. The four here are all cued, all clear of a chip box and of every
+  // dot's keep-off. UP move, carrying the casebook's own ruling.
+  default: 4,
   // MERGE 2026-09-13 (placement rule on the develop merge): 12 -> 14. The
   // catalyst supply edge e:23 u:in:liquid_xiranite -> u:class:q:2 runs the
   // width of the graph and crosses two more corridors.
@@ -654,9 +661,11 @@ const DOT_COVER_BASELINE: Record<string, number> = {
 // member of that merge or split -- a join the plan does not have. First pins at
 // the harvested counts.
 const DOT_FOREIGN_STROKE_BASELINE: Record<string, number> = {
-  // The Cuprium Ore split dot at (334.5, 239.5) with the Clean Water leg e:12
-  // 1.5 off its centre.
-  default: 1,
+  // CANVAS DEFECT CASEBOOK 2026-09-19 (family B): 1 -> 0. The Cuprium Ore split
+  // dot at (334.5, 239.5) had the Clean Water leg e:12 1.5 off its centre; the
+  // fan-out slot order stands the water column right of the ore one, so the leg
+  // now starts past the dot.
+  default: 0,
   battery5: 0,
   "battery5-xiranite": 0,
   crystal: 0,
@@ -712,10 +721,15 @@ const ENDPOINT_PARITY_TOL: Record<string, number> = {
   "script43-xiranite": 0.5,
 };
 
-async function loadScenario(page: Page, hash: string): Promise<void> {
+async function loadScenario(
+  page: Page,
+  hash: string,
+  area: string | undefined,
+): Promise<void> {
   await bootExamPage(page, {
     url: `/#${hash}`,
     locale: "en",
+    area,
     readiness: "nodes",
     settle: "both",
   });
@@ -742,7 +756,7 @@ test.describe("segment placement audit", () => {
     test(scenario.id, async ({ page }) => {
       const unpinned: string[] = [];
       const hash = await scenarioHash(scenario);
-      await loadScenario(page, hash);
+      await loadScenario(page, hash, scenario.area);
 
       const geom = await page.evaluate(collectGeometry);
       const rawEdges = toRawEdges(geom.edges);
@@ -1221,39 +1235,31 @@ const CARD_INTRUSION_BASELINE: Record<string, number> = {
 // Three things make this count differ from that table: it counts CHIPS where
 // that one counts (segment, chip) pairs, and it reads at the census camera
 // rather than at fit zoom, where far more chips are drawn.
+//
+// FOREIGN VERTICAL SLIDE 2026-09-19: every cell re-harvested and re-pinned to
+// the measured count, which is 0 on all fifteen plans. The seating pass now
+// slides a 1-to-1 chip clear of the foreign verticals crossing its run, and
+// that retired the whole catalyst-supply family the cells below carried
+// (battery5 5, battery5-xiranite 9, multi6 7, the three script43 pairs 2 each,
+// crystal 1, equip4 1, script43 1). Before this harvest the table was an upper
+// bound 30 above the picture; a bound that loose passes a relocation in
+// silence, so the numbers are stated as measured.
 const FOREIGN_STROKE_BASELINE: Record<string, number> = {
-  // ROUTING FINDINGS 2026-09-14: 1 -> 0.
   default: 0,
-  // The liquid_xiranite catalyst supply run crosses the chips of the chain it
-  // feeds (MERGE 2026-09-13, 1 -> 5).
-  battery5: 5,
-  // CATALYST NODE 2026-09-14 (PR B): 4 -> 9. The two new xiranite catalyst
-  // cards draw their supply runs across the chips of the chain they feed.
-  // Measured 8 with the rail deconfliction switched off, so four of the five
-  // are the topology and one is a moved rail. UP move, listed for ruling.
-  "battery5-xiranite": 9,
-  crystal: 1,
-  equip4: 1,
-  // The three gas_xiranite catalyst supply runs (MERGE 2026-09-13, 8 -> 10).
-  // ROUTING FINDINGS 2026-09-14: 10 -> 7.
-  multi6: 7,
+  battery5: 0,
+  "battery5-xiranite": 0,
+  crystal: 0,
+  equip4: 0,
+  multi6: 0,
   tundra: 0,
-  // CATALYST NODE 2026-09-14 (PR B): 0 -> 1. One gas_xiranite supply run from
-  // the new card passes under a chip. UP move, listed for ruling.
-  script43: 1,
+  script43: 0,
   "coupon-web": 0,
-  // ROUTING FINDINGS 2026-09-14: 3 -> 0. e:14's "Cuprium Ore x 180/min" chip no
-  // longer takes e:25's liquid_water tap stroke.
   "gas-web": 0,
   "rot-bottled_food_3": 0,
   "rot-bottled_food_4": 0,
-  // CATALYST NODE 2026-09-14 (PR B): transmuters 0 -> 2, copper-script43
-  // 0 -> 2, script43-xiranite 0 -> 2. Same family on all three: the catalyst
-  // card's supply runs cross the chips of the flows they feed. UP moves,
-  // listed for ruling.
-  transmuters: 2,
-  "copper-script43": 2,
-  "script43-xiranite": 2,
+  transmuters: 0,
+  "copper-script43": 0,
+  "script43-xiranite": 0,
 };
 
 // Port cover: chips whose drawn box covers a handle, glyph or row strip of their
@@ -1301,7 +1307,8 @@ const CENSUS_TOTALS: {
   // CATALYST NODE 2026-09-14 (PR B): 18 -> 30, the sum after the catalyst
   // cards' supply runs joined five scenarios' chip census. Arithmetic on the
   // table above, not a separate ruling.
-  foreignStroke: 30,
+  // FOREIGN VERTICAL SLIDE 2026-09-19: 30 -> 0, the sum after that harvest.
+  foreignStroke: 0,
   portCover: 5,
 };
 
@@ -1332,7 +1339,10 @@ test.describe("chip seating census", () => {
     test(scenario.id, async ({ page }) => {
       const unpinned: string[] = [];
       const hash = await scenarioHash(scenario);
-      await loadCensusScenario(page, hash, CENSUS_ZOOM, { locale: "en" });
+      await loadCensusScenario(page, hash, CENSUS_ZOOM, {
+        locale: "en",
+        area: scenario.area,
+      });
 
       const geom = await page.evaluate(collectGeometry);
 
@@ -1570,13 +1580,17 @@ const READING_CHIP_OVERLAP_BASELINE: Record<string, number> = {
 // every vertical stroke of another flow, so no chip box can cover a cue:
 // battery5 1 -> 0, battery5-xiranite 1 -> 0, multi6 4 -> 0 (the fourth is the
 // cue family F stamped earlier in this stack), transmuters 2 -> 0,
-// copper-script43 1 -> 0. The surviving cell is `default`'s, and it is the one
-// cue no chip hides -- see below.
+// copper-script43 1 -> 0. The cell A leaves standing is `default`'s, and it is
+// the one cue no chip hides -- see below.
+//
+// CASEBOOK FAMILY B 2026-09-19: 1 -> 0. The slot order clears that last cell,
+// so this table is zero across the corpus.
 const HIDDEN_CUE_BASELINE: Record<string, number> = {
-  // The only dot site in the corpus: the Cuprium Ore split dot stands on the
+  // The only dot site in the corpus: the Cuprium Ore split dot stood on the
   // crossing it marks, which is the one shape the cue exists to deny. A chip
-  // slide cannot reach it; family B's slot order is what clears this cell.
-  default: 1,
+  // slide could not reach it; family B's slot order moves the crossing out from
+  // under the dot.
+  default: 0,
   battery5: 0,
   "battery5-xiranite": 0,
   crystal: 0,
@@ -1616,10 +1630,11 @@ const READING_TOTALS: {
   faninLeg: 0,
   dotCover: 0,
   chipOverlap: 0,
-  // CASEBOOK FAMILY A 2026-09-19: 10 -> 1, the sum of HIDDEN_CUE_BASELINE
-  // after the foreign-vertical slide -- the four multi6 cues F leaves standing
-  // included. Arithmetic on that table, not a separate ruling.
-  hiddenCue: 1,
+  // CASEBOOK FAMILIES A AND B 2026-09-19: 10 -> 1 -> 0, the sum of
+  // HIDDEN_CUE_BASELINE after the foreign-vertical slide (the four multi6 cues
+  // F leaves standing included) and then after default's dot site cleared.
+  // Arithmetic on that table, not a separate ruling.
+  hiddenCue: 0,
 };
 
 test.describe("reading-zoom census", () => {
@@ -1648,7 +1663,10 @@ test.describe("reading-zoom census", () => {
     test(scenario.id, async ({ page }) => {
       const unpinned: string[] = [];
       const hash = await scenarioHash(scenario);
-      await loadCensusScenario(page, hash, READING_ZOOM, { locale: "en" });
+      await loadCensusScenario(page, hash, READING_ZOOM, {
+        locale: "en",
+        area: scenario.area,
+      });
 
       const geom = await page.evaluate(collectGeometry);
 
@@ -1808,7 +1826,7 @@ test.describe("edge reload determinism", () => {
         edges: Record<string, string>;
         transform: string;
       }> => {
-        await loadScenario(page, hash);
+        await loadScenario(page, hash, scenario.area);
         const { edges } = await page.evaluate(collectGeometry);
         const transform = await page.evaluate(
           () =>

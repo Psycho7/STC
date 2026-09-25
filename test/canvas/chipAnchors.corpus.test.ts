@@ -100,7 +100,7 @@ function chipsOf(plan: string, edge: Edge, drawn: DrawnEdge): Chip[] {
   const half = (text: Parameters<typeof chipSeatHalfW>[0]): number =>
     chipSeatHalfW(text, false);
   if (drawn.shape === "item") {
-    return [
+    const chips: Chip[] = [
       {
         plan,
         edge: edge.id,
@@ -110,6 +110,20 @@ function chipsOf(plan: string, edge: Edge, drawn: DrawnEdge): Chip[] {
         halfW: half(rateChipText(edge)),
       },
     ];
+    // The far owner of a fan-out trunk with no near member draws that trunk's
+    // aggregate on the item shape, seated on its source stub. It is appended,
+    // so the member-seat suite below still reads this edge's own chip at [0].
+    if (drawn.trunkAnchor !== undefined) {
+      chips.push({
+        plan,
+        edge: edge.id,
+        kind: "fanout aggregate",
+        x: drawn.trunkAnchor.x,
+        y: drawn.trunkAnchor.y,
+        halfW: half(aggregateChipText(edge)),
+      });
+    }
+    return chips;
   }
   const out: Chip[] = [
     {
@@ -276,16 +290,30 @@ describe("every trunk chip's box stands in its gap's chip reserve", () => {
 // (auditChipForeignStrokes): a stroke grazing the boundary is not inside.
 const STROKE_EPS = 0.5;
 
+// The 1-to-1 chips that keep a foreign vertical in their box: the seating
+// slide asks its three obstacle tiers in turn, and when no seat on the line
+// clears the verticals it falls back to the furniture and then to the cards,
+// where the cards win the seat and the column stays in the box. Empty today,
+// so every corpus plan seats clear of the verticals. No growth allowed.
+const FOREIGN_VERTICAL_FALLBACK: Array<{
+  plan: string;
+  edge: string;
+  stroke: string;
+}> = [];
+
 describe("no seated 1-to-1 chip box holds a foreign vertical", () => {
   it("holds on every corpus plan", async () => {
     // A chip renders in the label layer, above every stroke, so a vertical of
     // ANOTHER flow crossing the run under the box disappears into it -- and
     // with it the crossing cue that would have told the reader the two lines
     // pass rather than join. The seating pass slides the box clear of every
-    // foreign vertical, so a foreign column may cross the run but never the
-    // box. Same-flow strokes are exempt: one flow is one visual line, and a
-    // trunk's own column under its member's chip reads as that line.
-    const through: Array<Chip & { stroke: string }> = [];
+    // foreign vertical, so a foreign column crosses the run and not the box on
+    // every plan below; a site that cannot be seated clear falls back to the
+    // card tier and is recorded in FOREIGN_VERTICAL_FALLBACK, which is why a
+    // red run here is either a regression or an unrecorded fallback site.
+    // Same-flow strokes are exempt: one flow is one visual line, and a trunk's
+    // own column under its member's chip reads as that line.
+    const through: Array<{ plan: string; edge: string; stroke: string }> = [];
     let checked = 0;
 
     for (const scenario of SCENARIOS) {
@@ -318,7 +346,11 @@ describe("no seated 1-to-1 chip box holds a foreign vertical", () => {
           for (const [a, b] of segmentsOf(other.drawn.pts)) {
             if (a[0] !== b[0] || a[1] === b[1]) continue;
             if (!segmentEntersRect(a, b, box, STROKE_EPS)) continue;
-            through.push({ ...chip, stroke: `${other.edge.id} @x${a[0]}` });
+            through.push({
+              plan: chip.plan,
+              edge: chip.edge,
+              stroke: `${other.edge.id} @x${a[0]}`,
+            });
           }
         }
       }
@@ -326,7 +358,7 @@ describe("no seated 1-to-1 chip box holds a foreign vertical", () => {
 
     // Premise: the corpus really does seat 1-to-1 chips.
     expect(checked).toBeGreaterThan(0);
-    expect(through).toEqual([]);
+    expect(through).toEqual(FOREIGN_VERTICAL_FALLBACK);
   }, 600_000);
 });
 

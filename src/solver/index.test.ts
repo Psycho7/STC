@@ -1,6 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 import Fraction from "fraction.js";
-import { LpInfeasibleError, solvePlanWithIntermediates } from "./index";
+import {
+  assertAugmentedSeeds,
+  LpInfeasibleError,
+  solvePlanWithIntermediates,
+  type SolvePlanFull,
+} from "./index";
 import {
   splitTargetProducers,
   coProductTarget,
@@ -8,11 +13,13 @@ import {
 } from "./corpus";
 import { solveForRender } from "../pipeline/solveForRender";
 import { checkRenderPlan } from "../pipeline/render/invariants";
-import { withoutGasMachines } from "./closed-form-fixtures";
+import { makePack, withoutGasMachines } from "./closed-form-fixtures";
 import { pack } from "../data/load";
 import type { ItemTarget } from "../data/targets";
 import type { RecipePack } from "@aef/schema";
 import type { LpResult } from "./lp";
+import type { Replica } from "./types";
+import { VALIDATE_ENV_VAR } from "../util/dev-asserts";
 
 // game v1.4's gas-system machines let the LP route xiranite_enr_powder through
 // a gas chain, displacing the water-fed main+purifier producers. The
@@ -728,5 +735,125 @@ describe("SolvePlanFull.catalystAccount", () => {
     expect(entry.fromCatalyst.equals(0)).toBe(true);
     expect(entry.fromGeneral.equals(new Fraction(1, 5))).toBe(true);
     expect(entry.unmet.equals(0)).toBe(true);
+  });
+});
+
+// Witness for the augmented-LP-support seed guard in index.ts. Two disposal
+// absorbers of the byproduct S trade an X/Y loop, so neither is reachable from
+// the F cone (both arrive through augmentGraphWithLpSupport) and together they
+// form a 2-member SCC. The seeding path still mints each at its full LP rate,
+// so this shape is legal and the guard must stay quiet on it.
+//
+// The two magnitudes are what make the LP run the absorbers at all. 5000 S per
+// a1 execution means absorbing pays 5 in surplus weight (1e-3 each) against the
+// 2 the pair costs to run, and a 10000/s F target keeps the resulting absorber
+// rate (2/s) above the extraction hygiene pass's plan-relative noise ceiling,
+// which sweeps anything under 1e-4 of plan scale back out of the solution.
+describe("augmented LP-support recipes inside a multi-member SCC", () => {
+  const absorberPack = makePack(
+    [
+      { id: "main", time: 1, in: { R: 1 }, out: { F: 1, S: 1 } },
+      { id: "a1", time: 1, in: { S: 5000, X: 1 }, out: { Y: 1 } },
+      { id: "a2", time: 1, in: { Y: 1 }, out: { X: 1 } },
+    ],
+    [
+      { id: "F", stack: 1 },
+      { id: "S", stack: 1 },
+      { id: "X", stack: 1 },
+      { id: "Y", stack: 1 },
+      { id: "R", raw: true, stack: 1 },
+    ],
+  );
+  const absorberTargets: ItemTarget[] = [
+    { itemId: "F", ratePerSec: { num: "10000", denom: "1" } },
+  ];
+
+  // Both absorbers run at 2/s, and each gets exactly one seed replica at that
+  // rate: nothing routed them through the SCC apportionment.
+  const expectSeededAtFullRate = (full: SolvePlanFull): void => {
+    for (const recipeId of ["a1", "a2"]) {
+      const reps = full.replicas.filter((r) => r.recipeId === recipeId);
+      expect(reps).toHaveLength(1);
+      expect(reps[0]!.executionRate.equals(2)).toBe(true);
+    }
+  };
+
+  it("passes the guard when the checks are armed", () => {
+    const full = solvePlanWithIntermediates(absorberTargets, absorberPack);
+    expectSeededAtFullRate(full);
+  });
+
+  // The Bun path: no development mode, validation flag armed. This is the run
+  // tools/solver-cli and tools/exam take, where import.meta.env.DEV is undefined
+  // and the guard used to be silently skipped.
+  it("passes the guard outside DEV when the validation flag is armed", () => {
+    vi.stubEnv("DEV", false);
+    vi.stubEnv(VALIDATE_ENV_VAR, "1");
+    try {
+      const full = solvePlanWithIntermediates(absorberTargets, absorberPack);
+      expectSeededAtFullRate(full);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  // The same shape all the way to the drawn plan: the seeded replicas render
+  // with zero violations across the render checkers.
+  it("renders a clean plan when the checks are disarmed", () => {
+    vi.stubEnv("DEV", false);
+    vi.stubEnv(VALIDATE_ENV_VAR, undefined);
+    try {
+      const { full, plan } = solveForRender({
+        targets: absorberTargets,
+        pack: absorberPack,
+      });
+      expect(full.rates.get("a1")!.equals(2)).toBe(true);
+      expect(full.rates.get("a2")!.equals(2)).toBe(true);
+      expect(full.replicas.map((r) => r.recipeId).sort()).toEqual([
+        "a1",
+        "a2",
+        "main",
+      ]);
+      const results = checkRenderPlan({
+        plan,
+        rates: full.rates,
+        pack: absorberPack,
+        targets: absorberTargets,
+        itemOverrides: [],
+        catalystAccount: full.catalystAccount,
+      });
+      expect(results.flatMap((r) => r.violations)).toEqual([]);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  // What the guard is actually for: an augmented cycle member apportioned
+  // across the SCC instead of seeded, so no replica of it runs at the LP rate.
+  // Fed to the check directly - the seeding path never produces this shape.
+  it("names the augmented member whose replicas miss the LP rate", () => {
+    const replica = (recipeId: string, rate: Fraction): Replica => ({
+      id: `r:${recipeId}`,
+      recipeId,
+      executionRate: rate,
+      consumerPath: [],
+      blueprintGroupId: `g:${recipeId}`,
+      sharedAtArticulation: false,
+    });
+
+    expect(() =>
+      assertAugmentedSeeds({
+        sccs: [{ id: "scc:loop", recipeIds: ["a1", "a2"] }],
+        augmented: new Set(["a1", "a2"]),
+        rates: new Map([
+          ["a1", new Fraction(2)],
+          ["a2", new Fraction(2)],
+        ]),
+        replicas: [
+          replica("a1", new Fraction(1)),
+          replica("a2", new Fraction(2)),
+        ],
+      }),
+    ).toThrow(/a1 inside multi-member SCC scc:loop/);
   });
 });

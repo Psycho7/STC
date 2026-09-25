@@ -14,17 +14,25 @@ import {
   effectiveCohortEnabled,
   eventCohortsOf,
   packCohortOf,
+  latestArea,
+  readStoredArea,
   readStoredEventOverrides,
   unavailableCauses,
+  unavailableEventItems,
   unavailableItems,
   unavailableRecipeIds,
+  writeStoredArea,
   writeStoredEventOverrides,
   type AvailabilitySettings,
 } from "./availability";
-import { EVENT_COHORT_OVERRIDES_STORAGE_KEY } from "./storage-keys";
+import { pack as shippedPack } from "./load";
+import {
+  AREA_STORAGE_KEY,
+  EVENT_COHORT_OVERRIDES_STORAGE_KEY,
+} from "./storage-keys";
 
-// The settings the app hands the core, with only the cohort overrides set:
-// area and manual toggles have no source until #124/#125 ship theirs.
+// The settings the app hands the core, with only the cohort overrides set: the
+// area and manual fields are absent, so their predicates pass.
 function eventsOnly(
   eventOverrides: AvailabilitySettings["eventOverrides"] = {},
 ): AvailabilitySettings {
@@ -151,28 +159,28 @@ describe("effectiveCohortEnabled", () => {
   });
 });
 
-describe("unavailableCauses", () => {
-  // A pack whose location carriers are both exercised: `smelt` is tagged for
-  // the tundra alone, and `mint_coin` runs on a machine that only exists in
-  // jinlong. Everything else is untagged, which means everywhere.
-  function locatedPack(): RecipePack {
-    const pack = fixturePack();
-    const jinlongMachine: Machine = {
-      ...pack.machines[0]!,
-      id: "machine_jinlong",
-      locations: ["jinlong"],
-    };
-    pack.machines = [...pack.machines, jinlongMachine];
-    pack.recipes = pack.recipes.map((r) =>
-      r.id === "smelt"
-        ? { ...r, locations: ["tundra"] }
-        : r.id === "mint_coin"
-          ? { ...r, producers: ["machine_jinlong"] }
-          : r,
-    );
-    return pack;
-  }
+// A pack whose location carriers are both exercised: `smelt` is tagged for
+// the tundra alone, and `mint_coin` runs on a machine that only exists in
+// jinlong. Everything else is untagged, which means everywhere.
+function locatedPack(): RecipePack {
+  const pack = fixturePack();
+  const jinlongMachine: Machine = {
+    ...pack.machines[0]!,
+    id: "machine_jinlong",
+    locations: ["jinlong"],
+  };
+  pack.machines = [...pack.machines, jinlongMachine];
+  pack.recipes = pack.recipes.map((r) =>
+    r.id === "smelt"
+      ? { ...r, locations: ["tundra"] }
+      : r.id === "mint_coin"
+        ? { ...r, producers: ["machine_jinlong"] }
+        : r,
+  );
+  return pack;
+}
 
+describe("unavailableCauses", () => {
   it("passes every predicate whose settings field is absent", () => {
     // Cohorts all on, no area, no manual set: the location carriers in the
     // pack are inert and nothing is unavailable.
@@ -244,6 +252,64 @@ describe("unavailableCauses", () => {
         disabledRecipeIds: new Set(["mint_coin"]),
       }).get("mint_coin"),
     ).toEqual({ kind: "event", cohort: "v1.2" });
+  });
+});
+
+// The area rule against the pack we actually ship (#124). The counts are the
+// measured fallout of decision 3 and are meant to move only when the pack does:
+// a bump that changes them is a fact about the game, to be re-measured and
+// re-stated here rather than loosened into an inequality.
+describe("unavailableCauses - area over the shipped pack", () => {
+  const TOTAL_RECIPES = 256;
+
+  function survivingIds(area?: string): string[] {
+    const causes = unavailableCauses(shippedPack, {
+      eventOverrides: {},
+      ...(area !== undefined ? { area } : {}),
+    });
+    return shippedPack.recipes.map((r) => r.id).filter((id) => !causes.has(id));
+  }
+
+  it("keeps 180 of 256 recipes in the tundra and 242 in jinlong", () => {
+    expect(shippedPack.recipes).toHaveLength(TOTAL_RECIPES);
+    expect(survivingIds("tundra")).toHaveLength(180);
+    expect(survivingIds("jinlong")).toHaveLength(242);
+    // No area filter at all (the core's unrestricted input, which the app
+    // never passes) is not the union of the two.
+    expect(survivingIds()).toHaveLength(TOTAL_RECIPES);
+  });
+
+  it("lets no settlement's coupon exchanges survive the other settlement", () => {
+    // The acceptance line, asserted as both prefixes rather than inferred from
+    // the counts: a count can hold while the wrong 14 recipes are the ones cut.
+    expect(
+      survivingIds("tundra").filter((id) => id.startsWith("jinlong_coupon-")),
+    ).toEqual([]);
+    expect(
+      survivingIds("jinlong").filter((id) => id.startsWith("tundra_coupon-")),
+    ).toEqual([]);
+    // Control: each settlement does keep its own, so the emptiness above is
+    // the rule biting and not both families vanishing everywhere.
+    expect(
+      survivingIds("tundra").filter((id) => id.startsWith("tundra_coupon-")),
+    ).toHaveLength(14);
+    expect(
+      survivingIds("jinlong").filter((id) => id.startsWith("jinlong_coupon-")),
+    ).toHaveLength(14);
+  });
+
+  it("excludes a jinlong-tagged recipe sitting on an untagged machine", () => {
+    // copper_nugget is tagged for jinlong; its furnace exists everywhere. Only
+    // the recipe carrier can cut it.
+    expect(survivingIds("tundra")).not.toContain("copper_nugget");
+    expect(survivingIds("jinlong")).toContain("copper_nugget");
+  });
+
+  it("excludes an untagged recipe whose machines are all jinlong-only", () => {
+    // liquid_plant_grass_1 carries no locations; both mix pools are jinlong.
+    // Only the machine carrier can cut it.
+    expect(survivingIds("tundra")).not.toContain("liquid_plant_grass_1");
+    expect(survivingIds("jinlong")).toContain("liquid_plant_grass_1");
   });
 });
 
@@ -328,6 +394,65 @@ describe("unavailableItems", () => {
     );
   });
 
+  it("maps an item whose every producer is out of area to that area", () => {
+    // Under the tundra only mint_coin is out of area, and it is coin's single
+    // producer; bar's producer (smelt) is tundra-tagged, so bar stays clear.
+    const tundra = unavailableItems(locatedPack(), {
+      eventOverrides: { "v1.2": true },
+      area: "tundra",
+    });
+    expect(tundra.get("coin")).toEqual({ kind: "area", area: "tundra" });
+    expect(tundra.has("bar")).toBe(false);
+
+    // The mirror: under jinlong smelt is the recipe carrier that fails, so bar
+    // is the item that goes dark.
+    const jinlong = unavailableItems(locatedPack(), {
+      eventOverrides: { "v1.2": true },
+      area: "jinlong",
+    });
+    expect(jinlong.get("bar")).toEqual({ kind: "area", area: "jinlong" });
+    expect(jinlong.has("coin")).toBe(false);
+  });
+
+  it("keeps an item whose producers disagree about the area", () => {
+    const pack = locatedPack();
+    const minter = pack.recipes.find((r) => r.id === "mint_coin")!;
+    pack.recipes = [
+      ...pack.recipes,
+      { ...minter, id: "mint_coin_anywhere", producers: ["machine"] },
+    ];
+    // The second recipe runs on the untagged machine, so coin can still be
+    // made in the tundra.
+    expect(
+      unavailableItems(pack, {
+        eventOverrides: { "v1.2": true },
+        area: "tundra",
+      }).has("coin"),
+    ).toBe(false);
+  });
+
+  it("maps a manually disabled sole producer onto its item", () => {
+    expect(
+      unavailableItems(fixturePack(), {
+        eventOverrides: { "v1.2": true },
+        disabledRecipeIds: new Set(["smelt"]),
+      }).get("bar"),
+    ).toEqual({ kind: "manual", recipeId: "smelt" });
+  });
+
+  it("lets an item's own cohort win over its producers' cause", () => {
+    // coin is v1.2-tagged and off by default; under the tundra its only
+    // producer is also out of area. The tile speaks of the item's cohort.
+    expect(
+      unavailableItems(locatedPack(), { eventOverrides: {}, area: "tundra" }),
+    ).toEqual(
+      new Map([
+        ["coin", { kind: "event", cohort: "v1.2" }],
+        ["token_orphan", { kind: "event", cohort: "v1.1" }],
+      ]),
+    );
+  });
+
   it("never contains non-event items, under any override map", () => {
     const map = unavailableItems(fixturePack(), eventsOnly({ "v1.5": false }));
     expect(map.has("ore")).toBe(false);
@@ -339,6 +464,56 @@ describe("unavailableItems", () => {
         eventsOnly({ "v1.1": true, "v1.2": true }),
       ),
     ).toEqual(new Map());
+  });
+});
+
+// The inputs seam: the same settings, the cohort pass alone. The target picker
+// asks what can be MADE here, the inputs picker what can be BROUGHT IN, and an
+// area or a hand toggle only answers the first question.
+describe("unavailableEventItems", () => {
+  const TUNDRA: AvailabilitySettings = {
+    eventOverrides: { "v1.2": true },
+    area: "tundra",
+  };
+
+  it("keeps the item's own cohort and drops the producer causes", () => {
+    // coin's only tundra-legal producer is missing and smelt is off by hand:
+    // both causes land in the target map and neither in this one.
+    const settings: AvailabilitySettings = {
+      ...TUNDRA,
+      disabledRecipeIds: new Set(["smelt"]),
+    };
+    expect(unavailableItems(locatedPack(), settings)).toEqual(
+      new Map([
+        ["coin", { kind: "area", area: "tundra" }],
+        ["bar", { kind: "manual", recipeId: "smelt" }],
+        ["token_orphan", { kind: "event", cohort: "v1.1" }],
+      ]),
+    );
+    expect(unavailableEventItems(locatedPack(), settings)).toEqual(
+      new Map([["token_orphan", { kind: "event", cohort: "v1.1" }]]),
+    );
+  });
+
+  it("leaves an area-blocked shipped item importable", () => {
+    // The tundra with the pack's own cohort forced off, so both passes have
+    // something to say over the pack we actually ship.
+    const settings: AvailabilitySettings = {
+      eventOverrides: { [packCohortOf(shippedPack)]: false },
+      area: "tundra",
+    };
+    // copper_nugget is jinlong-tagged, so the tundra has no producer for it -
+    // which is a reason to stop offering it as a target, not as an import.
+    expect(
+      unavailableItems(shippedPack, settings).get("copper_nugget"),
+    ).toEqual({ kind: "area", area: "tundra" });
+    const inputs = unavailableEventItems(shippedPack, settings);
+    expect(inputs.has("copper_nugget")).toBe(false);
+    // Nothing but a cohort can dim an input tile, whatever else is switched off.
+    expect(inputs.size).toBeGreaterThan(0);
+    expect(new Set([...inputs.values()].map((c) => c.kind))).toEqual(
+      new Set(["event"]),
+    );
   });
 });
 
@@ -373,5 +548,41 @@ describe("stored overrides", () => {
       '{"v1.5": false, "v1.2": "yes", "v1.1": 1, "v1.0": null}',
     );
     expect(readStoredEventOverrides()).toEqual({ "v1.5": false });
+  });
+});
+
+describe("stored area", () => {
+  it("round-trips an area the pack lists", () => {
+    writeStoredArea("tundra");
+    expect(window.localStorage.getItem(AREA_STORAGE_KEY)).toBe("tundra");
+    expect(readStoredArea(shippedPack)).toBe("tundra");
+  });
+
+  it("reads an absent key as the latest settlement without writing it", () => {
+    expect(readStoredArea(shippedPack)).toBe("jinlong");
+    expect(window.localStorage.getItem(AREA_STORAGE_KEY)).toBeNull();
+  });
+
+  it("falls back to the latest settlement for a value the pack does not list", () => {
+    // Hand-edited storage, or an area a pack bump retired: filtering against
+    // an area no machine names would hide every recipe behind an empty canvas.
+    for (const bad of ["", "atlantis", "TUNDRA", "[]"]) {
+      window.localStorage.setItem(AREA_STORAGE_KEY, bad);
+      expect(readStoredArea(shippedPack)).toBe("jinlong");
+    }
+  });
+});
+
+describe("latestArea", () => {
+  it("is the last settlement the pack lists", () => {
+    expect(latestArea(shippedPack)).toBe("jinlong");
+    const newer = {
+      ...shippedPack,
+      locations: [
+        ...shippedPack.locations,
+        { id: "newer", name: "newer", icon: "newer" },
+      ],
+    };
+    expect(latestArea(newer)).toBe("newer");
   });
 });

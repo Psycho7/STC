@@ -29,6 +29,10 @@ export type Scenario = {
   // multi6 up to 14394 px, battery5 3454 px), still far below what a relocated
   // node or edge moves.
   maxDiffPixels: number;
+  // The settlement to seed before boot (#124). Omitted, the app opens on its
+  // default, the pack's latest settlement; a plan built from the other
+  // settlement's recipes names it here.
+  area?: string;
 };
 
 export const SCENARIOS: Scenario[] = [
@@ -98,6 +102,8 @@ export const SCENARIOS: Scenario[] = [
       },
     ],
     maxDiffPixels: 0,
+    // Only the tundra's own settlement exchanges tundra_coupon.
+    area: "tundra",
   },
   // The three below reproduce plans from the 2026-08-22 render exam, added so
   // the chip-seating ratchets cover the v1.4 recipes that exposed the seating

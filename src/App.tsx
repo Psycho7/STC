@@ -39,21 +39,28 @@ import { pack } from "./data/load";
 import { packIndex } from "./data/pack-index";
 import {
   availabilityKey,
+  readStoredArea,
   readStoredEventOverrides,
   unavailableCauses,
+  unavailableEventItems,
   unavailableItems,
   unavailableRecipeIds,
+  writeStoredArea,
   writeStoredEventOverrides,
   packCohortOf,
   type AvailabilitySettings,
   type EventCohortOverrides,
 } from "./data/availability";
-import { EVENT_COHORT_OVERRIDES_STORAGE_KEY } from "./data/storage-keys";
+import {
+  AREA_STORAGE_KEY,
+  EVENT_COHORT_OVERRIDES_STORAGE_KEY,
+} from "./data/storage-keys";
 import { SettingsPanel } from "./components/SettingsPanel";
 import type { LogicalGraph } from "./canvas/layout";
 import { LpInfeasibleError } from "./solver";
 import type { CatalystAccount } from "./solver/catalyst";
 import { solveFromPlan } from "./pipeline/solveForRender";
+import type { RationalString } from "./pipeline/types";
 import { LocaleProvider, useI18n } from "./data/i18n-context";
 import type { I18nIndex } from "./data/i18n";
 import { ItemPackProvider } from "./canvas/itemPackContext";
@@ -150,17 +157,27 @@ type InitialError =
 
 // Localized text for a plan-load error on a user-facing surface. The
 // producer-unavailable kind is the one failure aimed at the player rather
-// than the link (#144): its event cause names the target item and the
-// switched-off cohort in the UI language. The area and manual causes keep
-// describePlanLoadError's text until #124 and #125 ship the settings that can
-// produce them. Every other kind describes a damaged share link -
+// than the link: its event cause names the switched-off cohort (#144) and its
+// area cause the selected settlement (#124), both in the UI language. The
+// manual cause keeps describePlanLoadError's text until #125 ships the toggles
+// that can produce it. Every other kind describes a damaged share link -
 // developer-facing detail - and keeps that text too.
 function describeLoadError(error: PlanLoadError, i18n: I18nIndex): string {
-  if (error.kind === "producer-unavailable" && error.cause.kind === "event") {
-    return i18n.t("app.error.producer-unavailable.event", {
-      itemId: error.itemId,
-      cohort: error.cause.cohort,
-    });
+  if (error.kind === "producer-unavailable") {
+    if (error.cause.kind === "event") {
+      return i18n.t("app.error.producer-unavailable.event", {
+        itemId: error.itemId,
+        cohort: error.cause.cohort,
+      });
+    }
+    if (error.cause.kind === "area") {
+      // The settlement is named the way the panel names it, not by its raw
+      // pack id: the sentence has to point at the option the user would flip.
+      return i18n.t("app.error.producer-unavailable.area", {
+        itemId: error.itemId,
+        area: i18n.displayName(error.cause.area),
+      });
+    }
   }
   return describePlanLoadError(error);
 }
@@ -173,6 +190,29 @@ type SideSection = "targets" | "inputs";
 const SIDE_SECTION_ORDER: SideSection[] = ["targets", "inputs"];
 
 const EMPTY_CATALYST_ACCOUNT: CatalystAccount = new Map();
+
+// Boundary supply per general ROW KEY, folded out of the input ProductNode
+// data the layout layer wrote.
+//
+// Only the ordinary draw goes in. The render pipeline draws the cycled charge
+// from a catalyst node of its own, but every reader keys this map by the
+// general row: the general row's number is its ordinary draw alone, and what
+// the general pool was billed of the charge comes from catalystAccount, not
+// from the catalyst node, so adding the node's rate here would count that
+// share twice. The catalyst row's number comes from catalystAccount too.
+type SupplyRateByItem = ReadonlyMap<string, RationalString>;
+
+const EMPTY_SUPPLY_RATES: SupplyRateByItem = new Map();
+
+function buildSupplyRateByItem(nodes: readonly Node[]): SupplyRateByItem {
+  const byRowKey = new Map<string, RationalString>();
+  for (const [itemId, rates] of buildRealizedRateByItem(nodes)) {
+    if (rates.ordinary !== undefined) {
+      byRowKey.set(encodeItemOverrideKey({ itemId }), rates.ordinary);
+    }
+  }
+  return byRowKey;
+}
 
 function toSideSection(elementId: string): SideSection | null {
   if (elementId === "side-inputs") return "inputs";
@@ -272,6 +312,12 @@ function AppInner() {
   const [catalystAccount, setCatalystAccount] = useState<CatalystAccount>(
     EMPTY_CATALYST_ACCOUNT,
   );
+  // Realized boundary supply of the latest solve, per row key. Derived state of
+  // the committed render pass, so it is written where the nodes it describes
+  // are: a drag hands App a fresh node array every pointer frame without
+  // touching any node's data, and the panels keep this map for the whole drag.
+  const [supplyRateByItem, setSupplyRateByItem] =
+    useState<SupplyRateByItem>(EMPTY_SUPPLY_RATES);
   // Which section anchor is in view inside the side rail. Drives the skewed-tab
   // highlight so it reads as a "you-are-here" pill, not a toggle. Computed by an
   // IntersectionObserver watching the two section anchors.
@@ -376,6 +422,10 @@ function AppInner() {
   const [eventOverrides, setEventOverrides] = useState<EventCohortOverrides>(
     readStoredEventOverrides,
   );
+  // The settlement the plan is built in (#124). Same one-writer discipline as
+  // the overrides above; `pack` is a module-stable import, so the boot read
+  // needs no dependency.
+  const [area, setArea] = useState<string>(() => readStoredArea(pack));
   // The pack's own cohort, handed to the settings panel so its Events rows
   // can tell current from past. `pack` is a module-stable import, so it stays
   // out of the dependency list.
@@ -409,11 +459,11 @@ function AppInner() {
       setExportingPng(false);
     }
   }, []);
-  // Everything the availability core reads. Only the cohort overrides have a
-  // source today; #124 and #125 add their fields and their own writers.
+  // Everything the availability core reads. The cohort overrides and the area
+  // each have their own key and their own writer; #125 adds the last field.
   const availabilitySettings = useMemo<AvailabilitySettings>(
-    () => ({ eventOverrides }),
-    [eventOverrides],
+    () => ({ eventOverrides, area }),
+    [eventOverrides, area],
   );
   // What is switched off and why: the cause map plan validation reports from,
   // the id set the solver seam takes, and the digest that decides whether any
@@ -447,6 +497,14 @@ function AppInner() {
     () => unavailableItems(pack, availabilitySettings),
     [availabilitySettings],
   );
+  // The inputs picker gets the narrower map: an input is imported, so having no
+  // producer in the selected area - or none left after a hand toggle - is no
+  // reason to refuse it. Only an off cohort, which takes the item out of the
+  // game entirely, can dim a tile there.
+  const unavailableInputCauses = useMemo(
+    () => unavailableEventItems(pack, availabilitySettings),
+    [availabilitySettings],
+  );
   // loadFromHash is a long-lived callback: the mount/hashchange wiring below
   // must not re-run when a flip recreates it, or every flip would reload the
   // plan and reset the panels. It reads availability through this ref instead
@@ -477,6 +535,13 @@ function AppInner() {
     },
     [],
   );
+  // The same one writer for the area (#124): the panel's radio group and the
+  // cross-tab storage listener below both land here, so memory and storage
+  // never disagree about which settlement is selected.
+  const handleAreaChange = useCallback((next: string): void => {
+    setArea(next);
+    writeStoredArea(next);
+  }, []);
   // `pack` is a module-stable import, so its memoized index is one object for
   // the app's lifetime and the item-pack context value never changes identity.
   const itemPackValue = packIndex(pack);
@@ -491,6 +556,7 @@ function AppInner() {
     ): void => {
       setRecipeCount(countDistinctRecipes(solved.full.logical));
       setCatalystAccount(solved.full.catalystAccount);
+      setSupplyRateByItem(buildSupplyRateByItem(laid.nodes as Node[]));
       setNodes(laid.nodes as Node[]);
       setEdges(laid.edges);
       setGaps(laid.gaps);
@@ -512,6 +578,20 @@ function AppInner() {
     },
     [],
   );
+
+  // Drop whatever solve or navigation is in flight without starting a new one.
+  // Bumping the generation is what makes the running one give up: every one of
+  // its resume points compares against solveGen, so it applies nothing and
+  // writes no hash. The navigation flag and the pending state have three
+  // clearers: the running generation's own `finally`, scheduleSolve when it
+  // supersedes a navigation, and this callback. The first only clears for the
+  // newest generation, which the bump just made it not, and no scheduleSolve
+  // follows, so this one clears both.
+  const invalidateInFlight = useCallback((): void => {
+    solveGen.current++;
+    navigationInFlightRef.current = false;
+    setPending(false);
+  }, []);
 
   // Load a plan from a URL hash, solve it, and swap the whole app state to it.
   // Serves both the mount-time load and hashchange navigation (pasting another
@@ -705,27 +785,44 @@ function AppInner() {
     }
     const error = validatePlan(current, pack, availability.causes);
     if (error) {
+      // A hash navigation still landing is headed for another plan, so this
+      // rejection is not its concern: re-run it so the pasted link is checked
+      // under the new set rather than dropped along with the rejected plan.
+      if (navigationInFlightRef.current) {
+        void loadFromHash(window.location.hash, "navigation");
+        return;
+      }
+      // The plan under the new set is rejected, so a solve still running for it
+      // is obsolete: landing it would clear this banner and write the URL of a
+      // plan that no longer loads. Unlike commitPlan's refusals, which fire
+      // before anything commits, this one arrives mid-flight.
+      invalidateInFlight();
       setMutationError({ kind: "edit", error });
       setStale(true);
       return;
     }
     void scheduleSolve(current);
-  }, [availability, scheduleSolve, loadFromHash]);
+  }, [availability, scheduleSolve, loadFromHash, invalidateInFlight]);
 
-  // Cross-tab sync for the overrides: a `storage` event fires in every OTHER
-  // window sharing this origin's localStorage when the key changes, which is
-  // how a cohort flipped in one tab reaches a second open tab. Route it through
-  // the same writer the settings panel (T5) will use, so both tabs converge on
-  // the same normalized map. Same-document writes fire no `storage` event, so
-  // the panel path never double-applies.
+  // Cross-tab sync for the settings keys: a `storage` event fires in every
+  // OTHER window sharing this origin's localStorage when a key changes, which
+  // is how a cohort or an area changed in one tab reaches a second open tab.
+  // Each key routes through the same writer the settings panel uses, so both
+  // tabs converge on the same normalized state. Same-document writes fire no
+  // `storage` event, so the panel path never double-applies.
   useEffect(() => {
     const onStorage = (e: StorageEvent) => {
-      if (e.key !== EVENT_COHORT_OVERRIDES_STORAGE_KEY) return;
-      handleEventOverridesChange(readStoredEventOverrides());
+      if (e.key === EVENT_COHORT_OVERRIDES_STORAGE_KEY) {
+        handleEventOverridesChange(readStoredEventOverrides());
+        return;
+      }
+      if (e.key === AREA_STORAGE_KEY) {
+        handleAreaChange(readStoredArea(pack));
+      }
     };
     window.addEventListener("storage", onStorage);
     return () => window.removeEventListener("storage", onStorage);
-  }, [handleEventOverridesChange]);
+  }, [handleEventOverridesChange, handleAreaChange]);
 
   function handleTargetsChange(update: (current: Target[]) => Target[]): void {
     const current = planRef.current;
@@ -757,49 +854,6 @@ function AppInner() {
     if (!plan) return new Set<string>();
     return new Set(plan.targets.map((t) => t.itemId));
   }, [plan]);
-
-  // Boundary supply per ROW KEY: the realized demand of the latest render
-  // pass, read off the input ProductNode data the layout layer wrote.
-  //
-  // A catalyst is external supply the same way a raw draw is, and the render
-  // pipeline draws the cycled charge from a catalyst node of its own. The two
-  // nodes go in under different row keys rather than being summed: the panel
-  // shows one row per pool, and the general row's number is its ordinary draw
-  // alone. What the general pool was billed of the charge comes from
-  // catalystAccount, not from the catalyst node, so adding the node's rate
-  // here would count that share twice.
-  //
-  // A drag hands App a fresh node array every pointer frame without touching
-  // any node's data, so the entries are flattened to a string key and the map
-  // is rebuilt only when that key changes: the panels keep the same map, and
-  // the memos below keyed on it, for the whole drag.
-  const supplyRateEntries: Array<
-    [string, import("./pipeline/types").RationalString]
-  > = [];
-  for (const [itemId, rates] of buildRealizedRateByItem(nodes)) {
-    if (rates.ordinary !== undefined) {
-      supplyRateEntries.push([
-        encodeItemOverrideKey({ itemId }),
-        rates.ordinary,
-      ]);
-    }
-    if (rates.catalyst !== undefined) {
-      supplyRateEntries.push([
-        encodeItemOverrideKey({ itemId, role: "catalyst" }),
-        rates.catalyst,
-      ]);
-    }
-  }
-  const supplyRateKey = JSON.stringify(supplyRateEntries);
-  const supplyRateByItem = useMemo<
-    ReadonlyMap<string, import("./pipeline/types").RationalString>
-  >(
-    () =>
-      new Map<string, import("./pipeline/types").RationalString>(
-        JSON.parse(supplyRateKey),
-      ),
-    [supplyRateKey],
-  );
 
   // Items the current plan pulls across the boundary as assumed-infinite
   // supply: raw items with a realized draw, plus every item whose cycled
@@ -864,6 +918,8 @@ function AppInner() {
       packCohort={packCohort}
       overrides={eventOverrides}
       onOverridesChange={handleEventOverridesChange}
+      area={area}
+      onAreaChange={handleAreaChange}
       onClose={() => setSettingsOpen(false)}
     />
   ) : null;
@@ -1116,7 +1172,7 @@ function AppInner() {
                   itemOverrides={plan.itemOverrides ?? []}
                   onChange={handleItemOverridesChange}
                   pack={pack}
-                  unavailableItems={unavailableItemCauses}
+                  unavailableItems={unavailableInputCauses}
                   targetItemIds={targetItemIds}
                   supplyRateByItem={supplyRateByItem}
                   catalystAccount={catalystAccount}

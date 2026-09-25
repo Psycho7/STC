@@ -13,6 +13,7 @@ import {
 } from "../../solver/replicate";
 import type { ItemId, RecipeId, Replica } from "../../solver/types";
 import { itemOfPort } from "../render/port-ids";
+import { devAsserts } from "../../util/dev-asserts";
 
 /**
  * Works out the demand rate on each edge.
@@ -415,7 +416,7 @@ export function capProducerInputOutflow(
       if (spareSum.compare(ZERO) <= 0) {
         // No sibling can absorb the freed demand: a supplier was dropped.
         if (freed.compare(tolFor(freed)) > 0) {
-          if (import.meta.env.DEV) {
+          if (devAsserts()) {
             const sep = groupKey.indexOf("\0");
             const consumer = groupKey.slice(0, sep);
             const item = groupKey.slice(sep + 1);

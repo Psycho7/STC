@@ -18,7 +18,9 @@ import {
 import { solvePlanWithIntermediates } from "../../solver/index";
 import type { Target } from "../../data/targets";
 import { solveForRender, solveFromPlan } from "../solveForRender";
+import { renderPlanFromSolve } from "../driver";
 import { capProducerInputOutflow, type CapEdge } from "../expand/edge-rates";
+import { VALIDATE_ENV_VAR } from "../../util/dev-asserts";
 import {
   assertRenderInvariants,
   checkRenderPlan,
@@ -177,6 +179,120 @@ function isLpThrow(err: unknown): boolean {
   return String(err).includes("LP solver:");
 }
 
+// ---------------------------------------------------------------------------
+// Materialisation parity (ARCH-4). The shipped pipeline materializes one machine
+// vertex per replica; the retained stamp path materializes a replica into its
+// full machines plus a partial one and lets AlwaysFoldRender fold them back.
+// Gate (c) of the sweep renders every corpus plan both ways from the SAME solve
+// and compares the two RenderPlans field by field, rationals as exact
+// numerator/denominator strings rather than floats: units (ids, recipe ids,
+// multiplicity badges, boundary rates and caps, fanout/aggregate flags, loop
+// netIO), edges (endpoints, item, rate, transport kind, label side, port kind,
+// pool) and containers, in emission order.
+// ---------------------------------------------------------------------------
+
+// Every Fraction becomes its exact "n/d" string and every object gets its keys
+// sorted, so a difference in property order or in how a rate was accumulated
+// cannot read as a difference in the plan.
+function canonical(value: unknown): unknown {
+  if (value instanceof Fraction) return value.toFraction();
+  if (Array.isArray(value)) return value.map(canonical);
+  if (value !== null && typeof value === "object") {
+    const out: Record<string, unknown> = {};
+    for (const k of Object.keys(value as Record<string, unknown>).sort()) {
+      const v = (value as Record<string, unknown>)[k];
+      if (v === undefined) continue;
+      out[k] = canonical(v);
+    }
+    return out;
+  }
+  return value;
+}
+
+const canonicalJson = (value: unknown): string =>
+  JSON.stringify(canonical(value));
+
+// (fromUnit, toUnit, item, target port kind, source pool) -- the same key
+// AlwaysFoldRender aggregates on, so two edges share a key only if the two
+// pipelines were meant to emit the same edge.
+const edgeKeyOf = (e: RenderPlan["edges"][number]): string =>
+  `${e.fromUnit}|${e.toUnit}|${e.item}|${e.toPortKind ?? "in"}|${e.fromPool ?? "raw"}`;
+
+function indexed<T>(
+  entries: ReadonlyArray<T>,
+  keyOf: (e: T) => string,
+): { order: string[]; byKey: Map<string, string> } {
+  const order: string[] = [];
+  const byKey = new Map<string, string>();
+  for (const e of entries) {
+    const key = keyOf(e);
+    order.push(key);
+    // A duplicate key would be folded by the render policy; keep the first and
+    // let the order comparison surface the duplication.
+    if (!byKey.has(key)) byKey.set(key, canonicalJson(e));
+  }
+  return { order, byKey };
+}
+
+function diffIndexed(
+  label: string,
+  a: { order: string[]; byKey: Map<string, string> },
+  b: { order: string[]; byKey: Map<string, string> },
+): string[] {
+  const out: string[] = [];
+  for (const [key, json] of a.byKey) {
+    const other = b.byKey.get(key);
+    if (other === undefined) {
+      out.push(`${label} ${key} only in the aggregate plan`);
+      continue;
+    }
+    if (other !== json) {
+      out.push(
+        `${label} ${key} differs: aggregate ${json} vs stamped ${other}`,
+      );
+    }
+  }
+  for (const key of b.byKey.keys()) {
+    if (!a.byKey.has(key)) out.push(`${label} ${key} only in the stamped plan`);
+  }
+  if (out.length === 0 && a.order.join("\u0000") !== b.order.join("\u0000")) {
+    out.push(
+      `${label} emission order differs: aggregate [${a.order.join(", ")}] vs stamped [${b.order.join(", ")}]`,
+    );
+  }
+  return out;
+}
+
+/** Every way the two plans disagree; empty means exact-rational equality. */
+function renderPlanDifferences(
+  aggregate: RenderPlan,
+  stamped: RenderPlan,
+): string[] {
+  const out: string[] = [];
+  out.push(
+    ...diffIndexed(
+      "unit",
+      indexed(aggregate.units, (u) => u.id),
+      indexed(stamped.units, (u) => u.id),
+    ),
+  );
+  out.push(
+    ...diffIndexed(
+      "edge",
+      indexed(aggregate.edges, edgeKeyOf),
+      indexed(stamped.edges, edgeKeyOf),
+    ),
+  );
+  out.push(
+    ...diffIndexed(
+      "container",
+      indexed(aggregate.containers, (c) => c.id),
+      indexed(stamped.containers, (c) => c.id),
+    ),
+  );
+  return out;
+}
+
 // Run one plan through solve + render and return its gate failures. Empty array
 // means clean, or skipped as non-feasible (skipped is true and the caller does
 // not count it). Solve and render are one call, so one catch classifies both:
@@ -236,6 +352,16 @@ function sweepPlan(
         `${name}: machine-count: recipe "${recipeId}" vtxSum ${vs.toFraction()} != lpRate ${lpRate.toFraction()}`,
       );
     }
+  }
+
+  // Gate (c): materialisation parity. The same solve renders through the
+  // retained stamp path, so any difference belongs to the materialisation and
+  // nothing else.
+  const stamped = renderPlanFromSolve(full, pack, targets, [], {
+    expansion: "stamped",
+  });
+  for (const d of renderPlanDifferences(plan, stamped.plan)) {
+    failures.push(`${name}: parity: ${d}`);
   }
 
   return { skipped: false, failures };
@@ -1247,6 +1373,67 @@ describe("render corpus: torn-arc returns fan across sibling stamps (Bug 2b)", (
     ];
     const result = new Map<string, Fraction>([["e1", new Fraction(3)]]);
     vi.stubEnv("DEV", true);
+    try {
+      expect(() => capProducerInputOutflow(edges, result)).toThrow(
+        /consumer "consumerX" item "itemY"/,
+      );
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  // Production twin of the throw above. With the checks disarmed the helper
+  // returns on the same shortfall and leaves the uncapped rates in place, so the
+  // plan still renders: e1 keeps its billed 3 against a capacity of 1.
+  //
+  // That fallback is only sound because of the upstream contract the throw
+  // guards: the assemble fan wires every consumer of a split-producer item to
+  // all sibling producers, so total inbound capacity is short only when a
+  // supplier was dropped upstream -- a state the public solve+render path is not
+  // supposed to reach. The rates it leaves behind violate Kirchhoff at the
+  // producer, which is why the shortfall is a loud failure in dev and in
+  // validation runs rather than a silent repair here.
+  it("capProducerInputOutflow leaves the rates uncapped when the checks are disarmed", () => {
+    const groupKey = "consumerX\0itemY";
+    const edges: CapEdge[] = [
+      {
+        edgeId: "e1",
+        producerId: "p1",
+        groupKey,
+        item: "itemY",
+        rate: new Fraction(3),
+        capacity: new Fraction(1),
+      },
+    ];
+    const result = new Map<string, Fraction>([["e1", new Fraction(3)]]);
+    vi.stubEnv("DEV", false);
+    vi.stubEnv(VALIDATE_ENV_VAR, undefined);
+    try {
+      expect(() => capProducerInputOutflow(edges, result)).not.toThrow();
+    } finally {
+      vi.unstubAllEnvs();
+    }
+    expect(result.get("e1")!.equals(new Fraction(3))).toBe(true);
+  });
+
+  // The Bun path: no development mode, but the validation flag armed. Under Bun
+  // import.meta.env.DEV is undefined, so tools/exam and tools/solver-cli used to
+  // take the silent fallback above; with the flag set they get the throw.
+  it("capProducerInputOutflow throws outside DEV when the validation flag is armed", () => {
+    const groupKey = "consumerX\0itemY";
+    const edges: CapEdge[] = [
+      {
+        edgeId: "e1",
+        producerId: "p1",
+        groupKey,
+        item: "itemY",
+        rate: new Fraction(3),
+        capacity: new Fraction(1),
+      },
+    ];
+    const result = new Map<string, Fraction>([["e1", new Fraction(3)]]);
+    vi.stubEnv("DEV", false);
+    vi.stubEnv(VALIDATE_ENV_VAR, "1");
     try {
       expect(() => capProducerInputOutflow(edges, result)).toThrow(
         /consumer "consumerX" item "itemY"/,

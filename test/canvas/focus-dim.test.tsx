@@ -5,6 +5,13 @@
 // is pure render-side (no layout), so these tests drive the Canvas component and
 // assert the `dimmed` class lands on the right React Flow node / edge wrappers.
 //
+// Which SEGMENT of a trunk member the pointer stands on decides the set: the
+// stretch a trunk shares lights every member of that trunk, the member's own
+// branch leg lights that edge and its two endpoints alone. A shared stretch is
+// its own transparent interaction path (`edge-shared-<edgeId>-<groupKey>`), so
+// the two are told apart by the DOM element the enter lands on rather than by
+// pointer coordinates, which jsdom does not give a synthesized enter.
+//
 // Edges only mount once React Flow has measured the endpoint nodes; that
 // measurement never fires when ResizeObserver is stubbed out, so this suite
 // leaves the real (absent) ResizeObserver in place and waits for edge wrappers.
@@ -55,6 +62,9 @@ function busData(trunkKey: string): Record<string, unknown> {
     rate: new Fraction(1, 1),
     fanout: true,
     trunkKey,
+    // Hover membership rides on trunkGroups, which routeTrunkEdges stamps on
+    // every member of every trunk the edge belongs to.
+    trunkGroups: [trunkKey],
   } as unknown as Record<string, unknown>;
 }
 
@@ -136,6 +146,31 @@ async function edgeEl(
   return el!;
 }
 
+// The transparent interaction path one member draws over the stretch it shares
+// with one trunk. Hovering it is what "the pointer is on the trunk" means.
+async function sharedEl(
+  container: HTMLElement,
+  edgeId: string,
+  group: string,
+): Promise<HTMLElement> {
+  const testId = `edge-shared-${edgeId}-${group}`;
+  let el: HTMLElement | null = null;
+  await waitFor(() => {
+    el = container.querySelector<HTMLElement>(`[data-testid="${testId}"]`);
+    expect(el, testId).not.toBeNull();
+  });
+  return el!;
+}
+
+function sharedCount(container: HTMLElement, edgeId: string): number {
+  return container.querySelectorAll(`[data-testid^="edge-shared-${edgeId}-"]`)
+    .length;
+}
+
+function nodeDimmed(container: HTMLElement, id: string): boolean {
+  return nodeEl(container, id).classList.contains("dimmed");
+}
+
 describe("canvas/focus-dim", () => {
   it("dims a non-adjacent node but not an adjacent one on node hover", async () => {
     const { container } = renderCanvas();
@@ -149,19 +184,16 @@ describe("canvas/focus-dim", () => {
     expect(nodeEl(container, "a").classList.contains("dimmed")).toBe(false);
   });
 
-  it("keeps a same-trunk sibling edge undimmed on bus-edge hover", async () => {
+  it("keeps a same-trunk sibling edge undimmed on shared-stretch hover", async () => {
     const { container } = renderCanvas();
-    // Wait for the last edge to mount, then re-query e1 fresh: earlier waitFor
-    // rounds can replace edge DOM as React Flow re-measures, detaching a stale
-    // reference so events fired on it would no-op.
+    // Wait for the last edge to mount before reading the shared path: earlier
+    // waitFor rounds can replace edge DOM as React Flow re-measures, detaching a
+    // stale reference so events fired on it would no-op.
     await edgeEl(container, "e3");
-    const e1 = container.querySelector<HTMLElement>(
-      '.react-flow__edge[data-id="e1"]',
-    )!;
-    // Hover bus edge e1: the whole "Iron|a" trunk (e1 + e2) stays lit; the
-    // unrelated item edge e3 dims. The hover re-renders edges, so settle the DOM
-    // with waitFor before reading classes.
-    fireEvent.mouseEnter(e1);
+    // Hover the stretch e1 shares with the "Iron|a" trunk: the whole trunk
+    // (e1 + e2) stays lit; the unrelated item edge e3 dims. The hover
+    // re-renders edges, so settle the DOM with waitFor before reading classes.
+    fireEvent.mouseEnter(await sharedEl(container, "e1", "Iron|a"));
     await waitFor(() => {
       const e3 = container.querySelector<HTMLElement>(
         '.react-flow__edge[data-id="e3"]',
@@ -174,6 +206,22 @@ describe("canvas/focus-dim", () => {
         .querySelector<HTMLElement>('.react-flow__edge[data-id="e2"]')!
         .classList.contains("dimmed"),
     ).toBe(false);
+  });
+
+  it("dims the sibling on a branch-leg hover of the same trunk", async () => {
+    const { container } = renderCanvas();
+    // e2 branches off the trunk to "c". Its wrapper is the branch: the pointer
+    // is past the junction, so only e2 and its own endpoints light and the
+    // sibling e1 dims with everything else.
+    fireEvent.mouseEnter(await edgeEl(container, "e2"));
+    await waitFor(async () => {
+      expect(await edgeDimmed(container, "e1")).toBe(true);
+    });
+    expect(await edgeDimmed(container, "e2")).toBe(false);
+    expect(await edgeDimmed(container, "e3")).toBe(true);
+    expect(nodeDimmed(container, "a")).toBe(false);
+    expect(nodeDimmed(container, "c")).toBe(false);
+    expect(nodeDimmed(container, "b")).toBe(true);
   });
 
   it("lights only its two endpoints on a plain item-edge hover", async () => {
@@ -257,10 +305,12 @@ describe("canvas/focus-dim", () => {
   });
 });
 
-// Two-mode trunk hover: a trunk of one owner ("own") plus two branch members
-// ("br1", "br2"), all on the same trunkKey and leaving source "a". Hovering the
-// owner lights the whole group; hovering a branch lights that branch plus the
-// owner and dims the sibling branch.
+// Segment-aware trunk hover: a trunk of one aggregate drawer ("own") plus two
+// other members ("br1", "br2"), all on the same trunkKey and leaving source "a".
+// The drawer is a DRAWING role, so it decides nothing here: the pointer's
+// segment does. A shared stretch lights the whole group; a branch leg lights
+// that member alone, with the trunk's aggregate chip and junction dot left lit
+// on the drawer even though its stroke dims.
 const TWO_MODE_NODES: Node[] = [
   { id: "a", position: { x: 0, y: 0 }, data: { label: "a" } },
   { id: "tb", position: { x: 900, y: 0 }, data: { label: "tb" } },
@@ -274,6 +324,7 @@ function trunkMember(owner: boolean): Record<string, unknown> {
     rate: new Fraction(1, 1),
     fanout: true,
     trunkKey: "Iron|a",
+    trunkGroups: ["Iron|a"],
     busChipOwner: owner,
     busTotalRate: new Fraction(3, 1),
     busMemberCount: 3,
@@ -322,24 +373,25 @@ async function edgeDimmed(
   return el.classList.contains("dimmed");
 }
 
-describe("canvas/focus-dim two-mode trunk hover", () => {
-  it("branch hover lights the branch and owner but dims the sibling branch", async () => {
+describe("canvas/focus-dim segment-aware trunk hover", () => {
+  it("branch hover lights that member alone, drawer included", async () => {
     const { container } = renderTwoMode();
-    const br1 = await edgeEl(container, "br1");
-    fireEvent.mouseEnter(br1);
-    // The sibling branch br2 dims; the hovered branch and the trunk owner stay
-    // lit.
+    fireEvent.mouseEnter(await edgeEl(container, "br1"));
+    // The sibling branch br2 dims, and so does the aggregate drawer: it is a
+    // sibling like any other once the pointer is past the junction.
     await waitFor(async () => {
       expect(await edgeDimmed(container, "br2")).toBe(true);
     });
     expect(await edgeDimmed(container, "br1")).toBe(false);
-    expect(await edgeDimmed(container, "own")).toBe(false);
+    expect(await edgeDimmed(container, "own")).toBe(true);
+    expect(nodeDimmed(container, "a")).toBe(false);
+    expect(nodeDimmed(container, "tc1")).toBe(false);
+    expect(nodeDimmed(container, "tb")).toBe(true);
   });
 
-  it("owner (trunk) hover lights the whole group", async () => {
+  it("shared-stretch hover lights the whole group from any member", async () => {
     const { container } = renderTwoMode();
-    const own = await edgeEl(container, "own");
-    fireEvent.mouseEnter(own);
+    fireEvent.mouseEnter(await sharedEl(container, "br1", "Iron|a"));
     // Give the hover intent time to settle (the theme root gains hover-active),
     // then assert nothing in the trunk dimmed.
     await waitFor(() => {
@@ -352,29 +404,40 @@ describe("canvas/focus-dim two-mode trunk hover", () => {
     expect(await edgeDimmed(container, "br2")).toBe(false);
   });
 
-  it("branch hover dims the sibling branch chip but not the owner's", async () => {
-    // This trunk is multi-member, so it draws no aggregate drop chip; the
-    // owner's own rise chip stands in as the lit-side chip.
+  it("gives every member exactly one shared path, on its own trunk", async () => {
+    const { container } = renderTwoMode();
+    for (const id of ["own", "br1", "br2"]) {
+      await sharedEl(container, id, "Iron|a");
+      expect(sharedCount(container, id), id).toBe(1);
+    }
+  });
+
+  it("branch hover dims the drawer's rise chip but not its drop chip", async () => {
     const { container } = renderTwoMode();
     await waitFor(() => {
-      expect(
-        container.querySelector('[data-testid="bus-edge-label-own-rise"]'),
-      ).not.toBeNull();
-      expect(
-        container.querySelector('[data-testid="bus-edge-label-br2-rise"]'),
-      ).not.toBeNull();
+      for (const id of [
+        "bus-edge-label-own-rise",
+        "bus-edge-label-own-drop",
+        "bus-edge-label-br2-rise",
+      ]) {
+        expect(container.querySelector(`[data-testid="${id}"]`), id).not.toBe(
+          null,
+        );
+      }
     });
-    const br1 = await edgeEl(container, "br1");
-    fireEvent.mouseEnter(br1);
-    // br2's rise chip dims with its edge; the owner's chip stays lit (the owner
-    // is in the focus set).
+    fireEvent.mouseEnter(await edgeEl(container, "br1"));
+    // br2's rise chip dims with its edge, and so does the drawer's own rate
+    // chip. Only the trunk's ONE aggregate chip is exempt: it states the total
+    // of the trunk the hovered branch belongs to, which is still the reader's
+    // subject.
     await waitFor(() => {
       expect(chipDimmed(container, "bus-edge-label-br2-rise")).toBe(true);
     });
-    expect(chipDimmed(container, "bus-edge-label-own-rise")).toBe(false);
+    expect(chipDimmed(container, "bus-edge-label-own-rise")).toBe(true);
+    expect(chipDimmed(container, "bus-edge-label-own-drop")).toBe(false);
   });
 
-  it("branch hover dims the sibling junction dot but not the owner's", async () => {
+  it("branch hover keeps the drawer's junction dot lit", async () => {
     const { container } = renderTwoMode();
     await waitFor(() => {
       expect(
@@ -384,13 +447,34 @@ describe("canvas/focus-dim two-mode trunk hover", () => {
         container.querySelector('[data-testid="bus-junction-br2"]'),
       ).not.toBeNull();
     });
-    const br1 = await edgeEl(container, "br1");
-    fireEvent.mouseEnter(br1);
+    fireEvent.mouseEnter(await edgeEl(container, "br1"));
     await waitFor(() => {
       expect(chipDimmed(container, "bus-junction-br2")).toBe(true);
     });
+    // The trunk's split is drawn by every member at one point; the drawer's
+    // copy carries it while the rest fade.
     expect(chipDimmed(container, "bus-junction-own")).toBe(false);
     expect(chipDimmed(container, "bus-junction-br1")).toBe(false);
+  });
+
+  it("switches to branch mode on leaving the shared path for the branch", async () => {
+    const { container } = renderTwoMode();
+    const shared = await sharedEl(container, "br1", "Iron|a");
+    const wrapper = await edgeEl(container, "br1");
+    fireEvent.mouseEnter(shared);
+    await waitFor(async () => {
+      expect(await edgeDimmed(container, "br2")).toBe(false);
+    });
+    // Sliding past the junction leaves the shared path but never the edge, so
+    // no edge leave fires and the hover narrows instead of clearing.
+    fireEvent.mouseLeave(shared);
+    fireEvent.mouseEnter(wrapper);
+    await waitFor(async () => {
+      expect(await edgeDimmed(container, "br2")).toBe(true);
+    });
+    expect(hoverActive(container)).toBe(true);
+    expect(await edgeDimmed(container, "br1")).toBe(false);
+    expect(await edgeDimmed(container, "own")).toBe(true);
   });
 });
 
@@ -415,6 +499,26 @@ describe("canvas/focus-dim focusEdges", () => {
 
   it("returns the input array untouched when idle", () => {
     expect(focusEdges(EDGES, null)).toBe(EDGES);
+  });
+
+  it("stamps the chip exemption on a dimmed aggregate drawer", () => {
+    const out = focusEdges(EDGES, {
+      edgeIds: new Set(["e2"]),
+      chipLitEdgeIds: new Set(["e1"]),
+    });
+    const byId = new Map(out.map((e) => [e.id, e]));
+    const exempt = byId.get("e1")!;
+    // Dimmed like any other unlit edge -- the stroke fades -- plus the flag the
+    // edge components read to keep the trunk's aggregate chip and junction dot
+    // at full opacity.
+    expect((exempt.data as { dimmed?: boolean }).dimmed).toBe(true);
+    expect((exempt.data as { aggregateLit?: boolean }).aggregateLit).toBe(true);
+    expect((exempt.data as { focused?: boolean }).focused).toBeUndefined();
+    expect(exempt.className ?? "").toContain("dimmed");
+    const plain = byId.get("e3")!;
+    expect((plain.data as { aggregateLit?: boolean }).aggregateLit).toBe(
+      undefined,
+    );
   });
 });
 
@@ -587,14 +691,14 @@ describe("canvas/focus-dim chip hover binding", () => {
     expect(chipDimmed(container, "item-edge-label-x1")).toBe(false);
   });
 
-  it("bus drop chip hover lights the whole trunk, like its stroke", async () => {
-    // Mechanism: BusEdge renders its chips from inside its own edge component,
-    // so a drop chip's portal fiber chain lands on the member edge it belongs
-    // to and the existing two-mode trunk focus does the rest.
+  it("bus drop chip hover lights the whole trunk, like its shared stretch", async () => {
+    // Mechanism: the aggregate chip states the TRUNK's total, so it reports the
+    // trunk's shared segment rather than the branch of the member that happens
+    // to draw it.
     const strokeSnap = await snapshotAfterHover({
       mount: () => renderCanvas().container,
       chips: ALL_CHIP_IDS,
-      target: (c) => edgeEl(c, "e1"),
+      target: (c) => sharedEl(c, "e1", "Iron|a"),
       dimWitness: "e3",
     });
     const chipSnap = await snapshotAfterHover({
@@ -610,9 +714,10 @@ describe("canvas/focus-dim chip hover binding", () => {
     expect(chipSnap).toContain("edge:e3:true");
   });
 
-  it("member rise chip hover lights branch plus owner, like its stroke", async () => {
-    // Mechanism: same portal fiber chain, on the member edge that owns the rise
-    // chip, so branch mode of the trunk focus applies unchanged.
+  it("member rise chip hover lights that branch alone, like its stroke", async () => {
+    // Mechanism: the member chip states the member's own rate, so its portal
+    // fiber chain reaching the edge handler -- branch mode -- is the right
+    // answer and no segment report overrides it.
     const strokeSnap = await snapshotAfterHover({
       mount: () => renderTwoMode().container,
       chips: ["bus-edge-label-own-rise", "bus-edge-label-br1-rise"],
@@ -627,7 +732,7 @@ describe("canvas/focus-dim chip hover binding", () => {
     });
     expect(chipSnap).toEqual(strokeSnap);
     expect(chipSnap).toContain("edge:br1:false");
-    expect(chipSnap).toContain("edge:own:false");
+    expect(chipSnap).toContain("edge:own:true");
     expect(chipSnap).toContain("edge:br2:true");
   });
 
@@ -667,5 +772,504 @@ describe("canvas/focus-dim chip hover binding", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+// Trunk membership beyond the retyped members. A trunk's hover group is its
+// TOPOLOGICAL member list (routeTrunkEdges stamps it as `trunkGroups` on every
+// member), so it also holds the far members that only borrow the junction column
+// and the backward members that keep their detour rail -- both plain item edges.
+// Indexing the group by the one `trunkKey` a member carries, gated on
+// `type === "bus"`, dropped all of those and left the reader a partial trunk.
+
+// One unrelated item edge per fixture, so a whole-group hover still has a
+// witness that something dimmed.
+function loneData(item: string): Record<string, unknown> {
+  return {
+    item,
+    rate: new Fraction(1, 1),
+  } as unknown as Record<string, unknown>;
+}
+
+// A member that carries membership plus the geometry stamp of its treatment and
+// no aggregate stamps at all: a far member borrowing its trunk's column
+// (`fanoutColumn` / `faninColumn` beside `bendX`), or a backward member whose
+// rail leaves on the trunk's column (`railXRight` / `railXLeft`). The stamp is
+// what says which of its runs is shared, so a member with none of them draws no
+// shared path at all.
+function memberOnly(
+  groups: string[],
+  stamps: Record<string, unknown> = {},
+): Record<string, unknown> {
+  return {
+    item: "Iron",
+    rate: new Fraction(1, 1),
+    trunkGroups: groups,
+    ...stamps,
+  } as unknown as Record<string, unknown>;
+}
+
+// A member holding one trunk's aggregate stamps. `owner: undefined` leaves
+// busChipOwner absent, the documented un-annotated default that reads as owner
+// of the trunk its trunkKey names.
+function aggMember(
+  trunkKey: string,
+  groups: string[],
+  owner: boolean | undefined,
+  shape: "fanout" | "fanin",
+  stamps: Record<string, unknown> = {},
+): Record<string, unknown> {
+  return {
+    item: "Iron",
+    rate: new Fraction(1, 1),
+    [shape]: true,
+    trunkKey,
+    trunkGroups: groups,
+    busTotalRate: new Fraction(3, 1),
+    busMemberCount: 3,
+    ...(owner === undefined ? {} : { busChipOwner: owner }),
+    ...stamps,
+  } as unknown as Record<string, unknown>;
+}
+
+function renderWith(nodes: Node[], edges: Edge[]) {
+  return render(
+    <LocaleProvider locale="en">
+      <ItemPackProvider value={PACK}>
+        <Canvas nodes={nodes} edges={edges} />
+      </ItemPackProvider>
+    </LocaleProvider>,
+  );
+}
+
+function gridNodes(ids: Array<[string, number, number]>): Node[] {
+  return ids.map(([id, x, y]) => ({
+    id,
+    position: { x, y },
+    data: { label: id },
+  }));
+}
+
+// A far-only fan-out trunk: no member was retyped, so all three are item edges
+// and the trunk's total rides on the elected far owner "fo".
+const FAR_NODES = gridNodes([
+  ["fa", 0, 0],
+  ["ft0", 1200, 0],
+  ["ft1", 1200, 200],
+  ["ft2", 1200, 400],
+  ["fu", 0, 800],
+  ["fv", 1200, 800],
+]);
+
+// Every far member borrows the trunk's column as its bend, so its source stub
+// is the stretch the trunk shares.
+const FAR_COLUMN = { bendX: 600, fanoutColumn: true };
+
+const FAR_EDGES: Edge[] = [
+  {
+    id: "fo",
+    type: "item",
+    source: "fa",
+    target: "ft0",
+    data: aggMember("Iron|fa", ["Iron|fa"], true, "fanout", FAR_COLUMN),
+  },
+  {
+    id: "f1",
+    type: "item",
+    source: "fa",
+    target: "ft1",
+    data: memberOnly(["Iron|fa"], FAR_COLUMN),
+  },
+  {
+    id: "f2",
+    type: "item",
+    source: "fa",
+    target: "ft2",
+    data: memberOnly(["Iron|fa"], FAR_COLUMN),
+  },
+  {
+    id: "fx",
+    type: "item",
+    source: "fu",
+    target: "fv",
+    data: loneData("Copper"),
+  },
+];
+
+describe("canvas/focus-dim far-only trunk hover", () => {
+  it("shared-stretch hover lights the whole far-only group", async () => {
+    const { container } = renderWith(FAR_NODES, FAR_EDGES);
+    fireEvent.mouseEnter(await sharedEl(container, "f1", "Iron|fa"));
+    await waitFor(async () => {
+      expect(await edgeDimmed(container, "fx")).toBe(true);
+    });
+    for (const id of ["fo", "f1", "f2"]) {
+      expect(await edgeDimmed(container, id), id).toBe(false);
+    }
+  });
+
+  it("branch hover lights that member alone and keeps the total lit", async () => {
+    const { container } = renderWith(FAR_NODES, FAR_EDGES);
+    await waitForChipIds(container, ["item-edge-fo-drop"]);
+    fireEvent.mouseEnter(await edgeEl(container, "f1"));
+    await waitFor(async () => {
+      expect(await edgeDimmed(container, "f2")).toBe(true);
+    });
+    expect(await edgeDimmed(container, "f1")).toBe(false);
+    // The far owner is the member elected to DRAW the trunk's total: its stroke
+    // dims like any other sibling, while the total it carries stays readable.
+    expect(await edgeDimmed(container, "fo")).toBe(true);
+    expect(chipDimmed(container, "item-edge-fo-drop")).toBe(false);
+    expect(await edgeDimmed(container, "fx")).toBe(true);
+  });
+});
+
+// The two carve-outs of the shared-stretch rule, where a member is in a trunk
+// the geometry of this edge cannot express. Neither falls back to whole-group
+// hover: the member simply has no shared path for that key.
+const CARVE_NODES = gridNodes([
+  ["ca", 0, 0],
+  ["ct", 1600, 0],
+  ["ct2", 1600, 300],
+]);
+
+const CARVE_OUT_KEY = "Iron|ca";
+const CARVE_IN_KEY = "Iron|ct|in";
+
+const CARVE_EDGES: Edge[] = [
+  // Far on BOTH sides: it carries two keys but one bend column, and the fan-out
+  // side wins it, so its fan-in group gets no stretch on this edge.
+  {
+    id: "cboth",
+    type: "item",
+    source: "ca",
+    target: "ct",
+    data: memberOnly([CARVE_OUT_KEY, CARVE_IN_KEY], {
+      bendX: 800,
+      fanoutColumn: true,
+    }),
+  },
+  // Membership only: its trunk was dropped for want of geometry, so no run of
+  // this polyline is known to be shared.
+  {
+    id: "cnone",
+    type: "item",
+    source: "ca",
+    target: "ct2",
+    data: memberOnly([CARVE_OUT_KEY]),
+  },
+];
+
+describe("canvas/focus-dim shared-stretch carve-outs", () => {
+  it("draws one shared path for a member far on both sides", async () => {
+    const { container } = renderWith(CARVE_NODES, CARVE_EDGES);
+    await sharedEl(container, "cboth", CARVE_OUT_KEY);
+    expect(sharedCount(container, "cboth")).toBe(1);
+  });
+
+  it("draws none for a membership-only member", async () => {
+    const { container } = renderWith(CARVE_NODES, CARVE_EDGES);
+    await edgeEl(container, "cnone");
+    expect(sharedCount(container, "cnone")).toBe(0);
+  });
+});
+
+// A ten-member fan-out trunk drawn in all three treatments at once: three near
+// members retyped into the bus shape, six far members pinned to the column, and
+// one backward member on its detour rail (its target stands left of its source).
+const MIXED_NODES = gridNodes([
+  ["xa", 900, 0],
+  ["xn0", 1400, 0],
+  ["xn1", 1400, 150],
+  ["xn2", 1400, 300],
+  ["xf0", 2400, 0],
+  ["xf1", 2400, 150],
+  ["xf2", 2400, 300],
+  ["xf3", 2400, 450],
+  ["xf4", 2400, 600],
+  ["xf5", 2400, 750],
+  ["xb0", 0, 400],
+  ["xu", 0, 1200],
+  ["xv", 1400, 1200],
+]);
+
+const MIXED_KEY = "Iron|xa";
+const MIXED_NEAR = ["xn0", "xn1", "xn2"];
+const MIXED_FAR = ["xf0", "xf1", "xf2", "xf3", "xf4", "xf5"];
+
+// The one column the three treatments share: the near members' junction, the
+// far members' bend, and the backward member's right-hand rail.
+const MIXED_COLUMN = 1150;
+
+const MIXED_EDGES: Edge[] = [
+  ...MIXED_NEAR.map((target, i) => ({
+    id: `mn${i}`,
+    type: "bus",
+    source: "xa",
+    target,
+    data: aggMember(MIXED_KEY, [MIXED_KEY], i === 0, "fanout", {
+      junctionX: MIXED_COLUMN,
+    }),
+  })),
+  ...MIXED_FAR.map((target, i) => ({
+    id: `mf${i}`,
+    type: "item",
+    source: "xa",
+    target,
+    data: memberOnly([MIXED_KEY], {
+      bendX: MIXED_COLUMN,
+      fanoutColumn: true,
+    }),
+  })),
+  {
+    id: "mb0",
+    type: "item",
+    source: "xa",
+    target: "xb0",
+    data: memberOnly([MIXED_KEY], { railXRight: MIXED_COLUMN }),
+  },
+  {
+    id: "mx",
+    type: "item",
+    source: "xu",
+    target: "xv",
+    data: loneData("Copper"),
+  },
+];
+
+const MIXED_MEMBERS = [
+  "mn0",
+  "mn1",
+  "mn2",
+  "mf0",
+  "mf1",
+  "mf2",
+  "mf3",
+  "mf4",
+  "mf5",
+  "mb0",
+];
+
+describe("canvas/focus-dim mixed-treatment trunk hover", () => {
+  it("shared-stretch hover lights all ten members, near, far and backward", async () => {
+    expect(MIXED_MEMBERS).toHaveLength(10);
+    const { container } = renderWith(MIXED_NODES, MIXED_EDGES);
+    fireEvent.mouseEnter(await sharedEl(container, "mn0", MIXED_KEY));
+    await waitFor(async () => {
+      expect(await edgeDimmed(container, "mx")).toBe(true);
+    });
+    for (const id of MIXED_MEMBERS) {
+      expect(await edgeDimmed(container, id), id).toBe(false);
+    }
+  });
+
+  it("lights the same ten from the backward member's own rail stretch", async () => {
+    // The backward member leaves the shared port on the trunk's column like
+    // every other member, so its rail carries the trunk's stretch too.
+    const { container } = renderWith(MIXED_NODES, MIXED_EDGES);
+    fireEvent.mouseEnter(await sharedEl(container, "mb0", MIXED_KEY));
+    await waitFor(async () => {
+      expect(await edgeDimmed(container, "mx")).toBe(true);
+    });
+    for (const id of MIXED_MEMBERS) {
+      expect(await edgeDimmed(container, id), id).toBe(false);
+    }
+  });
+
+  it("backward-member branch hover lights that rail alone", async () => {
+    const { container } = renderWith(MIXED_NODES, MIXED_EDGES);
+    fireEvent.mouseEnter(await edgeEl(container, "mb0"));
+    await waitFor(async () => {
+      expect(await edgeDimmed(container, "mf0")).toBe(true);
+    });
+    expect(await edgeDimmed(container, "mb0")).toBe(false);
+    expect(await edgeDimmed(container, "mn0")).toBe(true);
+    expect(await edgeDimmed(container, "mn1")).toBe(true);
+  });
+});
+
+// Dual membership: edge "X" is a member of fan-out trunk A = {A1, A2, X} and of
+// fan-in trunk B = {X, B1, B2}, so it draws A's stretch on its source row, B's
+// stretch on its target row, and its own middle leg in between. Each of the
+// three lights a different set, and no hover reaches through X from one trunk
+// into the other.
+const DUAL_NODES = gridNodes([
+  ["da", 0, 0],
+  ["dt1", 1200, 0],
+  ["dt2", 1200, 200],
+  ["dtb", 1200, 500],
+  ["db1", 0, 500],
+  ["db2", 0, 700],
+]);
+
+const KEY_A = "Iron|da";
+const KEY_B = "Iron|dtb|in";
+
+const DUAL_EDGES: Edge[] = [
+  {
+    id: "A1",
+    type: "bus",
+    source: "da",
+    target: "dt1",
+    data: aggMember(KEY_A, [KEY_A], true, "fanout"),
+  },
+  // Un-annotated: reads as an owner of A too, so the union below is the whole of
+  // both groups rather than each group's elected owner.
+  {
+    id: "A2",
+    type: "bus",
+    source: "da",
+    target: "dt2",
+    data: aggMember(KEY_A, [KEY_A], undefined, "fanout"),
+  },
+  // Drawn as the near fan-out member it is, handing its flow to B's merge
+  // column at faninJoinX: source row shared with A, target row past the merge
+  // shared with B, the middle leg its own.
+  {
+    id: "X",
+    type: "bus",
+    source: "da",
+    target: "dtb",
+    data: aggMember(KEY_A, [KEY_A, KEY_B], false, "fanout", {
+      junctionX: 400,
+      faninJoinX: 800,
+    }),
+  },
+  {
+    id: "B1",
+    type: "bus",
+    source: "db1",
+    target: "dtb",
+    data: aggMember(KEY_B, [KEY_B], true, "fanin"),
+  },
+  {
+    id: "B2",
+    type: "bus",
+    source: "db2",
+    target: "dtb",
+    data: aggMember(KEY_B, [KEY_B], undefined, "fanin"),
+  },
+];
+
+describe("canvas/focus-dim dual trunk membership", () => {
+  it("draws one shared path per trunk on the dual member", async () => {
+    const { container } = renderWith(DUAL_NODES, DUAL_EDGES);
+    await sharedEl(container, "X", KEY_A);
+    await sharedEl(container, "X", KEY_B);
+    expect(sharedCount(container, "X")).toBe(2);
+  });
+
+  it("lights group A only from the dual member's A stretch", async () => {
+    const { container } = renderWith(DUAL_NODES, DUAL_EDGES);
+    fireEvent.mouseEnter(await sharedEl(container, "X", KEY_A));
+    await waitFor(async () => {
+      expect(await edgeDimmed(container, "B1")).toBe(true);
+    });
+    expect(await edgeDimmed(container, "B2")).toBe(true);
+    for (const id of ["A1", "A2", "X"]) {
+      expect(await edgeDimmed(container, id), id).toBe(false);
+    }
+  });
+
+  it("lights group B only from the dual member's B stretch", async () => {
+    const { container } = renderWith(DUAL_NODES, DUAL_EDGES);
+    fireEvent.mouseEnter(await sharedEl(container, "X", KEY_B));
+    await waitFor(async () => {
+      expect(await edgeDimmed(container, "A1")).toBe(true);
+    });
+    expect(await edgeDimmed(container, "A2")).toBe(true);
+    for (const id of ["B1", "B2", "X"]) {
+      expect(await edgeDimmed(container, id), id).toBe(false);
+    }
+  });
+
+  it("lights the dual member alone on its own middle leg", async () => {
+    const { container } = renderWith(DUAL_NODES, DUAL_EDGES);
+    fireEvent.mouseEnter(await edgeEl(container, "X"));
+    await waitFor(async () => {
+      expect(await edgeDimmed(container, "A1")).toBe(true);
+    });
+    for (const id of ["A2", "B1", "B2"]) {
+      expect(await edgeDimmed(container, id), id).toBe(true);
+    }
+    expect(await edgeDimmed(container, "X")).toBe(false);
+  });
+});
+
+// Fan-in symmetry: the same three treatments on a trunk whose members converge
+// on one target port.
+const FANIN_NODES = gridNodes([
+  ["ia", 0, 0],
+  ["ib", 0, 200],
+  ["ic", 0, 400],
+  ["it", 1400, 200],
+  ["iu", 0, 900],
+  ["iv", 1400, 900],
+]);
+
+const KEY_IN = "Iron|it|in";
+
+const FANIN_EDGES: Edge[] = [
+  {
+    id: "i1",
+    type: "bus",
+    source: "ia",
+    target: "it",
+    data: aggMember(KEY_IN, [KEY_IN], true, "fanin"),
+  },
+  {
+    id: "i2",
+    type: "bus",
+    source: "ib",
+    target: "it",
+    data: aggMember(KEY_IN, [KEY_IN], false, "fanin"),
+  },
+  {
+    id: "i3",
+    type: "item",
+    source: "ic",
+    target: "it",
+    data: memberOnly([KEY_IN], { bendX: 700, faninColumn: true }),
+  },
+  {
+    id: "ix",
+    type: "item",
+    source: "iu",
+    target: "iv",
+    data: loneData("Copper"),
+  },
+];
+
+describe("canvas/focus-dim fan-in trunk hover", () => {
+  it("shared-stretch hover lights the whole fan-in group", async () => {
+    const { container } = renderWith(FANIN_NODES, FANIN_EDGES);
+    fireEvent.mouseEnter(await sharedEl(container, "i1", KEY_IN));
+    await waitFor(async () => {
+      expect(await edgeDimmed(container, "ix")).toBe(true);
+    });
+    for (const id of ["i1", "i2", "i3"]) {
+      expect(await edgeDimmed(container, id), id).toBe(false);
+    }
+  });
+
+  it("lights the whole group from a far member's shared leg too", async () => {
+    const { container } = renderWith(FANIN_NODES, FANIN_EDGES);
+    fireEvent.mouseEnter(await sharedEl(container, "i3", KEY_IN));
+    await waitFor(async () => {
+      expect(await edgeDimmed(container, "ix")).toBe(true);
+    });
+    for (const id of ["i1", "i2", "i3"]) {
+      expect(await edgeDimmed(container, id), id).toBe(false);
+    }
+  });
+
+  it("far-member branch hover lights that member alone", async () => {
+    const { container } = renderWith(FANIN_NODES, FANIN_EDGES);
+    fireEvent.mouseEnter(await edgeEl(container, "i3"));
+    await waitFor(async () => {
+      expect(await edgeDimmed(container, "i2")).toBe(true);
+    });
+    expect(await edgeDimmed(container, "i3")).toBe(false);
+    expect(await edgeDimmed(container, "i1")).toBe(true);
   });
 });

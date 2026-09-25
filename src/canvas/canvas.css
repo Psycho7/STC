@@ -468,8 +468,7 @@
 }
 
 /* Override the generic .ak-app-shell button rule inside the topbar so the
-   locale switcher + action buttons keep their topbar look. */
-.ak-app-shell .topbar select,
+   action buttons keep their topbar look. */
 .ak-app-shell .topbar button {
   background: var(--ak-bg-canvas);
   border: 1px solid var(--ak-divider);
@@ -483,7 +482,6 @@
   line-height: 26px;
 }
 
-.ak-app-shell .topbar select:hover,
 .ak-app-shell .topbar button:hover:not(:disabled) {
   border-color: var(--ak-divider-strong);
   color: var(--ak-text-primary);
@@ -1402,8 +1400,14 @@
    scales relative to the edge's zoom-compensated --edge-base-width so the lit
    edge always dominates its dimmed neighbours; the 2.25px floor preserves the
    emphasis at zoom 1 where the base is only 1px. !important beats the inline
-   strokeWidth the edge sets from the same custom property. */
-.ak-canvas-theme.hover-active .react-flow__edge:not(.dimmed) path {
+   strokeWidth the edge sets from the same custom property. Only the ink path
+   is selected: the invisible hit paths (the interaction path, the
+   shared-stretch paths) carry stroke-width 20 so a pointer a few px off the
+   centreline still hits the edge, and shrinking them would flicker the hover
+   on and off. */
+.ak-canvas-theme.hover-active
+  .react-flow__edge:not(.dimmed)
+  path.react-flow__edge-path {
   stroke-width: max(2.25px, calc(var(--edge-base-width, 1px) * 1.6)) !important;
   filter: brightness(1.35);
 }
@@ -2781,6 +2785,21 @@
   letter-spacing: 0.22em;
   text-transform: uppercase;
 }
+/* The dialog portals out of .ak-app-shell, so the shell-wide control rules
+   never reach the locale select; it restates them here. */
+.settings-dialog select {
+  background: var(--ak-bg-tertiary);
+  color: var(--ak-text-primary);
+  border: 1px solid var(--ak-divider);
+  padding: 4px 6px;
+  font-family: var(--font-ui);
+  font-size: 13px;
+}
+.settings-dialog select:focus {
+  outline: 1px solid var(--ak-accent-cyan);
+  outline-offset: -1px;
+  border-color: var(--ak-accent-cyan);
+}
 .settings-reset {
   background: transparent;
   border: 1px solid var(--ak-divider);
@@ -2798,6 +2817,37 @@
 }
 .settings-reset:focus-visible,
 .settings-disclosure:focus-visible {
+  outline: 2px solid var(--ak-accent-cyan);
+  outline-offset: 2px;
+}
+/* The area choices (#124) as one segmented row: a settlement per pack
+   location. Wraps rather than scrolls, so a pack with more
+   settlements still shows every option. */
+.settings-areas {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.settings-area {
+  flex: 1 1 auto;
+  background: var(--ak-bg-secondary);
+  border: 1px solid var(--ak-divider);
+  color: var(--ak-text-secondary);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  padding: 6px 12px;
+  cursor: pointer;
+}
+.settings-area:hover {
+  border-color: var(--ak-accent-cyan-soft);
+  color: var(--ak-text-primary);
+}
+.settings-area.selected {
+  border-color: var(--ak-accent-cyan);
+  color: var(--ak-accent-cyan);
+}
+.settings-area:focus-visible {
   outline: 2px solid var(--ak-accent-cyan);
   outline-offset: 2px;
 }

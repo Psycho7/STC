@@ -23,6 +23,21 @@ function Dialog({ onClose }: { onClose: () => void }) {
   );
 }
 
+// The settings dialog's locale control is a <select>, so the trap has to
+// count one as a stop; here it is the first, and the wrap proves it.
+function SelectDialog() {
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const trapTab = useModalDialog(dialogRef, vi.fn());
+  return (
+    <div ref={dialogRef} role="dialog" onKeyDown={trapTab}>
+      <select aria-label="locale">
+        <option value="en">English</option>
+      </select>
+      <button type="button">close</button>
+    </div>
+  );
+}
+
 test("a document-level Escape calls onClose", () => {
   const onClose = vi.fn();
   render(<Dialog onClose={onClose} />);
@@ -49,6 +64,16 @@ test("Tab off the last stop wraps to the first, Shift+Tab the other way", () => 
 
   fireEvent.keyDown(first, { key: "Tab", shiftKey: true });
   expect(document.activeElement).toBe(last);
+});
+
+test("a select is a Tab stop, so Shift+Tab off it wraps to the last stop", () => {
+  render(<SelectDialog />);
+  const select = screen.getByRole("combobox", { name: "locale" });
+  const close = screen.getByRole("button", { name: "close" });
+
+  select.focus();
+  fireEvent.keyDown(select, { key: "Tab", shiftKey: true });
+  expect(document.activeElement).toBe(close);
 });
 
 test("Tab from a middle stop and non-Tab keys are left alone", () => {
