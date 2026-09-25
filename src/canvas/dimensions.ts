@@ -202,9 +202,3 @@ export const HOVER_INTENT_MS = 150;
 // assigns; test/canvas/ProductNode.test.tsx re-derives it from the stylesheet.
 export const PRODUCT_WIDTH = 148;
 export const PRODUCT_HEIGHT = 71;
-
-// Top padding ELK reserves inside a container so a member card flush against the
-// corner cannot cover the slab's caption strip. Must stay at or above the
-// .rf-group-caption height in canvas.css; the surplus is breathing room, so the
-// pin is an inequality rather than an equality.
-export const CONTAINER_CAPTION_BAND = 28;

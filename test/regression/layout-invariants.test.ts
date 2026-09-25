@@ -164,26 +164,24 @@ describe("layout-invariants: root layout options", () => {
     );
   });
 
-  it("container spacing mirrors the root spacing pair", () => {
-    // A slab interior does not inherit the root spacing options, so the two
-    // strings are set a second time on every container. If they drift apart,
-    // slab members pack at ELK's default spacing and the corridor stops being
-    // wide enough for a rate chip. Pin both sides against the same constants.
+  it("a container adds no ELK node, so its members take the root spacing", () => {
+    // A loop's members are root children, container members first in
+    // container order, so no interior exists whose spacing could drift from
+    // the root pair.
     const g = renderPlanToElkGraph(buildContainerInput());
-    const container = g.children.find((c) => c.id === CONTAINER_ID);
-    expect(container?.children?.length).toBe(2);
-    expect(container?.layoutOptions?.["elk.spacing.nodeNode"]).toBe(
+    expect(g.children.map((c) => c.id)).toEqual([
+      "u:recipe",
+      "u:recipe2",
+      "u:loop",
+    ]);
+    expect(g.children.some((c) => c.id === CONTAINER_ID)).toBe(false);
+    expect(g.children.every((c) => (c.children ?? []).length === 0)).toBe(true);
+    expect(g.layoutOptions?.["elk.spacing.nodeNode"]).toBe(
       String(NODE_NODE_SPACING),
     );
-    expect(
-      container?.layoutOptions?.["elk.layered.spacing.nodeNodeBetweenLayers"],
-    ).toBe(String(BETWEEN_LAYERS_SPACING));
-    expect(container?.layoutOptions?.["elk.spacing.nodeNode"]).toBe(
-      g.layoutOptions?.["elk.spacing.nodeNode"],
+    expect(g.layoutOptions?.["elk.layered.spacing.nodeNodeBetweenLayers"]).toBe(
+      String(BETWEEN_LAYERS_SPACING),
     );
-    expect(
-      container?.layoutOptions?.["elk.layered.spacing.nodeNodeBetweenLayers"],
-    ).toBe(g.layoutOptions?.["elk.layered.spacing.nodeNodeBetweenLayers"]);
   });
 
   it("cycleBreaking strategy = DEPTH_FIRST", () => {

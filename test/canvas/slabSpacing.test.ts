@@ -36,11 +36,12 @@ const mkRecipeUnit = (
   containerId,
 });
 
-describe("loop-slab interior spacing", () => {
-  it("gives slab members a full inter-layer corridor", async () => {
-    // Two members of one loop-box slab, wired a -> b so ELK layers them
-    // horizontally. The corridor between them has to hold a rate chip, so it
-    // must be at least as wide as an open-layout corridor.
+describe("loop member spacing", () => {
+  it("gives loop members a full inter-layer corridor", async () => {
+    // Two members of one loop, wired a -> b so ELK layers them horizontally.
+    // The corridor between them has to hold a rate chip, so it must be at least
+    // as wide as an open-layout corridor. A loop is no ELK node, so its members
+    // are root cards and take the root spacing.
     const recipeA = mkRecipe("r:a", [], ["x"]);
     const recipeB = mkRecipe("r:b", ["x"], []);
     const container: LoopBoxContainer = {
@@ -73,15 +74,16 @@ describe("loop-slab interior spacing", () => {
       ]),
       itemById: new Map(),
     });
-    const members = result.nodes.filter(
-      (n) => (n as { parentId?: string }).parentId === "lc:1",
-    );
+    const members = result.nodes.filter((n) => ["u:a", "u:b"].includes(n.id));
     expect(members.length).toBe(2);
+    for (const m of members) {
+      expect((m as { parentId?: string }).parentId).toBeUndefined();
+    }
     const [left, right] = [...members].sort(
       (a, b) => a.position.x - b.position.x,
     );
     // Recipe nodes carry their size only through measureRecipe (the RF node
-    // itself has no width; only group nodes get one), so measure the left card
+    // itself has no width), so measure the left card
     // rather than reading a field that is undefined here.
     const leftWidth = measureRecipe(
       left!.id === "u:a" ? recipeA : recipeB,

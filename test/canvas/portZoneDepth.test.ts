@@ -22,7 +22,6 @@ import {
   CATALYST_BLOCK_GAP,
   CHIP_BOX_HEIGHT,
   CHIP_BOX_WIDTH,
-  CONTAINER_CAPTION_BAND,
   PRODUCT_HEIGHT,
   PRODUCT_WIDTH,
   RECIPE_HEAD_ICON_COL,
@@ -388,17 +387,6 @@ describe("the chip box bounds the widest and tallest rendered chip", () => {
 
     expect(cssValue(".flow-chip", "box-sizing")).toBe("border-box");
     expect(sprite + 2 * padY + 2 * border).toBe(CHIP_BOX_HEIGHT);
-  });
-});
-
-describe("a container's top band clears its caption strip", () => {
-  it("reserves at least the .rf-group-caption height", () => {
-    // An inequality, not a pair: the band is ELK padding and the surplus is
-    // breathing room above the strip. Only a band SHORTER than the caption is
-    // a defect -- a member card would then be laid out under the label.
-    expect(CONTAINER_CAPTION_BAND).toBeGreaterThanOrEqual(
-      cssPx(".rf-group-caption", "height"),
-    );
   });
 });
 

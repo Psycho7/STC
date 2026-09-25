@@ -1,10 +1,10 @@
 // Boundary input topology: which cards an imported item gets.
 //
-// A container bucket earns its own card because an edge must enter a compound
-// node once; consumers in no container share the item's single card and draw
-// straight from it. These suites pin the three shapes that come out of that
-// rule (loose only, containers only, mixed) and sweep the corpus for leftover
-// per-consumer slice ids.
+// Every consumer shares the item's single card per pool and draws straight
+// from it, a loop member included: a loop is no compound node, so no edge has
+// to enter one once. These suites pin that shape on a plan with no loop, on a
+// plan whose consumers all sit in loops, and on a mixed plan, and sweep the
+// corpus for leftover per-consumer slice ids.
 
 import { describe, it, expect } from "vitest";
 import Fraction from "fraction.js";
@@ -22,8 +22,8 @@ import { MULTI_TARGET_PLANS } from "./corpus-plans";
 
 const RATE_ONE = { num: "1", denom: "1" } as const;
 
-// game v1.4's gas machines reroute the xiranite chain, so the water fanout the
-// aggregate fixture needs only forms on the pre-gas topology.
+// game v1.4's gas machines reroute the xiranite chain, so the loop-fed water
+// draw this fixture needs only forms on the pre-gas topology.
 const legacyPack: RecipePack = withoutGasMachines(pack);
 
 type SolvedPlan = {
@@ -104,62 +104,59 @@ describe("boundary inputs: loose consumers share one card", () => {
   });
 });
 
-describe("boundary inputs: containers keep their slice cards", () => {
-  it("fans liquid_water out to per-container slices on the legacy pack", () => {
+describe("boundary inputs: loop members draw from the item's one card", () => {
+  it("feeds liquid_water to its loop consumers straight from u:in on the legacy pack", () => {
     const { plan } = renderPlanFor(["xiranite_enr_powder"], legacyPack);
+    // Premise: the consumers sit in loops, which used to mint a slice each.
+    expect(plan.containers.length).toBeGreaterThan(0);
     const inputs = inputsForItem(plan, "liquid_water");
-    const aggregate = inputs.find((u) => u.isAggregate);
-    expect(aggregate?.id).toBe("u:in:liquid_water");
+    expect(inputs.map((u) => u.id)).toEqual(["u:in:liquid_water"]);
+    const card = inputs[0]!;
+    expect(card.isAggregate).toBeUndefined();
+    expect(card.isFanout).toBeUndefined();
+    expect(card.parentRate).toBeUndefined();
 
-    const slices = inputs.filter((u) => u.isFanout);
-    expect(slices.length).toBeGreaterThan(0);
-    for (const slice of slices) {
-      expect(slice.parentRate).toEqual(aggregate!.rate);
-      // Every slice is a container slice: its id is the aggregate id plus a
-      // container segment, and the aggregate feeds it exactly once.
-      expect(slice.id.startsWith("u:in:liquid_water:")).toBe(true);
-      const inbound = plan.edges.filter(
-        (e) => e.toUnit === slice.id && e.item === "liquid_water",
-      );
-      expect(inbound.map((e) => e.fromUnit)).toEqual(["u:in:liquid_water"]);
-      expect(inbound[0]!.rate.equals(rationalFromString(slice.rate))).toBe(
-        true,
-      );
-    }
-
+    const outEdges = edgesFrom(plan, card.id, "liquid_water");
+    const consumers = new Set(
+      plan.units
+        .filter((u) => u.kind === "recipe" && u.containerId !== undefined)
+        .map((u) => u.id),
+    );
+    expect(outEdges.some((e) => consumers.has(e.toUnit))).toBe(true);
+    expect(sumRates(outEdges).equals(rationalFromString(card.rate))).toBe(true);
     expect(plan.units.some((u) => u.id.includes(":tap:"))).toBe(false);
   });
 });
 
-// bottled_food_5 draws liquid_water into one container plus three loose
-// consumers.
+// bottled_food_5 draws liquid_water into one loop plus three loose consumers.
 const MIXED_RECIPE = "bottled_food_5";
 const MIXED_ITEM = "liquid_water";
 
-describe("boundary inputs: container slices plus loose consumers", () => {
-  it("hangs the loose consumers off the aggregate and balances its rate", () => {
+describe("boundary inputs: loop and loose consumers share one card", () => {
+  it("draws every consumer straight from the card and balances its rate", () => {
     const { plan } = renderPlanFor([MIXED_RECIPE]);
     const inputs = inputsForItem(plan, MIXED_ITEM);
-    const aggregate = inputs.find((u) => u.isAggregate);
-    expect(aggregate?.id).toBe(`u:in:${MIXED_ITEM}`);
+    expect(inputs.map((u) => u.id)).toEqual([`u:in:${MIXED_ITEM}`]);
+    const card = inputs[0]!;
+    expect(card.isAggregate).toBeUndefined();
 
-    const sliceIds = new Set(inputs.filter((u) => u.isFanout).map((u) => u.id));
-    expect(sliceIds.size).toBeGreaterThan(0);
-    // Every input card for the item is either the aggregate or a slice: the
-    // loose bucket contributes none.
-    expect(inputs.length).toBe(sliceIds.size + 1);
-
-    const outEdges = edgesFrom(plan, aggregate!.id, MIXED_ITEM);
-    const looseEdges = outEdges.filter((e) => !sliceIds.has(e.toUnit));
-    expect(looseEdges.length).toBeGreaterThan(0);
-    // Loose edges land on consumers, never on another input card.
-    const inputIds = new Set(inputs.map((u) => u.id));
-    expect(looseEdges.some((e) => inputIds.has(e.toUnit))).toBe(false);
-
-    // Aggregate rate == sum(slice inbound) + sum(direct loose edges), exactly.
-    expect(sumRates(outEdges).equals(rationalFromString(aggregate!.rate))).toBe(
-      true,
+    const outEdges = edgesFrom(plan, card.id, MIXED_ITEM);
+    const inLoop = new Set(
+      plan.units
+        .filter((u) => u.kind === "recipe" && u.containerId !== undefined)
+        .map((u) => u.id),
     );
+    // Both kinds of consumer hang off the one card.
+    expect(outEdges.some((e) => inLoop.has(e.toUnit))).toBe(true);
+    expect(outEdges.some((e) => !inLoop.has(e.toUnit))).toBe(true);
+    // Every edge lands on a consumer, never on another input card.
+    const inputIds = new Set(
+      plan.units.filter(isInputProductUnit).map((u) => u.id),
+    );
+    expect(outEdges.some((e) => inputIds.has(e.toUnit))).toBe(false);
+
+    // Card rate == sum of its edges, exactly.
+    expect(sumRates(outEdges).equals(rationalFromString(card.rate))).toBe(true);
   });
 });
 

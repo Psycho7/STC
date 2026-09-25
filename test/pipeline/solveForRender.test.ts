@@ -217,15 +217,12 @@ describe("solveFromPlan: the caps the drawn plan exhausts", () => {
     expect(out.cappedAtLimit).toEqual([]);
   });
 
-  it("reports a cap the plan draws in full through a fanout pool", () => {
+  it("reports a cap the plan draws in full through a loop-fed pool", () => {
     vi.stubEnv("DEV", false);
     try {
-      // bottled_food_5 draws liquid_water into a container loop plus loose
-      // consumers, so the boundary emits an aggregate plus isFanout slices.
-      // The aggregate alone carries the pool's rateCap and the item's total
-      // draw; each slice carries only its per-container share and no cap, so
-      // the fanout skip is what stops a slice's share from reading as the
-      // item's draw.
+      // bottled_food_5 draws liquid_water into a loop plus loose consumers.
+      // The item's one boundary card carries the pool's rateCap and the whole
+      // draw, loop members included, so the draw reads against the cap.
       const out = solveFromPlan({
         ...defaultPlan(pack),
         targets: [
@@ -239,7 +236,7 @@ describe("solveFromPlan: the caps the drawn plan exhausts", () => {
       const waterUnits = out.plan.units
         .filter(isInputProductUnit)
         .filter((u) => u.itemId === "liquid_water");
-      expect(waterUnits.some((u) => u.isFanout)).toBe(true);
+      expect(waterUnits.map((u) => u.id)).toEqual(["u:in:liquid_water"]);
       expect(out.cappedAtLimit).toEqual(["liquid_water"]);
     } finally {
       vi.unstubAllEnvs();

@@ -1,6 +1,5 @@
 import { describe, it, expect } from "vitest";
 import Fraction from "fraction.js";
-import type { Recipe } from "@aef/schema";
 
 import {
   layoutRenderPlan,
@@ -13,7 +12,6 @@ import {
 import {
   PORT_HEIGHT,
   PORT_WIDTH,
-  RECIPE_WIDTH,
   loopBoxDimensions,
 } from "../../src/canvas/dimensions";
 import { measureRecipe } from "../../src/canvas/recipeGeometry";
@@ -169,7 +167,7 @@ describe("renderPlanToElkGraph: unit dimensions", () => {
 });
 
 describe("renderPlanToElkGraph: containers", () => {
-  it("nests blueprint-group members as children of the container node", () => {
+  it("flattens container members to root children in container order", () => {
     const recipe = mkRecipe("r:a", ["i"], ["o"]);
     const recipeById = new Map([["r:a", recipe]]);
     const container: BlueprintGroupContainer = {
@@ -191,14 +189,11 @@ describe("renderPlanToElkGraph: containers", () => {
       recipeById,
       itemById: new Map(),
     });
-    const groupNode = findChild(graph, "g:1");
-    expect(groupNode).toBeDefined();
-    expect(groupNode?.children?.map((c) => c.id).sort()).toEqual([
-      "u:a",
-      "u:b",
-      "u:c",
-    ]);
-    expect(graph.children.filter((c) => c.id !== "g:1")).toHaveLength(0);
+    // No container node: the members are root children, in the order the
+    // container lists its units, and none of them is compound.
+    expect(findChild(graph, "g:1")).toBeUndefined();
+    expect(graph.children.map((c) => c.id)).toEqual(["u:a", "u:b", "u:c"]);
+    expect(graph.children.every((c) => c.children === undefined)).toBe(true);
   });
 
   it("places top-level units (no containerId) as direct root children", () => {
@@ -323,7 +318,7 @@ describe("layoutRenderPlan: end-to-end", () => {
     expect(a!.position.x).not.toBe(b!.position.x);
   });
 
-  it("places blueprint-group members as parented React Flow nodes", async () => {
+  it("places container members as top-level React Flow nodes", async () => {
     const recipe = mkRecipe("r:a", [], ["o"]);
     const container: BlueprintGroupContainer = {
       kind: "blueprint-group",
@@ -344,16 +339,15 @@ describe("layoutRenderPlan: end-to-end", () => {
       recipeById: new Map([["r:a", recipe]]),
       itemById: new Map(),
     });
-    const groupRF = result.nodes.find((n) => n.id === "g:1");
-    expect(groupRF?.type).toBe("group");
+    expect(result.nodes.find((n) => n.id === "g:1")).toBeUndefined();
+    expect(result.nodes.some((n) => n.type === "group")).toBe(false);
     const members = result.nodes.filter((n) =>
       ["u:a", "u:b", "u:c"].includes(n.id),
     );
     expect(members).toHaveLength(3);
     for (const m of members) {
-      expect((m as { parentId?: string }).parentId).toBe("g:1");
+      expect((m as { parentId?: string }).parentId).toBeUndefined();
     }
-    expect((groupRF?.width ?? 0) >= RECIPE_WIDTH).toBe(true);
   });
 
   it("resolves inputOrder to the producers' vertical order (crossing-free ports)", async () => {
@@ -473,7 +467,7 @@ describe("layoutRenderPlan: end-to-end", () => {
     expect(rowOrder("u:b")).toEqual(["cup", "sew"]);
   });
 
-  it("treats a loop-box container's loop unit as a single sized outer node", async () => {
+  it("sizes a loop-box container's loop unit as a root node", async () => {
     const interior = { width: 240, height: 180 };
     const loopContainer: LoopBoxContainer = {
       kind: "loop-box",
@@ -496,9 +490,9 @@ describe("layoutRenderPlan: end-to-end", () => {
       itemById: new Map(),
       interiorByLoopId: new Map([["scc:1", interior]]),
     });
-    const containerNode = findChild(graph, "lc:1");
-    const inner = containerNode?.children?.[0];
-    expect(inner?.id).toBe("l:0");
+    expect(findChild(graph, "lc:1")).toBeUndefined();
+    const inner = findChild(graph, "l:0");
+    expect(inner).toBeDefined();
     const expectedOuter = loopBoxDimensions(interior);
     expect(inner?.width).toBe(expectedOuter.width);
     expect(inner?.height).toBe(expectedOuter.height);
@@ -511,7 +505,7 @@ describe("layoutRenderPlan: end-to-end", () => {
     });
     const loopRF = laid.nodes.find((n) => n.id === "l:0");
     expect(loopRF?.type).toBe("loop");
-    expect((loopRF as { parentId?: string }).parentId).toBe("lc:1");
+    expect((loopRF as { parentId?: string }).parentId).toBeUndefined();
   });
 });
 
@@ -539,62 +533,5 @@ describe("fromElkRenderLayout", () => {
     expect(edges[0]?.markerEnd).toEqual({ type: "arrowclosed" });
     expect(edges[0]?.sourceHandle).toBe("out:x");
     expect(edges[0]?.targetHandle).toBe("in:x");
-  });
-
-  it("stamps each loop box with its members' primary outputs", () => {
-    const recipes: Recipe[] = [
-      mkRecipe("r:a", ["aseed"], ["a"]),
-      mkRecipe("r:aseed", ["a"], ["aseed"]),
-      mkRecipe("r:b", ["bseed"], ["b"]),
-      mkRecipe("r:bseed", ["b"], ["bseed"]),
-    ];
-    const containers: LoopBoxContainer[] = [
-      {
-        kind: "loop-box",
-        id: "lc:1",
-        members: ["u:a1", "u:a2", "u:aseed"],
-        sccId: "scc:1",
-      },
-      {
-        kind: "loop-box",
-        id: "lc:2",
-        members: ["u:b", "u:bseed1", "u:bseed2"],
-        sccId: "scc:2",
-      },
-    ];
-    const plan: RenderPlan = {
-      units: [
-        // Two units share recipe r:a, so the caption must dedupe "a".
-        mkRecipeUnit("u:a1", "r:a", "lc:1"),
-        mkRecipeUnit("u:a2", "r:a", "lc:1"),
-        mkRecipeUnit("u:aseed", "r:aseed", "lc:1"),
-        mkRecipeUnit("u:b", "r:b", "lc:2"),
-        mkRecipeUnit("u:bseed1", "r:bseed", "lc:2"),
-        mkRecipeUnit("u:bseed2", "r:bseed", "lc:2"),
-      ],
-      edges: [],
-      containers,
-    };
-    const input: LayoutInput = {
-      plan,
-      recipeById: new Map(recipes.map((r) => [r.id, r])),
-      itemById: new Map(),
-    };
-    const graph = renderPlanToElkGraph(input);
-    const laid: ElkGraph = {
-      ...graph,
-      children: graph.children.map((c, i) => ({ ...c, x: i * 600, y: 0 })),
-      edges: graph.edges,
-    };
-    const { nodes } = fromElkRenderLayout(laid, input);
-    const groupData = (id: string) =>
-      nodes.find((n) => n.id === id)?.data as {
-        memberCount: number;
-        titleItems?: string[];
-      };
-    expect(groupData("lc:1").titleItems).toEqual(["a", "aseed"]);
-    expect(groupData("lc:2").titleItems).toEqual(["b", "bseed"]);
-    expect(groupData("lc:1").memberCount).toBe(3);
-    expect(groupData("lc:2").memberCount).toBe(3);
   });
 });
