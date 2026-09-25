@@ -451,7 +451,9 @@ const CROSSING_BASELINE: Record<string, number> = {
   // CATALYST EXAM FIXES 2026-09-15 (T6 with T2 / T3): 22 -> 24. Two of those
   // supply runs take the forward floor off the lines they shadowed, at rows the
   // taller cards moved. UP move, listed for ruling.
-  transmuters: 24,
+  //
+  // #192 gap column order: 24 -> 22, e:1 x e:11 no longer cross.
+  transmuters: 22,
   // ROUTING FINDINGS 2026-09-14 (docs/plans/2026-09-14-render-findings.md): the
   // two reported plans join the corpus. Both route several flows through one
   // corridor (a 14x refinery fan-in on script43-xiranite), so these are first
@@ -469,7 +471,9 @@ const CROSSING_BASELINE: Record<string, number> = {
   // couple of units of each other: the floor lifts them apart, and each run it
   // moves crosses the chain at its new level. Seven is the largest move in this
   // table. Both cells: UP moves, listed for ruling.
-  "copper-script43": 38,
+  //
+  // #192 gap column order: 38 -> 36, e:8 x e:18 no longer cross.
+  "copper-script43": 36,
   "script43-xiranite": 31,
 };
 

@@ -171,11 +171,28 @@ while rows every edge drops into from above reverse among themselves and put the
 bottom row leftmost, so a lower row's source sitting inside the upper row's drop
 does not braid the two.
 
+Every vertical in one gap stands in one column order: trunk junction columns,
+the bend columns of edges that skip a layer, entry columns, and the descent of a
+jogged leg. A horizontal on a port row can only be kept off a neighbouring run
+by where its column stands. So where one column's run leaves on a row within a
+chip box of the row another column's run arrives on, the arriving column
+stands left of the leaving one, whatever kind either is. That holds even when
+it moves a trunk column off its usual place at the edge of the gap. Where no
+such pair speaks, each kind keeps its own sense: trunks by port row, bends and
+entry columns by port row with the from-above reversal. A jogged leg's descent
+takes its place in the same order. It stands where the columns it is paired
+with allow, and a late drop leaves a slot open for a descent that must stand
+right of it.
+
 Forward horizontals keep a floor off each other, the horizontal sibling of the
 column floor under Fan-out and fan-in. Where two such runs of DIFFERENT edges
 share more than a port stub of x, they stay at least a chip box apart in y, and
-the one routed later jogs to the nearest clear level to buy it. Runs of the same
-edge, and the members of one trunk on their shared column, are exempt. The defect
+the one routed later jogs to the nearest clear level to buy it. A run between a
+port and its column cannot move to another level, so the column order keeps it
+clear. Where no order can -- the pairs form a cycle, or two runs on the same
+side of their columns share more than a port stub within a chip box -- the one
+routed later jogs. Runs of the same edge, and the members of one trunk on their
+shared column, are exempt. The defect
 it exists to prevent is the same one: two lines a couple of units apart read as
 one thick stroke, and the two rate chips centred on them smear into one figure
 that names neither.

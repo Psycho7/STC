@@ -54,6 +54,7 @@ import {
 } from "./busRouting";
 import { deconflictChipAnchors } from "./chipSeating";
 import { widenLayerGaps, type GapRecord } from "./layerModel";
+import { buildGapColumnOrder, type GapColumnOrder } from "./gapColumnOrder";
 // Type-only: ItemEdge.tsx declares the canvas edge payload this module stamps.
 // Erased at compile time, so it adds no runtime or bundler edge, and ItemEdge
 // imports none of layout / busRouting / chipSeating, so there is no cycle.
@@ -886,7 +887,15 @@ export type RoutingPass = (
 // records the pre-pass produced, so a pass that needs a corridor reads the zone
 // it was widened for instead of re-deriving one from the node columns. Optional
 // on the signature because every pass predating it ignores the argument.
-export type RoutingCtx = { readonly gaps: ReadonlyArray<GapRecord> };
+//
+// `order` is the one column order per gap (gapColumnOrder.ts), built from the
+// same placement and the pre-pass edges before the first routing pass, so every
+// column pass reads one order instead of a sort key of its own. A pass handed
+// no order (a hand-built fixture) builds it from what it was given.
+export type RoutingCtx = {
+  readonly gaps: ReadonlyArray<GapRecord>;
+  readonly order?: GapColumnOrder;
+};
 
 // The one pre-pass: it runs BEFORE every routing pass and is the only step that
 // moves a node after ELK. It widens each inter-layer gap -- of the root and of
@@ -1007,8 +1016,14 @@ export function rerouteEdges(
 ): RFEdge[] {
   // Left fold over the passes: every pass sees the SAME nodes array, never a
   // re-derived one, plus the previous pass's output edges.
+  // The column order is built once per fold, after the gaps are final and
+  // before the first pass, so a drag-stop replay rebuilds it too.
+  const routing: RoutingCtx = {
+    gaps: ctx?.gaps ?? [],
+    order: buildGapColumnOrder(nodes, baseEdges, ctx?.gaps ?? []),
+  };
   return ROUTING_PASSES.reduce<RFEdge[]>(
-    (routed, pass) => pass.run(nodes, routed, ctx),
+    (routed, pass) => pass.run(nodes, routed, routing),
     baseEdges,
   );
 }

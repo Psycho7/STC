@@ -7,15 +7,15 @@
   },
   "battery5": {
     "stampCount": 4,
-    "stampSha": "e51855b78ceb6aa8a04333fed2480aebe235d1974da633dbf7b607758572784c",
+    "stampSha": "3f2d9e570ff34779c667bbbed70512b5552a6b4ff088c207f36b325c6012bddc",
     "chipCount": 28,
-    "chipSha": "55f3787f632b8c705e6422011b7dd4057c9d61b06ed6230cae96010fc99c1bc1"
+    "chipSha": "208df927e82cd88ebffda57fc13c0b2c9b44691e3eda8047408adbca7542df79"
   },
   "battery5-xiranite": {
     "stampCount": 6,
     "stampSha": "26d941601befef799452536088a2ab74ae6d70762b640eedb88de48d5286ea80",
     "chipCount": 41,
-    "chipSha": "218eee6a103e954c713bd53c73036c1a03cbe81a7be92dd7751c681c8f9036a5"
+    "chipSha": "01ae179410dda3dfffa8e6a59cf62a03815d29588af1aa4fa79229654fb730f4"
   },
   "crystal": {
     "stampCount": 2,
@@ -27,13 +27,13 @@
     "stampCount": 2,
     "stampSha": "ac62e78e25c88c751250a8200bd19b460c084aabb639c0ba45968b62177f4c36",
     "chipCount": 15,
-    "chipSha": "21d3f67e4366330721c508f397434a4603951104a78849f577976576b9957fd0"
+    "chipSha": "17e4930abf2f4196f699bfccbaad6eec543287a22e8127972020eb629037f839"
   },
   "multi6": {
     "stampCount": 21,
     "stampSha": "a74b3474e258befa2d7877526dd2819e1a28035473ab3c880fb8255cb6c52347",
     "chipCount": 103,
-    "chipSha": "ee80b4f1ce4224d240dd5b4d400d6041ac11ae99936e07234b8ad548e36dd579"
+    "chipSha": "a71e7109d7ebc74c1aef072d8c81c1293e4ee68e5d7730dff3d29dd509e0e4fa"
   },
   "tundra": {
     "stampCount": 0,
@@ -45,13 +45,13 @@
     "stampCount": 6,
     "stampSha": "846e29e60984b7bead4ec29d5852649f1e3991696fa8fd4def2beb4266c5223e",
     "chipCount": 35,
-    "chipSha": "f77c3629c807107b41bf98816c0c1c8ace11b7c7b06c147607de6445757f2ffc"
+    "chipSha": "488fce50d62750d383e365b723159f81c45639e83615d57458915cff056a6aa7"
   },
   "coupon-web": {
     "stampCount": 9,
     "stampSha": "d2af6a3c9276001fcf5937e74b2d26d2b0551898a96107bd0ceb3916c9a76324",
     "chipCount": 38,
-    "chipSha": "250263d3938bda2d21b1d5be759af9f4a56a4d3569f1d23ed29daaa3ff814fb8"
+    "chipSha": "4287e823bc3b1edc8c9748557b77771a02a7af005d291117c27342f729154413"
   },
   "gas-web": {
     "stampCount": 6,
@@ -75,19 +75,19 @@
     "stampCount": 8,
     "stampSha": "c84ccbca8d553531c21ad49ca12f61d1e45df662899fb5166c9bcf5ea3d6f261",
     "chipCount": 29,
-    "chipSha": "a02f4895c72563d69d8d46dc2937f18580bb5d921430a2eead06a62040d25627"
+    "chipSha": "c96b22a32530a552bc582bd22096adf9cd669b45def036ddc160f1d814244229"
   },
   "copper-script43": {
     "stampCount": 7,
     "stampSha": "9de9243b91a78ad5dc741f3b9e92af4db78112c363674ff56f15b19a4b867ce7",
     "chipCount": 40,
-    "chipSha": "45b903c5e084765d121c96cb4f5a7689f98e93f3fc7be28bb9b43d023554c907"
+    "chipSha": "a5115a4115ff20a01e05685484441e90d4810e8e617973640e8c979129e5329f"
   },
   "script43-xiranite": {
     "stampCount": 7,
     "stampSha": "6442b46b442afff4a9117e4fd39ec29d1358f724dd8e6e2568690282eb7cd747",
     "chipCount": 37,
-    "chipSha": "0309a81df7a23e17bcc20deff5cd2c32dc660723171ef9acb0b803c0afd523cd"
+    "chipSha": "b76ce62d14fc2538206871b9d34df29d78ce534b9330826b9fb1411c691c62a2"
   },
   "rot-bottled_rec_hp_1": {
     "stampCount": 2,
