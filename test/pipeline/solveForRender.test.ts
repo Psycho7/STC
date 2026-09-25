@@ -36,10 +36,15 @@ vi.mock("../../src/pipeline/driver", async (importOriginal) => {
 });
 
 import {
+  boundaryCapsAtLimit,
   solveForRender,
   solveFromPlan,
 } from "../../src/pipeline/solveForRender";
-import { isInputProductUnit } from "../../src/pipeline/types";
+import {
+  isInputProductUnit,
+  type RenderPlan,
+  type RenderUnitInputProduct,
+} from "../../src/pipeline/types";
 import { CLOSED_FORM_FIXTURES } from "../../src/solver/closed-form-fixtures";
 import { defaultPlan, type ItemOverride, type Plan } from "../../src/data/plan";
 import { pack } from "../../src/data/load";
@@ -127,6 +132,64 @@ describe("solveFromPlan: the targets the drawn plan misses", () => {
   });
 });
 
+// The unit-level view of the same read: what the boundary-unit walk does with
+// each pool and each emission shape. The plans are hand-built because the two
+// defects these pin (a catalyst pool named as a cause, a zero cap going
+// unnamed) live in the walk itself, before any real pack is involved.
+const r = (num: string, denom = "1") => ({ num, denom });
+
+const inputUnit = (
+  over: Partial<RenderUnitInputProduct> &
+    Pick<RenderUnitInputProduct, "itemId">,
+): RenderUnitInputProduct => ({
+  id: `u:in:${over.itemId}`,
+  kind: "inputProduct",
+  count: 1,
+  rate: r("1"),
+  ...over,
+});
+
+const planOf = (...units: RenderUnitInputProduct[]): RenderPlan => ({
+  units,
+  edges: [],
+  containers: [],
+});
+
+describe("boundaryCapsAtLimit", () => {
+  // A catalyst pool's charge is drawn whole by design and the LP never charges
+  // it against a cap, so its cap can never cause a shortfall: naming one
+  // misattributes.
+  it("names no cap from a catalyst pool", () => {
+    const plan = planOf({
+      ...inputUnit({ itemId: "x" }),
+      id: "u:cat:x",
+      role: "catalyst",
+      rateCap: r("1"),
+    });
+
+    expect(
+      boundaryCapsAtLimit(plan, [
+        { itemId: "x", role: "catalyst", ratePerSec: r("1") },
+      ]),
+    ).toEqual([]);
+  });
+
+  // collectConsumed drops zero-supply items, so a typed cap of 0 emits no
+  // input-product unit at all. The item was drawn 0, which meets a 0 cap in
+  // full - the most binding cap there is.
+  it("names a typed cap of 0 on an item that emitted no unit", () => {
+    expect(
+      boundaryCapsAtLimit(planOf(), [{ itemId: "x", ratePerSec: r("0") }]),
+    ).toEqual(["x"]);
+  });
+
+  it("names no positive cap on an item that emitted no unit", () => {
+    expect(
+      boundaryCapsAtLimit(planOf(), [{ itemId: "x", ratePerSec: r("1", "2") }]),
+    ).toEqual([]);
+  });
+});
+
 // The evidence the shortfall strip may name a supply cap on: a cap the drawn
 // plan pulls in full. A cap above the draw constrains nothing, so naming it
 // would be a guess.
@@ -178,6 +241,28 @@ describe("solveFromPlan: the caps the drawn plan exhausts", () => {
         .filter((u) => u.itemId === "liquid_water");
       expect(waterUnits.some((u) => u.isFanout)).toBe(true);
       expect(out.cappedAtLimit).toEqual(["liquid_water"]);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("names a typed cap of 0 the render pipeline emitted no unit for", () => {
+    vi.stubEnv("DEV", false);
+    try {
+      // Zero supply is dropped outright by collectConsumed, so no gas_inert
+      // boundary unit exists to compare against: the drawn-0 read is the only
+      // way the most binding cap of all gets named.
+      const out = solveFromPlan({
+        ...defaultPlan(pack),
+        targets: [
+          { itemId: "copper_jar", ratePerSec: { num: "1", denom: "1" } },
+        ],
+        itemOverrides: [
+          { itemId: "gas_inert", ratePerSec: { num: "0", denom: "1" } },
+        ],
+      });
+
+      expect(out.cappedAtLimit).toEqual(["gas_inert"]);
     } finally {
       vi.unstubAllEnvs();
     }

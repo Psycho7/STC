@@ -162,7 +162,7 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     // The shortfall strip: a neutral lead that only states what is unmet, plus
     // one sentence per explanation the evidence actually supports. None of them
     // may blame a supply cap on its own - see src/data/shortfall.ts.
-    "app.shortfall.unmet": "以下产物未达到声明产量：{items}。",
+    "app.shortfall.unmet": "以下产物需求未满足：{items}。",
     "app.shortfall.cause.area": "{items} 的配方均无法在{area}建造。",
     "app.shortfall.cause.event": "{items} 的配方均属于未开启的 {cohort} 活动。",
     "app.shortfall.cause.manual": "{items} 的配方均已在设置中关闭。",
@@ -278,8 +278,9 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
       "A plan is still loading. Try that change again once it lands.",
     "app.error.crash":
       "The planner hit an unexpected error and could not draw this plan.",
-    // See the zh entries: the lead states the shortfall and nothing else.
-    "app.shortfall.unmet": "Delivered below the declared rate: {items}.",
+    // See the zh entries: the lead states the shortfall and nothing else. The
+    // items can include non-target deficit ids, so no declared rate is claimed.
+    "app.shortfall.unmet": "Unmet demand: {items}.",
     "app.shortfall.cause.area":
       "No recipe producing {items} can be built in {area}.",
     "app.shortfall.cause.event":

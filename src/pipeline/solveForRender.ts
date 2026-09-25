@@ -21,6 +21,7 @@
 // tools/exam/coverage) run this chain headless. The layout step lives behind
 // its own module.
 
+import Fraction from "fraction.js";
 import { pack as shippedPack } from "../data/load";
 import type { ItemOverride, Plan } from "../data/plan";
 import type { ItemTarget } from "../data/targets";
@@ -113,26 +114,46 @@ export type SolveFromPlanOutput = SolveForRenderOutput & {
  * the boundary input units the render pipeline emitted (their `rate` is what the
  * solve pulled, their `rateCap` the declared limit). Fan-out slices are skipped:
  * only the whole node carries the item's total draw.
+ *
+ * Only the role-less pool's overrides can bind here: a catalyst pool's charge
+ * is drawn whole by design and the LP never charges it against a cap
+ * (assertSolvable already drops catalyst rows from its capped set for that
+ * reason), so a catalyst cap can never cause a shortfall and naming one would
+ * misattribute.
  */
 export function boundaryCapsAtLimit(
   plan: RenderPlan,
   itemOverrides: ReadonlyArray<ItemOverride>,
 ): string[] {
-  const capped = new Set(
+  const capByItem = new Map(
     itemOverrides.flatMap((ov) =>
-      ov.ratePerSec === undefined ? [] : [ov.itemId],
+      ov.ratePerSec === undefined || ov.role !== undefined
+        ? []
+        : ([[ov.itemId, ov.ratePerSec]] as const),
     ),
   );
-  if (capped.size === 0) return [];
+  if (capByItem.size === 0) return [];
 
   const atLimit = new Set<string>();
+  const drawn = new Set<string>();
   for (const unit of plan.units) {
     if (!isInputProductUnit(unit)) continue;
     if (unit.isFanout) continue;
-    if (!capped.has(unit.itemId) || unit.rateCap === undefined) continue;
+    if (unit.role === "catalyst") continue;
+    if (!capByItem.has(unit.itemId)) continue;
+    drawn.add(unit.itemId);
+    if (unit.rateCap === undefined) continue;
     const cap = rationalFromString(unit.rateCap);
     if (rationalFromString(unit.rate).compare(cap) < 0) continue;
     atLimit.add(unit.itemId);
+  }
+  // A capped item the render pipeline emitted no unit for was drawn 0
+  // (collectConsumed drops zero-supply items outright), so it is at its limit
+  // exactly when that limit is 0 - otherwise a cap above 0 constrains nothing.
+  const zero = new Fraction(0);
+  for (const [item, cap] of capByItem) {
+    if (drawn.has(item)) continue;
+    if (rationalFromString(cap).compare(zero) === 0) atLimit.add(item);
   }
   return [...atLimit].sort();
 }

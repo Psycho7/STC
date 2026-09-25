@@ -42,7 +42,11 @@ export type ShortfallReport = {
 export type ShortfallFacts = {
   /** Target items the drawn plan feeds below their declared rate. */
   underDelivered: ReadonlyArray<string>;
-  /** Items the LP left with unmet demand, targets or not. */
+  /**
+   * Items the LP left with unmet demand, targets or not, already
+   * tolerance-filtered: a sub-tolerance residue is float noise, not a
+   * shortfall the item has.
+   */
   deficitItemIds: ReadonlyArray<string>;
   /** Items every direct producer of which is off, with the outermost cause. */
   itemCauses: ReadonlyMap<string, ProducerUnavailableCause>;

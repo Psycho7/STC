@@ -62,6 +62,7 @@ import { LpInfeasibleError } from "./solver";
 import type Fraction from "fraction.js";
 import type { CatalystAccount } from "./solver/catalyst";
 import { solveFromPlan } from "./pipeline/solveForRender";
+import { deficitItemsBeyondTolerance } from "./pipeline/render/invariants";
 import type { RationalString } from "./pipeline/types";
 import { LocaleProvider, useI18n } from "./data/i18n-context";
 import type { I18nIndex } from "./data/i18n";
@@ -970,10 +971,12 @@ function AppInner() {
   }
 
   // What the strip may say about the plan on screen, and about what: the unmet
-  // items of the latest solve plus every explanation its evidence supports.
+  // items of the latest solve plus every explanation its evidence supports. The
+  // deficit ids go through the same tolerance the under-delivery read applies,
+  // so a sub-tolerance residue names no cause the item does not have.
   const shortfall = attributeShortfall({
     underDelivered,
-    deficitItemIds: [...deficits.keys()],
+    deficitItemIds: deficitItemsBeyondTolerance(deficits, plan.targets),
     itemCauses: unavailableItemCauses,
     cappedAtLimit,
   });

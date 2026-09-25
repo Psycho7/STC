@@ -17,6 +17,10 @@ import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import Fraction from "fraction.js";
 
+// The residue each test injects, as fraction-parseable strings. Set in the
+// test body and read at solve time, so both cases below share one mock.
+const injected = vi.hoisted(() => ({ deficits: [] as [string, string][] }));
+
 vi.mock("./pipeline/solveForRender", async (importOriginal) => {
   const orig =
     await importOriginal<typeof import("./pipeline/solveForRender")>();
@@ -24,9 +28,11 @@ vi.mock("./pipeline/solveForRender", async (importOriginal) => {
     ...orig,
     solveFromPlan: (...args: Parameters<typeof orig.solveFromPlan>) => {
       const out = orig.solveFromPlan(...args);
-      out.full.feasibility.deficits = new Map(
-        out.full.feasibility.deficits,
-      ).set("iron_powder", new Fraction(1, 666660));
+      const deficits = new Map(out.full.feasibility.deficits);
+      for (const [item, rate] of injected.deficits) {
+        deficits.set(item, new Fraction(rate));
+      }
+      out.full.feasibility.deficits = deficits;
       return out;
     },
   };
@@ -51,6 +57,10 @@ vi.mock("./canvas/Canvas", () => ({
 import App from "./App";
 import { defaultPlan, encodePlan } from "./data/plan";
 import { pack } from "./data/load";
+import { loadI18n } from "./data/i18n";
+import { AREA_STORAGE_KEY } from "./data/storage-keys";
+
+const en = loadI18n("en");
 
 beforeEach(() => {
   vi.stubGlobal(
@@ -65,6 +75,7 @@ beforeEach(() => {
   window.location.hash = "";
   window.localStorage.clear();
   window.localStorage.setItem("aef.locale", "en");
+  injected.deficits = [];
 });
 
 afterEach(() => {
@@ -76,6 +87,7 @@ afterEach(() => {
 });
 
 test("a within-tolerance deficit keeps a met plan READY with no strip", async () => {
+  injected.deficits = [["iron_powder", "1/666660"]];
   window.location.hash = "#" + (await encodePlan(defaultPlan(pack)));
   render(<App />);
 
@@ -87,4 +99,29 @@ test("a within-tolerance deficit keeps a met plan READY with no strip", async ()
   );
   expect(canvasSpy.status).toBe("READY");
   expect(screen.queryByRole("status")).toBeNull();
+});
+
+// The strip's cause attribution reads the same tolerance: a sub-tolerance
+// residue on an item whose producers are ALL off (copper_nugget under tundra)
+// is not a shortfall that item has, so no cause clause may name it.
+test("a sub-tolerance deficit on an all-producers-off item names no cause", async () => {
+  injected.deficits = [["copper_nugget", "1/1000000000"]];
+  window.localStorage.setItem(AREA_STORAGE_KEY, "tundra");
+  window.location.hash = "#" + (await encodePlan(defaultPlan(pack)));
+  render(<App />);
+
+  await screen.findAllByTestId("target-row");
+  await waitFor(() => expect(canvasSpy.status).toBe("SHORTFALL"));
+
+  const strip = await screen.findByRole("status");
+  // The exact sentence pins the item list too (copper_nugget's display name
+  // is a prefix of copper_bottle's, so a containment check cannot).
+  expect(strip.textContent).toBe(
+    en.t("app.shortfall.unmet", {
+      items: ["copper_bottle", "copper_powder", "iron_powder"]
+        .map((id) => en.displayName(id))
+        .join(", "),
+    }),
+  );
+  expect(strip.textContent).not.toContain(en.displayName("tundra"));
 });

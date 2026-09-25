@@ -83,7 +83,7 @@ describe("attributeShortfall", () => {
 
     expect(report.clauses).toEqual([{ kind: "manual", itemIds: ["mid"] }]);
     expect(shortfallText(report, en)).toBe(
-      "Delivered below the declared rate: mid. " +
+      "Unmet demand: mid. " +
         "Every recipe producing mid is switched off in settings.",
     );
   });
@@ -173,10 +173,8 @@ describe("attributeShortfall", () => {
     );
 
     expect(report.clauses).toEqual([]);
-    expect(shortfallText(report, en)).toBe(
-      "Delivered below the declared rate: prod.",
-    );
-    expect(shortfallText(report, zh)).toBe("以下产物未达到声明产量：prod。");
+    expect(shortfallText(report, en)).toBe("Unmet demand: prod.");
+    expect(shortfallText(report, zh)).toBe("以下产物需求未满足：prod。");
   });
 
   it("says nothing about caps for an unmet item with no binding cap", () => {
