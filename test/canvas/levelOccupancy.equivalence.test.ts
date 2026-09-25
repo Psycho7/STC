@@ -189,12 +189,31 @@ function flatten(snapshot: Snapshot): Map<string, unknown> {
 //      and e:6, battery5-xiranite e:9 and e:13, multi6 e:43 and e:45.
 //      battery5 e:11 is a knock-on: a rail keeps its level off the rails
 //      resolved before it, and e:4 moved.
+//   J  the jog pass asks the floor at its DRAWN port rows, the frame the
+//      bands are built in: battery5 e:19, copper-script43 e:31, multi6 e:12,
+//      rot-bottled_food_4 e:9, script43 e:27 and script43-xiranite e:28 lose
+//      a jog the model rows fired; coupon-web e:27 and multi6 e:28 keep their
+//      level and only move their descent column.
 // An edge key is the short `e:NN` head of the routed edge id.
 const MOVED: Readonly<Record<string, ReadonlyArray<string>>> = {
-  battery5: ["e:4", "e:6", "e:11"],
+  battery5: ["e:4", "e:6", "e:11", "e:19"],
   "battery5-xiranite": ["e:9", "e:13", "e:28"],
-  multi6: ["e:43", "e:45", "e:67", "e:69", "e:77", "e:79", "e:81"],
-  "rot-bottled_food_4": ["e:14"],
+  "copper-script43": ["e:31"],
+  "coupon-web": ["e:27"],
+  multi6: [
+    "e:12",
+    "e:28",
+    "e:43",
+    "e:45",
+    "e:67",
+    "e:69",
+    "e:77",
+    "e:79",
+    "e:81",
+  ],
+  "rot-bottled_food_4": ["e:9", "e:14"],
+  script43: ["e:27"],
+  "script43-xiranite": ["e:28"],
 };
 
 // `edge:e:43:u:class:q:51->...plant_grass_1.railY` -> `e:43`.
@@ -221,10 +240,11 @@ const CHIP_SEATS_MOVED: Readonly<Record<string, ReadonlyArray<string>>> = {
     "e:6:u:class:q:14->u:class:q:16:liquid_xiranite_lowpoly",
     "e:18:u:class:q:28->u:class:q:8:xiranite_poly",
   ],
+  // e:63 left this list with J (see MOVED): the vertical its chip slid off
+  // was e:12's jog descent, which the drawn-frame floor no longer draws.
   multi6: [
     "e:26:u:class:q:27->u:class:q:18:copper_nugget",
     "e:46:u:class:q:54->u:class:q:14:plant_grass_2",
-    "e:63:u:class:q:8->u:class:q:21:liquid_plant_grass_1",
   ],
   // Not one of the 12 sites: e:25's rule seat stood 6 units off a foreign
   // vertical, inside the CHAMFER pad, so the slide clears the pad as well as

@@ -398,7 +398,11 @@ const CROSSING_BASELINE: Record<string, number> = {
   // e:79, e:45 with e:77) step a chip box clear of it, and their columns now
   // cross the runs they used to be drawn on top of. Every counted crossing
   // carries its cue.
-  multi6: 95,
+  //
+  // JOG FLOOR IN THE DRAWN FRAME: 95 -> 93. e:12 stops jogging to 1722 (a
+  // model-row floor query against e:28's drawn band) and no longer crosses
+  // e:63 twice.
+  multi6: 93,
   tundra: 0,
   // CATALYST NODE 2026-09-14 (PR B of the catalyst supply pools plan): every
   // catalyst charge now leaves the item's own u:cat:* boundary card instead of
