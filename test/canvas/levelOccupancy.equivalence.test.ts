@@ -194,15 +194,23 @@ function flatten(snapshot: Snapshot): Map<string, unknown> {
 //      rot-bottled_food_4 e:9, script43 e:27 and script43-xiranite e:28 lose
 //      a jog the model rows fired; coupon-web e:27 and multi6 e:28 keep their
 //      level and only move their descent column.
+//   K  a jogged fan-in member descends at its trunk's pinned column and never
+//      takes the target row as its level: battery5-xiranite e:7 and
+//      transmuters e:15 move their descent onto the pin; default e:5 and
+//      multi6 e:27 and e:31 stop riding the target row and take a level.
+//      battery5 e:19 (already listed under J) moves the same way.
 // An edge key is the short `e:NN` head of the routed edge id.
 const MOVED: Readonly<Record<string, ReadonlyArray<string>>> = {
   battery5: ["e:4", "e:6", "e:11", "e:19"],
-  "battery5-xiranite": ["e:9", "e:13", "e:28"],
+  "battery5-xiranite": ["e:7", "e:9", "e:13", "e:28"],
   "copper-script43": ["e:31"],
   "coupon-web": ["e:27"],
+  default: ["e:5"],
   multi6: [
     "e:12",
+    "e:27",
     "e:28",
+    "e:31",
     "e:43",
     "e:45",
     "e:67",
@@ -214,6 +222,7 @@ const MOVED: Readonly<Record<string, ReadonlyArray<string>>> = {
   "rot-bottled_food_4": ["e:9", "e:14"],
   script43: ["e:27"],
   "script43-xiranite": ["e:28"],
+  transmuters: ["e:15"],
 };
 
 // `edge:e:43:u:class:q:51->...plant_grass_1.railY` -> `e:43`.
