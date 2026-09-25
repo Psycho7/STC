@@ -8,6 +8,7 @@ import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { act, cleanup, fireEvent, render } from "@testing-library/react";
 import { createRef, type FC } from "react";
 import type { Edge, Node } from "@xyflow/react";
+import { useEdgesState, useNodesState } from "@xyflow/react";
 import type { Recipe } from "@aef/schema";
 import Canvas, { zoomBand, type CanvasHandle } from "./Canvas";
 import { contentBounds } from "./chipSeating";
@@ -226,6 +227,70 @@ test("nodes stay Tab-focusable while arrow-key movement is disabled", () => {
   expect(node).not.toBeNull();
   expect(node.tabIndex).toBe(0);
   expect(node.getAttribute("aria-describedby")).toBeNull();
+});
+
+// The graph on the canvas is a solved plan, not a document: a deleted unit or
+// edge cannot be put back and the export then ships the hole, so the delete
+// keys must not reach React Flow's delete plumbing. The host below owns the
+// arrays the way App does, so a delete that went through would be visible as a
+// shorter id array.
+test("Backspace and Delete leave the selected node and edge in place", async () => {
+  const initialNodes: Node[] = [
+    {
+      id: "u1",
+      type: "recipe",
+      position: { x: 0, y: 0 },
+      data: { recipe: RECIPE, kind: "recipe" },
+      selected: true,
+    },
+    {
+      id: "u2",
+      type: "recipe",
+      position: { x: 0, y: 0 },
+      data: { recipe: RECIPE, kind: "recipe" },
+    },
+  ];
+  const initialEdges = [
+    { id: "e1", source: "u1", target: "u2", type: "item", selected: true },
+  ] as unknown as Edge[];
+  const live = { nodeIds: [] as string[], edgeIds: [] as string[] };
+
+  function Host() {
+    const [nodes, , onNodesChange] = useNodesState<Node>(initialNodes);
+    const [edges, , onEdgesChange] = useEdgesState<Edge>(initialEdges);
+    live.nodeIds = nodes.map((n) => n.id);
+    live.edgeIds = edges.map((e) => e.id);
+    return (
+      <Canvas
+        nodes={nodes}
+        edges={edges}
+        onNodesChange={onNodesChange}
+        onEdgesChange={onEdgesChange}
+      />
+    );
+  }
+
+  render(
+    <LocaleProvider locale="en">
+      <ItemPackProvider value={PACK}>
+        <Host />
+      </ItemPackProvider>
+    </LocaleProvider>,
+  );
+  expect(live.nodeIds).toEqual(["u1", "u2"]);
+  expect(live.edgeIds).toEqual(["e1"]);
+
+  // React Flow listens on the document, and its key hook latches until the
+  // matching keyup, so each key needs a full press. The removal it would run is
+  // async (onBeforeDelete is awaited either way), hence the flush.
+  for (const key of ["Backspace", "Delete"]) {
+    fireEvent.keyDown(document, { key });
+    fireEvent.keyUp(document, { key });
+    await act(async () => {});
+  }
+
+  expect(live.nodeIds).toEqual(["u1", "u2"]);
+  expect(live.edgeIds).toEqual(["e1"]);
 });
 
 test("status annotation reflects the status prop", () => {
