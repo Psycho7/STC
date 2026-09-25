@@ -14,7 +14,7 @@ pixels.
 ## Cards
 
 A recipe card has a header carrying the machine icon, the machine name and the
-machine multiplier (xN), then input rows down its left side and output rows
+machine multiplier (xN, drawn only when N is not 1), then input rows down its left side and output rows
 down its right, each row ending in a port handle with a small item glyph.
 Output rows read in the recipe's own declared order, so two cards of one recipe
 read alike. A card carries no products line and no footer. A row is a
@@ -69,7 +69,8 @@ A boundary card draws the item's name and its amount. Nothing else: no word on
 it names the card's direction, its provenance or its class. What kind of card it
 is reads off the drawing instead -- direction off the side the accent tab sits on
 and the column the card stands in, a tap off its dashed tab and the `of N/min`
-share under its figure, catalyst supply off a TICKED tab in the catalyst yellow.
+share under its figure, catalyst supply off a TICKED tab in the catalyst yellow,
+and a target output off a lime tab and figure where a surplus output's are amber.
 The words are not lost, they ride the card's aria-label, so a screen reader still
 hears the direction and the class. Any of them drawn on the card is a defect --
 with the one exception the next paragraph names.
