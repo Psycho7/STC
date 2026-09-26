@@ -8,7 +8,7 @@ import type { ProducerUnavailableCause } from "../data/plan";
 import { useI18n } from "../data/i18n-context";
 import { producibleItemIds } from "../data/recipe-category";
 import {
-  RATE_ERROR_KEY,
+  rateErrorText,
   ratePerSecToPerMin,
   rateRevertedText,
 } from "../data/rate-format";
@@ -234,7 +234,7 @@ export function TargetsPanel({
                   id={`t-rate-err-${t.itemId}`}
                   data-testid="rate-invalid"
                 >
-                  {i18n.t(RATE_ERROR_KEY[rate.error])}
+                  {rateErrorText(i18n, rate.error)}
                 </span>
               ) : rate.reverted !== undefined ? (
                 <span

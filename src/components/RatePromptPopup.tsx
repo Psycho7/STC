@@ -6,7 +6,7 @@ import type { RationalString } from "../data/targets";
 // so "30", "1/3" and a refused 0 behave identically in the prompt and in a row.
 import {
   parseRateText,
-  RATE_ERROR_KEY,
+  rateErrorText,
   type RateTextError,
 } from "../data/rate-format";
 import { iconIdForItem } from "../canvas/iconSprite";
@@ -131,7 +131,7 @@ export function RatePromptPopup({
             role="alert"
             data-testid="rate-prompt-invalid"
           >
-            {i18n.t(RATE_ERROR_KEY[error])}
+            {rateErrorText(i18n, error)}
           </span>
         ) : null}
         {note !== undefined ? (

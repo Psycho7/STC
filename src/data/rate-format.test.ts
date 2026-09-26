@@ -8,6 +8,7 @@ import {
   parsePerMinToRatePerSec,
   parseRateText,
   RATE_ERROR_KEY,
+  rateErrorText,
   ratePerSecToPerMin,
 } from "./rate-format";
 import { loadI18n } from "./i18n";
@@ -374,11 +375,14 @@ test("parseRateText bounds a rate at 1,000,000 per minute", () => {
 test("the too-large reason has its own message in en and zh", () => {
   for (const locale of ["en", "zh"] as const) {
     const i18n = loadI18n(locale);
-    const tooLarge = i18n.t(RATE_ERROR_KEY.tooLarge);
+    const tooLarge = rateErrorText(i18n, "tooLarge");
     const others = (["notNumber", "zero", "negative"] as const).map((error) =>
-      i18n.t(RATE_ERROR_KEY[error]),
+      rateErrorText(i18n, error),
     );
     expect(tooLarge).not.toBe(RATE_ERROR_KEY.tooLarge);
     expect(others).not.toContain(tooLarge);
+    // The bound comes from the rule's constant, not from the copy.
+    expect(tooLarge).toContain("1,000,000");
+    expect(tooLarge).not.toContain("{max}");
   }
 });

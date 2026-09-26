@@ -16,7 +16,7 @@ import { rationalFromString, type RationalString } from "../data/targets";
 import {
   formatFractionPerMin,
   formatRatePerMin,
-  RATE_ERROR_KEY,
+  rateErrorText,
   ratePerSecToPerMin,
   rateRevertedText,
 } from "../data/rate-format";
@@ -574,7 +574,7 @@ export function InputsPanel({
                   id={`i-rate-err-${itemId}`}
                   data-testid="rate-invalid"
                 >
-                  {i18n.t(RATE_ERROR_KEY[rate.error])}
+                  {rateErrorText(i18n, rate.error)}
                 </span>
               ) : rate.reverted !== undefined ? (
                 <span
@@ -735,7 +735,7 @@ export function InputsPanel({
                   id={`i-rate-err-${domId}`}
                   data-testid="rate-invalid"
                 >
-                  {i18n.t(RATE_ERROR_KEY[rate.error])}
+                  {rateErrorText(i18n, rate.error)}
                 </span>
               ) : rate.reverted !== undefined ? (
                 <span

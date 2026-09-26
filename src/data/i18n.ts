@@ -227,7 +227,7 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "rate.invalid": "请输入数字，例如 30 或 1/3",
     "rate.zero": "请输入大于 0 的速率",
     "rate.negative": "速率不能为负数",
-    "rate.tooLarge": "速率不能超过 1,000,000/分",
+    "rate.tooLarge": "速率不能超过 {max}/分",
     // Neutral discard wording: an uncapped or auto row reverts to an EMPTY
     // field, so copy claiming a rate came back would be false there.
     "rate.reverted": "输入无效，已放弃本次输入",
@@ -363,7 +363,7 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "rate.invalid": "Enter a number, e.g. 30 or 1/3",
     "rate.zero": "Enter a rate above 0",
     "rate.negative": "A rate cannot be negative",
-    "rate.tooLarge": "A rate cannot exceed 1,000,000/min",
+    "rate.tooLarge": "A rate cannot exceed {max}/min",
     // Neutral discard wording: an uncapped or auto row reverts to an EMPTY
     // field, so copy claiming a rate came back would be false there.
     "rate.reverted": "That was not a number; the edit was discarded",

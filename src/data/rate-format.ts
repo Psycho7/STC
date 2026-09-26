@@ -183,8 +183,7 @@ export function parsePerMinToRatePerSec(
 // The largest rate a field takes, per minute. The fastest pack recipe makes
 // 1200/min per machine and no shipped plan targets over 120/min, while the LP
 // still solves at 1e9/s: the bound leaves room for any real build and refuses
-// a slip of the keyboard long before the solver would. The rate.tooLarge copy
-// in both locales states this number.
+// a slip of the keyboard long before the solver would.
 const MAX_RATE_PER_MIN = 1_000_000;
 
 // Why rate text was refused. Each reason has its own message.
@@ -197,6 +196,17 @@ export const RATE_ERROR_KEY = {
   tooLarge: "rate.tooLarge",
 } as const satisfies Record<RateTextError, string>;
 
+// The message for a refused rate. The bound is filled in from the constant so
+// the copy in either locale cannot drift from the rule.
+export function rateErrorText(
+  i18n: Pick<I18nIndex, "t">,
+  reason: RateTextError,
+): string {
+  return i18n.t(RATE_ERROR_KEY[reason], {
+    max: MAX_RATE_PER_MIN.toLocaleString("en-US"),
+  });
+}
+
 // The status line after a blur threw refused text away, naming the reason.
 // Non-numeric text keeps its own wording; every other reason reuses its error
 // message. Neutral about what the field shows now: an uncapped or auto row
@@ -207,7 +217,7 @@ export function rateRevertedText(
 ): string {
   if (reason === "notNumber") return i18n.t("rate.reverted");
   return i18n.t("rate.revertedReason", {
-    reason: i18n.t(RATE_ERROR_KEY[reason]),
+    reason: rateErrorText(i18n, reason),
   });
 }
 
