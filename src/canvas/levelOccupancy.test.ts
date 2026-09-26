@@ -194,6 +194,8 @@ describe("candidate levels", () => {
         anchorY: 250,
         x0: 0,
         x1: 500,
+        drawnX0: 0,
+        drawnX1: 500,
         bands: [],
         ...NO_FRAMES,
         cards: [card],
@@ -214,6 +216,8 @@ describe("candidate levels", () => {
         anchorY: 1010,
         x0: 0,
         x1: 500,
+        drawnX0: 0,
+        drawnX1: 500,
         bands: [],
         frames: [frame],
         frameGap: CONTAINER_JOG_GAP + OBSTACLE_PAD_Y,
@@ -235,6 +239,8 @@ describe("candidate levels", () => {
         anchorY: 1010,
         x0: 0,
         x1: 500,
+        drawnX0: 0,
+        drawnX1: 500,
         bands: [],
         frames: [elsewhere],
         frameGap: 32,
@@ -251,6 +257,8 @@ describe("candidate levels", () => {
         anchorY: 100,
         x0: 0,
         x1: 500,
+        drawnX0: 0,
+        drawnX1: 500,
         bands: [band],
         ...NO_FRAMES,
         cards: [],
@@ -270,6 +278,8 @@ describe("candidate levels", () => {
       anchorY: 250,
       x0: 0,
       x1: 500,
+      drawnX0: 0,
+      drawnX1: 500,
       bands: [],
       ...NO_FRAMES,
       cards: [far, card],
@@ -286,6 +296,8 @@ describe("candidate levels", () => {
       anchorY: 250,
       x0: 0,
       x1: 500,
+      drawnX0: 0,
+      drawnX1: 500,
       bands: [],
       ...NO_FRAMES,
       pad: 8,
@@ -305,12 +317,42 @@ describe("candidate levels", () => {
         anchorY: 250,
         x0: 0,
         x1: 500,
+        drawnX0: 0,
+        drawnX1: 500,
         bands: [],
         ...NO_FRAMES,
         cards: [card, twin],
         pad: 8,
       }),
     ).toEqual([192, 308]);
+  });
+
+  it("spans the drawn bands with the drawn span and the model rects with the model one", () => {
+    // A run whose drawn span sits 5 right of its model span: a band only the
+    // drawn span reaches offers its levels, a card only the model span reaches
+    // offers its escapes, and neither is filtered by the other frame's span.
+    const bandOnlyDrawn = bandAt(100, 502, 700);
+    const cardOnlyModel = { left: 496, right: 498, top: 200, bottom: 300 };
+    expect(
+      levelCandidates({
+        anchorY: 100,
+        x0: 0,
+        x1: 500,
+        drawnX0: 5,
+        drawnX1: 505,
+        bands: [bandOnlyDrawn],
+        ...NO_FRAMES,
+        cards: [cardOnlyModel],
+        pad: 8,
+      }),
+    ).toEqual([
+      100 - FORWARD_LEVEL_FLOOR,
+      100 + FORWARD_LEVEL_FLOOR,
+      100 - FORWARD_LEVEL_FLOOR - 8,
+      100 + FORWARD_LEVEL_FLOOR + 8,
+      192,
+      308,
+    ]);
   });
 
   it("skips an obstacle the span does not reach", () => {
@@ -320,6 +362,8 @@ describe("candidate levels", () => {
         anchorY: 250,
         x0: 0,
         x1: 500,
+        drawnX0: 0,
+        drawnX1: 500,
         bands: [bandAt(100, 900, 1200)],
         ...NO_FRAMES,
         cards: [elsewhere],

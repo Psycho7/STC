@@ -1874,6 +1874,17 @@ const CLEAR_COLUMN_RADIUS = RECIPE_WIDTH + BETWEEN_LAYERS_SPACING;
 // Exported for the column suite, which asserts the escape distance and the
 // toward-target tie-break on synthetic obstacle rows; a routed edge only shows
 // the column that won.
+// Another edge's drawn verticals (drawnColumnBands) as a column search sees
+// them. They are built in the DRAWN frame, so they are tested over the run's
+// DRAWN y-span and at the column as the drawer will place it (`xOf`), never at
+// the model values the rest of the search reads.
+type DrawnColumnBands = {
+  bands: ReadonlyArray<ObstacleRect>;
+  yLo: number;
+  yHi: number;
+  xOf: (x: number) => number;
+};
+
 export function clearColumnX(
   desiredX: number,
   yLo: number,
@@ -1892,6 +1903,7 @@ export function clearColumnX(
     // is never offered unless it is named here. Each one still passes `blocked`,
     // `accept` and the radius.
     extra?: ReadonlyArray<number>;
+    drawnColumns?: DrawnColumnBands | undefined;
   },
 ): number {
   const gap = opts?.gap ?? CHAMFER;
@@ -1906,8 +1918,22 @@ export function clearColumnX(
   const spanned = obstacles
     .filter((o) => o.bottom > ymin && o.top < ymax)
     .sort((a, b) => a.left - b.left || a.right - b.right);
+  const drawn = opts?.drawnColumns;
+  const drawnSpanned =
+    drawn === undefined
+      ? []
+      : drawn.bands.filter(
+          (o) =>
+            o.bottom > Math.min(drawn.yLo, drawn.yHi) &&
+            o.top < Math.max(drawn.yLo, drawn.yHi),
+        );
   const blocked = (x: number): boolean =>
-    spanned.some((o) => x > o.left - gapOf(o) && x < o.right + gapOf(o));
+    spanned.some((o) => x > o.left - gapOf(o) && x < o.right + gapOf(o)) ||
+    (drawn !== undefined &&
+      drawnSpanned.some(
+        (o) =>
+          drawn.xOf(x) > o.left - gapOf(o) && drawn.xOf(x) < o.right + gapOf(o),
+      ));
   if (!blocked(desiredX) && accept(desiredX)) return desiredX;
 
   // The nearest clear column sits just outside some spanning obstacle's padded
@@ -1917,6 +1943,7 @@ export function clearColumnX(
   // candidate, tie-breaking toward the target.
   const candidates = [
     ...spanned.flatMap((o) => [o.left - gapOf(o), o.right + gapOf(o)]),
+    ...drawnSpanned.flatMap((o) => [o.left - gapOf(o), o.right + gapOf(o)]),
     ...(opts?.extra ?? []),
   ].sort((a, b) => a - b);
   let best: number | undefined;
@@ -2033,6 +2060,9 @@ function clearColumnKeepingLeg(args: {
   // Today only clampBackwardRails passes them, for the return's own shared
   // container; absent means no band treatment and byte-identical resolution.
   containerBands?: ReadonlyArray<PaddedObstacle>;
+  // Other edges' drawn verticals, gating the COLUMN only like the border bands
+  // but tested in the drawn frame (DrawnColumnBands). Absent means none.
+  drawnColumns?: DrawnColumnBands | undefined;
   // Wider column gap for container-slab obstacles (the CONTAINER_COLUMN_GAP
   // analog of clearRailY's containerGap). Defaults to the tier's plain gap, so
   // an omitting caller resolves exactly as before.
@@ -2071,6 +2101,7 @@ function clearColumnKeepingLeg(args: {
     foreignPadded,
     foreignRawCards,
     containerBands,
+    drawnColumns,
     containerGap,
     ownLegRect,
     sideClamp,
@@ -2102,6 +2133,17 @@ function clearColumnKeepingLeg(args: {
         x < o.right + (o.container ? cGap : gap),
     );
 
+  // The same predicate for the drawn verticals, in their own frame.
+  const drawnColumnClear = (x: number, gap: number, cGap: number): boolean =>
+    drawnColumns === undefined ||
+    !drawnColumns.bands.some(
+      (o) =>
+        o.bottom > Math.min(drawnColumns.yLo, drawnColumns.yHi) &&
+        o.top < Math.max(drawnColumns.yLo, drawnColumns.yHi) &&
+        drawnColumns.xOf(x) > o.left - (o.container ? cGap : gap) &&
+        drawnColumns.xOf(x) < o.right + (o.container ? cGap : gap),
+    );
+
   // One resolve-then-verify step, shared by every tier below. clearColumnX hands
   // back the desired column unchanged when no candidate qualifies, so the result
   // only counts once it is re-checked against the same obstacle set and the same
@@ -2119,8 +2161,11 @@ function clearColumnKeepingLeg(args: {
       containerGap,
       radius,
       accept,
+      drawnColumns,
     });
-    return columnClear(x, set, gap, containerGap ?? gap) && accept(x)
+    return columnClear(x, set, gap, containerGap ?? gap) &&
+      drawnColumnClear(x, gap, containerGap ?? gap) &&
+      accept(x)
       ? x
       : null;
   };
@@ -2374,6 +2419,26 @@ export function clampBackwardRails(
     const preferredY = defaults.railY;
     const xrDesired = pinnedRight ?? clampToZone(defaults.xr, sourceGap);
     const xlDesired = pinnedLeft ?? clampToZone(defaults.xl, targetGap);
+    // Where the drawer puts a rail value, for every question asked of the
+    // DRAWN bands below (the forward runs and the drawn columns). A value the
+    // stamps below would write draws as is; one equal to its model default is
+    // not stamped, so it draws where an existing hint puts it or else at the
+    // default the drawer derives from the drawn ports.
+    const drawnEnds = drawnPortsOf(edge, byId);
+    if (drawnEnds === null) return;
+    const drawnDefaults = backwardRailDefaults({
+      sx: drawnEnds.sourceX,
+      sy: drawnEnds.sourceY,
+      tx: drawnEnds.targetX,
+      ty: drawnEnds.targetY,
+      entryX: railHints.entryX,
+    });
+    const drawnRailY = (y: number): number =>
+      y !== defaults.railY ? y : (railHints.railY ?? drawnDefaults.railY);
+    const drawnXr = (x: number): number =>
+      x !== defaults.xr ? x : (pinnedRight ?? drawnDefaults.xr);
+    const drawnXl = (x: number): number =>
+      x !== defaults.xl ? x : (pinnedLeft ?? drawnDefaults.xl);
     let railY = clearRailY(
       preferredY,
       xlDesired,
@@ -2396,21 +2461,25 @@ export function clampBackwardRails(
     const self: LevelPorts = {
       source: edge.source,
       target: edge.target,
-      sy,
-      ty,
+      sy: drawnEnds.sourceY,
+      ty: drawnEnds.targetY,
     };
     const railLo = Math.min(xlDesired, xrDesired);
     const railHi = Math.max(xlDesired, xrDesired);
+    const drawnLo = Math.min(drawnXl(xlDesired), drawnXr(xrDesired));
+    const drawnHi = Math.max(drawnXl(xlDesired), drawnXr(xrDesired));
     const nearBands = runBands.filter(
-      (b) => b.right > railLo && b.left < railHi,
+      (b) => b.right > drawnLo && b.left < drawnHi,
     );
-    if (runFloorHit(nearBands, self, railY, railLo, railHi)) {
+    if (runFloorHit(nearBands, self, drawnRailY(railY), drawnLo, drawnHi)) {
       railY = chooseLevel(
         railY,
         levelCandidates({
           anchorY: railY,
           x0: railLo,
           x1: railHi,
+          drawnX0: drawnLo,
+          drawnX1: drawnHi,
           bands: nearBands,
           frames: frameLines,
           frameGap: CONTAINER_RAIL_GAP + OBSTACLE_PAD_Y,
@@ -2425,7 +2494,8 @@ export function clampBackwardRails(
             levelObstacles,
             CHAMFER,
             CONTAINER_RAIL_GAP,
-          ) === y && !runFloorHit(nearBands, self, y, railLo, railHi),
+          ) === y &&
+          !runFloorHit(nearBands, self, drawnRailY(y), drawnLo, drawnHi),
       );
     }
     if (railY !== preferredY) railYByIndex.set(index, railY);
@@ -2486,7 +2556,13 @@ export function clampBackwardRails(
           foreignRawCards: rawCards.filter(
             (o) => !xrExempt.has(o.nodeId) && o.nodeId !== sharedContainerId,
           ),
-          containerBands: [...bandsOf(source), ...foreignColumnBands],
+          containerBands: bandsOf(source),
+          drawnColumns: {
+            bands: foreignColumnBands,
+            yLo: drawnEnds.sourceY,
+            yHi: drawnRailY(railY),
+            xOf: drawnXr,
+          },
           containerGap: CONTAINER_COLUMN_GAP,
           columnAccept: zoneAccept(sourceGap),
         }),
@@ -2514,7 +2590,13 @@ export function clampBackwardRails(
           foreignRawCards: rawCards.filter(
             (o) => !xlExempt.has(o.nodeId) && o.nodeId !== sharedContainerId,
           ),
-          containerBands: [...bandsOf(target), ...foreignColumnBands],
+          containerBands: bandsOf(target),
+          drawnColumns: {
+            bands: foreignColumnBands,
+            yLo: drawnRailY(railY),
+            yHi: drawnEnds.targetY,
+            xOf: drawnXl,
+          },
           containerGap: CONTAINER_COLUMN_GAP,
           columnAccept: zoneAccept(targetGap),
         }),
@@ -2526,11 +2608,18 @@ export function clampBackwardRails(
     // it the same way it separated from the earlier families. Both fields are
     // read only by LATER rails, so pushing here is what keeps a rail out of
     // its own bands.
+    // Only the values the stamps below write: an unstamped one draws at its
+    // drawn default, and the band has to stand where the line is drawn.
     foreignColumnBands.push(
       ...drawnColumnBands(
         {
           ...edge,
-          data: { ...edge.data, railY, railXRight: xr, railXLeft: xl },
+          data: {
+            ...edge.data,
+            ...(railY !== preferredY ? { railY } : {}),
+            ...(xr !== defaults.xr ? { railXRight: xr } : {}),
+            ...(xl !== defaults.xl ? { railXLeft: xl } : {}),
+          },
         },
         byId,
       ),
@@ -2754,6 +2843,16 @@ export function jogForwardLegs(
     const ports = edgePortsModel(edge, byId);
     if (ports === null) return;
     const { sx, sy, tx, ty } = ports;
+    // The same ports in the DRAWN frame. The level bands are read off the
+    // drawn polylines (runBandsOfEdge), so every floor question this edge asks
+    // about its own runs is asked in that frame: the model ports sit the port
+    // drift off the bands, which lands exactly on the floor's thresholds.
+    const drawnEnds = drawnPortsOf(edge, byId);
+    if (drawnEnds === null) return;
+    const drawnSx = drawnEnds.sourceX;
+    const drawnSy = drawnEnds.sourceY;
+    const drawnTx = drawnEnds.targetX;
+    const drawnTy = drawnEnds.targetY;
     // A same-y edge is drawn as a straight line and a small-dy edge as a single
     // diagonal, but neither shape can dodge a card: a member the trunk router
     // demoted BECAUSE its straight run crosses a card arrives here at its
@@ -2769,6 +2868,12 @@ export function jogForwardLegs(
     // late drop, so the long horizontal at sy runs out to HERE and the run at the
     // target row is only the approach band.
     const dropX = forwardDropX(geom, hints);
+    // The same two columns as the drawer places them off the drawn ports, for
+    // the floor questions. A stamped column draws where it is stamped, but the
+    // unstamped bend column is derived from the ports and moves with them.
+    const drawnGeom = forwardStepGeometry(drawnSx, drawnTx, hints.bendX);
+    const drawnBx = drawnGeom.bx;
+    const drawnDropX = forwardDropX(drawnGeom, hints);
 
     // Exempt from the obstacle scan: both endpoints' own cards / gutters (the leg
     // leaves the source and ends inside the target) and each endpoint's own
@@ -2839,14 +2944,16 @@ export function jogForwardLegs(
     const self: LevelPorts = {
       source: edge.source,
       target: edge.target,
-      sy,
-      ty,
+      sy: drawnSy,
+      ty: drawnTy,
     };
     const foreignBands: RunBand[] = [];
     for (const [otherId, bands] of levelBands) {
       if (otherId === edge.id) continue;
       for (const band of bands) {
-        if (band.right > sx && band.left < tx) foreignBands.push(band);
+        if (band.right > drawnSx && band.left < drawnTx) {
+          foreignBands.push(band);
+        }
       }
     }
     // The frames this edge's corridor spans, minus its own containers (a group
@@ -2856,9 +2963,11 @@ export function jogForwardLegs(
       (f) => !exempt.has(f.nodeId) && f.right > sx && f.left < tx,
     );
     const srcNear =
-      srcStretch && runFloorHit(foreignBands, self, sy, bx, dropX);
+      srcStretch &&
+      runFloorHit(foreignBands, self, drawnSy, drawnBx, drawnDropX);
     const tgtNear =
-      tgtStretch && runFloorHit(foreignBands, self, ty, dropX, descentX0);
+      tgtStretch &&
+      runFloorHit(foreignBands, self, drawnTy, drawnDropX, descentX0);
     if (!cardBlocked && !srcNear && !tgtNear) return;
 
     // The gap the descent stands in, when there is a record for it: every
@@ -2928,6 +3037,8 @@ export function jogForwardLegs(
     //          to the floor here only vetoes jogs that could never fix them.
     //   "off"  none of it, the shape this pass chose before the floor existed.
     type BandMode = "all" | "rail" | "off";
+    // One horizontal run in the drawn frame, for the floor half of a test.
+    type DrawnRun = { y: number; x0: number; x1: number };
     // The candidate levels, from the level-occupancy module: the cards this
     // edge's corridor spans and, where the bands have a say, their runs and the
     // foreign frames at the jog's own container gap. The list depends only on
@@ -2951,6 +3062,8 @@ export function jogForwardLegs(
         anchorY: ty,
         x0: sx,
         x1: tx,
+        drawnX0: drawnSx,
+        drawnX1: drawnTx,
         bands: withBands ? foreignBands : [],
         frames: withBands ? foreignFrames : [],
         // Measured from the RAW border the reader sees, so the run lands
@@ -2976,14 +3089,27 @@ export function jogForwardLegs(
       // frame floor rides with the bands and applies to the RELOCATED run
       // alone: the stubs at sy and ty are where they were whatever level comes
       // out, so holding them to it would only veto jogs that cannot fix them.
-      const railBlocked = (y: number, x0: number, x1: number): boolean =>
+      // `floor` is the same run in the bands' drawn frame: drawn port rows and
+      // port columns, while a stamped level or column draws as is.
+      const railBlocked = (
+        y: number,
+        x0: number,
+        x1: number,
+        floor: DrawnRun,
+      ): boolean =>
         legBlockedIn(cardSet, y, x0, x1) ||
         (bands !== "off" &&
-          (runFloorHit(foreignBands, self, y, x0, x1) ||
+          (runFloorHit(foreignBands, self, floor.y, floor.x0, floor.x1) ||
             frameFloorHit(foreignFrames, y, x0, x1, CONTAINER_JOG_GAP)));
-      const stubBlocked = (y: number, x0: number, x1: number): boolean =>
+      const stubBlocked = (
+        y: number,
+        x0: number,
+        x1: number,
+        floor: DrawnRun,
+      ): boolean =>
         legBlockedIn(cardSet, y, x0, x1) ||
-        (bands === "all" && runFloorHit(foreignBands, self, y, x0, x1));
+        (bands === "all" &&
+          runFloorHit(foreignBands, self, floor.y, floor.x0, floor.x1));
       // The columns the stubs need when the bands have a say over them, offered
       // to the searches below: stubClearColumns' header says why the searches
       // cannot derive them for themselves.
@@ -2994,8 +3120,8 @@ export function jogForwardLegs(
       const rails = railsFor(cardSet, pad, bands !== "off");
       const candidates = srcBlocked ? [ty, ...rails] : rails;
       // Everything below that does not depend on R, taken once per tier.
-      const srcStubColumns = stubColumns(sy, sx, "right");
-      const tgtStubColumns = stubColumns(ty, tx, "left");
+      const srcStubColumns = stubColumns(drawnSy, drawnSx, "right");
+      const tgtStubColumns = stubColumns(drawnTy, drawnTx, "left");
       const descentColumnSet = columnSet.filter(
         (o) => o.nodeId !== edge.target,
       );
@@ -3008,7 +3134,7 @@ export function jogForwardLegs(
         if (
           bands !== "off" &&
           R !== ty &&
-          Math.abs(R - ty) < FORWARD_LEVEL_FLOOR
+          Math.abs(R - drawnTy) < FORWARD_LEVEL_FLOOR
         ) {
           continue;
         }
@@ -3031,19 +3157,27 @@ export function jogForwardLegs(
                 x > sx &&
                 x < tx &&
                 (relaxed || inSourceZone(x)) &&
-                !stubBlocked(sy, sx, x),
+                !stubBlocked(sy, sx, x, { y: drawnSy, x0: drawnSx, x1: x }),
             },
           );
-          if (vRunBlockedIn(columnSet, C, sy, R) || stubBlocked(sy, sx, C)) {
+          if (
+            vRunBlockedIn(columnSet, C, sy, R) ||
+            stubBlocked(sy, sx, C, { y: drawnSy, x0: drawnSx, x1: C })
+          ) {
             continue;
           }
         } else if (vRunBlockedIn(columnSet, bx, sy, R)) {
           continue;
         }
+        // The entry column as drawn: a cleared source column is stamped, the
+        // bend column is derived from the ports.
+        const drawnC = srcBlocked ? C : drawnBx;
         if (R === ty) {
           // Single-column shape: C from sy straight to ty, then the long
           // horizontal at ty into the target.
-          if (railBlocked(ty, C, tx)) continue;
+          if (railBlocked(ty, C, tx, { y: drawnTy, x0: drawnC, x1: drawnTx })) {
+            continue;
+          }
           return { C, R, D: descentX0 };
         }
         // The descent must stay left of the target port (final approach runs
@@ -3062,13 +3196,15 @@ export function jogForwardLegs(
             accept: (x) =>
               x <= tx - CHAMFER &&
               (relaxed || inDescentZone(x)) &&
-              !stubBlocked(ty, x, tx),
+              !stubBlocked(ty, x, tx, { y: drawnTy, x0: x, x1: drawnTx }),
           },
         );
         if (D > tx - CHAMFER) continue;
-        if (railBlocked(R, C, D)) continue;
+        if (railBlocked(R, C, D, { y: R, x0: drawnC, x1: D })) continue;
         if (vRunBlockedIn(columnSet, D, R, ty)) continue;
-        if (stubBlocked(ty, D, tx)) continue;
+        if (stubBlocked(ty, D, tx, { y: drawnTy, x0: D, x1: drawnTx })) {
+          continue;
+        }
         return { C, R, D };
       }
       return null;
@@ -3151,7 +3287,7 @@ export function jogForwardLegs(
           !legBlockedIn(foreignCards, jog.R, jog.C, x) &&
           // The floor on the approach stub the search just cleared: a walk that
           // puts the column back inside another line's band undoes the jog.
-          !runFloorHit(foreignBands, self, ty, x, tx),
+          !runFloorHit(foreignBands, self, drawnTy, x, drawnTx),
       );
       if (descentX !== tx - PORT_STUB) descentXByIndex.set(index, descentX);
       stakeColumn(descentGap, descentX, edge.id);

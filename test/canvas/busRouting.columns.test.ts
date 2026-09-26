@@ -920,6 +920,29 @@ describe("clearColumnX", () => {
     expect(x).toBe(110 + CHAMFER);
   });
 
+  it("tests drawn column bands at the drawn column over the drawn y-span", () => {
+    // A drawn vertical at x 120 over drawn y [100.5, 150]. The model column 100
+    // draws at 105 (the drawer's own default), 15 off the band: inside the
+    // CHAMFER gap is 8, so it is clear. The model y-span [0, 100] misses the
+    // band but the drawn one [1, 101] overlaps it.
+    const band = rect(120, 120, 100.5, 150);
+    const xOf = (x: number): number => (x === 100 ? 105 : x);
+    expect(
+      clearColumnX(100, 0, 100, [], {
+        drawnColumns: { bands: [band], yLo: 1, yHi: 101, xOf },
+      }),
+    ).toBe(100);
+    // Drawn at 115 it sits 5 off the band and has to move: the nearest clear
+    // column is the band's left escape, 120 - 8.
+    const nearer = (x: number): number => (x === 100 ? 115 : x);
+    expect(
+      clearColumnX(100, 0, 100, [], {
+        towardTarget: -1,
+        drawnColumns: { bands: [band], yLo: 1, yHi: 101, xOf: nearer },
+      }),
+    ).toBe(120 - CHAMFER);
+  });
+
   it("breaks an equidistant tie toward the target side", () => {
     // Symmetric obstacle around the desired column: left and right escapes sit an
     // equal distance away, so the tie-break picks the side toward the target.
