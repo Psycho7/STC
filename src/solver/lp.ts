@@ -451,6 +451,12 @@ export function solveLp(input: LpInput): LpResult {
     return model;
   };
 
+  // checkMassBalance mirror: the residual tolerance the checkers tag at. Read
+  // by the tie-break gate below and by the extraction's repair loop.
+  const scaleFloor = toleranceScaleFloor(demand);
+  const mbTol = (itemId: ItemId): number =>
+    relSlack(scaleFloor, Math.abs(demand.get(itemId) ?? 0));
+
   const pass1 = solver.Solve(buildModel("primary")) as LpRaw;
   let lpResult: LpRaw;
   if (pass1.feasible === false || pass1.bounded === false) {
@@ -472,11 +478,33 @@ export function solveLp(input: LpInput): LpResult {
     // real producer. Recompute each tie-break pass's true primary objective and
     // keep it only when it matches pass-1's within tolerance; otherwise fall
     // back to the last validated pass. Also covers "numerically infeasible".
+    //
+    // The cost check alone misses a small unpaid row break: against a cost_cap
+    // near 2.5e9 (a deficit at weight 1e9) its tolerance is ~2500 cost units,
+    // while an mb_ row left 1.5e-6 short costs nothing. So each mb_ row's raw
+    // residual is held to the extraction's own mass-balance tolerance too.
     const costTol = Math.max(Math.abs(costCap) * COST_REL_TOL, COST_REL_TOL);
+    const balanceHolds = (raw: LpRaw): boolean => {
+      for (const it of items) {
+        if (supplyTable.supplyOf(it.id) === Infinity) continue;
+        let lhs =
+          (raw[`draw_${it.id}`] ?? 0) -
+          (raw[`surplus_${it.id}`] ?? 0) +
+          (raw[`deficit_${it.id}`] ?? 0);
+        for (const [recipeId, coef] of balanceTermsByItem.get(it.id) ?? []) {
+          lhs += coef * (raw[`x_${recipeId}`] ?? 0);
+        }
+        if (Math.abs(lhs - (demand.get(it.id) ?? 0)) > mbTol(it.id)) {
+          return false;
+        }
+      }
+      return true;
+    };
     const costValid = (raw: LpRaw): boolean =>
       raw.feasible !== false &&
       Math.abs(primaryObjective(raw, recipes, items, costById) - costCap) <=
-        costTol;
+        costTol &&
+      balanceHolds(raw);
 
     const boundaryTol = (value: number): number =>
       Math.max(Math.abs(value) * COST_REL_TOL, COST_REL_TOL);
@@ -548,6 +576,7 @@ export function solveLp(input: LpInput): LpResult {
     supplyTable,
     costById,
     demand,
+    mbTol,
     targets,
     t0,
   });
@@ -739,6 +768,7 @@ type ExtractArgs = {
   supplyTable: SupplyTable;
   costById: Map<RecipeId, number>;
   demand: Map<ItemId, number>;
+  mbTol: (itemId: ItemId) => number;
   targets: ReadonlyArray<ItemTarget>;
   t0: number;
 };
@@ -761,6 +791,7 @@ function extractResult(args: ExtractArgs): LpResult {
     supplyTable,
     costById,
     demand,
+    mbTol,
     targets,
     t0,
   } = args;
@@ -870,11 +901,6 @@ function extractResult(args: ExtractArgs): LpResult {
       )
     );
   };
-
-  // checkMassBalance mirror: the residual tolerance the checkers tag at.
-  const scaleFloor = toleranceScaleFloor(demand);
-  const mbTol = (itemId: ItemId): number =>
-    relSlack(scaleFloor, Math.abs(demand.get(itemId) ?? 0));
 
   // Repair loop: zeroing candidates must not leave an item with a raw-clean
   // negative slack the checkers would tag. Re-admit zeroed producers of a

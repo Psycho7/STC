@@ -116,9 +116,10 @@ test("a sub-tolerance deficit on an all-producers-off item names no cause", asyn
   const strip = await screen.findByRole("status");
   // The exact sentence pins the item list too (copper_nugget's display name
   // is a prefix of copper_bottle's, so a containment check cannot).
+  // iron_powder is met exactly under tundra, so it is not in the list.
   expect(strip.textContent).toBe(
     en.t("app.shortfall.unmet", {
-      items: ["copper_bottle", "copper_powder", "iron_powder"]
+      items: ["copper_bottle", "copper_powder"]
         .map((id) => en.displayName(id))
         .join(", "),
     }),
