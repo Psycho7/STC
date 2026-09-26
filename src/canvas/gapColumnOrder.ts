@@ -828,12 +828,17 @@ function orderCandidates(
     const inLane = (lane: Set<string>) =>
       ordered.filter((c) => lane.has(c.id) && !c.potential).map((c) => c.id);
     if (zone !== undefined) {
-      walk(inLane(fanOutLane), zone.left + COLUMN_PITCH / 2, COLUMN_PITCH);
-      walk(
-        inLane(fanInLane).reverse(),
-        zone.right - COLUMN_PITCH / 2,
-        -COLUMN_PITCH,
-      );
+      // A zone narrower than the walks need (only a drop can squeeze one)
+      // compresses the pitch evenly, so both walks still tile it in rank
+      // order: the fan-out walk's last column stays left of the fan-in walk's
+      // first, and no two columns coincide.
+      const outLane = inLane(fanOutLane);
+      const inLaneIds = inLane(fanInLane).reverse();
+      const lanes = outLane.length + inLaneIds.length;
+      const room = zone.right - zone.left;
+      const pitch = lanes * COLUMN_PITCH <= room ? COLUMN_PITCH : room / lanes;
+      walk(outLane, zone.left + pitch / 2, pitch);
+      walk(inLaneIds, zone.right - pitch / 2, -pitch);
     }
   }
 

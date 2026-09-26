@@ -56,7 +56,11 @@ import {
   routeTrunkEdges,
 } from "./busRouting";
 import { deconflictChipAnchors } from "./chipSeating";
-import { widenLayerGaps, type GapRecord } from "./layerModel";
+import {
+  measureGapRecords,
+  widenLayerGaps,
+  type GapRecord,
+} from "./layerModel";
 import { buildGapColumnOrder, type GapColumnOrder } from "./gapColumnOrder";
 // Type-only: ItemEdge.tsx declares the canvas edge payload this module stamps.
 // Erased at compile time, so it adds no runtime or bundler edge, and ItemEdge
@@ -914,6 +918,18 @@ export function rerouteEdges(
     (routed, pass) => pass.run(nodes, routed, routing),
     baseEdges,
   );
+}
+
+// The drop itself: the gap records measured again where the cards now stand
+// (a drag can move a layer's edge, or a card into another layer), then the
+// fold over them. Nothing moves; App stores the records beside the edges, so
+// the gap zones it reports stay those the edges were routed through.
+export function rerouteAfterDrop(
+  nodes: ReadonlyArray<RFAnyNode>,
+  baseEdges: RFEdge[],
+): { gaps: GapRecord[]; edges: RFEdge[] } {
+  const gaps = measureGapRecords(nodes, baseEdges);
+  return { gaps, edges: rerouteEdges(nodes, baseEdges, { gaps }) };
 }
 
 // layoutRenderPlan: one elk.layout() call per cycle.
