@@ -437,8 +437,8 @@ export type SceneCollection = {
 //
 // Ids come from the DOM hook each family already emits (data-id, the path
 // element id, data-testid), because those stay stable across a re-render of the
-// same plan. Two families need help: the group boxes live INSIDE a
-// .react-flow__node wrapper and would otherwise reuse that node's data-id, so
+// same plan. Two families need help: the loop boxes (kind "group") live INSIDE
+// a .react-flow__node wrapper and would otherwise reuse that node's data-id, so
 // they carry a `group-` prefix; glyphs emit no per-element hook and are numbered
 // by document order. Anything still colliding gets a `-2`, `-3`
 // suffix, since a duplicate id would silently collapse two elements into one
