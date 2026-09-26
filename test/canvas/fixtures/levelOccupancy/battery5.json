@@ -139,7 +139,7 @@
       "anchors": {
         "labelAnchor": [1856.75, 720]
       },
-      "bendX": 1840
+      "bendX": 1818
     },
     {
       "id": "e:2:u:class:q:1->u:class:q:11:originium_powder",
@@ -155,7 +155,7 @@
       "anchors": {
         "labelAnchor": [2415.5, 215]
       },
-      "bendX": 2480,
+      "bendX": 2448,
       "entryX": 2544
     },
     {
@@ -211,7 +211,7 @@
       "anchors": {
         "labelAnchor": [3067.75, 95]
       },
-      "bendX": 3129.8333333333335,
+      "bendX": 3111.1666666666665,
       "entryX": 3180.5
     },
     {
@@ -236,7 +236,7 @@
       "anchors": {
         "labelAnchor": [1856.75, 86]
       },
-      "bendX": 1862
+      "bendX": 1840
     },
     {
       "id": "e:8:u:class:q:14->u:class:q:12:plant_moss_seed_3",
@@ -284,7 +284,7 @@
       "anchors": {
         "labelAnchor": [3059.75, 370]
       },
-      "bendX": 3111.1666666666665,
+      "bendX": 3129.8333333333335,
       "entryX": 3164.5
     },
     {
@@ -339,7 +339,7 @@
       "anchors": {
         "labelAnchor": [2399.5, 86]
       },
-      "bendX": 2448,
+      "bendX": 2464,
       "entryX": 2512
     },
     {
@@ -403,7 +403,7 @@
       "anchors": {
         "labelAnchor": [2423.5, 720]
       },
-      "bendX": 2464,
+      "bendX": 2480,
       "entryX": 2560
     },
     {
@@ -418,7 +418,7 @@
       "anchors": {
         "labelAnchor": [1779.25, 392]
       },
-      "bendX": 1818,
+      "bendX": 1862,
       "entryX": 1900
     },
     {

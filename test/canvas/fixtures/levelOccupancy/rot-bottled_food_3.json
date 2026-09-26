@@ -136,7 +136,7 @@
       "anchors": {
         "labelAnchor": [1740, 368]
       },
-      "bendX": 1767
+      "bendX": 1711
     },
     {
       "id": "e:4:u:class:q:12->u:class:q:0:plant_moss_enr_powder_2",
@@ -172,7 +172,7 @@
       "anchors": {
         "labelAnchor": [2306.5, 230]
       },
-      "bendX": 2401.6666666666665,
+      "bendX": 2380.3333333333335,
       "entryX": 2439
     },
     {
@@ -296,7 +296,7 @@
       "anchors": {
         "labelAnchor": [1740, 488]
       },
-      "bendX": 1711
+      "bendX": 1739
     },
     {
       "id": "e:14:u:class:q:4->u:class:q:1:iron_enr_powder",
@@ -327,7 +327,7 @@
       "anchors": {
         "labelAnchor": [2306.5, 488]
       },
-      "bendX": 2380.3333333333335,
+      "bendX": 2401.6666666666665,
       "entryX": 2439
     },
     {
@@ -362,7 +362,7 @@
       "anchors": {
         "labelAnchor": [1740, 230]
       },
-      "bendX": 1739
+      "bendX": 1767
     },
     {
       "id": "e:18:u:in:iron_ore->u:class:q:3:iron_ore",

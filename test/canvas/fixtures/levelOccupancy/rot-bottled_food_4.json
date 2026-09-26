@@ -166,7 +166,7 @@
       "anchors": {
         "labelAnchor": [2756.5, 267]
       },
-      "bendX": 2743.5
+      "bendX": 2721.5
     },
     {
       "id": "e:6:u:class:q:4->u:class:q:2:iron_nugget",
@@ -178,7 +178,7 @@
       "anchors": {
         "labelAnchor": [3059, 387]
       },
-      "bendX": 2765.5
+      "bendX": 2743.5
     },
     {
       "id": "e:7:u:class:q:5->u:class:q:0:iron_bottle-liquid_plant_grass_1",
@@ -259,7 +259,7 @@
       "anchors": {
         "labelAnchor": [2682.75, 147]
       },
-      "bendX": 2721.5,
+      "bendX": 2765.5,
       "entryX": 2803.5
     },
     {

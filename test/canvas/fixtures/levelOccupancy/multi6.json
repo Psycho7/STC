@@ -405,7 +405,7 @@
       "anchors": {
         "labelAnchor": [5475.5, 1377]
       },
-      "bendX": 5532.5,
+      "bendX": 5508.5,
       "entryX": 5596.5
     },
     {
@@ -420,7 +420,7 @@
       "anchors": {
         "labelAnchor": [5475.5, 742]
       },
-      "bendX": 5556.5,
+      "bendX": 5532.5,
       "entryX": 5596.5
     },
     {
@@ -453,7 +453,7 @@
       "anchors": {
         "labelAnchor": [2807.25, 2015]
       },
-      "bendX": 2882.6666666666665,
+      "bendX": 2793.777777777778,
       "entryX": 2952,
       "chipX": 2807.25,
       "chipY": 2015
@@ -472,7 +472,7 @@
       "anchors": {
         "labelAnchor": [2018.75, 151]
       },
-      "bendX": 2147.5,
+      "bendX": 2051.5,
       "entryX": 2211.5
     },
     {
@@ -489,7 +489,7 @@
       "anchors": {
         "labelAnchor": [3526.25, 1556]
       },
-      "bendX": 3541,
+      "bendX": 3487,
       "entryX": 3621,
       "chipX": 3526.25,
       "chipY": 1556
@@ -508,7 +508,7 @@
       "anchors": {
         "labelAnchor": [3526.25, 1248]
       },
-      "bendX": 3559,
+      "bendX": 3505,
       "entryX": 3621,
       "chipX": 3526.25,
       "chipY": 1248
@@ -525,7 +525,7 @@
       "anchors": {
         "labelAnchor": [5475.5, 1924]
       },
-      "bendX": 5508.5,
+      "bendX": 5556.5,
       "entryX": 5596.5
     },
     {
@@ -538,7 +538,7 @@
       "anchors": {
         "labelAnchor": [2096.25, 2255]
       },
-      "bendX": 2051.5
+      "bendX": 2067.5
     },
     {
       "id": "e:12:u:class:q:17->u:class:q:21:copper_bottle",
@@ -728,7 +728,7 @@
       "anchors": {
         "labelAnchor": [2010.75, 1706]
       },
-      "bendX": 2067.5,
+      "bendX": 2083.5,
       "entryX": 2195.5
     },
     {
@@ -745,7 +745,7 @@
       "anchors": {
         "labelAnchor": [2018.75, 1946]
       },
-      "bendX": 2083.5,
+      "bendX": 2099.5,
       "entryX": 2211.5
     },
     {
@@ -921,7 +921,7 @@
       "anchors": {
         "labelAnchor": [3476.25, 316]
       },
-      "bendX": 3487,
+      "bendX": 3523,
       "entryX": 3621
     },
     {
@@ -969,7 +969,7 @@
       "anchors": {
         "labelAnchor": [2010.75, 304]
       },
-      "bendX": 2099.5,
+      "bendX": 2115.5,
       "entryX": 2195.5
     },
     {
@@ -986,7 +986,7 @@
       "anchors": {
         "labelAnchor": [2018.75, 1826]
       },
-      "bendX": 2115.5,
+      "bendX": 2131.5,
       "entryX": 2211.5
     },
     {
@@ -1003,7 +1003,7 @@
       "anchors": {
         "labelAnchor": [2775.25, 284]
       },
-      "bendX": 2793.777777777778,
+      "bendX": 2811.5555555555557,
       "entryX": 2952
     },
     {
@@ -1018,7 +1018,7 @@
       "anchors": {
         "labelAnchor": [2775.25, 1895]
       },
-      "bendX": 2811.5555555555557,
+      "bendX": 2829.3333333333335,
       "entryX": 2952
     },
     {
@@ -1113,7 +1113,7 @@
       "anchors": {
         "labelAnchor": [2775.25, 1545]
       },
-      "bendX": 2829.3333333333335,
+      "bendX": 2847.1111111111113,
       "entryX": 2952
     },
     {
@@ -1149,7 +1149,7 @@
       "anchors": {
         "labelAnchor": [2849, 1248]
       },
-      "bendX": 2847.1111111111113
+      "bendX": 2864.8888888888887
     },
     {
       "id": "e:47:u:class:q:55->u:class:q:51:plant_grass_seed_1",
@@ -1249,7 +1249,7 @@
       "anchors": {
         "labelAnchor": [2018.75, 2126]
       },
-      "bendX": 2131.5,
+      "bendX": 2147.5,
       "entryX": 2211.5
     },
     {
@@ -1376,7 +1376,7 @@
       "anchors": {
         "labelAnchor": [3476.25, 2188]
       },
-      "bendX": 3505,
+      "bendX": 3541,
       "entryX": 3621
     },
     {
@@ -1393,7 +1393,7 @@
       "anchors": {
         "labelAnchor": [2775.25, 2255]
       },
-      "bendX": 2864.8888888888887,
+      "bendX": 2882.6666666666665,
       "entryX": 2952
     },
     {
@@ -1408,7 +1408,7 @@
       "anchors": {
         "labelAnchor": [3476.25, 1904]
       },
-      "bendX": 3523,
+      "bendX": 3559,
       "entryX": 3621
     },
     {

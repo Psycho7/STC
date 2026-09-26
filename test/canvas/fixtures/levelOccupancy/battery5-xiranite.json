@@ -205,7 +205,7 @@
       "anchors": {
         "labelAnchor": [647.75, 755]
       },
-      "bendX": 558,
+      "bendX": 542,
       "entryX": 474
     },
     {
@@ -220,7 +220,7 @@
       "anchors": {
         "labelAnchor": [1883.25, 304]
       },
-      "bendX": 1961.3333333333333,
+      "bendX": 1909.3333333333333,
       "entryX": 2012
     },
     {
@@ -237,7 +237,7 @@
       "anchors": {
         "labelAnchor": [2551.5, 284]
       },
-      "bendX": 2608,
+      "bendX": 2576,
       "entryX": 2688
     },
     {
@@ -254,7 +254,7 @@
       "anchors": {
         "labelAnchor": [2559.5, 722]
       },
-      "bendX": 2624,
+      "bendX": 2592,
       "entryX": 2704
     },
     {
@@ -269,7 +269,7 @@
       "anchors": {
         "labelAnchor": [1891.25, 567]
       },
-      "bendX": 1978.6666666666667,
+      "bendX": 1926.6666666666667,
       "entryX": 2028
     },
     {
@@ -405,7 +405,7 @@
       "anchors": {
         "labelAnchor": [1968.75, 1045]
       },
-      "bendX": 1909.3333333333333
+      "bendX": 1944
     },
     {
       "id": "e:15:u:class:q:26->u:class:q:24:plant_moss_seed_3",
@@ -497,7 +497,7 @@
       "anchors": {
         "labelAnchor": [1891.25, 824]
       },
-      "bendX": 1926.6666666666667,
+      "bendX": 1961.3333333333333,
       "entryX": 2028
     },
     {
@@ -514,7 +514,7 @@
       "anchors": {
         "labelAnchor": [2535.5, 925]
       },
-      "bendX": 2576,
+      "bendX": 2608,
       "entryX": 2656
     },
     {
@@ -548,7 +548,7 @@
       "anchors": {
         "labelAnchor": [1891.25, 151]
       },
-      "bendX": 1944,
+      "bendX": 1978.6666666666667,
       "entryX": 2028
     },
     {
@@ -563,7 +563,7 @@
       "anchors": {
         "labelAnchor": [2551.5, 1045]
       },
-      "bendX": 2592,
+      "bendX": 2624,
       "entryX": 2688
     },
     {
@@ -645,7 +645,7 @@
       "anchors": {
         "labelAnchor": [450.75, 466.5]
       },
-      "bendX": 542,
+      "bendX": 558,
       "entryX": 634,
       "chipX": 450.75,
       "chipY": 466.5
