@@ -169,6 +169,7 @@ export const AlwaysFoldRender: RenderPolicy = (input): RenderPlan => {
       supply: input.supply,
       unitIdByVertex,
       boundaryShare: input.boundaryShare,
+      draws: input.draws,
     });
   for (const be of boundaryEdges) accumEdge(be);
 

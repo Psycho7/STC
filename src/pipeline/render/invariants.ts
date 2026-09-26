@@ -259,16 +259,13 @@ export function checkBoundaryProductsJustified(
       const availRaw = prod.sub(targetDemand);
       const availProd = availRaw.compare(FRAC_ZERO) > 0 ? availRaw : FRAC_ZERO;
       const net = cons.sub(availProd); // positive means net external draw
-      // A free-supply target item is additionally justified by its export
-      // shortfall: the declared rate beyond what net production covers arrives
-      // as a boundary passthrough into the target output.
+      // A target item is additionally justified by its export shortfall: the
+      // declared rate beyond what net production covers arrives as a boundary
+      // passthrough into the target output, capped or free.
       const netProd = prod.sub(cons);
-      const exportShortfall =
-        supply === Infinity
-          ? targetDemand.sub(
-              netProd.compare(FRAC_ZERO) > 0 ? netProd : FRAC_ZERO,
-            )
-          : FRAC_ZERO;
+      const exportShortfall = targetDemand.sub(
+        netProd.compare(FRAC_ZERO) > 0 ? netProd : FRAC_ZERO,
+      );
       const magnitude = net.valueOf();
       const slack = relSlack(scaleFloor, Math.abs(magnitude));
       const shortSlack = relSlack(
@@ -1055,8 +1052,8 @@ export function checkProductUnitRates(
     if (!to) continue; // dangling endpoint is checkEdgeEndpointIntegrity's job
     const okTarget =
       (isInputProductUnit(to) && to.itemId === from.itemId) ||
-      // Free-boundary target passthrough: the import feeds the same item's
-      // target export directly.
+      // Target passthrough: the import feeds the same item's target export
+      // directly.
       (isOutputProductUnit(to) &&
         to.itemId === from.itemId &&
         to.flavor === "target") ||

@@ -110,6 +110,9 @@ export type DeriveBoundaryProductsInput = {
   // entries mean realized draw 0: the boundary contributes nothing and no
   // input product is emitted for the item.
   boundaryShare: ReadonlyMap<ItemId, Fraction>;
+  // The LP's boundary draw per finite-capped item. A capped target's export
+  // takes what the draw has left after the item's in-plan consumers.
+  draws: ReadonlyMap<ItemId, Fraction>;
 };
 
 export type DeriveBoundaryProductsResult = {
@@ -125,8 +128,9 @@ export type DeriveBoundaryProductsResult = {
  * items become output products (at their target rate); items consumed in the
  * plan with nonzero `effectiveSupply` become input products (with a rate cap
  * when overridden); surplus byproducts become amber output products; a
- * free-supply target item's export draws the slice of its declared rate that
- * in-plan production spare does not cover from the item's own input card.
+ * target item's export draws the slice of its declared rate that in-plan
+ * production spare does not cover from the item's own input card (for a capped
+ * item, no more than the LP draw has left).
  * Per-consumer flow conservation holds when a boundary input coexists with an
  * in-graph producer for the same item.
  *
@@ -149,6 +153,7 @@ export function deriveBoundaryProducts(
     supply: supplyTable,
     unitIdByVertex,
     boundaryShare,
+    draws,
   } = args;
 
   const boundaryEdges: RenderEdge[] = [];
@@ -517,7 +522,12 @@ export function deriveBoundaryProducts(
     // every skip rule collectConsumed applies and never takes part in the
     // share split below: the plan draws the whole charge from the boundary.
     catalyst?: true;
+    // A target's export: its rate is already the boundary's part, so it is
+    // drawn whole too and never takes part in the share split.
+    targetExport?: true;
   };
+  const drawnWhole = (c: BoundaryConsumer): boolean =>
+    c.catalyst === true || c.targetExport === true;
   const boundaryConsumers: BoundaryConsumer[] = [];
   const collectConsumed = (
     toUnit: RenderUnitId,
@@ -592,26 +602,46 @@ export function deriveBoundaryProducts(
     }
   }
 
-  // Free-boundary target export. A target item with unlimited free supply
-  // (raw:true, or plan:true via an override) builds no LP row: nothing is
-  // forced to run and the solver meets the declared rate with a reported
-  // boundary draw. The slice of the declared rate that in-plan spare did not
-  // cover above arrives from the boundary, so the export is one more loose
-  // consumer of the item's ordinary pool. It then draws from the same card as
-  // every other consumer (one boundary card per imported item) and the pool
-  // topology below applies to it unchanged. Finite-supply target items never
-  // take this path: the LP builds a real row for them.
+  // What a capped item's LP draw has left once its in-plan consumers take
+  // their boundary part, (1 - share) of their demand.
+  const drawLeftAfterConsumers = (itemId: ItemId): Fraction => {
+    const share = boundaryShare.get(itemId) ?? FRAC_ONE;
+    let left = draws.get(itemId) ?? new Fraction(0);
+    for (const c of boundaryConsumers) {
+      if (c.item !== itemId || drawnWhole(c)) continue;
+      left = left.sub(c.rate.mul(FRAC_ONE.sub(share)));
+    }
+    return left;
+  };
+
+  // Boundary target export. The slice of the declared rate that in-plan spare
+  // did not cover above arrives from the boundary, so the export is one more
+  // loose consumer of the item's ordinary pool. It then draws from the same
+  // card as every other consumer (one boundary card per imported item) and the
+  // pool topology below applies to it unchanged.
+  //
+  // A free item (raw:true, or plan:true via an override) builds no LP row, and
+  // the solver meets the declared rate with a reported free draw, so the whole
+  // slice arrives. A capped item has a row with a bounded draw: the export gets
+  // what that draw has left after the in-plan consumers' boundary part, and
+  // whatever the draw cannot cover is the LP's deficit, left undelivered.
+  //
+  //   gas_inert cap 1/2, copper_jar draws 1/4, target 1/4 -> export 1/4
   for (const [outItem, total] of targetRateByItem) {
-    if (!supplyTable.isFree(outItem)) continue;
     if (!itemById.has(outItem)) continue;
     const billed = targetBilledByItem.get(outItem) ?? new Fraction(0);
-    const shortfall = total.sub(billed);
-    if (shortfall.compare(0) <= 0) continue;
+    let rate = total.sub(billed);
+    if (!supplyTable.isFree(outItem)) {
+      const left = drawLeftAfterConsumers(outItem);
+      if (left.compare(rate) < 0) rate = left;
+    }
+    if (rate.compare(0) <= 0) continue;
     boundaryConsumers.push({
       toUnit: unitIdForOutputProduct(outItem),
       item: outItem,
-      rate: shortfall,
+      rate,
       containerId: undefined,
+      targetExport: true,
     });
   }
 
@@ -648,7 +678,7 @@ export function deriveBoundaryProducts(
     itemByKey.set(k, c.item);
     roleByKey.set(k, role);
     bucketByKey.set(k, bucket);
-    if (c.catalyst) continue;
+    if (drawnWhole(c)) continue;
     ordinaryDemandByItem.set(
       c.item,
       (ordinaryDemandByItem.get(c.item) ?? new Fraction(0)).add(c.rate),
@@ -677,11 +707,12 @@ export function deriveBoundaryProducts(
     consumedSupplyByItem.set(itemId, consumed);
   }
 
-  // The rate one consumer's boundary edge carries: a catalyst charge whole, an
-  // ordinary consumer its prorated slice of the realized draw. Multiply before
-  // divide to keep precision under exact rationals.
+  // The rate one consumer's boundary edge carries: a catalyst charge or a
+  // target export whole, an ordinary consumer its prorated slice of the
+  // realized draw. Multiply before divide to keep precision under exact
+  // rationals.
   const edgeRateOf = (c: BoundaryConsumer): Fraction => {
-    if (c.catalyst) return c.rate;
+    if (drawnWhole(c)) return c.rate;
     const ordinaryDemand = ordinaryDemandByItem.get(c.item) ?? new Fraction(0);
     if (ordinaryDemand.equals(new Fraction(0))) return new Fraction(0);
     const consumed = consumedSupplyByItem.get(c.item) ?? new Fraction(0);
@@ -846,13 +877,13 @@ export function deriveBoundaryProducts(
     // edge leaves the catalyst pool's node, never the ordinary one.
     const fromUnit = unitIdForInputBucket(itemId, role, bucket);
     // Avoid 0/0 when every ordinary consumer's rate collapses to zero. A
-    // catalyst consumer takes no share of that demand, so its charge is still
-    // drawn (collectConsumed already dropped any zero-rate catalyst).
+    // catalyst consumer or a target export takes no share of that demand, so
+    // it is still drawn (both are pushed only at a positive rate).
     const noOrdinaryDemand = (
       ordinaryDemandByItem.get(itemId) ?? new Fraction(0)
     ).equals(new Fraction(0));
     for (const c of consumers) {
-      if (noOrdinaryDemand && !c.catalyst) continue;
+      if (noOrdinaryDemand && !drawnWhole(c)) continue;
       const rate = edgeRateOf(c);
       boundaryEdges.push({
         fromUnit,

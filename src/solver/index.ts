@@ -207,6 +207,12 @@ export type SolvePlanFull = {
    */
   boundaryShare: Map<ItemId, Fraction>;
   /**
+   * The LP's boundary draw per finite-capped item (`LpResult.draws`). The
+   * render feeds a capped target's export from what the draw has left after
+   * the item's in-plan consumers.
+   */
+  draws: Map<ItemId, Fraction>;
+  /**
    * Per item the running recipes cycle as a catalyst: what the plan needs and
    * which supply pool holds it. Keyed by item id, zero-need items omitted.
    * The charge is per machine, so it is computed here from the machine counts
@@ -342,6 +348,7 @@ function runSolvePipeline(
     },
     supplyShares,
     boundaryShare,
+    draws: lpResult.draws,
     catalystAccount,
   };
 
