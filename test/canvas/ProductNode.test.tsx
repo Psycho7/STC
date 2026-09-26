@@ -575,6 +575,49 @@ describe("ProductNode", () => {
       expect(zhBadge?.textContent).toBe("催化");
     });
 
+    // The badge rides the name's line box, so its margin, chrome and measured
+    // text come out of the name budget. The card is sprite-less on purpose: in
+    // jsdom a sprite card's badged budget is under the ellipsis's own width,
+    // so elideName hands the whole name back and nothing visibly elides. The
+    // id is grown until it overruns the badged budget but still fits the
+    // unbadged one, so the cut only happens if the badge is charged.
+    it("elides a badged card's name against the column less the badge", () => {
+      const nameFont: MeasuredFont = {
+        fontSize: 12,
+        weight: 700,
+        family: "--font-ui",
+      };
+      const badgeFont: MeasuredFont = {
+        fontSize: 9,
+        weight: 500,
+        family: "--font-mono",
+        letterSpacingEm: 0.05,
+      };
+      const unbadgedBudget = 124 - 8;
+      const badgedBudget =
+        unbadgedBudget - (6 + measureTextWidth("CATALYST", badgeFont) + 10);
+      let itemId = "no_sprite_";
+      while (measureTextWidth(itemId, nameFont) <= badgedBudget) {
+        itemId += "x";
+      }
+      expect(iconPosition(iconIdForItem(itemId))).toBeUndefined();
+      expect(measureTextWidth(itemId, nameFont)).toBeLessThanOrEqual(
+        unbadgedBudget,
+      );
+
+      const { container } = renderProduct(catalystData({ itemId }), [
+        makeItem(itemId, true),
+      ]);
+      const name = container.querySelector(".pn-name");
+      expect(name?.querySelector(".pn-badge")?.textContent).toBe("CATALYST");
+      expect(name?.getAttribute("title")).toBe(itemId);
+      const visible = name?.firstChild?.textContent ?? "";
+      expect(visible.endsWith("…")).toBe(true);
+      const head = visible.slice(0, -1);
+      expect(head.length).toBeGreaterThan(0);
+      expect(itemId.startsWith(head)).toBe(true);
+    });
+
     it("leaves an ordinary input card without the badge", () => {
       const { container } = renderProduct(
         {
