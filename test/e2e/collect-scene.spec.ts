@@ -46,7 +46,7 @@ test("collectScene inventories every element kind on a dense plan", async ({
   expect(countOf("junction")).toBe(await page.locator(".bus-junction").count());
   expect(countOf("glyph")).toBe(await page.locator("[data-glyph]").count());
   expect(countOf("group")).toBe(
-    await page.locator('.rf-group-box, [data-testid="loop-node"]').count(),
+    await page.locator('[data-testid="loop-node"]').count(),
   );
 
   // Ids must come from the DOM hook each family emits, not from the positional

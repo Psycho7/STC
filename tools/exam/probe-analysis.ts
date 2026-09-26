@@ -486,10 +486,6 @@ export function resolveEndpoints(
 // empty observed one outright. That rule is emitted with the result rather than
 // left in this comment, because a reader of stdout sees two large arrays that
 // differ and has no other way to know a difference is not the defect.
-//
-// Group containers are outside the universe: Canvas makes them hover-inert and
-// gives a container with a focused child `lit-container` instead of `dimmed`,
-// so counting them would put a known non-defect in every expected set.
 export function expectedDimmed(
   graph: HoverGraph,
   hovered: { kind: "edge" | "node"; id: string },
@@ -531,7 +527,7 @@ export function expectedDimmed(
   }
 
   const universe = [
-    ...graph.nodes.filter((n) => n.type !== "group").map((n) => n.id),
+    ...graph.nodes.map((n) => n.id),
     ...graph.edges.map((e) => e.id),
   ];
   return universe.filter((id) => !lit.has(id)).sort();

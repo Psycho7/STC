@@ -781,10 +781,10 @@ export type RoutingCtx = {
 };
 
 // The one pre-pass: it runs BEFORE every routing pass and is the only step that
-// moves a node after ELK. It widens each inter-layer gap -- of the root and of
-// every container interior -- to the chip reserves that gap owes, so every pass
-// below routes through corridors that already have room for the chips they will
-// carry. Pinned ahead of ROUTING_PASSES by
+// moves a node after ELK. It widens each inter-layer gap of the root graph (the
+// only scope; there are no container interiors) to the chip reserves that gap
+// owes, so every pass below routes through corridors that already have room for
+// the chips they will carry. Pinned ahead of ROUTING_PASSES by
 // test/canvas/layout-pass-order.test.ts.
 export const LAYOUT_PREPASS: {
   readonly name: string;
