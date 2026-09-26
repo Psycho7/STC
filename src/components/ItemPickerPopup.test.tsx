@@ -548,6 +548,14 @@ test("Enter that confirms an IME composition does not pick", () => {
   expect(props.onPick).not.toHaveBeenCalled();
 });
 
+// Safari fires the committing Enter after compositionend, with isComposing
+// false; keyCode 229 is the only mark that the IME owns it.
+test("Enter with keyCode 229 after an IME composition does not pick", () => {
+  const props = renderPopup();
+  fireEvent.keyDown(searchFor("r"), { key: "Enter", keyCode: 229 });
+  expect(props.onPick).not.toHaveBeenCalled();
+});
+
 test("ArrowDown in the search box focuses the first enabled tile and moves the tab stop", () => {
   renderPopup({ disabledIds: new Set(["bravo"]) });
   const search = searchFor("r");

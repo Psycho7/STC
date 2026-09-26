@@ -8,6 +8,9 @@ import { Sprite } from "../canvas/RecipeNode";
 import { pushInto } from "../util/multimap";
 import { useModalDialog } from "./useModalDialog";
 
+// The keyCode browsers report for a key event the IME is processing.
+const IME_KEY_CODE = 229;
+
 type Props = {
   // The pickable catalogue. The caller decides what belongs here: targets pass
   // only producible items, inputs pass the whole pack.
@@ -176,8 +179,11 @@ export function ItemPickerPopup({
   // Enter picks the first enabled tile in filtered order, as a click would;
   // ArrowDown hands focus to that tile so the grid's arrows take over. An Enter
   // that confirms an IME composition (zh input) is the IME's, not a pick.
+  // Safari sends that Enter after compositionend, so only keyCode 229 marks it.
   function onSearchKeyDown(e: ReactKeyboardEvent<HTMLInputElement>) {
-    if (e.nativeEvent.isComposing) return;
+    if (e.nativeEvent.isComposing || e.nativeEvent.keyCode === IME_KEY_CODE) {
+      return;
+    }
     if (e.key !== "Enter" && e.key !== "ArrowDown") return;
     if (firstEnabled === null) return;
     e.preventDefault();
