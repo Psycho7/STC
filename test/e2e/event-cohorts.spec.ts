@@ -7,10 +7,10 @@ test.use({ viewport: { width: 1600, height: 1000 } });
 
 // The event-cohort end-to-end story (#144's T7): a shared link whose target
 // only an event recipe produces, opened in a browser whose stored overrides
-// switch that cohort off, must land on the localized error splash - and the
-// settings panel must be reachable FROM that splash, because flipping the
-// cohort back on is the one recovery that keeps the link. Flipping the switch
-// re-runs the pending hash load, which lands on the solved plan.
+// switch that cohort off, is adopted into the panels under a localized banner
+// that names the item and the cohort - never the damaged-link splash. Flipping
+// the cohort back on in Settings is the recovery that keeps the link: the same
+// plan solves and the banner clears.
 //
 // Runs against the built preview like every spec in this suite, so the boot
 // path exercised is the production one: seeded localStorage, init-script-free
@@ -38,17 +38,20 @@ function attachConsoleListener(page: Page): ConsoleLog {
 // Default locale is zh; UI strings come from src/data/i18n.ts. Hardcoded the
 // same way inputs-panel.spec.ts pins its copy: loadI18n cannot be imported
 // from a spec because it runtime-imports @aef/data, a vite alias that does
-// not resolve from the plain-node side Playwright runs specs in. The error
-// sentence is the raw-template interpolation for the lung target (item ids
-// interpolate untranslated).
+// not resolve from the plain-node side Playwright runs specs in. The blocked
+// sentence interpolates the lung's display name from the pack's i18n sidecar.
 const TEXT = {
   openSettings: "打开设置",
   switchV15: "切换 v1.5 活动",
-  lungCohortError:
-    "物品 activity_xiranite_lung 仅由 v1.5 活动配方生产，该活动当前未开启。",
+  lungName: "息壤龙泡泡",
+  lungCohortBlocked:
+    "物品 息壤龙泡泡 仅由 v1.5 活动配方生产，该活动当前未开启。",
+  blockedHint: "可在设置中更改区域或活动。",
+  corrupt: "此分享链接已损坏，或来自更新版本的规划器。",
+  reset: "从新方案开始",
 } as const;
 
-// The lung target, shared by the chain check and the rejection story below.
+// The lung target, shared by the chain check and the blocked-link story below.
 const LUNG_TARGETS = [
   { itemId: "activity_xiranite_lung", ratePerSec: { num: "1", denom: "2" } },
 ];
@@ -191,16 +194,16 @@ test("a flipped cohort round-trips through localStorage and survives a reload", 
   ).not.toBeChecked();
 });
 
-test("a rejected event link recovers through the settings panel on the splash", async ({
+test("a blocked event link is adopted under a banner and recovers through the settings panel", async ({
   page,
 }) => {
   const log = attachConsoleListener(page);
 
   // The lung is v1.5 event content whose only producer is the event recipe of
-  // the same id, so with the cohort seeded off the link cannot validate.
+  // the same id, so with the cohort seeded off the plan cannot be built.
   const hash = await planHash({ targets: LUNG_TARGETS });
-  // readiness "none": this boot is expected to land on the splash, where no
-  // canvas node ever appears for waitForCanvasReady to gate on.
+  // readiness "none": nothing is solved for a blocked plan, so no canvas node
+  // ever appears for waitForCanvasReady to gate on.
   await bootExamPage(page, {
     url: `/#${hash}`,
     readiness: "none",
@@ -208,16 +211,25 @@ test("a rejected event link recovers through the settings panel on the splash", 
     eventOverrides: { "v1.5": false },
   });
 
-  // The splash owns the viewport: the localized producer-unavailable error
-  // names the raw item id and the switched-off cohort.
+  // The link is plan state: the panels hold it, and the damaged-link splash
+  // never shows.
+  await expect(page.getByTestId("header-strip")).toBeVisible();
+  const rows = page.getByTestId("target-row");
+  await expect(rows).toHaveCount(1);
+  await expect(rows.first()).toContainText(TEXT.lungName);
+  await expect(page.getByText(TEXT.corrupt)).toHaveCount(0);
+  await expect(page.getByRole("button", { name: TEXT.reset })).toHaveCount(0);
+
+  // The banner says why: the item by display name and the switched-off
+  // cohort, and it points at Settings.
   const alert = page.getByRole("alert");
   await expect(alert).toBeVisible();
-  await expect(alert).toContainText(TEXT.lungCohortError);
-  await expect(alert).toContainText("v1.5");
-  await expect(page.locator(".react-flow")).toHaveCount(0);
+  await expect(alert).toContainText(TEXT.lungCohortBlocked);
+  await expect(alert).not.toContainText("activity_xiranite_lung");
+  await expect(alert).toContainText(TEXT.blockedHint);
 
-  // The splash hosts the same gear the topbar does; the panel it opens shows
-  // the cohort's row with its switch in the stored-off state.
+  // The topbar gear opens the panel on the cohort's row, its switch in the
+  // stored-off state.
   await page.getByRole("button", { name: TEXT.openSettings }).click();
   const dialog = page.getByRole("dialog");
   await expect(dialog).toBeVisible();
@@ -231,13 +243,15 @@ test("a rejected event link recovers through the settings panel on the splash", 
   await page.keyboard.press("Escape");
   await expect(dialog).toHaveCount(0);
 
-  // Recovery: the pending hash re-loads under the flipped availability, so
-  // the linked plan solves - canvas nodes, the READY annotation, no splash.
+  // Recovery: the adopted plan re-solves under the flipped availability -
+  // canvas nodes, the READY annotation, the same target, no banner.
   await waitForCanvasReady(page);
   await expect(
     page.locator(".canvas-annot.bottom-right", { hasText: "READY" }),
   ).toBeVisible();
   await expect(page.getByRole("alert")).toHaveCount(0);
+  await expect(rows).toHaveCount(1);
+  await expect(rows.first()).toContainText(TEXT.lungName);
 
   expect(
     log.errors,

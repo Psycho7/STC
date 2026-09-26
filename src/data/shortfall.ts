@@ -20,6 +20,7 @@
 
 import { CAUSE_PRECEDENCE, type ProducerUnavailableCause } from "./plan";
 import type { I18nIndex, UiKey } from "./i18n";
+import { joinList, joinSentences } from "./i18n-join";
 
 type RestrictionKind = ProducerUnavailableCause["kind"];
 
@@ -121,7 +122,10 @@ export function shortfallText(
   i18n: I18nIndex,
 ): string {
   const names = (ids: ReadonlyArray<string>): string =>
-    ids.map((id) => i18n.displayName(id)).join(", ");
+    joinList(
+      i18n.locale,
+      ids.map((id) => i18n.displayName(id)),
+    );
 
   const parts = [
     i18n.t("app.shortfall.unmet", { items: names(report.unmetItemIds) }),
@@ -138,5 +142,5 @@ export function shortfallText(
           : { items };
     parts.push(i18n.t(CLAUSE_KEY[clause.kind], params));
   }
-  return parts.join(" ");
+  return joinSentences(i18n.locale, parts);
 }

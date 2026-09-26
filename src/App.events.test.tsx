@@ -8,10 +8,9 @@
 // event a second browser tab would fire, which routes through the same
 // override writer the T5 settings panel will use: the committed plan must
 // re-validate WITHOUT clearing the render, and flipping back must re-solve.
-// The rejected-link splash carries the T7 recovery: the settings gear is
-// reachable from it, and a flip re-runs the pending load - into the linked
-// plan when the cohort was the blocker, onto a fresh identical error when
-// the link stays invalid.
+// A link the stored overrides block is adopted unsolved under the blocked
+// banner, never the damaged-link splash: the header gear is the recovery, and
+// flipping the cohort on solves the linked plan.
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import {
   cleanup,
@@ -67,10 +66,10 @@ import { EVENT_COHORT_OVERRIDES_STORAGE_KEY } from "./data/storage-keys";
 import { LUNG_PLAN, flipStoredOverrides } from "./App.testkit";
 import { pickerTile } from "./components/panel.testkit";
 
-// The localized producer-unavailable copy the splash and banner must render:
-// raw item id plus the cohort, per the T3 string.
+// The localized producer-unavailable copy the banner must render: the item's
+// display name plus the cohort, per the T3 string.
 const zhCohortError = loadI18n("zh").t("app.error.producer-unavailable.event", {
-  itemId: "activity_xiranite_lung",
+  item: loadI18n("zh").displayName("activity_xiranite_lung"),
   cohort: "v1.5",
 });
 
@@ -120,7 +119,7 @@ test("a stored on override boots the same plan solved", async () => {
   await waitFor(() => expect(canvasSpy.status).toBe("READY"));
 });
 
-test("a stored off override boots to the localized cohort validation error", async () => {
+test("a stored off override boots the plan unsolved under the localized cohort banner", async () => {
   window.localStorage.setItem(
     EVENT_COHORT_OVERRIDES_STORAGE_KEY,
     '{"v1.5": false}',
@@ -128,21 +127,19 @@ test("a stored off override boots to the localized cohort validation error", asy
   window.location.hash = "#" + (await encodePlan(LUNG_PLAN));
   render(<App />);
 
-  // No plan ever commits, so the failure owns the viewport as the themed
-  // recovery splash - not the dismissible banner over a live canvas.
+  // The plan decodes, so it is adopted into the panels with the banner - not
+  // the damaged-link splash - and nothing is solved for it.
   const alert = await screen.findByRole("alert");
-  expect(alert.closest(".ak-app-shell")).not.toBeNull();
   expect(alert.textContent).toContain(zhCohortError);
   expect(alert.textContent).toContain("v1.5");
-  expect(screen.queryByTestId("side-panel")).toBeNull();
-  expect(screen.queryByTestId("target-row")).toBeNull();
+  expect(screen.getByTestId("side-panel")).toBeTruthy();
+  expect(screen.getAllByTestId("target-row")).toHaveLength(1);
+  await waitFor(() => expect(canvasSpy.status).toBe("ERROR"));
 });
 
-// T7's end-to-end flow at unit level: the rejected link's splash hosts the
-// same gear the topbar does, and the panel it opens is the recovery path that
-// keeps the link - flipping the rejecting cohort on re-runs the pending load,
-// which lands on the linked lung plan instead of the splash.
-test("flipping the cohort on from the splash's settings panel recovers the linked plan", async () => {
+// T7's end-to-end flow at unit level: the blocked plan's header gear opens the
+// panel, and flipping the blocking cohort on solves the linked lung plan.
+test("flipping the cohort on from the settings panel solves the blocked plan", async () => {
   window.localStorage.setItem(
     EVENT_COHORT_OVERRIDES_STORAGE_KEY,
     '{"v1.5": false}',
@@ -151,8 +148,8 @@ test("flipping the cohort on from the splash's settings panel recovers the linke
   render(<App />);
   await screen.findByRole("alert");
 
-  // The splash renders the gear (no topbar exists there), and the panel it
-  // opens shows the cohort row in its stored-off state.
+  // The header gear opens the panel, which shows the cohort row in its
+  // stored-off state.
   fireEvent.click(screen.getByRole("button", { name: "打开设置" }));
   expect(screen.getByRole("dialog").textContent).toContain("v1.5");
   const cohortSwitch = screen.getByRole("switch", {
@@ -162,9 +159,8 @@ test("flipping the cohort on from the splash's settings panel recovers the linke
 
   fireEvent.click(cohortSwitch);
 
-  // The availability flip re-runs the pending load: the splash clears and the
-  // linked plan commits. The panel survives the swap (settingsOpen is branch-
-  // independent), so close it the way a user would before the final asserts.
+  // The availability flip re-solves the adopted plan. Close the panel the way
+  // a user would before the final asserts.
   expect(await screen.findAllByTestId("target-row")).toHaveLength(1);
   fireEvent.keyDown(document, { key: "Escape" });
   await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
@@ -172,10 +168,9 @@ test("flipping the cohort on from the splash's settings panel recovers the linke
   expect(screen.queryByRole("alert")).toBeNull();
 });
 
-// A flip that cannot fix the link (the rejecting cohort stays off) must not
-// recover: the re-run load fails the same way, so a fresh, correctly
-// localized error keeps owning the viewport.
-test("a flip that leaves the rejecting cohort off keeps the localized splash error", async () => {
+// A flip that cannot unblock the plan (the blocking cohort stays off) must not
+// recover: the plan stays adopted and unsolved under the same banner.
+test("a flip that leaves the blocking cohort off keeps the blocked banner", async () => {
   window.localStorage.setItem(
     EVENT_COHORT_OVERRIDES_STORAGE_KEY,
     '{"v1.5": false}',
@@ -188,13 +183,12 @@ test("a flip that leaves the rejecting cohort off keeps the localized splash err
   // Another tab flips an unrelated cohort on while v1.5 stays off.
   flipStoredOverrides('{"v1.2": true, "v1.5": false}');
 
-  // The re-run load fails identically: still the splash, still the same
-  // localized cohort error, and no plan ever commits.
+  // Still blocked: the same localized banner over the adopted plan.
   await waitFor(() =>
     expect(screen.getByRole("alert").textContent).toContain(zhCohortError),
   );
-  expect(screen.queryByTestId("target-row")).toBeNull();
-  expect(screen.queryByTestId("side-panel")).toBeNull();
+  expect(screen.getAllByTestId("target-row")).toHaveLength(1);
+  await waitFor(() => expect(canvasSpy.status).toBe("ERROR"));
 });
 
 test("a mid-session flip off banners without clearing the render; flipping back re-solves", async () => {
@@ -209,8 +203,8 @@ test("a mid-session flip off banners without clearing the render; flipping back 
 
   const banner = await screen.findByRole("alert");
   expect(banner.textContent).toContain(zhCohortError);
-  // Routed through the edit wrapper ("cannot apply this change"), not load.
-  expect(banner.textContent).toContain("无法应用此更改");
+  // The setting applied, so nothing was refused: not the edit wrapper.
+  expect(banner.textContent).not.toContain("无法应用此更改");
   expect(screen.getAllByTestId("target-row")).toHaveLength(1);
   await waitFor(() => expect(canvasSpy.status).toBe("ERROR"));
 

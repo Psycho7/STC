@@ -307,6 +307,47 @@ export async function encodePlan(plan: Plan): Promise<string> {
   return `v${CURRENT_VERSION}.${payload}`;
 }
 
+// Why a target cannot be produced under the given availability: every one of
+// its producers is off, and producers can be off for different reasons, so the
+// outermost one is reported - it points at the setting to flip first.
+// Undefined when at least one producer is available (or none exist, which is
+// target-not-producible's case, not this one).
+function producerUnavailableCause(
+  pack: RecipePack,
+  itemId: string,
+  unavailableCauses: ReadonlyMap<string, ProducerUnavailableCause>,
+): ProducerUnavailableCause | undefined {
+  if (unavailableCauses.size === 0) return undefined;
+  const producers = producersOfItem(pack.recipes, itemId);
+  const causes = producers.flatMap((r) => {
+    const cause = unavailableCauses.get(r.id);
+    return cause ? [cause] : [];
+  });
+  if (producers.length === 0 || causes.length < producers.length) {
+    return undefined;
+  }
+  return outermostCause(causes);
+}
+
+export type BlockedTarget = {
+  itemId: string;
+  cause: ProducerUnavailableCause;
+};
+
+// Every target of an otherwise valid plan that the viewer's settings leave
+// without a producer, in target order. validatePlan stops at the first; the
+// app names them all on the banner of a plan it adopts without solving.
+export function blockedTargets(
+  plan: Plan,
+  pack: RecipePack,
+  unavailableCauses: ReadonlyMap<string, ProducerUnavailableCause>,
+): BlockedTarget[] {
+  return plan.targets.flatMap((t) => {
+    const cause = producerUnavailableCause(pack, t.itemId, unavailableCauses);
+    return cause ? [{ itemId: t.itemId, cause }] : [];
+  });
+}
+
 export function validatePlan(
   plan: Plan,
   pack: RecipePack,
@@ -355,18 +396,9 @@ export function validatePlan(
     // set above (producersOfItem shares its predicate), so the two errors
     // partition: no producers at all -> target-not-producible; producers, all
     // unavailable -> here.
-    if (unavailableCauses && unavailableCauses.size > 0) {
-      const producers = producersOfItem(pack.recipes, itemId);
-      const causes = producers.flatMap((r) => {
-        const cause = unavailableCauses.get(r.id);
-        return cause ? [cause] : [];
-      });
-      if (producers.length > 0 && causes.length === producers.length) {
-        // Producers can be off for different reasons; report the outermost
-        // one, so the message points at the setting to flip first.
-        const cause = outermostCause(causes);
-        if (cause) return { kind: "producer-unavailable", itemId, cause };
-      }
+    if (unavailableCauses) {
+      const cause = producerUnavailableCause(pack, itemId, unavailableCauses);
+      if (cause) return { kind: "producer-unavailable", itemId, cause };
     }
   }
   if (plan.itemOverrides) {

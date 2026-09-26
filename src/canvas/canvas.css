@@ -3034,3 +3034,33 @@
   color: var(--ak-text-secondary);
   text-align: center;
 }
+
+/* CJK runs read as spaced-out glyphs ("语 言") under the Latin tracking these
+   labels use, and CJK fonts ship no italic, so the browser slants the glyphs
+   synthetically. In zh, reset both; en keeps the rules above. */
+:lang(zh) .ak-app-shell [data-testid="side-panel"] .side-section-sub,
+:lang(zh) .ak-app-shell [data-testid="side-panel"] .b-row .b-rate .unit,
+:lang(zh) .ak-app-shell [data-testid="side-panel"] .b-add,
+:lang(zh) .canvas-strip .lbl,
+:lang(zh) .rate-prompt-unit,
+:lang(zh) .recipe-picker-group-head,
+:lang(zh) .settings-section-title,
+:lang(zh) .settings-reset,
+:lang(zh) .settings-area,
+:lang(zh) .settings-pill,
+:lang(zh) .settings-default,
+:lang(zh) .settings-disclosure,
+:lang(zh) .topbar .stat-chip,
+:lang(zh) .ak-app-shell .canvas-empty-hint {
+  letter-spacing: normal;
+}
+:lang(zh)
+  .ak-app-shell
+  [data-testid="side-panel"]
+  .b-row
+  .b-rate
+  input::placeholder,
+:lang(zh) .rate-prompt-rate input::placeholder {
+  font-style: normal;
+  letter-spacing: normal;
+}

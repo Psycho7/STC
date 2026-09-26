@@ -164,7 +164,10 @@ test("backdrop click fires onClose; a click inside the panel does not", () => {
 });
 
 test("renders the disabled hint line when the prop is set", () => {
-  renderPopup({ disabledHint: "already in the panel" });
+  renderPopup({
+    disabledIds: new Set(["bravo"]),
+    disabledHint: "already in the panel",
+  });
   const hint = screen.getByTestId("picker-hint");
   expect(hint.textContent).toBe("already in the panel");
   // The hint is a sibling of the scroll body, not inside it, so it never
@@ -175,6 +178,26 @@ test("renders the disabled hint line when the prop is set", () => {
 test("renders no hint line when the prop is absent", () => {
   renderPopup();
   expect(screen.queryByTestId("picker-hint")).toBeNull();
+});
+
+// The hint explains dimmed tiles, so it only shows while the filter leaves one
+// on screen. "charlie" keeps only an enabled tile; clearing brings bravo back.
+test("hides the hint while the search leaves no disabled tile, shows it again after", () => {
+  renderPopup({
+    disabledIds: new Set(["bravo"]),
+    disabledHint: "already in the panel",
+  });
+  expect(screen.queryByTestId("picker-hint")).not.toBeNull();
+
+  searchFor("charlie");
+  expect(tile("charlie")).not.toBeNull();
+  expect(screen.queryByTestId("picker-hint")).toBeNull();
+
+  searchFor("");
+  expect(tile("bravo")!.disabled).toBe(true);
+  expect(screen.queryByTestId("picker-hint")?.textContent).toBe(
+    "already in the panel",
+  );
 });
 
 test("sorts tiles by localized name within each group, not by array order", () => {

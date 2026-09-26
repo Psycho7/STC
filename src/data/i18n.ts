@@ -34,6 +34,7 @@ export type UiKey =
   | "app.error.infeasible.targets"
   | "app.error.producer-unavailable.event"
   | "app.error.producer-unavailable.area"
+  | "app.error.blocked.settings"
   | "app.error.dismiss"
   | "app.error.busy"
   | "app.error.crash"
@@ -43,6 +44,12 @@ export type UiKey =
   | "app.shortfall.cause.manual"
   | "app.shortfall.cause.cap"
   | "app.locale.label"
+  | "app.status.ready"
+  | "app.status.shortfall"
+  | "app.status.error"
+  | "app.status.solving"
+  | "app.settings.event.on"
+  | "app.settings.event.off"
   | "inputs.title"
   | "inputs.rate.label"
   | "inputs.rate.forItem"
@@ -129,14 +136,14 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
   zh: {
     "targets.title": "目标",
     "targets.add": "添加目标",
-    "targets.rate.unit": "件 / 分钟",
+    "targets.rate.unit": "/分",
     // Row controls name their item: a rail of identically named fields and X
     // buttons tells a screen-reader user nothing about which row they are on.
     "targets.rate.forItem": "{name} 的速率",
     "item.selected": "物品：{name}",
     "targets.remove.forItem": "删除目标 {name}",
     "targets.duplicate": "物品 ID 重复: {itemId}",
-    "targets.head.sub": "// 声明产出速率 · 件 / 分钟",
+    "targets.head.sub": "// 声明产出速率 · /分",
     "targets.empty": "未声明任何目标产物 — 点击下方按钮添加",
     "targets.picker.listed": "灰显的物品已是目标 — 请直接编辑对应行",
     "picker.title": "选择物品",
@@ -168,11 +175,14 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "app.error.infeasible.targets":
       "无可行方案，涉及：{items}。请降低目标产量。",
     "app.error.producer-unavailable.event":
-      "物品 {itemId} 仅由 {cohort} 活动配方生产，该活动当前未开启。",
+      "物品 {item} 仅由 {cohort} 活动配方生产，该活动当前未开启。",
     // {area} is the localized settlement name, the same string the settings
     // panel's area option carries, so the banner and the control agree.
     "app.error.producer-unavailable.area":
-      "物品 {itemId} 的配方均无法在{area}建造。",
+      "物品 {item} 的配方均无法在{area}建造。",
+    // Closes the banner of a plan adopted with blocked targets: the header
+    // gear is the way out that keeps the plan.
+    "app.error.blocked.settings": "可在设置中更改区域或活动。",
     "app.error.dismiss": "关闭",
     "app.error.busy": "方案正在加载，请等加载完成后再修改。",
     "app.error.crash": "规划器遇到意外错误，无法绘制当前方案。",
@@ -185,6 +195,14 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "app.shortfall.cause.manual": "{items} 的配方均已在设置中关闭。",
     "app.shortfall.cause.cap": "{items} 的供给已用满所设上限。",
     "app.locale.label": "语言",
+    "app.status.ready": "就绪",
+    "app.status.shortfall": "产量不足",
+    "app.status.error": "错误",
+    "app.status.solving": "求解中",
+    // The header's non-default settings indicator: one part per event cohort
+    // whose effective state departs from its default rule.
+    "app.settings.event.on": "{cohort} 活动已开启",
+    "app.settings.event.off": "{cohort} 活动已关闭",
     "inputs.title": "输入",
     "inputs.rate.label": "速率",
     // An item can hold a row in both supply pools, so an input row's controls
@@ -203,7 +221,7 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "inputs.duplicate": "该物品已声明",
     "inputs.unlimited": "无限",
     "inputs.needed": "需求 {rate}/分",
-    "inputs.empty": "未配置任何输入 — 全部按 raw 自动求解",
+    "inputs.empty": "未配置任何输入 — 全部按原料自动求解",
     "inputs.catalyst.role": "催化",
     "inputs.catalyst.role.forItem": "{name} 的{pool}输入行：催化",
     "inputs.catalyst.badge": "催化",
@@ -268,12 +286,12 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
   en: {
     "targets.title": "Targets",
     "targets.add": "Add target",
-    "targets.rate.unit": "items / minute",
+    "targets.rate.unit": "/min",
     "targets.rate.forItem": "Rate for {name}",
     "item.selected": "Item: {name}",
     "targets.remove.forItem": "Remove target {name}",
     "targets.duplicate": "Duplicate item id: {itemId}",
-    "targets.head.sub": "// declared output rates · items per minute",
+    "targets.head.sub": "// declared output rates · /min",
     "targets.empty": "No declared outputs yet — use the action below",
     "targets.picker.listed":
       "Dimmed items are already targets — edit that row instead",
@@ -307,9 +325,10 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "app.error.infeasible.targets":
       "No feasible plan involving: {items}. Lower the targets.",
     "app.error.producer-unavailable.event":
-      "Item {itemId} cannot be a target right now: every recipe producing it is unavailable (the {cohort} event is switched off).",
+      "Item {item} cannot be a target right now: every recipe producing it is unavailable (the {cohort} event is switched off).",
     "app.error.producer-unavailable.area":
-      "Item {itemId} cannot be a target right now: none of the recipes producing it can be built in {area}.",
+      "Item {item} cannot be a target right now: none of the recipes producing it can be built in {area}.",
+    "app.error.blocked.settings": "Change the area or events in Settings.",
     "app.error.dismiss": "Dismiss",
     "app.error.busy":
       "A plan is still loading. Try that change again once it lands.",
@@ -327,6 +346,12 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "app.shortfall.cause.cap":
       "The supply of {items} is drawn to its declared cap.",
     "app.locale.label": "Language",
+    "app.status.ready": "READY",
+    "app.status.shortfall": "SHORTFALL",
+    "app.status.error": "ERROR",
+    "app.status.solving": "SOLVING",
+    "app.settings.event.on": "{cohort} on",
+    "app.settings.event.off": "{cohort} off",
     "inputs.title": "Inputs",
     "inputs.rate.label": "Rate",
     "inputs.rate.forItem": "{pool} rate for {name}",

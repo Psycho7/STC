@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { Recipe, RecipePack } from "@aef/schema";
 import { useI18n } from "../data/i18n-context";
+import { joinList } from "../data/i18n-join";
 import {
   effectiveCohortEnabled,
   eventCohortsOf,
@@ -300,9 +301,10 @@ function CohortRowView({
               </span>
               <span className="settings-recipe-meta">
                 {i18n.t("settings.events.recipe.inputs", {
-                  inputs: r.in
-                    .map((s) => `${i18n.displayName(s.item)} ×${s.qty}`)
-                    .join(", "),
+                  inputs: joinList(
+                    i18n.locale,
+                    r.in.map((s) => `${i18n.displayName(s.item)} ×${s.qty}`),
+                  ),
                 })}
               </span>
             </li>

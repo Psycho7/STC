@@ -23,13 +23,19 @@ import { layoutSolved } from "./canvas/layoutSolved";
 import type { GapRecord } from "./canvas/layerModel";
 import { buildRealizedRateByItem } from "./canvas/realizedRateByItem";
 import {
+  blockedTargets,
   describePlanLoadError,
   encodeItemOverrideKey,
   encodePlan,
   loadPlan,
   validatePlan,
 } from "./data/plan";
-import type { ItemOverride, Plan, PlanLoadError } from "./data/plan";
+import type {
+  BlockedTarget,
+  ItemOverride,
+  Plan,
+  PlanLoadError,
+} from "./data/plan";
 import { attributeShortfall, shortfallText } from "./data/shortfall";
 import {
   defaultTransportConfig,
@@ -57,6 +63,7 @@ import {
   EVENT_COHORT_OVERRIDES_STORAGE_KEY,
 } from "./data/storage-keys";
 import { SettingsPanel } from "./components/SettingsPanel";
+import { SettingsIndicator } from "./components/SettingsIndicator";
 import type { LogicalGraph } from "./canvas/layout";
 import { LpInfeasibleError } from "./solver";
 import type Fraction from "fraction.js";
@@ -65,7 +72,8 @@ import { solveFromPlan } from "./pipeline/solveForRender";
 import { deficitItemsBeyondTolerance } from "./pipeline/render/invariants";
 import type { RationalString } from "./pipeline/types";
 import { LocaleProvider, useI18n } from "./data/i18n-context";
-import type { I18nIndex } from "./data/i18n";
+import type { I18nIndex, UiKey } from "./data/i18n";
+import { joinList, joinSentences } from "./data/i18n-join";
 import { ItemPackProvider } from "./canvas/itemPackContext";
 import StatsStrip from "./canvas/StatsStrip";
 import { displayedInputCount } from "./components/InputsPanel";
@@ -137,10 +145,12 @@ const shortfallStripStyle: CSSProperties = {
 loadTransportConfig(defaultTransportConfig, pack);
 
 // A dismissible banner error. "load" wraps a hash-decode / validation failure
-// (the pasted link, not the solver); "edit" wraps an in-app edit (or a
-// mid-session availability change) that validatePlan rejected; "solver" wraps
-// an exception thrown while solving a valid plan, which the render layer maps
-// to localized copy (naming the implicated items for an LpInfeasibleError);
+// (the pasted link, not the solver); "edit" wraps an in-app edit that
+// validatePlan rejected; "blocked" rides on an adopted plan that was not
+// solved because the viewer's area/event settings leave some target without a
+// producer; "solver" wraps an exception thrown while solving a valid plan,
+// which the render layer maps to localized copy (naming the implicated items
+// for an LpInfeasibleError);
 // "busy" reports an edit refused because a hash navigation was still landing.
 // The load/edit kinds carry the structured PlanLoadError so the render phase,
 // which holds the i18n index, can localize the user-facing kinds - see
@@ -148,6 +158,7 @@ loadTransportConfig(defaultTransportConfig, pack);
 type BannerError =
   | { kind: "load"; error: PlanLoadError }
   | { kind: "edit"; error: PlanLoadError }
+  | { kind: "blocked"; targets: readonly BlockedTarget[] }
   | { kind: "busy" }
   | { kind: "solver"; error: unknown };
 
@@ -160,15 +171,16 @@ type InitialError = { error: PlanLoadError };
 // Localized text for a plan-load error on a user-facing surface. The
 // producer-unavailable kind is the one failure aimed at the player rather
 // than the link: its event cause names the switched-off cohort (#144) and its
-// area cause the selected settlement (#124), both in the UI language. The
-// manual cause keeps describePlanLoadError's text until #125 ships the toggles
-// that can produce it. Every other kind describes a damaged share link -
-// developer-facing detail - and keeps that text too.
+// area cause the selected settlement (#124), both in the UI language, and the
+// item goes by its display name. The manual cause keeps describePlanLoadError's
+// text until #125 ships the toggles that can produce it. Every other kind
+// describes a damaged share link - developer-facing detail - and keeps that
+// text too.
 function describeLoadError(error: PlanLoadError, i18n: I18nIndex): string {
   if (error.kind === "producer-unavailable") {
     if (error.cause.kind === "event") {
       return i18n.t("app.error.producer-unavailable.event", {
-        itemId: error.itemId,
+        item: i18n.displayName(error.itemId),
         cohort: error.cause.cohort,
       });
     }
@@ -176,12 +188,25 @@ function describeLoadError(error: PlanLoadError, i18n: I18nIndex): string {
       // The settlement is named the way the panel names it, not by its raw
       // pack id: the sentence has to point at the option the user would flip.
       return i18n.t("app.error.producer-unavailable.area", {
-        itemId: error.itemId,
+        item: i18n.displayName(error.itemId),
         area: i18n.displayName(error.cause.area),
       });
     }
   }
   return describePlanLoadError(error);
+}
+
+// Banner copy for a plan adopted with blocked targets: one sentence per target
+// naming the setting that blocks it, then the pointer to Settings.
+function describeBlocked(
+  targets: readonly BlockedTarget[],
+  i18n: I18nIndex,
+): string {
+  const sentences = targets.map(({ itemId, cause }) =>
+    describeLoadError({ kind: "producer-unavailable", itemId, cause }, i18n),
+  );
+  sentences.push(i18n.t("app.error.blocked.settings"));
+  return joinSentences(i18n.locale, sentences);
 }
 
 // Localized text for a solver exception. An infeasibility names the implicated
@@ -190,7 +215,10 @@ function describeLoadError(error: PlanLoadError, i18n: I18nIndex): string {
 function describeSolveError(e: unknown, i18n: I18nIndex): string {
   if (e instanceof LpInfeasibleError) {
     const items = (ids: readonly string[]): string =>
-      ids.map((id) => i18n.displayName(id)).join(", ");
+      joinList(
+        i18n.locale,
+        ids.map((id) => i18n.displayName(id)),
+      );
     if (e.cappedItemIds.length > 0) {
       return i18n.t("app.error.infeasible", { items: items(e.cappedItemIds) });
     }
@@ -322,6 +350,15 @@ export default function App() {
   );
 }
 
+// The header chip's words. The enum stays English: the canvas annotation and
+// the exam tooling read it.
+const STATUS_LABEL: Record<CanvasStatus, UiKey> = {
+  SOLVING: "app.status.solving",
+  ERROR: "app.status.error",
+  SHORTFALL: "app.status.shortfall",
+  READY: "app.status.ready",
+};
+
 function AppInner() {
   const [plan, setPlan] = useState<Plan | null>(null);
   // Authoritative copy of the plan, kept in lockstep with the `plan` state.
@@ -444,13 +481,13 @@ function AppInner() {
   // the refusal) supersedes one mid-flight.
   const navigationInFlightRef = useRef(false);
   // The hash the app last handled: written by itself (history.replaceState on
-  // solve success) or already picked up by loadFromHash. The hashchange
+  // every committed plan) or already picked up by loadFromHash. The hashchange
   // handler compares against it so app-initiated writes and spurious events
   // for the current hash never re-trigger a load. replaceState fires no
   // hashchange event, so for self-writes this is belt-and-braces; it becomes
   // load-bearing if a hash write ever switches to a location.hash assignment.
   const lastHandledHashRef = useRef<string | null>(null);
-  // The hash of the plan in the panels: written with the URL on solve success
+  // The hash of the plan in the panels: written with the URL on every commit
   // and by a hash load that decoded, solved or not. A failed hash load over a
   // drawn plan puts it back in the URL, so a reload or a share gets the plan
   // on screen rather than the broken link.
@@ -636,6 +673,23 @@ function AppInner() {
     setPending(false);
   }, []);
 
+  // Hold the committed plan unsolved because the viewer's settings leave some
+  // target without a producer. A solve still running for an earlier plan is
+  // obsolete: landing it would clear this banner and write the URL of a plan
+  // the panels no longer hold. The old drawing stays up, marked stale, so its
+  // now-disabled recipes do not read as valid. The URL still gets the held
+  // plan, under the generation the bump just claimed, so a later commit
+  // supersedes this write like any other.
+  const holdBlocked = useCallback(
+    (plan: Plan, targets: readonly BlockedTarget[]): void => {
+      invalidateInFlight();
+      setMutationError({ kind: "blocked", targets });
+      setStale(true);
+      void writeHash(plan, solveGen.current);
+    },
+    [invalidateInFlight, writeHash],
+  );
+
   // Load a plan from a URL hash, solve it, and swap the whole app state to it.
   // Serves both the mount-time load and hashchange navigation (pasting another
   // plan's #v1.* URL into the address bar). It joins the solveGen last-write-
@@ -644,7 +698,8 @@ function AppInner() {
   // to initialError while no plan is committed (nothing is rendered yet) and to
   // the dismissible mutationError banner once one is (the old plan stays up).
   // A plan that decodes but fails to solve is committed anyway, under the
-  // solver banner.
+  // solver banner; one the viewer's settings block is committed unsolved,
+  // under the blocked banner.
   const loadFromHash = useCallback(
     async (hash: string, source: "mount" | "navigation"): Promise<void> => {
       const myGen = ++solveGen.current;
@@ -678,14 +733,15 @@ function AppInner() {
           history.replaceState(null, "", good);
         }
       };
-      // A plan that decoded is plan state even when it cannot be solved, and
-      // the URL already holds its hash: adopt it into the panels the way an
-      // in-app edit to an infeasible rate is, with the banner and the old
-      // drawing (or an empty canvas on first load) marked stale.
-      const failSolve = (
-        e: unknown,
+      // A plan that decoded is plan state even when it cannot be solved, or
+      // cannot be built under the viewer's settings, and the URL already holds
+      // its hash: adopt it into the panels the way an in-app edit to an
+      // infeasible rate is, with the banner and the old drawing (or an empty
+      // canvas on first load) marked stale.
+      const adoptUnsolved = (
         nextPlan: Plan,
         goodHash: string | null,
+        banner: BannerError,
       ) => {
         if (myGen !== solveGen.current) return;
         planRef.current = nextPlan;
@@ -694,20 +750,31 @@ function AppInner() {
         if (goodHash !== null) lastGoodHashRef.current = goodHash;
         setRecipeCount((c) => c ?? 0);
         setInitialError(null);
-        setMutationError({ kind: "solver", error: e });
+        setMutationError(banner);
         setStale(true);
       };
       try {
-        const outcome = await loadPlan(
-          hash,
-          pack,
-          availabilityRef.current.causes,
-        );
+        // Decode and check the plan without the viewer's settings: a target
+        // they switch off blocks the solve, not the link.
+        const outcome = await loadPlan(hash, pack);
         if (outcome.kind === "error") {
           failLoad(outcome.error);
           return;
         }
         const nextPlan = outcome.plan;
+        const goodHash = outcome.kind === "loaded" ? hash : null;
+        const blocked = blockedTargets(
+          nextPlan,
+          pack,
+          availabilityRef.current.causes,
+        );
+        if (blocked.length > 0) {
+          adoptUnsolved(nextPlan, goodHash, {
+            kind: "blocked",
+            targets: blocked,
+          });
+          return;
+        }
         try {
           const solved = solveFromPlan(
             nextPlan,
@@ -731,7 +798,7 @@ function AppInner() {
             setInitialError(null);
           }
         } catch (e) {
-          failSolve(e, nextPlan, outcome.kind === "loaded" ? hash : null);
+          adoptUnsolved(nextPlan, goodHash, { kind: "solver", error: e });
         }
       } finally {
         if (myGen === solveGen.current) {
@@ -763,8 +830,13 @@ function AppInner() {
       void loadFromHash(window.location.hash, "navigation");
     };
     window.addEventListener("hashchange", onHashChange);
-    return () => window.removeEventListener("hashchange", onHashChange);
-  }, [loadFromHash]);
+    return () => {
+      window.removeEventListener("hashchange", onHashChange);
+      // An unmounted app must not write the URL: a commit whose plan is still
+      // encoding would land its hash under whatever mounts next.
+      invalidateInFlight();
+    };
+  }, [loadFromHash, invalidateInFlight]);
 
   // Async derived-state refresh for an already-committed plan. solveGen is
   // last-write-wins: every solve corresponds to a committed plan, so the
@@ -794,6 +866,7 @@ function AppInner() {
         if (myGen !== solveGen.current) return;
         setMutationError({ kind: "solver", error: e });
         setStale(true);
+        await writeHash(nextPlan, myGen);
       } finally {
         if (myGen === solveGen.current) setPending(false);
       }
@@ -804,13 +877,13 @@ function AppInner() {
   // Commit the plan (user intent) synchronously, then kick off the async
   // solve + layout for the derived state. On a solver failure the committed
   // plan stays put and the error banner is the signal; the canvas keeps the
-  // last good render. The URL hash updates on solve success only.
+  // last good render. The URL hash tracks the committed plan, solved or not.
   function commitPlan(nextPlan: Plan): void {
     if (navigationInFlightRef.current) {
       setMutationError({ kind: "busy" });
       return;
     }
-    const error = validatePlan(nextPlan, pack, availability.causes);
+    const error = validatePlan(nextPlan, pack);
     if (error) {
       // The edit itself is what validatePlan rejected, and the canvas keeps the
       // last good render, so mark it stale.
@@ -820,25 +893,31 @@ function AppInner() {
     }
     planRef.current = nextPlan;
     setPlan(nextPlan);
+    // An edit to a plan the settings block is still plan state: it commits
+    // unsolved under the blocked banner, like a flip that orphans a target.
+    const blocked = blockedTargets(nextPlan, pack, availability.causes);
+    if (blocked.length > 0) {
+      holdBlocked(nextPlan, blocked);
+      return;
+    }
     void scheduleSolve(nextPlan);
   }
 
-  // A mid-session availability change (#144) re-checks the committed plan
-  // against the new set. A cohort switched off can invalidate a target only
-  // its recipes produce: keep the last render up (banner + stale, never
-  // cleared here - the plan itself is untouched) so flipping the cohort back
-  // re-solves from the same plan; a still-valid plan just re-solves. With no
-  // plan committed (the boot load failed onto the splash) there is no render
-  // to re-check, so a flip re-runs the pending load instead: the stored
-  // overrides are plausibly what rejected the hash's event target, and
-  // flipping the cohort on must recover into the linked plan. The reload
+  // A mid-session availability change (#144, #124) re-checks the committed
+  // plan against the new set. A cohort switched off or an area switched away
+  // can leave a target with no producer: the setting stays applied, the plan
+  // stays in the panels unsolved, and the last render stays up (blocked banner
+  // + stale, never cleared here - the plan itself is untouched) so flipping
+  // back re-solves from the same plan; a plan nothing blocks just re-solves.
+  // With no plan committed (the boot load failed onto the splash) there is no
+  // render to re-check, so a flip re-runs the pending load instead. The reload
   // joins the same solveGen last-write-wins flow as any navigation, and a
-  // link still invalid under the new set simply fails again onto a fresh,
-  // correctly-localized splash - one idempotent retry, not a loop, because
-  // this effect fires on cohort flips and not on the error those flips may
-  // rewrite. Boot-time runs with no splash up no-op because planRef.current
-  // is null and so is initialErrorRef.current, and loads and mutations never
-  // change the derived set, so only a flip re-triggers this effect.
+  // link still invalid simply fails again onto a fresh splash - one idempotent
+  // retry, not a loop, because this effect fires on settings flips and not on
+  // the error those flips may rewrite. Boot-time runs with no splash up no-op
+  // because planRef.current is null and so is initialErrorRef.current, and
+  // loads and mutations never change the derived set, so only a flip
+  // re-triggers this effect.
   useEffect(() => {
     const current = planRef.current;
     if (!current) {
@@ -847,26 +926,20 @@ function AppInner() {
       }
       return;
     }
-    const error = validatePlan(current, pack, availability.causes);
-    if (error) {
+    const blocked = blockedTargets(current, pack, availability.causes);
+    if (blocked.length > 0) {
       // A hash navigation still landing is headed for another plan, so this
-      // rejection is not its concern: re-run it so the pasted link is checked
-      // under the new set rather than dropped along with the rejected plan.
+      // block is not its concern: re-run it so the pasted link is checked
+      // under the new set rather than dropped along with the blocked plan.
       if (navigationInFlightRef.current) {
         void loadFromHash(window.location.hash, "navigation");
         return;
       }
-      // The plan under the new set is rejected, so a solve still running for it
-      // is obsolete: landing it would clear this banner and write the URL of a
-      // plan that no longer loads. Unlike commitPlan's refusals, which fire
-      // before anything commits, this one arrives mid-flight.
-      invalidateInFlight();
-      setMutationError({ kind: "edit", error });
-      setStale(true);
+      holdBlocked(current, blocked);
       return;
     }
     void scheduleSolve(current);
-  }, [availability, scheduleSolve, loadFromHash, invalidateInFlight]);
+  }, [availability, scheduleSolve, loadFromHash, holdBlocked]);
 
   // Cross-tab sync for the settings keys: a `storage` event fires in every
   // OTHER window sharing this origin's localStorage when a key changes, which
@@ -1057,6 +1130,7 @@ function AppInner() {
       return i18n.t("app.error.edit", {
         message: describeLoadError(err.error, i18n),
       });
+    if (err.kind === "blocked") return describeBlocked(err.targets, i18n);
     if (err.kind === "busy") return i18n.t("app.error.busy");
     return describeSolveError(err.error, i18n);
   };
@@ -1106,7 +1180,14 @@ function AppInner() {
             <span className="stat-chip">
               RECIPES <span className="v">{recipeCount}</span>
             </span>
+            <SettingsIndicator
+              pack={pack}
+              area={area}
+              packCohort={packCohort}
+              overrides={eventOverrides}
+            />
             <span
+              data-testid="status-chip"
               className={
                 status === "ERROR"
                   ? "stat-chip err"
@@ -1115,7 +1196,7 @@ function AppInner() {
                     : "stat-chip"
               }
             >
-              {status}
+              {i18n.t(STATUS_LABEL[status])}
             </span>
             <button
               type="button"

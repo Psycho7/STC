@@ -34,6 +34,10 @@ const TEXT = {
   area: "区域",
   tundra: "四号谷地",
   jinlong: "武陵",
+  copperName: "赤铜溶液",
+  blockedHint: "可在设置中更改区域或活动。",
+  corrupt: "此分享链接已损坏，或来自更新版本的规划器。",
+  reset: "从新方案开始",
 } as const;
 
 // Liquid copper is made in two mix pools, both of which exist only in 武陵: the
@@ -43,14 +47,14 @@ const COPPER_TARGETS = [
   { itemId: "liquid_copper", ratePerSec: { num: "1", denom: "1" } },
 ];
 
-test("with the tundra seeded, a copper target is refused by name", async ({
+test("with the tundra seeded, a copper link is adopted under a banner naming the item and the area", async ({
   page,
 }) => {
   const log = attachConsoleListener(page);
   const hash = await planHash({ targets: COPPER_TARGETS });
 
-  // readiness "none": this boot lands on the splash, where no canvas node ever
-  // appears for waitForCanvasReady to gate on.
+  // readiness "none": nothing is solved for a blocked plan, so no canvas node
+  // ever appears for waitForCanvasReady to gate on.
   await bootExamPage(page, {
     url: `/#${hash}`,
     readiness: "none",
@@ -58,13 +62,36 @@ test("with the tundra seeded, a copper target is refused by name", async ({
     area: "tundra",
   });
 
+  // The link is plan state: the panels hold it, and the damaged-link splash
+  // never shows.
+  await expect(page.getByTestId("header-strip")).toBeVisible();
+  const rows = page.getByTestId("target-row");
+  await expect(rows).toHaveCount(1);
+  await expect(rows.first()).toContainText(TEXT.copperName);
+  await expect(page.getByText(TEXT.corrupt)).toHaveCount(0);
+  await expect(page.getByRole("button", { name: TEXT.reset })).toHaveCount(0);
+
+  // The banner says why: the item by display name, and the settlement the way
+  // the panel names it, not by pack id - and it points at Settings.
   const alert = page.getByRole("alert");
   await expect(alert).toBeVisible();
-  await expect(alert).toContainText("liquid_copper");
-  // The banner names the settlement the way the panel does, not by pack id.
+  await expect(alert).toContainText(TEXT.copperName);
+  await expect(alert).not.toContainText("liquid_copper");
   await expect(alert).toContainText(TEXT.tundra);
   await expect(alert).not.toContainText("tundra");
-  await expect(page.locator(".react-flow")).toHaveCount(0);
+  await expect(alert).toContainText(TEXT.blockedHint);
+
+  // Recovery: choosing the settlement that builds copper solves the same plan
+  // and clears the banner.
+  await page.getByRole("button", { name: TEXT.openSettings }).click();
+  const dialog = page.getByRole("dialog");
+  await dialog.getByRole("button", { name: TEXT.jinlong }).click();
+  await page.keyboard.press("Escape");
+  await expect(dialog).toHaveCount(0);
+
+  await waitForCanvasReady(page);
+  await expect(page.getByRole("alert")).toHaveCount(0);
+  await expect(rows).toHaveCount(1);
 
   expect(
     log.errors,
@@ -73,7 +100,7 @@ test("with the tundra seeded, a copper target is refused by name", async ({
 });
 
 // The control: the same plan with no area seeded opens on the latest
-// settlement, 武陵, and solves, so the refusal above is the area rule biting
+// settlement, 武陵, and solves, so the banner above is the area rule biting
 // rather than the plan being broken.
 test("with no area seeded, the same copper plan solves", async ({ page }) => {
   const log = attachConsoleListener(page);

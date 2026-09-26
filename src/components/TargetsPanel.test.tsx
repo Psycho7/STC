@@ -736,9 +736,30 @@ test("unit-convention subtitle localizes under zh", () => {
     </LocaleProvider>,
   );
   const sub = container.querySelector(".side-section-sub")?.textContent ?? "";
-  expect(sub).toContain("件 / 分钟");
+  expect(sub).toBe("// 声明产出速率 · /分");
   expect(sub).not.toMatch(/items per minute/);
 });
+
+// Each locale spells the rate unit one way across the UI: "/分" in zh and
+// "/min" in en, the same unit the input rows and canvas cards read.
+for (const [locale, unit, sub] of [
+  ["zh", "/分", "// 声明产出速率 · /分"],
+  ["en", "/min", "// declared output rates · /min"],
+] as const) {
+  test(`${locale} target row and subtitle read the rate unit as ${unit}`, () => {
+    const { container } = render(
+      <LocaleProvider locale={locale}>
+        <TargetsPanel
+          targets={[{ itemId: "widget", ratePerSec: { num: "1", denom: "1" } }]}
+          onChange={vi.fn()}
+          pack={PACK}
+        />
+      </LocaleProvider>,
+    );
+    expect(container.querySelector(".b-rate .unit")?.textContent).toBe(unit);
+    expect(container.querySelector(".side-section-sub")?.textContent).toBe(sub);
+  });
+}
 
 // The empty-target placeholder was a zh-else-English ternary; it now routes
 // through the i18n table so ja/ru get their own copy too. Assert the zh string.
@@ -858,7 +879,7 @@ test("off-cohort event items render as disabled tiles with the cohort hint (add-
   expect(hint).toBe(loadI18n("en").t("picker.event.off", { cohorts: COHORT }));
   // Parity with the validation message: both carry the same cohort token.
   const validation = loadI18n("en").t("app.error.producer-unavailable.event", {
-    itemId: "activity_xiranite_lung",
+    item: "activity_xiranite_lung",
     cohort: COHORT,
   });
   expect(validation).toContain(COHORT);
@@ -874,7 +895,7 @@ test("the cohort hint localizes under zh with the same token parity", () => {
     loadI18n("en").t("picker.event.off", { cohorts: COHORT }),
   );
   const validation = loadI18n("zh").t("app.error.producer-unavailable.event", {
-    itemId: "activity_xiranite_lung",
+    item: "activity_xiranite_lung",
     cohort: COHORT,
   });
   expect(validation).toContain(COHORT);
