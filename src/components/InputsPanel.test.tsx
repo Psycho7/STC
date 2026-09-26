@@ -1010,6 +1010,43 @@ test("the hint is the event sentence alone when only event items are dimmed", ()
   );
 });
 
+function searchPicker(text: string) {
+  const search = document.querySelector<HTMLInputElement>(
+    ".recipe-picker-search",
+  )!;
+  fireEvent.change(search, { target: { value: text } });
+}
+
+// The hint describes the dimmed tiles on screen, not the whole catalogue. The
+// owner never hands this panel an area cause, but the prop takes any cause, so
+// the map is built by hand: a search that hides the listed tile drops its
+// sentence.
+test("a search leaving only an out-of-area tile dimmed shows only the area sentence", () => {
+  render(
+    <LocaleProvider locale="en">
+      <InputsPanel
+        itemOverrides={[{ itemId: "widget" }]}
+        onChange={() => {}}
+        pack={PACK3}
+        unavailableItems={
+          new Map([["gadget", { kind: "area", area: "tundra" } as const]])
+        }
+      />
+    </LocaleProvider>,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Add input" }));
+  const en = loadI18n("en");
+  searchPicker("gadget");
+  expect(pickerTile("widget")).toBeNull();
+  expect(pickerTile("gadget")!.disabled).toBe(true);
+  expect(pickerHintText()).toBe(en.t("picker.area.off"));
+
+  searchPicker("");
+  expect(pickerHintText()).toBe(
+    [en.t("inputs.picker.listed"), en.t("picker.area.off")].join(" · "),
+  );
+});
+
 // ---------------------------------------------------------------------------
 // Catalyst (C) rows: a second pool per item, keyed (itemId, role).
 // ---------------------------------------------------------------------------

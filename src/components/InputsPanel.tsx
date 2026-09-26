@@ -128,7 +128,7 @@ export function InputsPanel({
   const flow = usePickerFlow<
     { kind: "row"; key: RowKey } | { kind: "add" },
     { override: ItemOverride }
-  >(pack, pack.items, unavailableItems);
+  >(pack, unavailableItems);
   const { pickerFor, prompt, closePicker, focusOnMount } = flow;
   // The id of the message under a row's rate field, when one renders: the
   // only thing the field describes, since its label already names the row.
@@ -850,8 +850,8 @@ export function InputsPanel({
       }
     }
     // Off-cohort event items (#144's T6) dim on top of the listed ones, so the
-    // listed count has to be read before they go in.
-    const listedCount = disabledIds.size;
+    // listed ids have to be read before they go in.
+    const listedIds = new Set(disabledIds);
     for (const id of unavailableItems.keys()) disabledIds.add(id);
     // Accurate for every reason a tile is dimmed here, one sentence per cause:
     // a sibling row already claims the item's pool, it has an auto-row this
@@ -862,9 +862,7 @@ export function InputsPanel({
     // Before the first solve lands there are no auto-rows and no overrides, so
     // with every cohort on nothing is dimmed and the hint would explain an
     // absence.
-    const hint = flow.pickerHint(
-      listedCount > 0 ? i18n.t("inputs.picker.listed") : undefined,
-    );
+    const hint = flow.pickerHint(i18n.t("inputs.picker.listed"), listedIds);
     return (
       <ItemPickerPopup
         items={pack.items}
