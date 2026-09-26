@@ -145,14 +145,15 @@ done
 
 ### 3. Capture every plan in the ledger
 
-One capture per ledger row, each launching its own Chromium, under the memory cap this 3.2 GiB
-box needs:
+One capture per ledger row, each launching its own Chromium. Each one goes through
+`tools/heavy.sh`, which admits at most two heavy commands at once across every agent on the
+machine; memory trouble on this box comes from agents stacking builds, suites and browsers, not
+from any single command:
 
 ```bash
 while IFS=$'\t' read -r id hash; do
   case "$id" in \#*) continue ;; esac
-  systemd-run --user --scope -q -p MemoryMax=2G -p MemorySwapMax=512M -- \
-    bun --smol run tools/exam/capture.ts \
+  tools/heavy.sh bun --smol run tools/exam/capture.ts \
       --base-url "$BASE" \
       --hash "$hash" --plan-id "$id" --locale en --out .artifacts/exam \
       < /dev/null || echo "capture $id exit=$?"
@@ -208,7 +209,7 @@ render that did not change, whatever the agents go on to say about it.
 ### 4. Run the geometry ratchets. These are the machine findings.
 
 ```bash
-EXAM_EXTRA_SCENARIOS=.artifacts/exam/rotating.json bun run test:e2e geometry-audit
+EXAM_EXTRA_SCENARIOS=.artifacts/exam/rotating.json tools/heavy.sh bun run test:e2e geometry-audit
 ```
 
 `EXAM_EXTRA_SCENARIOS` admits the rotating plans to the same hard assertions the fixed corpus
@@ -241,10 +242,11 @@ else, rerun only that spec at the branch point in a throwaway worktree:
 
 ```bash
 main="$(git rev-parse --path-format=absolute --git-common-dir)/.."
+heavy=$PWD/tools/heavy.sh                     # the base commit may predate the gate
 base="$(git merge-base HEAD origin/develop)"
 git -C "$main" worktree add .claude/worktrees/exam-base "$base"
 (cd "$main/.claude/worktrees/exam-base" && bun install && \
-  bun run test:e2e geometry-audit --grep "segment placement audit multi6")
+  "$heavy" bun run test:e2e geometry-audit --grep "segment placement audit multi6")
 git -C "$main" worktree remove .claude/worktrees/exam-base
 ```
 
@@ -266,10 +268,10 @@ A test that fails identically on the base commit is not something this exam foun
 A rotating plan is attributed the same way, once the base run is handed the same rotating set:
 
 ```bash
-# same shell as the block above: $main is still set
+# same shell as the block above: $main and $heavy are still set
 rot=$PWD/.artifacts/exam/rotating.json          # absolute, resolved before the cd
 (cd "$main/.claude/worktrees/exam-base" && bun install && \
-  EXAM_EXTRA_SCENARIOS="$rot" bun run test:e2e geometry-audit --grep "<describe> <test>")
+  EXAM_EXTRA_SCENARIOS="$rot" "$heavy" bun run test:e2e geometry-audit --grep "<describe> <test>")
 ```
 
 The absolute path is the point: a relative value resolves against the root of whichever
