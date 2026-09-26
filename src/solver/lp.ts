@@ -721,20 +721,27 @@ export function solveLp(input: LpInput): LpResult {
 // ---------------------------------------------------------------------------
 
 // Constants for the extraction hygiene pass.
-//  - SNAP_REL: snap radius for rational extraction. Applied relatively
-//    (min(SNAP_REL, |v|*SNAP_REL)), so values >= 1 keep the historical 1e-6
-//    absolute radius while sub-unit rates snap proportionally and survive with
-//    their magnitude intact.
+//  - PLAIN_SNAP_REL: snap window of plainSnap, the rational reading of every
+//    rate. Applied as min(PLAIN_SNAP_REL, |v|*PLAIN_SNAP_REL): absolute from 1
+//    up, relative below, so sub-unit rates keep their magnitude. Bounded on
+//    both sides by a witness. At 1e-6 it mis-snaps rates whose denominators
+//    legitimately run near 4e5 (copper-script43 with copper_ore capped at
+//    604395/10000 per second left copper_nugget 1/404078 short). At 1e-9 it
+//    misses the 3.5e-8 relative feasibility slop of the boundary pass on
+//    xiranite_enr_powder at 6/min.
+//  - SNAP_REL: snapDraw's window for landing a draw on its cap, the historical
+//    1e-6 absolute radius, relative above 1.
 //  - RATE_ZERO: hard zero floor; raw primals at or below it are solver dust.
 //  - NOISE_CEILING_REL: noise-sweep candidate ceiling relative to plan scale.
-//    Deliberately decoupled from (two decades above) the snap radius: epsilon
-//    chains exist precisely because they exceed the snap radius (1/900900).
+//    Deliberately decoupled from (decades above) the snap window: epsilon
+//    chains exist precisely because they exceed the snap window (1/900900).
 //  - Mass-balance residuals use the shared REL_TOL declared above: residuals
 //    the extraction leaves unreported must stay at or below what
 //    checkMassBalance tags, which is why the gate reads the checkers' own
 //    constant rather than a local copy that could drift above it.
 //  - DEFICIT_MATERIAL_REL: materiality threshold for raw deficit variables,
 //    relative to the item's demand.
+const PLAIN_SNAP_REL = 1e-7;
 const SNAP_REL = 1e-6;
 // Exported so the optimality screen filters active recipes on the same floor
 // solveLp used to build its rates map, instead of a hand-copied duplicate.
@@ -742,114 +749,33 @@ export const RATE_ZERO = 1e-12;
 const NOISE_CEILING_REL = 1e-4;
 const DEFICIT_MATERIAL_REL = 1e-9;
 
-// Largest denominator fraction.js's float parser walks to.
-const FAREY_MAX_DENOM = 10_000_000;
-
-// Number of leading indices in [0, limit) where a monotone predicate holds
-// (true on a prefix, false after): galloping probe, then binary search.
-function leadingTrueCount(
-  limit: number,
-  holds: (j: number) => boolean,
-): number {
-  let lo = 0;
-  let hi = limit;
-  let stride = 1;
-  while (lo < hi) {
-    const probe = Math.min(lo + stride - 1, hi - 1);
-    if (!holds(probe)) {
-      hi = probe;
-      break;
-    }
-    lo = probe + 1;
-    stride *= 2;
+// The exact rational a finite non-negative double is, as [n, 2^k]: doubling a
+// double is exact, so the loop ends on the integer mantissa.
+function exactDyadic(value: number): [bigint, bigint] {
+  let n = value;
+  let d = 1n;
+  while (n % 1 !== 0) {
+    n *= 2;
+    d *= 2n;
   }
-  while (lo < hi) {
-    const mid = Math.floor((lo + hi) / 2);
-    if (holds(mid)) {
-      lo = mid + 1;
-    } else {
-      hi = mid;
-    }
-  }
-  return lo;
+  return [BigInt(n), d];
 }
 
-// The rational `new Fraction(p)` parses a non-negative float to, as [n, d]
-// (not reduced). fraction.js walks the Stern-Brocot tree one mediant at a time,
-// up to ten million steps for a float just off a small rational; this takes
-// each run of same-direction steps in one galloping search. Every mediant is
-// evaluated with the same float expression the library uses, so the float
-// equality stop and the final bound pick are reproduced exactly.
-function fareyParse(value: number): [bigint, bigint] {
-  if (value % 1 === 0) return [BigInt(value), 1n];
-
-  let p = value;
-  let z = 1;
-  if (p >= 1) {
-    z = 10 ** Math.floor(1 + Math.log10(p));
-    p /= z;
-  }
-
-  const max = FAREY_MAX_DENOM;
-  let a = 0;
-  let b = 1;
-  let c = 1;
-  let d = 1;
-  let n = 0;
-  let den = 1;
-  while (b <= max && d <= max) {
-    if (p === (a + c) / (b + d)) {
-      if (b + d <= max) {
-        n = a + c;
-        den = b + d;
-      } else if (d > b) {
-        n = c;
-        den = d;
-      } else {
-        n = a;
-        den = b;
-      }
-      break;
-    }
-
-    if (p > (a + c) / (b + d)) {
-      const steps = leadingTrueCount(
-        Math.floor((max - b) / d) + 1,
-        (j) => p > (a + (j + 1) * c) / (b + (j + 1) * d),
-      );
-      a += steps * c;
-      b += steps * d;
-    } else {
-      const steps = leadingTrueCount(
-        Math.floor((max - d) / b) + 1,
-        (j) => p < ((j + 1) * a + c) / ((j + 1) * b + d),
-      );
-      c += steps * a;
-      d += steps * b;
-    }
-    if (b > max) {
-      n = c;
-      den = d;
-    } else {
-      n = a;
-      den = b;
-    }
-  }
-  return [BigInt(n) * BigInt(z), BigInt(den)];
+// A positive float primal read as the exact rational it is, with no snap.
+function exactRate(v: number): Fraction {
+  const [n, d] = exactDyadic(v);
+  return new Fraction(n, d);
 }
 
 // Relative rational snap: the extraction's default reading of a float primal.
-// Returns exactly `new Fraction(v).simplify(eps)`: the first continued-fraction
-// convergent (the full fraction excluded) of the parsed rational within eps of
-// it, else the parsed rational. Computed directly because the library's parse
-// and its per-convergent rebuild dominated solve time. One representational
-// difference: a negative v that parses to zero yields +0 where fraction.js
-// keeps a negative-signed zero; the solver only snaps positive primals.
+// Parses v exactly as a binary rational, then returns its first
+// continued-fraction convergent (the full fraction excluded) within
+// eps = min(PLAIN_SNAP_REL, |v| * PLAIN_SNAP_REL) of it, else the exact binary
+// rational itself. Throws a RangeError on v = 0 (a zero window).
 export function plainSnap(v: number): Fraction {
-  const eps = Math.min(SNAP_REL, Math.abs(v) * SNAP_REL);
-  // Same threshold arithmetic as simplify, including its throw on v = 0.
+  const eps = Math.min(PLAIN_SNAP_REL, Math.abs(v) * PLAIN_SNAP_REL);
   const ieps = BigInt(Math.ceil(1 / eps));
-  const [pn, pd] = fareyParse(Math.abs(v));
+  const [pn, pd] = exactDyadic(Math.abs(v));
   const sign = v < 0 ? -1n : 1n;
 
   let hPrev = 0n;
@@ -1021,11 +947,15 @@ function extractResult(args: ExtractArgs): LpResult {
 
   // Repair loop: zeroing candidates must not leave an item with a raw-clean
   // negative slack the checkers would tag. Re-admit zeroed producers of a
-  // broken item (their removal caused the shortfall). The loop never grows the
-  // zeroed set and each round shrinks it, so it terminates in at most |zeroed|
-  // iterations.
+  // broken item (their removal caused the shortfall). A broken row with no
+  // zeroed producer left can still be a snap artefact: each rate is snapped on
+  // its own, so a row whose rates carry large denominators may not close. Its
+  // live producers are then re-read at their exact float value (window 0)
+  // before the shortfall counts as real. Each round shrinks the zeroed set or
+  // grows the re-read set and neither ever reverses, so the loop terminates.
   let slack = computeSlack();
   const forcedDeficit = new Set<ItemId>();
+  const exactRead = new Set<RecipeId>();
   for (;;) {
     const broken: ItemId[] = [];
     for (const [itemId, s] of slack) {
@@ -1045,7 +975,21 @@ function extractResult(args: ExtractArgs): LpResult {
       slack = computeSlack();
       continue;
     }
-    // Nothing can close these rows: no producer to re-admit.
+    const reread = [...rates.keys()].filter(
+      (recipeId) =>
+        !zeroed.has(recipeId) &&
+        !exactRead.has(recipeId) &&
+        producesBroken(recipeId),
+    );
+    if (reread.length > 0) {
+      for (const recipeId of reread) {
+        rates.set(recipeId, exactRate(lpResult[`x_${recipeId}`]!));
+        exactRead.add(recipeId);
+      }
+      slack = computeSlack();
+      continue;
+    }
+    // Nothing can close these rows: no producer to re-admit or re-read.
     // Report the shortfall honestly as a deficit (softFeasible goes false in the
     // surplus/deficit derivation below) instead of swallowing a broken row and
     // claiming the plan is feasible. The broken slack is negative by construction
