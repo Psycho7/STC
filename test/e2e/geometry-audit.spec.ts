@@ -523,7 +523,10 @@ const CHIP_SEGMENT_BASELINE: Record<string, number> = {
   // CATALYST NODE 2026-09-14 (PR B): 0 -> 1. One catalyst supply run from the
   // new card shares its row with a chip of the flow it feeds. UP move, listed
   // for ruling.
-  transmuters: 1,
+  //
+  // 1 -> 0: develop d69ccde already measures 0; no segment draws under a
+  // chip box on this plan any more.
+  transmuters: 0,
   "copper-script43": 0,
   "script43-xiranite": 0,
 };
