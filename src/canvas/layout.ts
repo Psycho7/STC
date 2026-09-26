@@ -1025,9 +1025,14 @@ export function rerouteEdges(
 // Both run the same ELK release, so the layout is the same. The worker URL is
 // imported only where a Worker exists: vite refuses a ?url load from a
 // node_modules outside the project root, as in a worktree that links it.
-const workerUrl: Promise<string> | null =
+// The URL's own chunk can fail to load (offline, a stale deploy); null then
+// means no worker, and the session lays out in-process.
+const workerUrl: Promise<string | null> | null =
   typeof Worker !== "undefined"
-    ? import("elkjs/lib/elk-worker.min.js?url").then((m) => m.default)
+    ? import("elkjs/lib/elk-worker.min.js?url").then(
+        (m) => m.default,
+        () => null,
+      )
     : null;
 
 let bundledElk: Promise<ELK> | null = null;
@@ -1101,7 +1106,8 @@ function startWorker(url: string): ElkWorker {
 
 // Started at load so the worker boots while the first plan solves.
 void workerUrl?.then((url) => {
-  if (!workerBroken) workerElk ??= startWorker(url);
+  if (url === null) workerBroken = true;
+  else if (!workerBroken) workerElk ??= startWorker(url);
 });
 
 // Every layout call supersedes the one still running: App keeps only its newest
@@ -1128,7 +1134,8 @@ async function runElk(graph: ElkGraph): Promise<ElkGraph> {
     workerUrl
       .then(async (url) => {
         if (abandoned) return;
-        if (!workerBroken) {
+        if (url === null) workerBroken = true;
+        else if (!workerBroken) {
           mine = workerElk ??= startWorker(url);
           try {
             resolve(

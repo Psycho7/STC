@@ -257,4 +257,38 @@ describe("ELK in a Web Worker", () => {
     expect(FakeWorker.instances).toHaveLength(2);
     expect(FakeWorker.instances[1]!.terminated).toBe(false);
   });
+
+  it("a worker script URL that fails to load falls back to in-process ELK", async () => {
+    vi.stubGlobal("Worker", FakeWorker);
+    vi.doMock("elkjs/lib/elk-worker.min.js?url", () => {
+      throw new Error("chunk failed to load");
+    });
+    try {
+      const { layoutRenderPlan } = await freshLayout();
+
+      const first = await layoutRenderPlan(input());
+      expect(first.nodes.map((n) => n.id).sort()).toEqual(["u:a", "u:b"]);
+      const second = await layoutRenderPlan(input());
+      expect(positions(second)).toEqual(positions(first));
+      expect(FakeWorker.instances).toHaveLength(0);
+    } finally {
+      vi.doUnmock("elkjs/lib/elk-worker.min.js?url");
+    }
+  });
+
+  it("an error the worker reports for a layout reaches the caller, with no fallback", async () => {
+    const elkError = new Error("ELK could not lay out the graph");
+    class RejectingWorker extends FakeWorker {
+      override async run(msg: Msg): Promise<void> {
+        this.onmessage?.({ data: { id: msg.id, error: elkError } });
+      }
+    }
+    vi.stubGlobal("Worker", RejectingWorker);
+    const { layoutRenderPlan } = await freshLayout();
+
+    await expect(layoutRenderPlan(input())).rejects.toBe(elkError);
+    await expect(layoutRenderPlan(input())).rejects.toBe(elkError);
+    expect(FakeWorker.instances).toHaveLength(1);
+    expect(FakeWorker.instances[0]!.terminated).toBe(false);
+  });
 });
