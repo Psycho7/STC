@@ -390,7 +390,9 @@ Three phases:
 - **Refute**: one agent per individually routed finding (every major, every interaction
   claim, every stated mechanism), one per batch of at most four of a plan's minors and nits,
   absence claims included. Each must DISPROVE its finding through `tools/exam/probe.ts` and return the
-  command it ran and what it printed.
+  command it ran and what it printed. Every probe boots a Chromium, so the workflow runs each one
+  through `tools/heavy.sh`: the refuters' fan-out waits on the same two machine-wide slots as the
+  captures, and a probe the gate gave up on (exit 75) measured nothing.
 
 It returns `{evaluations, findings, triage, verdicts, humanRuling, invalid}`. A verdict
 judges the observation and the mechanism SEPARATELY, so "symptom real, cause wrong" comes
@@ -433,7 +435,7 @@ Refuters answer through `tools/exam/probe.ts`, which boots one plan, optionally 
 camera (`--zoom` and `--center` together), and runs one named op:
 
 ```bash
-bun run tools/exam/probe.ts --base-url "$BASE" --hash <planHash> \
+tools/heavy.sh bun run tools/exam/probe.ts --base-url "$BASE" --hash <planHash> \
   --locale en --op hover-edge --arg id='<edgeId>'
 ```
 

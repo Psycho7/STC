@@ -896,9 +896,9 @@ You are not a second opinion and not a reviewer. For each finding, look for the 
 
 THE ONLY EVIDENCE THAT COUNTS is the output of the probe CLI against the running app:
 
-    bun run ${repoRoot}/tools/exam/probe.ts --base-url ${baseUrl} --hash '${hash}' --locale ${plan.locale} --op <op> --arg k=v [--arg k=v]
+    ${repoRoot}/tools/heavy.sh bun run ${repoRoot}/tools/exam/probe.ts --base-url ${baseUrl} --hash '${hash}' --locale ${plan.locale} --op <op> --arg k=v [--arg k=v]
 
-Run it with Bash. The path above is absolute, so it works from whatever directory you are in; do not cd anywhere first. It boots the plan, runs at most one named op, and prints one JSON object to stdout. Keep \`--locale ${plan.locale}\` on every run: it is the language this capture was shot in, and dropping it probes a differently rendered app. Ops and their arguments:
+Run it with Bash. The paths above are absolute, so it works from whatever directory you are in; do not cd anywhere first. It boots the plan, runs at most one named op, and prints one JSON object to stdout. Keep \`--locale ${plan.locale}\` on every run: it is the language this capture was shot in, and dropping it probes a differently rendered app. Ops and their arguments:
 - \`hover-edge\` --arg id=<edgeId>, \`hover-node\` --arg id=<nodeId>: does hovering the thing engage, and what dims? It samples points ON the edge's own geometry, which is the whole reason it exists.
 - \`contrast\` --arg selector=<css>: contrast ratio of an element against what is painted behind it.
 - \`delta-e\` --arg a=<css> --arg b=<css>: perceptual colour distance between two elements.
@@ -911,7 +911,7 @@ Resolving a target the finding describes in words: START WITH THE LEDGER, not th
 
 When the ledger does not name what you need, \`--eval\` is the way in. The file holds ONE bare arrow function taking no arguments - \`() => Array.from(document.querySelectorAll('.react-flow__edge')).map(e => e.getAttribute('data-id'))\` - and nothing else: no IIFE, no statements around it, no \`return\` at top level. Every refuter so far has lost a turn to that. Then probe the id you found. Do not guess an id: a probe against an element that does not exist reports an error, and AN ERROR SETTLES NOTHING IN EITHER DIRECTION. It is not a refutation, and it is not a confirmation either - least of all of a finding that claims something is missing. "The probe could not find it" does not separate "it is not in the app" from "that is not its id", which is the screenshot confusion one step further down the pipeline. Resolve the target again with \`--eval\` and re-run; only a run that came back clean answers anything.
 
-Exit codes: 0 the run succeeded; 1 harness failure (bad flags, an id that resolved to nothing, a missing element); 2 the base URL is not serving; 3 the page never became examinable. ONLY exit 0 settles a claim. On 1, 2 or 3 nothing was measured, so the verdict is UNCERTAIN whichever way the finding reads - never REFUTED, and never CONFIRMED - and you paste what happened.
+Exit codes: 0 the run succeeded; 1 harness failure (bad flags, an id that resolved to nothing, a missing element); 2 the base URL is not serving; 3 the page never became examinable. ONLY exit 0 settles a claim. On 1, 2 or 3 nothing was measured, so the verdict is UNCERTAIN whichever way the finding reads - never REFUTED, and never CONFIRMED - and you paste what happened. The probe runs through tools/heavy.sh, the machine-wide gate on memory-heavy commands, and exit 75 means the gate timed out waiting for a free slot: the probe never ran, nothing was measured, and the verdict is UNCERTAIN.
 
 READ THIS BEFORE JUDGING A HOVER RESULT: \`hoverEngaged: false\` is usually a miss by the probe, not a dead app. Read \`engagedElsewhere\` and \`samples\`, then re-probe whatever id took the pointer, or reframe with \`--zoom\`/\`--center\`. Only \`decision.noResponse\` is a real "hover produced no response"; \`decision.differs\` is a set difference that the app produces by design (it lights whole bus-trunk groups) and is NOT a defect.
 

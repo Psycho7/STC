@@ -48,6 +48,14 @@ jobs:
       - name: Typecheck tools
         run: bun run typecheck:tools
 
+      # Nothing else parses the shell tools. bash -n rather than shellcheck:
+      # shellcheck has not been run clean over them, and the syntax check needs
+      # nothing beyond the runner's bash. One file per call, because bash -n
+      # given several files parses only the first and treats the rest as its
+      # arguments.
+      - name: Check shell syntax
+        run: for f in tools/*.sh; do bash -n "$f" || exit 1; done
+
       - name: Test
         run: bun run test
 
