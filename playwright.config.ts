@@ -21,7 +21,10 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: "bun run build && bun run preview --port 4173 --strictPort",
+    // `vite build` alone, not `bun run build`: its `tsc --noEmit` step is
+    // already covered by `bun run typecheck` and would add a redundant
+    // ~700 MB, ~7 s step to every e2e run.
+    command: "bunx vite build && bun run preview --port 4173 --strictPort",
     url: "http://localhost:4173",
     reuseExistingServer: !process.env["CI"],
     timeout: 120_000,
