@@ -378,6 +378,25 @@ describe("ProductNode", () => {
     );
   });
 
+  it("marks the rate block short iff the target has a delivered rate", () => {
+    const shortOf = (delivered?: { num: string; denom: string }) =>
+      renderProduct(
+        {
+          kind: "outputProduct",
+          itemId: "copper_nugget",
+          rate: { num: "2", denom: "1" },
+          ...(delivered !== undefined ? { delivered } : {}),
+          flavor: "target",
+        },
+        [makeItem("copper_nugget", false)],
+      )
+        .container.querySelector(".pn-rate")
+        ?.classList.contains("pn-rate--short");
+    expect(shortOf()).toBe(false);
+    expect(shortOf({ num: "7", denom: "12" })).toBe(true);
+    expect(shortOf({ num: "0", denom: "1" })).toBe(true);
+  });
+
   // The catalyst pool has boundary cards of its own (u:cat:*). They draw the
   // same box as an ordinary input: the pool shows in the ticked left tab and in
   // the spoken label, the card carries a role marker for selectors, and the

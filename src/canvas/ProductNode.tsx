@@ -319,7 +319,12 @@ export default function ProductNode({
           ) : null}
         </div>
       </div>
-      <div className="pn-rate" title={rateTitle}>
+      <div
+        className={
+          delivered !== undefined ? "pn-rate pn-rate--short" : "pn-rate"
+        }
+        title={rateTitle}
+      >
         {rateValue}
         <span className="unit">{i18n.t("canvas.rate.unit")}</span>
         {shareOf !== null ? (
