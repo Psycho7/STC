@@ -11,6 +11,9 @@ import type { ProducerUnavailableCause } from "../data/plan";
 // ref swallow every token and the add path's rate focus would never fire.
 type PendingFocus = { rowKey: string; kind: "rate" | "trigger" };
 
+// Joins the picker hint's sentences: the popup renders exactly one hint line.
+const HINT_SEPARATOR = " · ";
+
 // The picker -> amount prompt flow a boundary panel runs: which row (or Add)
 // the item picker is open for, the prompt a pick in the add picker opens, the
 // trigger button focus returns to, and the focus token that follows a row
@@ -92,6 +95,15 @@ export function usePickerFlow<PickerFor, Prompt>(
   return {
     tierByItemId,
     unavailableHint,
+    // The popup's hint line: the panel's own "listed" sentence when it applies,
+    // then the availability sentences, or undefined when neither applies.
+    pickerHint(listed: string | undefined): string | undefined {
+      const sentences = [
+        ...(listed !== undefined ? [listed] : []),
+        ...(unavailableHint !== undefined ? [unavailableHint] : []),
+      ];
+      return sentences.length > 0 ? sentences.join(HINT_SEPARATOR) : undefined;
+    },
     pickerFor,
     prompt,
     openPicker(trigger: HTMLButtonElement, openFor: PickerFor) {
