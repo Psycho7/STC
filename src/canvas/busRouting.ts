@@ -2916,10 +2916,19 @@ export function jogForwardLegs(
     // column is already a slot of its own (assignEntryColumns); taking a slot
     // further left instead would lengthen the approach band it shares with the
     // other flows into the same card for no gain.
+    //
+    // A fan-in-pinned member has no descent to choose: routeTrunkEdges stood
+    // it on the trunk's column, and the fan-in dot is drawn there. Its jog
+    // moves the source column and the level only, and descends at the pin.
+    const faninPinX =
+      (edge.data as ItemEdgeData | undefined)?.faninColumn === true
+        ? hints.bendX
+        : undefined;
     const descentX0 =
-      cardBlocked || hints.entryX === undefined
+      faninPinX ??
+      (cardBlocked || hints.entryX === undefined
         ? arrivals.columnOf(edge, occupied)
-        : hints.entryX;
+        : hints.entryX);
 
     // The floor trigger is asked only of the stretch a jog RELOCATES: from the
     // bend column out to the drop column at sy, and from there to the descent
@@ -3118,7 +3127,14 @@ export function jogForwardLegs(
           ? stubClearColumns(foreignBands, self, y, portX, side)
           : [];
       const rails = railsFor(cardSet, pad, bands !== "off");
-      const candidates = srcBlocked ? [ty, ...rails] : rails;
+      // A fan-in member never takes the target row as its level: riding ty
+      // would merge it into its siblings wherever it lands, left of the dot.
+      const candidates =
+        faninPinX !== undefined
+          ? rails.filter((y) => y !== ty)
+          : srcBlocked
+            ? [ty, ...rails]
+            : rails;
       // Everything below that does not depend on R, taken once per tier.
       const srcStubColumns = stubColumns(drawnSy, drawnSx, "right");
       const tgtStubColumns = stubColumns(drawnTy, drawnTx, "left");
@@ -3183,22 +3199,24 @@ export function jogForwardLegs(
         // The descent must stay left of the target port (final approach runs
         // rightward into the Left handle; a column at or past tx would reverse
         // the closing stub and flip the arrow).
-        const D = clearColumnX(
-          descentX0,
-          Math.min(R, ty),
-          Math.max(R, ty),
-          descentColumnSet,
-          {
-            towardTarget: 1,
-            gap: colGap,
-            radius,
-            extra: tgtStubColumns,
-            accept: (x) =>
-              x <= tx - CHAMFER &&
-              (relaxed || inDescentZone(x)) &&
-              !stubBlocked(ty, x, tx, { y: drawnTy, x0: x, x1: drawnTx }),
-          },
-        );
+        const D =
+          faninPinX ??
+          clearColumnX(
+            descentX0,
+            Math.min(R, ty),
+            Math.max(R, ty),
+            descentColumnSet,
+            {
+              towardTarget: 1,
+              gap: colGap,
+              radius,
+              extra: tgtStubColumns,
+              accept: (x) =>
+                x <= tx - CHAMFER &&
+                (relaxed || inDescentZone(x)) &&
+                !stubBlocked(ty, x, tx, { y: drawnTy, x0: x, x1: drawnTx }),
+            },
+          );
         if (D > tx - CHAMFER) continue;
         if (railBlocked(R, C, D, { y: R, x0: drawnC, x1: D })) continue;
         if (vRunBlockedIn(columnSet, D, R, ty)) continue;
@@ -3275,7 +3293,12 @@ export function jogForwardLegs(
       return settled(back) ? back : pulled;
     };
 
-    if (jog.R !== ty) {
+    if (jog.R !== ty && faninPinX !== undefined) {
+      // The pin is already a pinned trunk column of the gap, so the descent
+      // neither walks off it nor takes an arrival slot in front of the card.
+      legYByIndex.set(index, jog.R);
+      descentXByIndex.set(index, faninPinX);
+    } else if (jog.R !== ty) {
       legYByIndex.set(index, jog.R);
       const descentX = settle(
         jog.D,
