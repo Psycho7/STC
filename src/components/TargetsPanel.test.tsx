@@ -982,3 +982,93 @@ test("Enter on an over-bound rate shows the too-large message", () => {
     update([{ itemId: "widget", ratePerSec: { num: "2", denom: "1" } }]),
   ).toEqual([{ itemId: "widget", ratePerSec: { num: "50000", denom: "3" } }]);
 });
+
+// A tile dimmed because it is already a target gets its own hint sentence,
+// joined with the availability sentences by " · " the way InputsPanel joins
+// its listed sentence.
+function openAddPickerWith(
+  targets: Target[],
+  unavailable?: ReadonlyMap<string, ProducerUnavailableCause>,
+) {
+  render(
+    <LocaleProvider locale="en">
+      <TargetsPanel
+        targets={targets}
+        onChange={() => {}}
+        pack={realPack}
+        unavailableItems={unavailable}
+      />
+    </LocaleProvider>,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Add target" }));
+}
+
+const IRON_TARGET: Target = {
+  itemId: "iron_powder",
+  ratePerSec: { num: "1", denom: "1" },
+};
+
+test("the add picker hint names an item already a target", () => {
+  openAddPickerWith([IRON_TARGET]);
+  expect(pickerTile("iron_powder")!.disabled).toBe(true);
+  expect(pickerHintText()).toBe(loadI18n("en").t("targets.picker.listed"));
+});
+
+test("the already-a-target sentence joins the area sentence with ' · '", () => {
+  openAddPickerWith([IRON_TARGET], TUNDRA_ONLY);
+  const en = loadI18n("en");
+  expect(pickerHintText()).toBe(
+    [en.t("targets.picker.listed"), en.t("picker.area.off")].join(" · "),
+  );
+});
+
+test("the row-swap picker omits the target sentence when no other target is dimmed", () => {
+  render(
+    <LocaleProvider locale="en">
+      <TargetsPanel
+        targets={[IRON_TARGET]}
+        onChange={() => {}}
+        pack={realPack}
+        unavailableItems={TUNDRA_ONLY}
+      />
+    </LocaleProvider>,
+  );
+  fireEvent.click(screen.getByLabelText(/^Item:/));
+  // The row's own item stays enabled, so only the area sentence applies.
+  expect(pickerTile("iron_powder")!.disabled).toBe(false);
+  expect(pickerHintText()).toBe(loadI18n("en").t("picker.area.off"));
+});
+
+test("the row-swap picker names another target that is dimmed", () => {
+  render(
+    <LocaleProvider locale="en">
+      <TargetsPanel
+        targets={[
+          IRON_TARGET,
+          { itemId: "copper_bottle", ratePerSec: { num: "1", denom: "1" } },
+        ]}
+        onChange={() => {}}
+        pack={realPack}
+      />
+    </LocaleProvider>,
+  );
+  fireEvent.click(screen.getAllByLabelText(/^Item:/)[0]!);
+  expect(pickerTile("copper_bottle")!.disabled).toBe(true);
+  expect(pickerHintText()).toBe(loadI18n("en").t("targets.picker.listed"));
+});
+
+test("the already-a-target sentence localizes under zh", () => {
+  render(
+    <LocaleProvider locale="zh">
+      <TargetsPanel
+        targets={[IRON_TARGET]}
+        onChange={() => {}}
+        pack={realPack}
+      />
+    </LocaleProvider>,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "添加目标" }));
+  const zh = loadI18n("zh").t("targets.picker.listed");
+  expect(pickerHintText()).toBe(zh);
+  expect(zh).not.toBe(loadI18n("en").t("targets.picker.listed"));
+});

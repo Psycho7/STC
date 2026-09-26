@@ -173,6 +173,21 @@ export function ItemPickerPopup({
     return into.start + Math.min(entryRow + col, into.size - 1);
   }
 
+  // Enter picks the first enabled tile in filtered order, as a click would;
+  // ArrowDown hands focus to that tile so the grid's arrows take over. An Enter
+  // that confirms an IME composition (zh input) is the IME's, not a pick.
+  function onSearchKeyDown(e: ReactKeyboardEvent<HTMLInputElement>) {
+    if (e.nativeEvent.isComposing) return;
+    if (e.key !== "Enter" && e.key !== "ArrowDown") return;
+    if (firstEnabled === null) return;
+    e.preventDefault();
+    if (e.key === "Enter") {
+      onPick(firstEnabled);
+      return;
+    }
+    focusTile(firstEnabled);
+  }
+
   function onDialogKeyDown(e: ReactKeyboardEvent<HTMLDivElement>) {
     // Tab stops are the close button, the search box, and the grid's single
     // roving stop; the shared trap wraps them.
@@ -266,6 +281,7 @@ export function ItemPickerPopup({
           placeholder={i18n.t("picker.search.placeholder")}
           value={search}
           onChange={(e) => setSearch(e.target.value)}
+          onKeyDown={onSearchKeyDown}
         />
         {disabledHint !== undefined ? (
           <div className="recipe-picker-hint" data-testid="picker-hint">

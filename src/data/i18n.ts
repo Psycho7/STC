@@ -12,6 +12,7 @@ export type UiKey =
   | "targets.duplicate"
   | "targets.head.sub"
   | "targets.empty"
+  | "targets.picker.listed"
   | "picker.title"
   | "picker.search.label"
   | "picker.search.placeholder"
@@ -136,6 +137,7 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "targets.duplicate": "物品 ID 重复: {itemId}",
     "targets.head.sub": "// 声明产出速率 · 件 / 分钟",
     "targets.empty": "未声明任何目标产物 — 点击下方按钮添加",
+    "targets.picker.listed": "灰显的物品已是目标 — 请直接编辑对应行",
     "picker.title": "选择物品",
     "picker.search.label": "搜索物品",
     "picker.search.placeholder": "按名称或 ID 搜索…",
@@ -269,6 +271,8 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "targets.duplicate": "Duplicate item id: {itemId}",
     "targets.head.sub": "// declared output rates · items per minute",
     "targets.empty": "No declared outputs yet — use the action below",
+    "targets.picker.listed":
+      "Dimmed items are already targets — edit that row instead",
     "picker.title": "Select item",
     "picker.search.label": "Search items",
     "picker.search.placeholder": "Search by name or id...",

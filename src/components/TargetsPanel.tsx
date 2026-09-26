@@ -275,19 +275,33 @@ export function TargetsPanel({
     </div>
   );
 
+  // One sentence per reason a tile is dimmed: already a target (only when such
+  // a tile is in the grid), then the availability sentences, joined with the
+  // " · " separator InputsPanel uses, since the popup renders one hint line.
+  function pickerHint(targetedIds: ReadonlySet<string>): string | undefined {
+    const sentences = [
+      ...(pickableItems.some((it) => targetedIds.has(it.id))
+        ? [i18n.t("targets.picker.listed")]
+        : []),
+      ...(flow.unavailableHint !== undefined ? [flow.unavailableHint] : []),
+    ];
+    return sentences.length > 0 ? sentences.join(" · ") : undefined;
+  }
+
   function renderPicker() {
     if (pickerFor === null) return null;
     if (pickerFor.kind === "add") {
       // Items already targeted are disabled tiles. Off-cohort event items
       // (#144's T6) dim on top, like every other unavailable pick.
-      const disabledIds = new Set<string>(targets.map((t) => t.itemId));
+      const targetedIds = new Set<string>(targets.map((t) => t.itemId));
+      const disabledIds = new Set<string>(targetedIds);
       for (const id of unavailableItems.keys()) disabledIds.add(id);
       return (
         <ItemPickerPopup
           items={pickableItems}
           disabledIds={disabledIds}
           tierByItemId={flow.tierByItemId}
-          disabledHint={flow.unavailableHint}
+          disabledHint={pickerHint(targetedIds)}
           onPick={(newId) => flow.openPrompt({ itemId: newId })}
           onClose={closePicker}
         />
@@ -302,9 +316,10 @@ export function TargetsPanel({
     // Disable items other targets already claim; the row's own item stays
     // enabled and highlighted as selected. Off-cohort event items (#144's T6)
     // dim on top, like every other unavailable pick.
-    const disabledIds = new Set<string>(
+    const targetedIds = new Set<string>(
       targets.filter((t) => t.itemId !== rowId).map((t) => t.itemId),
     );
+    const disabledIds = new Set<string>(targetedIds);
     for (const id of unavailableItems.keys()) disabledIds.add(id);
     return (
       <ItemPickerPopup
@@ -312,7 +327,7 @@ export function TargetsPanel({
         disabledIds={disabledIds}
         selectedId={rowId}
         tierByItemId={flow.tierByItemId}
-        disabledHint={flow.unavailableHint}
+        disabledHint={pickerHint(targetedIds)}
         onPick={(newId) => {
           // Re-picking the row's own (still-enabled, highlighted) item is a
           // confirm, not a swap; without this guard the dup check would match
