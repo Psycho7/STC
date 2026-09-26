@@ -155,7 +155,7 @@ type BannerError =
 // structured load error of a link that failed to decode or validate (so the
 // splash can localize the user-facing kinds). A link that decodes is adopted
 // even when its solve fails, so a solve failure never reaches the splash.
-type InitialError = { kind: "load"; error: PlanLoadError };
+type InitialError = { error: PlanLoadError };
 
 // Localized text for a plan-load error on a user-facing surface. The
 // producer-unavailable kind is the one failure aimed at the player rather
@@ -667,7 +667,7 @@ function AppInner() {
       const failLoad = (error: PlanLoadError) => {
         if (myGen !== solveGen.current) return;
         if (planRef.current === null) {
-          setInitialError({ kind: "load", error });
+          setInitialError({ error });
           return;
         }
         setMutationError({ kind: "load", error });
