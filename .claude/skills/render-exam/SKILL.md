@@ -56,7 +56,7 @@ hooks hard-fail on residual-dirty plans, which the exam has to photograph, so do
 `bun run dev`.
 
 ```bash
-bun run build
+tools/heavy.sh bun run build
 bun run preview --port 4174 --strictPort   # background it
 BASE=http://localhost:4174
 curl -s -o /dev/null -w "%{http_code}\n" "$BASE/"   # poll until 200
