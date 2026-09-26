@@ -266,22 +266,6 @@ export function crossingCueCoverage(
   return out;
 }
 
-// Node ids of type "group" whose raw rect contains point p. The canvas draws no
-// node of that type, so this returns [] on every plan and the exemptions its
-// callers build from it are empty.
-export function containersAt(p: Pt, nodes: ReadonlyArray<NodeRect>): string[] {
-  return nodes
-    .filter(
-      (n) =>
-        n.type === "group" &&
-        p[0] >= n.left &&
-        p[0] <= n.right &&
-        p[1] >= n.top &&
-        p[1] <= n.bottom,
-    )
-    .map((n) => n.nodeId);
-}
-
 // Parse an edge id `e:<index>:<from>-><to>:<item>` (the form layout.ts builds)
 // into its source, target, and item. from / to are ELK unit ids (no `->` or
 // trailing `:item`). Lives here rather than in a caller because every consumer
@@ -333,8 +317,6 @@ export function auditSegmentsVsCards(
     const pts = parsePath(edge.d);
     if (pts.length === 0) continue;
     const exempt = new Set<string>([edge.source, edge.target]);
-    for (const c of containersAt(pts[0]!, nodes)) exempt.add(c);
-    for (const c of containersAt(pts[pts.length - 1]!, nodes)) exempt.add(c);
     for (const [seg0, seg1] of segmentsOf(pts)) {
       for (const n of nodes) {
         if (exempt.has(n.nodeId)) continue;
@@ -383,10 +365,8 @@ export function auditOwnCardPierces(
     const own: Array<{ card: NodeRect; role: "source" | "target" }> = [];
     const s = nodeById.get(edge.source);
     const t = nodeById.get(edge.target);
-    if (s !== undefined && s.type !== "group")
-      own.push({ card: s, role: "source" });
-    if (t !== undefined && t.type !== "group")
-      own.push({ card: t, role: "target" });
+    if (s !== undefined) own.push({ card: s, role: "source" });
+    if (t !== undefined) own.push({ card: t, role: "target" });
     if (own.length === 0) continue;
     for (const [seg0, seg1] of segmentsOf(pts)) {
       for (const { card, role } of own) {
@@ -405,7 +385,7 @@ export function auditOwnCardPierces(
 }
 
 // Frame rides: segments that run ALONG a loop card's border (type "loop", a
-// collapsed SCC; the "group" arm of the filter matches no drawn node), close
+// collapsed SCC), close
 // enough that the stroke and the border read as one line. A ride needs a
 // parallel run, so a near-border segment counts only when it overlaps the
 // border's own extent by more than two port stubs -- a perpendicular crossing
@@ -466,9 +446,7 @@ export function auditFrameRides(
 ): FrameRideHit[] {
   const nodeById = new Map<string, NodeRect>();
   for (const n of nodes) nodeById.set(n.nodeId, n);
-  const containers = nodes.filter(
-    (n) => n.type === "group" || n.type === "loop",
-  );
+  const containers = nodes.filter((n) => n.type === "loop");
   const out: FrameRideHit[] = [];
   for (const edge of edges) {
     const pts = parsePath(edge.d);
@@ -484,8 +462,6 @@ export function auditFrameRides(
     if (!backward) {
       exempt.add(edge.source);
       exempt.add(edge.target);
-      for (const c of containersAt(pts[0]!, nodes)) exempt.add(c);
-      for (const c of containersAt(pts[pts.length - 1]!, nodes)) exempt.add(c);
     }
     const push = (
       target: string,
@@ -703,36 +679,23 @@ export function auditChipsVsCards(
 ): ChipCardViolation[] {
   const edgeById = new Map<string, RawEdge>();
   for (const e of edges) edgeById.set(e.id, e);
-  const nodeById = new Map<string, NodeRect>();
-  for (const n of nodes) nodeById.set(n.nodeId, n);
-  const exemptContainers = (nodeId: string, into: Set<string>): void => {
-    const node = nodeById.get(nodeId);
-    if (node !== undefined) {
-      for (const c of containersAt(centreOf(node), nodes)) into.add(c);
-    }
-  };
   const out: ChipCardViolation[] = [];
   for (const chip of chips) {
     if (chip.kind === "bus") continue; // branch, leg-anchored, out of scope
     const owner = edgeById.get(chip.edgeId);
-    const whole = new Set<string>();
     const zones = new Map<string, "source" | "target">();
     if (owner !== undefined) {
       zones.set(owner.source, "source");
-      exemptContainers(owner.source, whole);
       if (chip.kind === "bus-drop") {
         for (const e of edges) {
           if (e.source !== owner.source || e.item !== owner.item) continue;
           zones.set(e.target, "target");
-          exemptContainers(e.target, whole);
         }
       } else {
         zones.set(owner.target, "target");
-        exemptContainers(owner.target, whole);
       }
     }
     for (const n of nodes) {
-      if (whole.has(n.nodeId)) continue;
       const zone = zones.get(n.nodeId);
       const hit =
         zone === undefined
@@ -1775,11 +1738,10 @@ export function auditChipCardIntrusion(
   nodes: ReadonlyArray<NodeRect>,
   budget = CARD_INTRUSION_BUDGET,
 ): ChipCensusHit[] {
-  const cards = nodes.filter((n) => n.type !== "group");
   const out: ChipCensusHit[] = [];
   for (const chip of chips) {
     let worst: { card: string; depth: number } | null = null;
-    for (const card of cards) {
+    for (const card of nodes) {
       const dx =
         Math.min(chip.right, card.right) - Math.max(chip.left, card.left);
       const dy =
