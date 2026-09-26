@@ -12,7 +12,13 @@ import type { ProducerUnavailableCause } from "../data/plan";
 // "setCap" is the inputs panel's promotion button, which the row swaps for its
 // pending rate field: abandoning the field has to give the button back, and it
 // is a different element from the picker "trigger" the same row may carry.
-type PendingFocus = { rowKey: string; kind: "rate" | "trigger" | "setCap" };
+// `reveal` scrolls the row holding the element into view as well, for a commit
+// that moves the row somewhere the user was not looking.
+type PendingFocus = {
+  rowKey: string;
+  kind: "rate" | "trigger" | "setCap";
+  reveal: boolean;
+};
 
 // Joins the picker hint's sentences: the popup renders exactly one hint line.
 const HINT_SEPARATOR = " · ";
@@ -136,8 +142,12 @@ export function usePickerFlow<PickerFor, Prompt>(
       setPrompt(null);
       restoreTriggerFocus();
     },
-    armFocus(rowKey: string, kind: PendingFocus["kind"]) {
-      pendingFocus.current = { rowKey, kind };
+    armFocus(
+      rowKey: string,
+      kind: PendingFocus["kind"],
+      options?: { reveal?: boolean },
+    ) {
+      pendingFocus.current = { rowKey, kind, reveal: options?.reveal === true };
     },
     focusOnMount(
       el: HTMLElement | null,
@@ -148,6 +158,9 @@ export function usePickerFlow<PickerFor, Prompt>(
       if (!el || !want || want.rowKey !== rowKey || want.kind !== kind) return;
       pendingFocus.current = null;
       el.focus();
+      if (want.reveal) {
+        (el.closest(".b-row") ?? el).scrollIntoView({ block: "nearest" });
+      }
     },
   };
 }

@@ -63,6 +63,7 @@ export type UiKey =
   | "inputs.picker.listed"
   | "inputs.duplicate"
   | "inputs.unlimited"
+  | "inputs.head.sub"
   | "inputs.block.supplies"
   | "inputs.block.supplies.sub"
   | "inputs.block.assumed"
@@ -222,6 +223,7 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "inputs.picker.listed": "灰显的物品已在面板中 — 请直接编辑对应行",
     "inputs.duplicate": "该物品已声明",
     "inputs.unlimited": "无限",
+    "inputs.head.sub": "// 边界输入预算 · 原料 + 跨域",
     "inputs.block.supplies": "供给",
     "inputs.block.supplies.sub": "// 由你设定 · 求解器不得超出",
     "inputs.block.assumed": "默认无限",
@@ -374,6 +376,7 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
       "Dimmed items already have a row in the panel — edit that row instead",
     "inputs.duplicate": "Item already declared",
     "inputs.unlimited": "Unlimited",
+    "inputs.head.sub": "// boundary import budget · raw + cross-domain",
     "inputs.block.supplies": "Supplies",
     "inputs.block.supplies.sub":
       "// you set these · solver may not exceed them",

@@ -126,6 +126,9 @@
   /* Height of one sticky section head. The inputs head pins at exactly this
      offset, directly under the targets head, so both stay on screen. */
   --ak-side-head-h: 40px;
+  /* Both pinned heads cover the top of the scrollport, so a row scrolled into
+     view (a focus, or a reveal) has to land below them. */
+  scroll-padding-top: calc(2 * var(--ak-side-head-h));
   height: 100%;
   overflow-y: auto;
   overflow-x: hidden;
@@ -476,6 +479,10 @@
 .ak-app-shell [data-testid="side-panel"] .side-section-head {
   height: var(--ak-side-head-h);
   box-sizing: border-box;
+  /* The scroll body is a column flexbox that overflows, which would shrink
+     each head to its content height and open a seam under the targets head
+     that the inputs head's constant offset no longer closes. */
+  flex-shrink: 0;
   padding: 12px 20px 10px;
   display: flex;
   align-items: baseline;
@@ -773,6 +780,8 @@
   letter-spacing: 0.2em;
   color: var(--ak-text-secondary);
   font-style: normal;
+  /* Carries a rate, and the unit reads "/min" as it does everywhere else. */
+  text-transform: none;
 }
 
 /* The pool checkbox. Only rows for an item some recipe cycles have one, and it
@@ -801,6 +810,8 @@
   letter-spacing: 0.2em;
   color: var(--ak-accent-cyan-soft);
   font-style: normal;
+  /* The cap readout: keeps "/min" in lower case like the rest of the panel. */
+  text-transform: none;
 }
 
 /* A prominent "needed N/min" line under the row name for uncapped boundary rows

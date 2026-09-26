@@ -941,8 +941,9 @@ function AppInner() {
   // and it keeps it when the charge is its only general number. InputsPanel
   // surfaces these as auto-rows when the user has declared no explicit general
   // override, so the "unlimited by default" assumption is visible. General
-  // side only, item ids: the catalyst pool has no auto-row. Sorted by id for
-  // stable row order across re-renders.
+  // side only, item ids: the catalyst pool has no auto-row. Sorted by id so
+  // the list is stable across re-renders; the panel orders its rows by the
+  // localized name.
   const assumedRawItemIds = useMemo<ReadonlyArray<string>>(() => {
     const ids: string[] = [];
     for (const item of pack.items) {

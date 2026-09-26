@@ -116,3 +116,7 @@ Object.defineProperty(HTMLCanvasElement.prototype, "getContext", {
   configurable: true,
   value: () => null,
 });
+
+// jsdom has no layout, so it ships no scrollIntoView. The inputs panel reveals
+// a row it just moved; stub the call so suites can spy on it.
+Element.prototype.scrollIntoView = function (): void {};

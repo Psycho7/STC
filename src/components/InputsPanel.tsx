@@ -111,7 +111,7 @@ export function displayedInputCount(
 // inputs, and a catalyst override does not retire the item's general row. The
 // owner decides what belongs in the set; a catalyst item is in it because the
 // plan draws it, not because it is raw.
-export function assumedInputRows(
+function assumedInputRows(
   itemOverrides: ReadonlyArray<{
     itemId: string;
     role?: "catalyst" | undefined;
@@ -124,17 +124,30 @@ export function assumedInputRows(
   return (assumedRawItemIds ?? []).filter((id) => !general.has(id));
 }
 
-// The Assumed unlimited block's own count. displayedInputCount stays the
-// scalar the stats strip and the section head read, so it cannot carry this
-// second number as well.
-export function assumedInputCount(
-  itemOverrides: ReadonlyArray<{
-    itemId: string;
-    role?: "catalyst" | undefined;
-  }>,
-  assumedRawItemIds: ReadonlyArray<string> | undefined,
-): number {
-  return assumedInputRows(itemOverrides, assumedRawItemIds).length;
+// The order Supplies shows its rows in: stored order, except that a catalyst
+// row follows the general row of its item, so the two pools of one item read
+// together. Display only; the stored list (which the share hash encodes) keeps
+// its order. A row with no partner stays where it is.
+//   [A#cat, B, A] -> [B, A, A#cat]
+function suppliesDisplayOrder(
+  itemOverrides: ReadonlyArray<ItemOverride>,
+): ItemOverride[] {
+  const generalIds = new Set(
+    itemOverrides.filter((o) => o.role === undefined).map((o) => o.itemId),
+  );
+  const ordered: ItemOverride[] = [];
+  for (const o of itemOverrides) {
+    if (o.role === "catalyst") {
+      if (!generalIds.has(o.itemId)) ordered.push(o);
+      continue;
+    }
+    ordered.push(o);
+    const partner = itemOverrides.find(
+      (c) => c.role === "catalyst" && c.itemId === o.itemId,
+    );
+    if (partner !== undefined) ordered.push(partner);
+  }
+  return ordered;
 }
 
 // Default for the optional unavailableItems prop: nothing is unavailable.
@@ -321,6 +334,9 @@ export function InputsPanel({
   function commitPendingCap(itemId: string, text: string, revert: boolean) {
     const result = parseRateText(text, "uncap");
     if (result.kind === "empty") {
+      // Enter here is a cancel like Escape, so it hands focus back to the
+      // button the same way; a blur has already moved focus on.
+      if (!revert) flow.armFocus(encodeItemOverrideKey({ itemId }), "setCap");
       setPendingCap(null);
       return;
     }
@@ -335,9 +351,10 @@ export function InputsPanel({
     const parsed = result.rate;
     const rowKey = encodeItemOverrideKey({ itemId });
     // The commit unmounts this field and mounts the new Supplies row's one;
-    // hand focus over, but only on Enter, since a blur commit means the user
-    // has already moved on.
-    if (!revert) flow.armFocus(rowKey, "rate");
+    // hand focus over, and scroll the row into view since it lands wherever
+    // Supplies ends. Only on Enter, since a blur commit means the user has
+    // already moved on.
+    if (!revert) flow.armFocus(rowKey, "rate", { reveal: true });
     // The new row derives its field from the committed rational, which would
     // re-serialize a typed "1/3" as 0.3333333333333333; hand the text over as
     // the row's own committed value instead.
@@ -509,7 +526,16 @@ export function InputsPanel({
     );
   }
 
-  const autoRows = assumedInputRows(itemOverrides, assumedRawItemIds);
+  // Listed in the order of the names the user reads, so the block re-sorts
+  // when the locale changes. The collator is pinned to the active locale, as
+  // the item picker's is, so the order does not follow the runtime's.
+  const nameCollator = useMemo(
+    () => new Intl.Collator(i18n.locale),
+    [i18n.locale],
+  );
+  const autoRows = assumedInputRows(itemOverrides, assumedRawItemIds).sort(
+    (a, b) => nameCollator.compare(i18n.displayName(a), i18n.displayName(b)),
+  );
   // Prune the auto-row promotion state like the override edits above: an auto
   // row can leave by any route (its item stops being drawn, or an override
   // replaces it), and a surviving revert notice or open field would resurface
@@ -561,9 +587,7 @@ export function InputsPanel({
           <span>{i18n.t("inputs.block.assumed")}</span>
           <span className="n">
             {i18n.t("inputs.block.rows", {
-              count: String(
-                assumedInputCount(itemOverrides, assumedRawItemIds),
-              ),
+              count: String(autoRows.length),
             })}
           </span>
         </div>
@@ -590,15 +614,13 @@ export function InputsPanel({
         </span>
       </div>
       <div className="boundary-section" data-testid="inputs-section">
-        <div className="side-section-sub">
-          {"// boundary import budget · raw + cross-domain"}
-        </div>
+        <div className="side-section-sub">{i18n.t("inputs.head.sub")}</div>
         {showEmptyState ? (
           <div className="b-empty">{i18n.t("inputs.empty")}</div>
         ) : null}
         {suppliesBlock}
         <div className="supplies-body" data-testid="inputs-supplies-body">
-          {itemOverrides.map((row) => {
+          {suppliesDisplayOrder(itemOverrides).map((row) => {
             const key: RowKey = { itemId: row.itemId, role: row.role };
             const rowKey = encodeItemOverrideKey(key);
             const domId = `${row.itemId}${rowIdSuffix(key)}`;

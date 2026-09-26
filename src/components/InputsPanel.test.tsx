@@ -6,10 +6,14 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { InputsPanel, displayedInputCount } from "./InputsPanel";
 import { makePack } from "../solver/closed-form-fixtures";
 import type { CatalystAccount } from "../solver/catalyst";
-import { LocaleProvider } from "../data/i18n-context";
+import { LocaleProvider, useLocale } from "../data/i18n-context";
 import { loadI18n } from "../data/i18n";
 import { pack as realPack } from "../data/load";
-import { unavailableItems } from "../data/availability";
+import {
+  unavailableEventItems,
+  unavailableItems,
+  type AvailabilitySettings,
+} from "../data/availability";
 import type { ItemOverride } from "../data/plan";
 import {
   controlledOwner,
@@ -1045,16 +1049,17 @@ test("a non-raw catalyst item renders as a plain auto-row with its draw", () => 
     </LocaleProvider>,
   );
   const rows = screen.getAllByTestId("input-auto-row");
+  // Name order: "Liquid Xiranite" before "Xiragen".
   expect(rows.map((r) => r.getAttribute("data-item-id"))).toEqual([
-    "gas_xiranite",
     "liquid_xiranite",
+    "gas_xiranite",
   ]);
   const readouts = rows.map(
     (r) => r.querySelector('[data-testid="input-realized-rate"]')?.textContent,
   );
-  expect(readouts).toEqual(["needed 36/min", "needed 6/min"]);
-  expect(rows[0]!.getAttribute("data-is-raw")).toBe("true");
-  expect(rows[1]!.getAttribute("data-is-raw")).toBe("false");
+  expect(readouts).toEqual(["needed 6/min", "needed 36/min"]);
+  expect(rows[0]!.getAttribute("data-is-raw")).toBe("false");
+  expect(rows[1]!.getAttribute("data-is-raw")).toBe("true");
 });
 
 // Promotion is the same gesture on every Assumed row: a non-raw catalyst item
@@ -1177,6 +1182,13 @@ test("clearing the cap on a non-raw row outside the auto-row set keeps the overr
 const V15_OFF = unavailableItems(realPack, {
   eventOverrides: { "v1.5": false },
 });
+// The tundra with the v1.5 cohort off: both dimming causes are live at once,
+// so the map below can be told apart from the target picker's.
+const TUNDRA: AvailabilitySettings = {
+  eventOverrides: { "v1.5": false },
+  area: "tundra",
+};
+const TUNDRA_INPUTS = unavailableEventItems(realPack, TUNDRA);
 const firstCause = V15_OFF.values().next().value!;
 const COHORT = firstCause.kind === "event" ? firstCause.cohort : "";
 
@@ -1240,6 +1252,23 @@ test("the inputs picker's cohort hint localizes under zh with the same token par
   });
   expect(validation).toContain(COHORT);
   expect(hint).toContain(COHORT);
+});
+
+// An area restriction says where a recipe can be BUILT, which is no statement
+// about whether the item can be brought in: an input with no local producer is
+// exactly the case imports exist for. So the map the owner hands this panel
+// carries event causes only, and an area-blocked item stays pickable.
+test("an item with no producer in the selected area stays pickable as an input", () => {
+  openAddPicker("en", { unavailableItems: TUNDRA_INPUTS });
+  // copper_nugget is jinlong-tagged, so under the tundra nothing produces it.
+  expect(pickerTile("copper_nugget")!.disabled).toBe(false);
+  // Its cause is real, it just belongs to the target picker, not this one.
+  expect(unavailableItems(realPack, TUNDRA).get("copper_nugget")).toEqual({
+    kind: "area",
+    area: "tundra",
+  });
+  // The off-cohort item still dims: the event pass is the one that survives.
+  expect(pickerTile("activity_xiranite_lung")!.disabled).toBe(true);
 });
 
 // Without the map no tile dims for cohort reasons and the hint line is absent
@@ -1743,4 +1772,165 @@ test("a cap's blur revert names a negative or over-bound reason", () => {
     "A rate cannot be negative; the edit was discarded",
     "A rate cannot exceed 1,000,000/min; the edit was discarded",
   ]);
+});
+
+// The committed cap moves the row out of Assumed unlimited and into Supplies.
+// Focus follows it to the rate field the Enter commit hands it to, and the
+// row is scrolled into view, since it lands wherever Supplies ends.
+test("committing a cap moves focus to the new Supplies row and reveals it", () => {
+  const scroll = vi.spyOn(Element.prototype, "scrollIntoView");
+  const owner = controlledOwner<ItemOverride[]>([]);
+  renderAssumedWidget(owner);
+  fireEvent.click(screen.getByTestId("input-set-cap"));
+  fireEvent.change(promotedField(), { target: { value: "60" } });
+  fireEvent.keyDown(promotedField(), { key: "Enter" });
+  const row = rowFor("widget");
+  expect(screen.getByTestId("inputs-supplies-body").contains(row)).toBe(true);
+  expect(document.activeElement).not.toBe(document.body);
+  expect(document.activeElement).toBe(rateInputs()[0]);
+  expect(row.contains(document.activeElement)).toBe(true);
+  expect(scroll).toHaveBeenCalledTimes(1);
+  expect(scroll.mock.contexts[0]).toBe(row);
+  expect(scroll).toHaveBeenCalledWith({ block: "nearest" });
+  scroll.mockRestore();
+});
+
+// A catalyst row sits directly under the general row of its item, whatever
+// order the stored list holds them in. The order is display-only: the stored
+// list (which the share hash encodes) keeps its own order through an edit.
+test("a catalyst row displays after its general row without reordering the overrides", () => {
+  const stored: ItemOverride[] = [
+    { itemId: "gas_xiranite", role: "catalyst" },
+    { itemId: "widget" },
+    { itemId: "gas_xiranite" },
+    { itemId: "liquid_xiranite", role: "catalyst" },
+  ];
+  const owner = controlledOwner<ItemOverride[]>(stored);
+  render(
+    owner.element((overrides, onChange) => (
+      <LocaleProvider locale="en">
+        <InputsPanel
+          itemOverrides={overrides}
+          onChange={onChange}
+          pack={CATALYST_PACK}
+          supplyRateByItem={new Map()}
+        />
+      </LocaleProvider>
+    )),
+  );
+  const order = () =>
+    screen
+      .getAllByTestId("input-row")
+      .map(
+        (r) =>
+          `${r.getAttribute("data-item-id")}${r.getAttribute("data-role") === "catalyst" ? "#c" : ""}`,
+      );
+  expect(order()).toEqual([
+    "widget",
+    "gas_xiranite",
+    "gas_xiranite#c",
+    "liquid_xiranite#c",
+  ]);
+  const field = rowFor(
+    "gas_xiranite",
+    "catalyst",
+  ).querySelector<HTMLInputElement>("input[type=text]")!;
+  fireEvent.change(field, { target: { value: "6" } });
+  fireEvent.blur(field);
+  expect(owner.emissions.length).toBe(1);
+  expect(owner.latest.map((o) => [o.itemId, o.role])).toEqual(
+    stored.map((o) => [o.itemId, o.role]),
+  );
+  expect(owner.latest[0]!.ratePerSec).toEqual({ num: "1", denom: "10" });
+});
+
+// Assumed rows read in the order of their names as the active locale spells
+// them, and re-sort when the locale changes.
+test("assumed rows sort by localized display name and re-sort on a locale switch", () => {
+  const ids = [
+    "copper_ore",
+    "gas_inert",
+    "gas_xiranite",
+    "iron_ore",
+    "liquid_water",
+    "originium_ore",
+    "quartz_sand",
+  ];
+  const expected = (locale: "en" | "zh") => {
+    const i18n = loadI18n(locale);
+    const collator = new Intl.Collator(locale);
+    return ids
+      .slice()
+      .sort((a, b) =>
+        collator.compare(i18n.displayName(a), i18n.displayName(b)),
+      );
+  };
+  // Guards on the fixture: the three orders differ, so each assertion below
+  // proves a sort happened rather than a pass-through.
+  expect(expected("en")).not.toEqual(ids);
+  expect(expected("zh")).not.toEqual(ids);
+  expect(expected("en")).not.toEqual(expected("zh"));
+  // Switches the live locale the way the settings panel does.
+  function SwitchToZh() {
+    const { setLocale } = useLocale();
+    return (
+      <button type="button" onClick={() => setLocale("zh")}>
+        zh
+      </button>
+    );
+  }
+  render(
+    <LocaleProvider locale="en">
+      <SwitchToZh />
+      <InputsPanel
+        itemOverrides={[]}
+        onChange={() => {}}
+        pack={realPack}
+        assumedRawItemIds={ids}
+        supplyRateByItem={new Map()}
+      />
+    </LocaleProvider>,
+  );
+  const shown = () =>
+    screen
+      .getAllByTestId("input-auto-row")
+      .map((r) => r.getAttribute("data-item-id"));
+  expect(shown()).toEqual(expected("en"));
+  fireEvent.click(screen.getByRole("button", { name: "zh" }));
+  expect(shown()).toEqual(expected("zh"));
+});
+
+// The inputs subtitle is localized like the targets one.
+test("the inputs subtitle comes from the locale tables", () => {
+  for (const locale of ["en", "zh"] as const) {
+    const { container, unmount } = render(
+      <LocaleProvider locale={locale}>
+        <InputsPanel
+          itemOverrides={[]}
+          onChange={() => {}}
+          pack={PACK}
+          supplyRateByItem={new Map()}
+        />
+      </LocaleProvider>,
+    );
+    expect(container.querySelector(".side-section-sub")?.textContent).toBe(
+      loadI18n(locale).t("inputs.head.sub"),
+    );
+    unmount();
+  }
+  expect(loadI18n("zh").t("inputs.head.sub")).not.toBe(
+    loadI18n("en").t("inputs.head.sub"),
+  );
+});
+
+// Enter on an empty field cancels the promotion like Escape does, and hands
+// focus back to the row's Set cap button the same way.
+test("Enter on an empty pending field returns focus to its Set cap button", () => {
+  const owner = controlledOwner<ItemOverride[]>([]);
+  renderAssumedWidget(owner);
+  fireEvent.click(screen.getByTestId("input-set-cap"));
+  fireEvent.keyDown(promotedField(), { key: "Enter" });
+  expect(owner.emissions).toEqual([]);
+  expect(screen.queryByTestId("input-pending-cap")).toBeNull();
+  expect(document.activeElement).toBe(screen.getByTestId("input-set-cap"));
 });
