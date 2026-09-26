@@ -36,10 +36,13 @@ loop's own edges, forward and return, are part of its drawing, so each of their
 drawn strokes is padded the same way. A return rail therefore sits inside its
 loop's tint, and every loop reads as one connected region. A stroke's padding
 gives way wherever it would reach a card outside the cycle or come within a
-rail's pad of another loop's tint, so two loops' tints never merge. On the top
-or bottom of one member it carries a caption band that names the loop by what
-its members make (`LOOP · JINCAO · JINCAO SEED`). The band is as wide as the
-tint it sits on, covers no card and no chip, and never sits on a rail. A caption
+rail's pad of another loop's tint, so two loops' tints never merge. A pocket the
+tint encloses is filled unless a card outside the cycle sits in it, so the tint
+shows no slit between a stroke's padding and a card's. On the top or bottom of
+one member it carries a caption band that names the loop by what its members
+make (`LOOP · JINCAO · JINCAO SEED`). The band spans the member cards of its row
+where the tint joins them; a stroke's padding never widens it. It covers no card
+and no chip, and never sits on a rail. A caption
 too long for its band elides like any name, and its hover title carries the
 whole caption. The tint has no border and is painted under the strokes. Nothing
 is laid out or routed around it, so a stroke of another flow may cross it. It

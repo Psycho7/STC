@@ -31,8 +31,13 @@
 // The segments come from drawnEdge over drawnPortsOf, the drawn geometry the
 // edges render with, so the paint follows a drag with them.
 //
-// The caption band is placed where it covers no card and no chip, and is as
-// wide as the paint region under it.
+// A pocket the region encloses is filled unless a foreign card sits in it, so
+// the tint shows no slit between a stroke's pad and a card's pad. The fill keeps
+// the same air off foreign cards and other paints.
+//
+// The caption band is placed where it covers no card and no chip, and spans the
+// member cards of its row where the paint joins them; a stroke's pad never
+// widens it.
 
 import type { Edge } from "@xyflow/react";
 
@@ -67,7 +72,7 @@ export const LOOP_CAPTION_HEIGHT = 22;
 // How far a bridge or the caption band keeps off a card it must not cover. The
 // card rect is the drawn border box, but the port handles hang a few units past
 // it (PORT_DRIFT), so flush is not clear.
-const CARD_CLEARANCE = 4;
+export const CARD_CLEARANCE = 4;
 
 export type LoopPaint = {
   // Member card ids, in node order.
@@ -227,9 +232,10 @@ export function loopPaints(
   // Every loop's core first: its members padded and bridged.
   const cores = sets.map((members) => {
     const memberSet = new Set(members);
-    const foreign = cards
+    const foreignCards = cards
       .filter((c) => !memberSet.has(c.id))
-      .map((c) => grow(c.rect, CARD_CLEARANCE));
+      .map((c) => c.rect);
+    const foreign = foreignCards.map((r) => grow(r, CARD_CLEARANCE));
     const padded = members.map((id) =>
       grow(nodeRectOf(byId.get(id)!), LOOP_PAINT_PAD),
     );
@@ -247,7 +253,7 @@ export function loopPaints(
       if (foreign.some((f) => overlaps(f, bridge))) continue;
       rects.push(bridge);
     }
-    return { members, memberSet, foreign, padded, rects };
+    return { members, memberSet, foreignCards, foreign, padded, rects };
   });
 
   // Then the own strokes, loop by loop: a stroke's pad yields to foreign cards,
@@ -265,6 +271,20 @@ export function loopPaints(
     for (const stroke of ownStrokes(core.memberSet, edges, byId)) {
       bodies[k]!.push(...yieldingPad(stroke, blockers));
     }
+  });
+
+  // Then the pockets each region encloses, where no foreign card sits.
+  cores.forEach((core, k) => {
+    const others = bodies
+      .filter((_, j) => j !== k)
+      .flat()
+      .map((r) => grow(r, LOOP_PAINT_AIR));
+    bodies[k]!.push(
+      ...pocketFill(bodies[k]!, core.foreignCards, [
+        ...core.foreign,
+        ...others,
+      ]),
+    );
   });
 
   // Last the captions, which keep off every card, chip and other paint.
@@ -300,7 +320,7 @@ export function loopPaints(
 // The first clear caption band: on top of a member's padded rect, the topmost
 // member first (left to right on a tie), then under one, bottommost first. A
 // band is clear when it covers no blocker (cards, chips, other paints). The
-// seated band then widens over the paint region it sits on.
+// seated band then widens over the member cards of its row.
 function captionSeat(
   memberRects: ReadonlyArray<Rect>,
   paint: ReadonlyArray<Rect>,
@@ -314,7 +334,13 @@ function captionSeat(
   for (const r of above) {
     const band = { ...r, top: r.top - LOOP_CAPTION_HEIGHT, bottom: r.top };
     if (clear(band))
-      return widened(band, band.bottom + ROW_PROBE, paint, blockers);
+      return widened(
+        band,
+        band.bottom + ROW_PROBE,
+        memberRects,
+        paint,
+        blockers,
+      );
   }
   const below = [...memberRects].sort(
     (a, b) => b.bottom - a.bottom || a.left - b.left,
@@ -326,7 +352,7 @@ function captionSeat(
       bottom: r.bottom + LOOP_CAPTION_HEIGHT,
     };
     if (clear(band))
-      return widened(band, band.top - ROW_PROBE, paint, blockers);
+      return widened(band, band.top - ROW_PROBE, memberRects, paint, blockers);
   }
   return undefined;
 }
@@ -334,11 +360,14 @@ function captionSeat(
 // How far inside the paint the row under a caption band is read.
 const ROW_PROBE = 0.5;
 
-// The band stretched over the run of paint on row `y` that it stands on, and
-// stopped short of any blocker level with it on either side.
+// The band stretched over the run of paint on row `y` that it stands on, cut
+// back to the member cards of that row within the run (so a stroke's pad
+// running on past them never widens it), and stopped short of any blocker level
+// with it on either side.
 function widened(
   band: Rect,
   y: number,
+  memberRects: ReadonlyArray<Rect>,
   paint: ReadonlyArray<Rect>,
   blockers: ReadonlyArray<Rect>,
 ): Rect {
@@ -361,10 +390,130 @@ function widened(
       }
     }
   }
+  const row = memberRects.filter(
+    (r) => r.top < y && y < r.bottom && r.left < right && left < r.right,
+  );
+  left = Math.max(left, Math.min(...row.map((r) => r.left)));
+  right = Math.min(right, Math.max(...row.map((r) => r.right)));
+
   for (const b of blockers) {
     if (b.bottom <= band.top || b.top >= band.bottom) continue;
     if (b.right <= band.left) left = Math.max(left, b.right);
     if (b.left >= band.right) right = Math.min(right, b.left);
   }
   return { ...band, left, right };
+}
+
+// The pockets of `rects` the outside cannot reach and no card of `cards` sits
+// in (not even in part), less `blockers`, as rects. The plane is cut into a
+// grid at every rect edge, so each cell is wholly painted or wholly bare; a bare
+// cell the border cannot reach by bare cells is in a pocket.
+function pocketFill(
+  rects: ReadonlyArray<Rect>,
+  cards: ReadonlyArray<Rect>,
+  blockers: ReadonlyArray<Rect>,
+): Rect[] {
+  const cuts = (lo: (r: Rect) => number, hi: (r: Rect) => number) =>
+    [...new Set(rects.flatMap((r) => [lo(r), hi(r)]))].sort((a, b) => a - b);
+  const xs = cuts(
+    (r) => r.left,
+    (r) => r.right,
+  );
+  const ys = cuts(
+    (r) => r.top,
+    (r) => r.bottom,
+  );
+  const nx = xs.length - 1;
+  const ny = ys.length - 1;
+  if (nx < 1 || ny < 1) return [];
+  const xi = new Map(xs.map((x, i) => [x, i]));
+  const yi = new Map(ys.map((y, i) => [y, i]));
+
+  // Paint depth per cell, by 2D difference: +1 at each rect's first cell and
+  // its opposite corner, -1 at the other two, then prefix sums.
+  const w = nx + 1;
+  const depth = new Int32Array(w * (ny + 1));
+  for (const r of rects) {
+    const i0 = xi.get(r.left)!;
+    const i1 = xi.get(r.right)!;
+    const j0 = yi.get(r.top)!;
+    const j1 = yi.get(r.bottom)!;
+    if (i0 === i1 || j0 === j1) continue;
+    depth[j0 * w + i0]! += 1;
+    depth[j0 * w + i1]! -= 1;
+    depth[j1 * w + i0]! -= 1;
+    depth[j1 * w + i1]! += 1;
+  }
+  for (let j = 0; j <= ny; j++) {
+    for (let i = 0; i <= nx; i++) {
+      const c = j * w + i;
+      if (i > 0) depth[c]! += depth[c - 1]!;
+      if (j > 0) depth[c]! += depth[c - w]!;
+      if (i > 0 && j > 0) depth[c]! -= depth[c - w - 1]!;
+    }
+  }
+  const bare = (i: number, j: number): boolean => depth[j * w + i] === 0;
+
+  // Flood the bare cells reachable from `seed`, marking each with `mark`.
+  const region = new Int32Array(nx * ny);
+  const flood = (seed: number, mark: number): number[] => {
+    const cells = [seed];
+    region[seed] = mark;
+    for (let k = 0; k < cells.length; k++) {
+      const c = cells[k]!;
+      const i = c % nx;
+      const j = (c - i) / nx;
+      const next: Array<[number, number]> = [
+        [i - 1, j],
+        [i + 1, j],
+        [i, j - 1],
+        [i, j + 1],
+      ];
+      for (const [a, b] of next) {
+        if (a < 0 || b < 0 || a >= nx || b >= ny) continue;
+        const n = b * nx + a;
+        if (region[n] !== 0 || !bare(a, b)) continue;
+        region[n] = mark;
+        cells.push(n);
+      }
+    }
+    return cells;
+  };
+  const OUTSIDE = -1;
+  for (let j = 0; j < ny; j++) {
+    for (let i = 0; i < nx; i++) {
+      const edge = i === 0 || j === 0 || i === nx - 1 || j === ny - 1;
+      if (edge && bare(i, j) && region[j * nx + i] === 0) {
+        flood(j * nx + i, OUTSIDE);
+      }
+    }
+  }
+
+  const cellRect = (c: number): Rect => {
+    const i = c % nx;
+    const j = (c - i) / nx;
+    return { left: xs[i]!, right: xs[i + 1]!, top: ys[j]!, bottom: ys[j + 1]! };
+  };
+  const fill: Rect[] = [];
+  let pocket = 0;
+  for (let c = 0; c < nx * ny; c++) {
+    if (region[c] !== 0 || !bare(c % nx, (c - (c % nx)) / nx)) continue;
+    const cells = flood(c, ++pocket).sort((a, b) => a - b);
+    const rs = cells.map(cellRect);
+    if (rs.some((r) => cards.some((card) => overlaps(r, card)))) continue;
+
+    // One rect per run of cells along a grid row.
+    for (let k = 0; k < cells.length; ) {
+      let end = k;
+      while (end + 1 < cells.length && cells[end + 1] === cells[end]! + 1) {
+        end++;
+      }
+      fill.push({ ...rs[k]!, right: rs[end]!.right });
+      k = end + 1;
+    }
+  }
+  return blockers.reduce(
+    (pieces, b) => pieces.flatMap((p) => subtract(p, b)),
+    fill,
+  );
 }

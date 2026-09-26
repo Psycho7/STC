@@ -8,7 +8,11 @@
 // - every loop's paint is one connected region;
 // - a backward rail the loop does not own keeps LOOP_PAINT_AIR off the paint,
 //   and two loops' paints keep LOOP_PAINT_AIR apart (they never merge);
-// - no card outside the cycle lies under the paint.
+// - no card outside the cycle comes within CARD_CLEARANCE of the paint;
+// - the paint has a hole only where a foreign card sits in it;
+// - the caption band spans the member cards of its row, never a stroke pad,
+//   and forward runs cross caption bands no more often than before the paint
+//   covered the loop's strokes.
 //
 // The paint follows a drag: it is rebuilt from the live node positions through
 // the same drawn geometry the edges render with, so the moved strokes stay
@@ -23,7 +27,9 @@ import { layoutSolved } from "../../src/canvas/layoutSolved";
 import type { RFAnyNode } from "../../src/canvas/layout";
 import { drawnEdge } from "../../src/canvas/edgePath";
 import {
+  CARD_CLEARANCE,
   LOOP_PAINT_AIR,
+  LOOP_PAINT_PAD,
   loopPaints,
   type LoopPaint,
 } from "../../src/canvas/loopPaint";
@@ -260,8 +266,10 @@ describe("the loop paint encloses the loop's own edges", () => {
           if (card.type !== "recipe" && card.type !== "product") continue;
           if (paint.members.includes(card.id)) continue;
           const rect = nodeRectOf(card);
-          if (paint.rects.some((r) => overlaps(r, rect))) {
-            cardHits.push(`${plan.id}: ${card.id} under ${paint.members[0]}`);
+          if (paint.rects.some((r) => rectGap(r, rect) < CARD_CLEARANCE)) {
+            cardHits.push(
+              `${plan.id}: ${card.id} within clearance of ${paint.members[0]}`,
+            );
           }
         }
       }
@@ -335,4 +343,204 @@ describe("the loop paint encloses the loop's own edges", () => {
       expect(regions(paint.rects)).toBe(1);
     }
   }, 300_000);
+});
+
+// The uncovered pockets of a union of rects that the outside cannot reach, each
+// as its grid cells. The grid is cut at every rect edge, so a cell is either
+// wholly painted or wholly bare.
+function holes(rects: ReadonlyArray<Rect>): Rect[][] {
+  const xs = [...new Set(rects.flatMap((r) => [r.left, r.right]))].sort(
+    (a, b) => a - b,
+  );
+  const ys = [...new Set(rects.flatMap((r) => [r.top, r.bottom]))].sort(
+    (a, b) => a - b,
+  );
+  const xi = new Map(xs.map((x, i) => [x, i]));
+  const yi = new Map(ys.map((y, i) => [y, i]));
+  const nx = xs.length - 1;
+  const ny = ys.length - 1;
+  const painted = new Uint8Array(nx * ny);
+  for (const r of rects) {
+    for (let j = yi.get(r.top)!; j < yi.get(r.bottom)!; j++) {
+      for (let i = xi.get(r.left)!; i < xi.get(r.right)!; i++) {
+        painted[j * nx + i] = 1;
+      }
+    }
+  }
+  const seen = new Uint8Array(nx * ny);
+  const flood = (start: number): number[] => {
+    const cells = [start];
+    seen[start] = 1;
+    for (let k = 0; k < cells.length; k++) {
+      const c = cells[k]!;
+      const i = c % nx;
+      const j = (c - i) / nx;
+      const next = [
+        i > 0 ? c - 1 : -1,
+        i < nx - 1 ? c + 1 : -1,
+        j > 0 ? c - nx : -1,
+        j < ny - 1 ? c + nx : -1,
+      ];
+      for (const n of next) {
+        if (n < 0 || seen[n] || painted[n]) continue;
+        seen[n] = 1;
+        cells.push(n);
+      }
+    }
+    return cells;
+  };
+  for (let c = 0; c < nx * ny; c++) {
+    const i = c % nx;
+    const j = (c - i) / nx;
+    const border = i === 0 || j === 0 || i === nx - 1 || j === ny - 1;
+    if (border && !painted[c] && !seen[c]) flood(c);
+  }
+  const out: Rect[][] = [];
+  for (let c = 0; c < nx * ny; c++) {
+    if (painted[c] || seen[c]) continue;
+    out.push(
+      flood(c).map((cell) => {
+        const i = cell % nx;
+        const j = (cell - i) / nx;
+        return {
+          left: xs[i]!,
+          right: xs[i + 1]!,
+          top: ys[j]!,
+          bottom: ys[j + 1]!,
+        };
+      }),
+    );
+  }
+  return out;
+}
+
+const boundsOf = (cells: ReadonlyArray<Rect>): string =>
+  [
+    Math.min(...cells.map((c) => c.left)),
+    Math.min(...cells.map((c) => c.top)),
+    Math.max(...cells.map((c) => c.right)),
+    Math.max(...cells.map((c) => c.bottom)),
+  ]
+    .map((v) => v.toFixed(1))
+    .join(",");
+
+// The member cards, padded, that stand in the row a caption band sits on: the
+// row just under a band on a member's top, just over one under its bottom.
+function captionRow(
+  paint: LoopPaint,
+  byId: ReadonlyMap<string, RFAnyNode>,
+): { y: number; members: Rect[] } {
+  const band = paint.caption!;
+  const padded = paint.members.map((id) => {
+    const r = nodeRectOf(byId.get(id)!);
+    return {
+      left: r.left - LOOP_PAINT_PAD,
+      right: r.right + LOOP_PAINT_PAD,
+      top: r.top - LOOP_PAINT_PAD,
+      bottom: r.bottom + LOOP_PAINT_PAD,
+    };
+  });
+  const onTop = padded.some((r) => r.top === band.bottom);
+  const y = onTop ? band.bottom + 0.5 : band.top - 0.5;
+  return { y, members: padded.filter((r) => r.top < y && y < r.bottom) };
+}
+
+// Forward edges whose drawn stroke passes through a loop's caption band, as
+// "plan paint-first-member edge". A backward edge never does ("seats no
+// caption on a rail").
+async function forwardCaptionCrossings(): Promise<string[]> {
+  const hits: string[] = [];
+  for (const plan of PLANS) {
+    const { nodes, edges } = await layOut(plan);
+    const drawn = drawnEdges(nodes, edges).filter((d) => !d.backward);
+    for (const paint of loopPaints(nodes, edges)) {
+      const band = paint.caption;
+      if (band === undefined) continue;
+      for (const d of drawn) {
+        let inside = false;
+        for (let i = 1; i < d.pts.length && !inside; i++) {
+          for (const [x, y] of samples(d.pts[i - 1]!, d.pts[i]!)) {
+            if (
+              x > band.left &&
+              x < band.right &&
+              y > band.top &&
+              y < band.bottom
+            ) {
+              inside = true;
+              break;
+            }
+          }
+        }
+        if (inside) {
+          hits.push(`${plan.id} ${paint.members[0]} ${short(d.edge.id)}`);
+        }
+      }
+    }
+  }
+  return hits;
+}
+
+// Forward runs through caption bands on c5eb8c7, the paint before it covered
+// the loop's strokes. They are not solved here; the total must not rise.
+const C5EB8C7_FORWARD_CAPTION_CROSSINGS = 4;
+
+describe("the loop paint's holes and caption band", () => {
+  it("leaves a hole only where a foreign card sits, on all 18 plans", async () => {
+    const open: string[] = [];
+    for (const plan of PLANS) {
+      const { nodes, edges } = await layOut(plan);
+      for (const paint of loopPaints(nodes, edges)) {
+        const foreign = nodes
+          .filter(
+            (n) =>
+              (n.type === "recipe" || n.type === "product") &&
+              !paint.members.includes(n.id),
+          )
+          .map((n) => nodeRectOf(n));
+        for (const hole of holes(paint.rects)) {
+          if (hole.some((c) => foreign.some((f) => overlaps(c, f)))) continue;
+          open.push(`${plan.id} ${paint.members[0]}: ${boundsOf(hole)}`);
+        }
+      }
+    }
+    expect(open).toEqual([]);
+  }, 1_200_000);
+
+  it("spans the caption band over its row's member cards only, inside the paint", async () => {
+    const wide: string[] = [];
+    const bare: string[] = [];
+    for (const plan of PLANS) {
+      const { nodes, edges } = await layOut(plan);
+      const byId = nodeIndexOf(nodes);
+      for (const paint of loopPaints(nodes, edges)) {
+        const band = paint.caption;
+        if (band === undefined) continue;
+        const { y, members } = captionRow(paint, byId);
+        const left = Math.min(...members.map((r) => r.left));
+        const right = Math.max(...members.map((r) => r.right));
+        if (band.left < left || band.right > right) {
+          wide.push(
+            `${plan.id} ${paint.members[0]}: band ${band.left.toFixed(1)}..${band.right.toFixed(1)} vs cards ${left.toFixed(1)}..${right.toFixed(1)}`,
+          );
+        }
+        const body = paint.rects.filter((r) => r !== band);
+        for (let x = band.left; x <= band.right; x += STEP) {
+          if (!covered(x, y, body)) {
+            bare.push(`${plan.id} ${paint.members[0]}: x=${x.toFixed(1)}`);
+            break;
+          }
+        }
+      }
+    }
+    expect(wide).toEqual([]);
+    expect(bare).toEqual([]);
+  }, 1_200_000);
+
+  it("crosses no more caption bands with forward runs than c5eb8c7 did", async () => {
+    const hits = await forwardCaptionCrossings();
+    expect(
+      hits.length,
+      `forward runs through caption bands:\n${hits.join("\n")}`,
+    ).toBeLessThanOrEqual(C5EB8C7_FORWARD_CAPTION_CROSSINGS);
+  }, 1_200_000);
 });
