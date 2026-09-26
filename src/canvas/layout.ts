@@ -1029,42 +1029,121 @@ const workerUrl: Promise<string> | null =
   typeof Worker !== "undefined"
     ? import("elkjs/lib/elk-worker.min.js?url").then((m) => m.default)
     : null;
-const bundledElk: Promise<ELK> | null =
-  workerUrl === null
-    ? import("elkjs/lib/elk.bundled.js").then((m) => new m.default())
-    : null;
+
+let bundledElk: Promise<ELK> | null = null;
+function inProcessLayout(graph: ElkGraph): Promise<ElkGraph> {
+  bundledElk ??= import("elkjs/lib/elk.bundled.js").then(
+    (m) => new m.default(),
+  );
+  return bundledElk.then((elk) => elk.layout(graph) as Promise<ElkGraph>);
+}
+
+// How long a new worker may take to answer its first message. The worker
+// handles messages in order, and the probe is posted before any layout, so
+// the bound covers loading and booting the script (about 1.6 MB, milliseconds
+// from cache, seconds on a slow link) and never a layout's own run time.
+export const ELK_WORKER_BOOT_BOUND_MS = 30_000;
+
+class ElkWorkerFailure extends Error {}
+
+type ElkWorker = {
+  elk: ELK;
+  // Rejects with ElkWorkerFailure if the worker errors or misses the bound;
+  // never settles for a worker that was stopped first.
+  failure: Promise<never>;
+  stop: () => void;
+};
+
+// Set once a worker fails; the rest of the session lays out in-process.
+let workerBroken = false;
+let workerElk: ElkWorker | null = null;
+
+function startWorker(url: string): ElkWorker {
+  let stopped = false;
+  let fail!: (reason: ElkWorkerFailure) => void;
+  const failure = new Promise<never>((_, reject) => {
+    fail = (reason) => {
+      if (!stopped) reject(reason);
+    };
+  });
+  const elk = new ElkApi({
+    workerUrl: url,
+    workerFactory: (u) => {
+      const worker = new Worker(u!);
+      worker.onerror = () => fail(new ElkWorkerFailure("ELK worker failed"));
+      worker.onmessageerror = () =>
+        fail(new ElkWorkerFailure("ELK worker sent an unreadable message"));
+      return worker;
+    },
+  });
+  const boot = setTimeout(
+    () => fail(new ElkWorkerFailure("ELK worker did not answer")),
+    ELK_WORKER_BOOT_BOUND_MS,
+  );
+  const stop = () => {
+    stopped = true;
+    clearTimeout(boot);
+    elk.terminateWorker();
+  };
+  void elk.knownLayoutAlgorithms().then(
+    () => clearTimeout(boot),
+    () => clearTimeout(boot),
+  );
+
+  const self: ElkWorker = { elk, failure, stop };
+  failure.catch(() => {
+    workerBroken = true;
+    stop();
+    if (workerElk === self) workerElk = null;
+  });
+  return self;
+}
 
 // Started at load so the worker boots while the first plan solves.
-let workerElk: ELK | null = null;
 void workerUrl?.then((url) => {
-  workerElk ??= new ElkApi({ workerUrl: url });
+  if (!workerBroken) workerElk ??= startWorker(url);
 });
 
 // Every layout call supersedes the one still running: App keeps only its newest
 // generation's result. A worker runs one layout at a time, so the stale one is
-// cut short by terminating its worker, which a fresh one replaces.
+// cut short by terminating its worker, which a fresh one replaces. A worker
+// that fails instead hands its layout, and every later one, to in-process ELK.
 let abandonRunning: (() => void) | null = null;
 
 async function runElk(graph: ElkGraph): Promise<ElkGraph> {
-  if (workerUrl === null) {
-    return (await bundledElk!).layout(graph) as Promise<ElkGraph>;
+  if (workerUrl === null || workerBroken) {
+    return inProcessLayout(graph);
   }
   abandonRunning?.();
   return new Promise<ElkGraph>((resolve, reject) => {
-    let elk: ELK | null = null;
+    let mine: ElkWorker | null = null;
     let abandoned = false;
     const abandon = () => {
       abandoned = true;
-      elk?.terminateWorker();
-      if (elk !== null && workerElk === elk) workerElk = null;
+      mine?.stop();
+      if (mine !== null && workerElk === mine) workerElk = null;
       reject(new Error("ELK layout superseded by a newer one"));
     };
     abandonRunning = abandon;
     workerUrl
       .then(async (url) => {
         if (abandoned) return;
-        elk = workerElk ??= new ElkApi({ workerUrl: url });
-        resolve((await elk.layout(graph)) as ElkGraph);
+        if (!workerBroken) {
+          mine = workerElk ??= startWorker(url);
+          try {
+            resolve(
+              (await Promise.race([
+                mine.elk.layout(graph),
+                mine.failure,
+              ])) as ElkGraph,
+            );
+            return;
+          } catch (e) {
+            if (!(e instanceof ElkWorkerFailure)) throw e;
+          }
+        }
+        if (abandoned) return;
+        resolve(await inProcessLayout(graph));
       })
       .catch(reject)
       .finally(() => {

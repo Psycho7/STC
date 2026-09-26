@@ -2,7 +2,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import Fraction from "fraction.js";
 import ELK from "elkjs/lib/elk.bundled.js";
 
-import type { LayoutInput } from "../../src/canvas/layout";
+import {
+  ELK_WORKER_BOOT_BOUND_MS,
+  type LayoutInput,
+} from "../../src/canvas/layout";
 import { mkRecipe } from "./busRouting.testkit";
 
 // In a browser layout.ts hands the graph to ELK in a Web Worker. Node has no
@@ -17,6 +20,8 @@ class FakeWorker {
   static instances: FakeWorker[] = [];
   static hold = false;
   onmessage: ((answer: { data: unknown }) => void) | null = null;
+  onerror: ((event: Event) => void) | null = null;
+  onmessageerror: ((event: Event) => void) | null = null;
   terminated = false;
   held: Msg[] = [];
   readonly url: string;
@@ -105,7 +110,28 @@ async function until(done: () => boolean): Promise<void> {
 const positions = (r: { nodes: { id: string; position: object }[] }) =>
   r.nodes.map((n) => [n.id, n.position]);
 
+// A worker that never answers anything: its script hangs while loading.
+class SilentWorker extends FakeWorker {
+  override postMessage(msg: Msg): void {
+    this.held.push(msg);
+  }
+}
+
+// A worker whose script fails, reported through the given event handler.
+function failingWorker(handler: "onerror" | "onmessageerror") {
+  return class extends SilentWorker {
+    constructor(url: string) {
+      super(url);
+      setTimeout(() => this[handler]?.(new Event("error")), 0);
+    }
+  };
+}
+
+const heldLayout = (w: FakeWorker | undefined) =>
+  w?.held.some((m) => m.cmd === "layout") ?? false;
+
 afterEach(() => {
+  vi.useRealTimers();
   vi.unstubAllGlobals();
   FakeWorker.instances = [];
   FakeWorker.hold = false;
@@ -151,5 +177,84 @@ describe("ELK in a Web Worker", () => {
     second.release();
     const result = await fresh;
     expect(result.nodes.map((n) => n.id).sort()).toEqual(["u:a", "u:b"]);
+  });
+
+  it.each(["onerror", "onmessageerror"] as const)(
+    "a worker %s event falls back to in-process ELK for this and later layouts",
+    async (handler) => {
+      vi.stubGlobal("Worker", failingWorker(handler));
+      const { layoutRenderPlan } = await freshLayout();
+
+      const first = await layoutRenderPlan(input());
+      expect(first.nodes.map((n) => n.id).sort()).toEqual(["u:a", "u:b"]);
+      expect(FakeWorker.instances).toHaveLength(1);
+      expect(FakeWorker.instances[0]!.terminated).toBe(true);
+
+      const second = await layoutRenderPlan(input());
+      expect(positions(second)).toEqual(positions(first));
+      expect(FakeWorker.instances).toHaveLength(1);
+    },
+  );
+
+  it("a worker that does not answer within the bound falls back to in-process ELK", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.stubGlobal("Worker", SilentWorker);
+    const { layoutRenderPlan } = await freshLayout();
+
+    const pending = layoutRenderPlan(input());
+    await until(() => heldLayout(FakeWorker.instances[0]));
+    const silent = FakeWorker.instances[0]!;
+    vi.advanceTimersByTime(ELK_WORKER_BOOT_BOUND_MS);
+
+    const first = await pending;
+    expect(first.nodes.map((n) => n.id).sort()).toEqual(["u:a", "u:b"]);
+    expect(silent.terminated).toBe(true);
+
+    await layoutRenderPlan(input());
+    expect(FakeWorker.instances).toHaveLength(1);
+  });
+
+  it("the bound covers only the worker's first answer, never a slow layout", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.stubGlobal("Worker", FakeWorker);
+    const { layoutRenderPlan } = await freshLayout();
+    FakeWorker.hold = true;
+
+    const pending = layoutRenderPlan(input());
+    await until(() => FakeWorker.instances[0]?.held.length === 1);
+    vi.advanceTimersByTime(2 * ELK_WORKER_BOOT_BOUND_MS);
+    FakeWorker.instances[0]!.release();
+
+    await pending;
+    expect(FakeWorker.instances).toHaveLength(1);
+    expect(FakeWorker.instances[0]!.terminated).toBe(false);
+  });
+
+  it("a worker recreated after a supersede is not taken for a failed one", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.stubGlobal("Worker", SilentWorker);
+    const { layoutRenderPlan } = await freshLayout();
+
+    // The first worker is superseded before it ever answers, so its boot
+    // bound must not fire once it is gone.
+    const stale = layoutRenderPlan(input());
+    await until(() => heldLayout(FakeWorker.instances[0]));
+    vi.stubGlobal("Worker", FakeWorker);
+    const fresh = layoutRenderPlan(input());
+    await expect(stale).rejects.toThrow(/superseded/);
+    await fresh;
+    expect(FakeWorker.instances).toHaveLength(2);
+
+    // A later layout comes in a later task, as an edit does in the app.
+    await new Promise((r) => setTimeout(r, 0));
+    vi.advanceTimersByTime(2 * ELK_WORKER_BOOT_BOUND_MS);
+    FakeWorker.hold = true;
+    const later = layoutRenderPlan(input());
+    await until(() => heldLayout(FakeWorker.instances[1]));
+    expect(heldLayout(FakeWorker.instances[1])).toBe(true);
+    FakeWorker.instances[1]!.release();
+    await later;
+    expect(FakeWorker.instances).toHaveLength(2);
+    expect(FakeWorker.instances[1]!.terminated).toBe(false);
   });
 });
