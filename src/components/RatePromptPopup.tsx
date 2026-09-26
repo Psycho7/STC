@@ -2,9 +2,13 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useI18n } from "../data/i18n-context";
 import type { RationalString } from "../data/targets";
-// The same parser the panel rate rows commit through (useRateEdit calls it),
-// so "30" and "1/3" behave identically in the prompt and in a row.
-import { parsePerMinToRatePerSec } from "../data/rate-format";
+// The same rule the panel rate rows commit through (useRateEdit calls it),
+// so "30", "1/3" and a refused 0 behave identically in the prompt and in a row.
+import {
+  parseRateText,
+  rateErrorText,
+  type RateTextError,
+} from "../data/rate-format";
 import { iconIdForItem } from "../canvas/iconSprite";
 import { Sprite } from "../canvas/RecipeNode";
 import { useModalDialog } from "./useModalDialog";
@@ -22,11 +26,11 @@ type Props = {
   // ratePrompt.noLimit ("empty = no limit") in uncap mode.
   note?: string | undefined;
   // What an empty field means on confirm:
-  //  - "invalid": empty, zero and unparseable all show the rate.invalid cue
+  //  - "invalid": empty, zero, negative and unparseable all show their cue
   //    inline and the dialog stays open; nothing commits until a positive
   //    rate is entered (targets).
   //  - "uncap": empty commits undefined (an uncapped override), zero commits
-  //    the zero cap, unparseable shows the cue (inputs).
+  //    the zero cap, negative and unparseable show their cue (inputs).
   emptyMeans: "invalid" | "uncap";
   iconSheetUrl: string;
   onConfirm: (rate: RationalString | undefined) => void;
@@ -44,9 +48,10 @@ export function RatePromptPopup({
 }: Props) {
   const i18n = useI18n();
   const [text, setText] = useState("");
-  // The last confirm attempt was refused. Typing clears it, like the panel
+  // Why the last confirm attempt was refused. Typing clears it, like the panel
   // rate rows; a refused dialog stays open so the user can fix the value.
-  const [invalid, setInvalid] = useState(false);
+  const [error, setError] = useState<RateTextError | undefined>(undefined);
+  const invalid = error !== undefined;
   const inputRef = useRef<HTMLInputElement>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
 
@@ -57,25 +62,12 @@ export function RatePromptPopup({
   const trapTab = useModalDialog(dialogRef, onCancel);
 
   function confirmRate() {
-    const trimmed = text.trim();
-    // Branch order carries the emptyMeans contract: only the "uncap" arm ever
-    // commits undefined, and only the "invalid" arm refuses zero.
-    if (emptyMeans === "uncap" && trimmed === "") {
-      onConfirm(undefined);
+    const result = parseRateText(text, emptyMeans);
+    if (result.kind === "error") {
+      setError(result.error);
       return;
     }
-    const parsed = parsePerMinToRatePerSec(trimmed);
-    if (parsed === undefined) {
-      setInvalid(true);
-      return;
-    }
-    // The parser normalizes zero to num "0", so this catches "0", "0.0" and
-    // "0/5" alike.
-    if (emptyMeans === "invalid" && parsed.num === "0") {
-      setInvalid(true);
-      return;
-    }
-    onConfirm(parsed);
+    onConfirm(result.kind === "rate" ? result.rate : undefined);
   }
 
   return createPortal(
@@ -124,7 +116,7 @@ export function RatePromptPopup({
             value={text}
             onChange={(e) => {
               setText(e.target.value);
-              setInvalid(false);
+              setError(undefined);
             }}
             onKeyDown={(e) => {
               if (e.key === "Enter") confirmRate();
@@ -132,14 +124,14 @@ export function RatePromptPopup({
           />
           <span className="rate-prompt-unit">{i18n.t("inputs.rate.unit")}</span>
         </div>
-        {invalid ? (
+        {error !== undefined ? (
           <span
             className="rate-prompt-error"
             id="rate-prompt-invalid"
             role="alert"
             data-testid="rate-prompt-invalid"
           >
-            {i18n.t("rate.invalid")}
+            {rateErrorText(i18n, error)}
           </span>
         ) : null}
         {note !== undefined ? (

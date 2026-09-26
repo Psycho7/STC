@@ -571,6 +571,74 @@ test("the prompt refuses empty, zero and unparseable rates with the cue", () => 
   expect(owner.emissions.length).toBe(0);
 });
 
+// A target needs a positive rate: a row refuses 0 the way the prompt does, so
+// no orphan 0/min card can reach the plan.
+test("a target row refuses 0 with the zero message", () => {
+  const owner = controlledOwner<Target[]>([
+    { itemId: "widget", ratePerSec: { num: "2", denom: "1" } },
+  ]);
+  render(
+    owner.element((targets, onChange) => (
+      <LocaleProvider locale="en">
+        <TargetsPanel targets={targets} onChange={onChange} pack={PACK} />
+      </LocaleProvider>
+    )),
+  );
+  const input = rateInputs()[0]!;
+  fireEvent.change(input, { target: { value: "0" } });
+  fireEvent.keyDown(input, { key: "Enter" });
+  expect(owner.emissions.length).toBe(0);
+  expect(input.getAttribute("aria-invalid")).toBe("true");
+  expect(screen.getByTestId("rate-invalid").textContent).toBe(
+    "Enter a rate above 0",
+  );
+});
+
+test("a target row shows distinct messages for non-numeric and negative text", () => {
+  const owner = controlledOwner<Target[]>([
+    { itemId: "widget", ratePerSec: { num: "2", denom: "1" } },
+  ]);
+  render(
+    owner.element((targets, onChange) => (
+      <LocaleProvider locale="en">
+        <TargetsPanel targets={targets} onChange={onChange} pack={PACK} />
+      </LocaleProvider>
+    )),
+  );
+  const input = rateInputs()[0]!;
+  fireEvent.change(input, { target: { value: "abc" } });
+  fireEvent.keyDown(input, { key: "Enter" });
+  expect(screen.getByTestId("rate-invalid").textContent).toBe(
+    "Enter a number, e.g. 30 or 1/3",
+  );
+  fireEvent.change(input, { target: { value: "-5" } });
+  fireEvent.keyDown(input, { key: "Enter" });
+  expect(screen.getByTestId("rate-invalid").textContent).toBe(
+    "A rate cannot be negative",
+  );
+  expect(owner.emissions.length).toBe(0);
+});
+
+test("a target row commits padded text as the trimmed rate", () => {
+  const owner = controlledOwner<Target[]>([
+    { itemId: "widget", ratePerSec: { num: "2", denom: "1" } },
+  ]);
+  render(
+    owner.element((targets, onChange) => (
+      <LocaleProvider locale="en">
+        <TargetsPanel targets={targets} onChange={onChange} pack={PACK} />
+      </LocaleProvider>
+    )),
+  );
+  const input = rateInputs()[0]!;
+  fireEvent.change(input, { target: { value: " 45 " } });
+  fireEvent.keyDown(input, { key: "Enter" });
+  // 45/min = 3/4 per sec.
+  expect(owner.latest).toEqual([
+    { itemId: "widget", ratePerSec: { num: "3", denom: "4" } },
+  ]);
+});
+
 // R7: Escape at the prompt cancels the whole add - nothing committed, and
 // focus returns to the Add button that opened the picker.
 test("Escape at the prompt commits nothing and refocuses the Add button", () => {
@@ -857,4 +925,60 @@ test("the row-swap picker also disables off-cohort event items", () => {
   expect(pickerTile("activity_xiranite_lung")!.disabled).toBe(true);
   expect(pickerTile("copper_bottle")!.disabled).toBe(false);
   expect(pickerHintText()).toContain("v1.5");
+});
+
+// A blur revert names why the text was refused: calling a 0 or a -5 "not a
+// number" sends the user looking for a typo that is not there.
+test("a blur revert of 0, a negative or an over-bound rate names that reason", () => {
+  render(
+    <LocaleProvider locale="en">
+      <TargetsPanel
+        targets={[{ itemId: "widget", ratePerSec: { num: "2", denom: "1" } }]}
+        onChange={() => {}}
+        pack={PACK}
+      />
+    </LocaleProvider>,
+  );
+  const input = rateInputs()[0]!;
+  const seen: string[] = [];
+  for (const text of ["0", "-5", "2000000"]) {
+    fireEvent.change(input, { target: { value: text } });
+    fireEvent.blur(input);
+    expect(input.value).toBe("120");
+    seen.push(screen.getByTestId("rate-reverted").textContent!);
+  }
+  expect(seen).toEqual([
+    "Enter a rate above 0; the edit was discarded",
+    "A rate cannot be negative; the edit was discarded",
+    "A rate cannot exceed 1,000,000/min; the edit was discarded",
+  ]);
+  expect(seen).not.toContain(loadI18n("en").t("rate.reverted"));
+});
+
+test("Enter on an over-bound rate shows the too-large message", () => {
+  const onChange = vi.fn();
+  render(
+    <LocaleProvider locale="en">
+      <TargetsPanel
+        targets={[{ itemId: "widget", ratePerSec: { num: "2", denom: "1" } }]}
+        onChange={onChange}
+        pack={PACK}
+      />
+    </LocaleProvider>,
+  );
+  const input = rateInputs()[0]!;
+  fireEvent.change(input, { target: { value: "1000000.1" } });
+  fireEvent.keyDown(input, { key: "Enter" });
+  expect(screen.getByTestId("rate-invalid").textContent).toBe(
+    "A rate cannot exceed 1,000,000/min",
+  );
+  expect(onChange).not.toHaveBeenCalled();
+  // The bound itself commits.
+  fireEvent.change(input, { target: { value: "1e6" } });
+  fireEvent.keyDown(input, { key: "Enter" });
+  expect(onChange).toHaveBeenCalledTimes(1);
+  const update = onChange.mock.calls[0]![0] as (t: Target[]) => Target[];
+  expect(
+    update([{ itemId: "widget", ratePerSec: { num: "2", denom: "1" } }]),
+  ).toEqual([{ itemId: "widget", ratePerSec: { num: "50000", denom: "3" } }]);
 });

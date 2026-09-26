@@ -157,6 +157,40 @@ test("uncap mode still refuses unparseable text with the cue", async () => {
   expect(input()).toBeTruthy();
 });
 
+test("padded text confirms as the trimmed rate", async () => {
+  const props = renderPrompt();
+  fireEvent.change(input(), { target: { value: " 45 " } });
+  fireEvent.keyDown(input(), { key: "Enter" });
+  // 45/min = 3/4 per sec.
+  expect(props.onConfirm).toHaveBeenCalledWith({ num: "3", denom: "4" });
+});
+
+test("non-numeric, zero and negative text each show their own message", async () => {
+  const props = renderPrompt();
+  const seen: string[] = [];
+  for (const text of ["abc", "0", "-5"]) {
+    fireEvent.change(input(), { target: { value: text } });
+    fireEvent.keyDown(input(), { key: "Enter" });
+    seen.push(screen.getByRole("alert").textContent!);
+  }
+  expect(seen).toEqual([
+    "Enter a number, e.g. 30 or 1/3",
+    "Enter a rate above 0",
+    "A rate cannot be negative",
+  ]);
+  expect(props.onConfirm).not.toHaveBeenCalled();
+});
+
+test("uncap mode refuses a negative cap with the negative message", async () => {
+  const props = renderPrompt({ emptyMeans: "uncap" });
+  await userEvent.type(input(), "-5");
+  fireEvent.keyDown(input(), { key: "Enter" });
+  expect(props.onConfirm).not.toHaveBeenCalled();
+  expect(screen.getByRole("alert").textContent).toBe(
+    "A rate cannot be negative",
+  );
+});
+
 test("Tab is trapped between the input and the buttons at both ends", () => {
   const props = renderPrompt();
   const cancel = screen.getByTestId("rate-prompt-cancel");
@@ -199,4 +233,29 @@ test("zh strings render", () => {
   expect(screen.getByTestId("rate-prompt-note").textContent).toBe(
     "留空 = 无限",
   );
+});
+
+test("an over-bound rate shows the too-large message in either mode", () => {
+  for (const emptyMeans of ["invalid", "uncap"] as const) {
+    const props = renderPrompt({ emptyMeans });
+    fireEvent.change(input(), { target: { value: "1000000.1" } });
+    fireEvent.keyDown(input(), { key: "Enter" });
+    expect(props.onConfirm).not.toHaveBeenCalled();
+    expect(screen.getByRole("alert").textContent).toBe(
+      "A rate cannot exceed 1,000,000/min",
+    );
+    cleanup();
+  }
+});
+
+test("full-width and exponent text confirm as the rate they spell", () => {
+  const props = renderPrompt();
+  fireEvent.change(input(), { target: { value: "１２０" } });
+  fireEvent.keyDown(input(), { key: "Enter" });
+  expect(props.onConfirm).toHaveBeenLastCalledWith({ num: "2", denom: "1" });
+  cleanup();
+  const again = renderPrompt();
+  fireEvent.change(input(), { target: { value: "2.5E3" } });
+  fireEvent.keyDown(input(), { key: "Enter" });
+  expect(again.onConfirm).toHaveBeenLastCalledWith({ num: "125", denom: "3" });
 });

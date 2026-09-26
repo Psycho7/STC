@@ -6,8 +6,12 @@ import {
   formatRatePerMin,
   formatRationalPerMin,
   parsePerMinToRatePerSec,
+  parseRateText,
+  RATE_ERROR_KEY,
+  rateErrorText,
   ratePerSecToPerMin,
 } from "./rate-format";
+import { loadI18n } from "./i18n";
 
 test("formatRateExactPerMin reveals the un-rounded value the display rounds", () => {
   // 1/7 per sec * 60 = 60/7 = 8.571428..., which formatRatePerMin rounds to
@@ -192,4 +196,193 @@ test("formatFractionPerMin matches formatRationalPerMin, zero rule included", ()
     );
   }
   expect(formatFractionPerMin(new Fraction(0))).toBe("0");
+});
+
+// A reloaded rate must show what the user typed: a non-terminating per-minute
+// value prints as its exact fraction, a terminating one as its exact decimal.
+test("ratePerSecToPerMin prints a non-terminating per-minute rate as a fraction", () => {
+  // 1/3 per min = 1/180 per sec.
+  expect(ratePerSecToPerMin({ num: "1", denom: "180" })).toBe("1/3");
+  // 7/3 per min = 7/180 per sec: a mixed value stays an improper fraction.
+  expect(ratePerSecToPerMin({ num: "7", denom: "180" })).toBe("7/3");
+});
+
+test("ratePerSecToPerMin prints a terminating per-minute rate as its exact decimal", () => {
+  // 1/1024 per min = 1/61440 per sec.
+  expect(ratePerSecToPerMin({ num: "1", denom: "61440" })).toBe("0.0009765625");
+  // 1/2^30 per min: every digit, no float rounding, no exponent.
+  expect(ratePerSecToPerMin({ num: "1", denom: String(60n * 2n ** 30n) })).toBe(
+    "0.000000000931322574615478515625",
+  );
+});
+
+test("parseRateText trims before parsing", () => {
+  expect(parseRateText(" 45 ", "invalid")).toEqual({
+    kind: "rate",
+    rate: { num: "3", denom: "4" },
+  });
+  expect(parseRateText(" 45 ", "uncap")).toEqual({
+    kind: "rate",
+    rate: { num: "3", denom: "4" },
+  });
+});
+
+test("parseRateText refuses zero only in invalid mode", () => {
+  expect(parseRateText("0", "invalid")).toEqual({
+    kind: "error",
+    error: "zero",
+  });
+  expect(parseRateText("0/5", "invalid")).toEqual({
+    kind: "error",
+    error: "zero",
+  });
+  expect(parseRateText("0", "uncap")).toEqual({
+    kind: "rate",
+    rate: { num: "0", denom: "1" },
+  });
+});
+
+test("parseRateText gives empty text its mode's meaning", () => {
+  expect(parseRateText("  ", "uncap")).toEqual({ kind: "empty" });
+  expect(parseRateText("  ", "invalid")).toEqual({
+    kind: "error",
+    error: "notNumber",
+  });
+});
+
+test("parseRateText tells non-numeric and negative text apart", () => {
+  for (const mode of ["invalid", "uncap"] as const) {
+    expect(parseRateText("abc", mode)).toEqual({
+      kind: "error",
+      error: "notNumber",
+    });
+    expect(parseRateText("-5", mode)).toEqual({
+      kind: "error",
+      error: "negative",
+    });
+  }
+});
+
+test("each rate error has its own message in en and zh", () => {
+  for (const locale of ["en", "zh"] as const) {
+    const i18n = loadI18n(locale);
+    const messages = (["notNumber", "zero", "negative"] as const).map((error) =>
+      i18n.t(RATE_ERROR_KEY[error]),
+    );
+    expect(new Set(messages).size).toBe(3);
+  }
+});
+
+test("parseRateText reads full-width digits through NFKC", () => {
+  // U+FF11 U+FF12 U+FF10 is a full-width "120": 120/min = 2/s.
+  expect(parseRateText("１２０", "invalid")).toEqual({
+    kind: "rate",
+    rate: { num: "2", denom: "1" },
+  });
+  // Full-width solidus and minus fold too, so the reasons still apply.
+  expect(parseRateText("１／３", "invalid")).toEqual({
+    kind: "rate",
+    rate: { num: "1", denom: "180" },
+  });
+  expect(parseRateText("－５", "uncap")).toEqual({
+    kind: "error",
+    error: "negative",
+  });
+});
+
+test("parseRateText accepts exponent notation", () => {
+  // 1e6/min = 50000/3 per sec; 2.5E3/min = 125/3 per sec.
+  expect(parseRateText("1e6", "invalid")).toEqual({
+    kind: "rate",
+    rate: { num: "50000", denom: "3" },
+  });
+  expect(parseRateText("2.5E3", "invalid")).toEqual({
+    kind: "rate",
+    rate: { num: "125", denom: "3" },
+  });
+  // 6e-1/min = 1/100 per sec, 1.2e+2 is 120.
+  expect(parseRateText("6e-1", "uncap")).toEqual({
+    kind: "rate",
+    rate: { num: "1", denom: "100" },
+  });
+  expect(parseRateText("1.2e+2", "uncap")).toEqual({
+    kind: "rate",
+    rate: { num: "2", denom: "1" },
+  });
+  // A zero mantissa is zero whatever the exponent.
+  expect(parseRateText("0e999999999999", "invalid")).toEqual({
+    kind: "error",
+    error: "zero",
+  });
+  expect(parseRateText("-1e999999999999", "uncap")).toEqual({
+    kind: "error",
+    error: "negative",
+  });
+  // Half an exponent is not a number.
+  for (const text of ["1e", "e5", "1e2.5", "1/3e2"]) {
+    expect(parseRateText(text, "uncap")).toEqual({
+      kind: "error",
+      error: "notNumber",
+    });
+  }
+});
+
+test("exponent text still goes through the digit caps", () => {
+  // 1e-500 needs a 500-digit denominator, past the 400-digit cap.
+  expect(parseRateText("1e-500", "uncap")).toEqual({
+    kind: "error",
+    error: "notNumber",
+  });
+  // An exponent too long for a Number is refused without hanging.
+  expect(parseRateText(`1e-${"9".repeat(40)}`, "uncap")).toEqual({
+    kind: "error",
+    error: "notNumber",
+  });
+  // A long decimal written as plain text is refused as before.
+  expect(parseRateText(`0.${"1".repeat(500)}`, "uncap")).toEqual({
+    kind: "error",
+    error: "notNumber",
+  });
+});
+
+test("parseRateText bounds a rate at 1,000,000 per minute", () => {
+  for (const mode of ["invalid", "uncap"] as const) {
+    // At and just under the bound.
+    expect(parseRateText("1000000", mode)).toEqual({
+      kind: "rate",
+      rate: { num: "50000", denom: "3" },
+    });
+    expect(parseRateText("999999.9", mode).kind).toBe("rate");
+    // Just over it, in every spelling.
+    for (const text of ["1000000.1", "1000001", "10000001/10", "1.0000001e6"]) {
+      expect(parseRateText(text, mode)).toEqual({
+        kind: "error",
+        error: "tooLarge",
+      });
+    }
+    // Far over it reads as too large, not as a digit-cap refusal.
+    expect(parseRateText("1e400", mode)).toEqual({
+      kind: "error",
+      error: "tooLarge",
+    });
+    expect(parseRateText(`1e${"9".repeat(40)}`, mode)).toEqual({
+      kind: "error",
+      error: "tooLarge",
+    });
+  }
+});
+
+test("the too-large reason has its own message in en and zh", () => {
+  for (const locale of ["en", "zh"] as const) {
+    const i18n = loadI18n(locale);
+    const tooLarge = rateErrorText(i18n, "tooLarge");
+    const others = (["notNumber", "zero", "negative"] as const).map((error) =>
+      rateErrorText(i18n, error),
+    );
+    expect(tooLarge).not.toBe(RATE_ERROR_KEY.tooLarge);
+    expect(others).not.toContain(tooLarge);
+    // The bound comes from the rule's constant, not from the copy.
+    expect(tooLarge).toContain("1,000,000");
+    expect(tooLarge).not.toContain("{max}");
+  }
 });

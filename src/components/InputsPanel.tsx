@@ -16,7 +16,9 @@ import { rationalFromString, type RationalString } from "../data/targets";
 import {
   formatFractionPerMin,
   formatRatePerMin,
+  rateErrorText,
   ratePerSecToPerMin,
+  rateRevertedText,
 } from "../data/rate-format";
 import {
   iconIdForItem,
@@ -566,21 +568,21 @@ export function InputsPanel({
                 {...rate.inputProps}
               />
               <span className="unit">{i18n.t("inputs.rate.unit")}</span>
-              {rate.invalid ? (
+              {rate.error !== undefined ? (
                 <span
                   className="b-rate-err"
                   id={`i-rate-err-${itemId}`}
                   data-testid="rate-invalid"
                 >
-                  {i18n.t("rate.invalid")}
+                  {rateErrorText(i18n, rate.error)}
                 </span>
-              ) : rate.reverted ? (
+              ) : rate.reverted !== undefined ? (
                 <span
                   className="b-rate-err"
                   role="status"
                   data-testid="rate-reverted"
                 >
-                  {i18n.t("rate.reverted")}
+                  {rateRevertedText(i18n, rate.reverted)}
                 </span>
               ) : null}
               {shortage !== undefined ? (
@@ -727,21 +729,21 @@ export function InputsPanel({
                 {...rate.inputProps}
               />
               <span className="unit">{i18n.t("inputs.rate.unit")}</span>
-              {rate.invalid ? (
+              {rate.error !== undefined ? (
                 <span
                   className="b-rate-err"
                   id={`i-rate-err-${domId}`}
                   data-testid="rate-invalid"
                 >
-                  {i18n.t("rate.invalid")}
+                  {rateErrorText(i18n, rate.error)}
                 </span>
-              ) : rate.reverted ? (
+              ) : rate.reverted !== undefined ? (
                 <span
                   className="b-rate-err"
                   role="status"
                   data-testid="rate-reverted"
                 >
-                  {i18n.t("rate.reverted")}
+                  {rateRevertedText(i18n, rate.reverted)}
                 </span>
               ) : null}
               {shortage !== undefined ? (

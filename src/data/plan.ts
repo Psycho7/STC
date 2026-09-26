@@ -245,7 +245,9 @@ export async function loadPlan(
   if (!hash || hash === "#") {
     return { kind: "seeded", plan: defaultPlan(pack) };
   }
-  const match = hash.match(/^#?v(\d+)\.([A-Za-z0-9_-]+)$/);
+  // Chat auto-linking often keeps the punctuation after a link. Base64url
+  // never contains [.)\],;], so a tail of them is dropped, not rejected.
+  const match = hash.match(/^#?v(\d+)\.([A-Za-z0-9_-]+)[.)\],;]*$/);
   if (!match) {
     return {
       kind: "error",

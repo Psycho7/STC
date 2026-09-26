@@ -152,11 +152,10 @@ type BannerError =
   | { kind: "solver"; error: unknown };
 
 // Boot-time failure before any plan renders, owning the whole viewport: the
-// structured load error when validation failed (so the splash can localize
-// the user-facing kinds), or a solve exception's message.
-type InitialError =
-  | { kind: "load"; error: PlanLoadError }
-  | { kind: "solve"; message: string };
+// structured load error of a link that failed to decode or validate (so the
+// splash can localize the user-facing kinds). A link that decodes is adopted
+// even when its solve fails, so a solve failure never reaches the splash.
+type InitialError = { error: PlanLoadError };
 
 // Localized text for a plan-load error on a user-facing surface. The
 // producer-unavailable kind is the one failure aimed at the player rather
@@ -183,6 +182,28 @@ function describeLoadError(error: PlanLoadError, i18n: I18nIndex): string {
     }
   }
   return describePlanLoadError(error);
+}
+
+// Localized text for a solver exception. An infeasibility names the implicated
+// items instead of the raw LP message, and advises raising the supply caps
+// only when the plan sets at least one; otherwise it names the targets.
+function describeSolveError(e: unknown, i18n: I18nIndex): string {
+  if (e instanceof LpInfeasibleError) {
+    const items = (ids: readonly string[]): string =>
+      ids.map((id) => i18n.displayName(id)).join(", ");
+    if (e.cappedItemIds.length > 0) {
+      return i18n.t("app.error.infeasible", { items: items(e.cappedItemIds) });
+    }
+    if (e.targetItemIds.length > 0) {
+      return i18n.t("app.error.infeasible.targets", {
+        items: items(e.targetItemIds),
+      });
+    }
+    return i18n.t("app.error.infeasible.generic");
+  }
+  return i18n.t("app.error.solver", {
+    message: e instanceof Error ? e.message : String(e),
+  });
 }
 
 type SideSection = "targets" | "inputs";
@@ -429,6 +450,11 @@ function AppInner() {
   // hashchange event, so for self-writes this is belt-and-braces; it becomes
   // load-bearing if a hash write ever switches to a location.hash assignment.
   const lastHandledHashRef = useRef<string | null>(null);
+  // The hash of the plan in the panels: written with the URL on solve success
+  // and by a hash load that decoded, solved or not. A failed hash load over a
+  // drawn plan puts it back in the URL, so a reload or a share gets the plan
+  // on screen rather than the broken link.
+  const lastGoodHashRef = useRef<string | null>(null);
   // Event-cohort overrides (#144): cohort -> forced on/off beyond the default
   // rule (on iff the cohort matches the pack's own version). Read once at
   // boot; every later change goes through handleEventOverridesChange, which
@@ -590,6 +616,7 @@ function AppInner() {
       const newHash = "#" + (await encodePlan(nextPlan));
       if (myGen !== solveGen.current) return;
       lastHandledHashRef.current = newHash;
+      lastGoodHashRef.current = newHash;
       history.replaceState(null, "", newHash);
     },
     [],
@@ -616,6 +643,8 @@ function AppInner() {
   // versa, so the newest intent always owns the rendered state. Load errors go
   // to initialError while no plan is committed (nothing is rendered yet) and to
   // the dismissible mutationError banner once one is (the old plan stays up).
+  // A plan that decodes but fails to solve is committed anyway, under the
+  // solver banner.
   const loadFromHash = useCallback(
     async (hash: string, source: "mount" | "navigation"): Promise<void> => {
       const myGen = ++solveGen.current;
@@ -627,30 +656,46 @@ function AppInner() {
       // A load/validation failure is the pasted link's fault; a solve exception
       // is a valid plan the solver could not satisfy. They route to different
       // banner wrappers. With no plan rendered there is no canvas to keep, so
-      // both land on the full-screen initial-error surface instead of the
-      // dismissible banner. That test is the committed plan, not the source of
-      // the load: a second bad hash pasted while the splash is up must refresh
-      // the splash, and a failed reset from the splash must not write a banner
-      // nothing displays.
+      // a load failure lands on the full-screen initial-error surface instead
+      // of the dismissible banner. That test is the committed plan, not the
+      // source of the load: a second bad hash pasted while the splash is up
+      // must refresh the splash, and a failed reset from the splash must not
+      // write a banner nothing displays. The splash keeps the broken hash in
+      // the URL so it can be reported; over a drawn plan the last good hash
+      // goes back in place (replaceState: no history entry and no hashchange,
+      // and the handled ref covers a spurious one).
       const failLoad = (error: PlanLoadError) => {
         if (myGen !== solveGen.current) return;
-        if (planRef.current === null) setInitialError({ kind: "load", error });
-        else {
-          setMutationError({ kind: "load", error });
-          setStale(true);
+        if (planRef.current === null) {
+          setInitialError({ error });
+          return;
+        }
+        setMutationError({ kind: "load", error });
+        setStale(true);
+        const good = lastGoodHashRef.current;
+        if (good !== null) {
+          lastHandledHashRef.current = good;
+          history.replaceState(null, "", good);
         }
       };
-      const failSolve = (e: unknown) => {
+      // A plan that decoded is plan state even when it cannot be solved, and
+      // the URL already holds its hash: adopt it into the panels the way an
+      // in-app edit to an infeasible rate is, with the banner and the old
+      // drawing (or an empty canvas on first load) marked stale.
+      const failSolve = (
+        e: unknown,
+        nextPlan: Plan,
+        goodHash: string | null,
+      ) => {
         if (myGen !== solveGen.current) return;
-        if (planRef.current === null) {
-          setInitialError({
-            kind: "solve",
-            message: e instanceof Error ? e.message : String(e),
-          });
-        } else {
-          setMutationError({ kind: "solver", error: e });
-          setStale(true);
-        }
+        planRef.current = nextPlan;
+        setPlan(nextPlan);
+        setPlanEpoch((n) => n + 1);
+        if (goodHash !== null) lastGoodHashRef.current = goodHash;
+        setRecipeCount((c) => c ?? 0);
+        setInitialError(null);
+        setMutationError({ kind: "solver", error: e });
+        setStale(true);
       };
       try {
         const outcome = await loadPlan(
@@ -663,28 +708,31 @@ function AppInner() {
           return;
         }
         const nextPlan = outcome.plan;
-        const solved = solveFromPlan(
-          nextPlan,
-          undefined,
-          availabilityRef.current.ids,
-        );
-        const laid = await layoutSolved(solved);
-        if (outcome.kind === "seeded") await writeHash(nextPlan, myGen);
-        if (myGen !== solveGen.current) return;
-        planRef.current = nextPlan;
-        setPlan(nextPlan);
-        applySolved(solved, laid);
-        setPlanEpoch((e) => e + 1);
-        // A fresh render is authoritative: the canvas now matches the plan.
-        setStale(false);
-        if (source === "navigation") {
-          setMutationError(null);
-          // A bad mount hash leaves the initial error screen up; a later
-          // successful navigation must clear it so the loaded plan renders.
-          setInitialError(null);
+        try {
+          const solved = solveFromPlan(
+            nextPlan,
+            undefined,
+            availabilityRef.current.ids,
+          );
+          const laid = await layoutSolved(solved);
+          if (outcome.kind === "seeded") await writeHash(nextPlan, myGen);
+          if (myGen !== solveGen.current) return;
+          if (outcome.kind === "loaded") lastGoodHashRef.current = hash;
+          planRef.current = nextPlan;
+          setPlan(nextPlan);
+          applySolved(solved, laid);
+          setPlanEpoch((e) => e + 1);
+          // A fresh render is authoritative: the canvas now matches the plan.
+          setStale(false);
+          if (source === "navigation") {
+            setMutationError(null);
+            // A bad mount hash leaves the initial error screen up; a later
+            // successful navigation must clear it so the loaded plan renders.
+            setInitialError(null);
+          }
+        } catch (e) {
+          failSolve(e, nextPlan, outcome.kind === "loaded" ? hash : null);
         }
-      } catch (e) {
-        failSolve(e);
       } finally {
         if (myGen === solveGen.current) {
           navigationInFlightRef.current = false;
@@ -946,9 +994,7 @@ function AppInner() {
         <div role="alert" style={splashCardStyle}>
           <p style={splashTitleStyle}>{i18n.t("app.error.corrupt")}</p>
           <p style={splashDetailStyle}>
-            {initialError.kind === "load"
-              ? describeLoadError(initialError.error, i18n)
-              : initialError.message}
+            {describeLoadError(initialError.error, i18n)}
           </p>
           <button type="button" onClick={handleReset}>
             {i18n.t("app.error.reset")}
@@ -1012,19 +1058,7 @@ function AppInner() {
         message: describeLoadError(err.error, i18n),
       });
     if (err.kind === "busy") return i18n.t("app.error.busy");
-    const e = err.error;
-    if (e instanceof LpInfeasibleError) {
-      const ids =
-        e.cappedItemIds.length > 0 ? e.cappedItemIds : e.targetItemIds;
-      if (ids.length > 0) {
-        const items = ids.map((id) => i18n.displayName(id)).join(", ");
-        return i18n.t("app.error.infeasible", { items });
-      }
-      return i18n.t("app.error.infeasible.generic");
-    }
-    return i18n.t("app.error.solver", {
-      message: e instanceof Error ? e.message : String(e),
-    });
+    return describeSolveError(err.error, i18n);
   };
 
   const targetCount = plan.targets.length;

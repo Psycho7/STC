@@ -128,6 +128,38 @@ test("malformed hash via hashchange shows the error banner and keeps the plan", 
   expect(screen.getAllByTestId("target-row").length).toBe(3);
 });
 
+test("a broken hash pasted over a drawn plan restores the last good hash in place", async () => {
+  render(<App />);
+
+  await screen.findAllByTestId("target-row");
+  await waitFor(() => expect(window.location.hash).not.toBe(""));
+  const good = window.location.hash;
+  const callsBefore = layoutSpy.calls;
+  const pushSpy = vi.spyOn(history, "pushState");
+  const replaceSpy = vi.spyOn(history, "replaceState");
+
+  window.location.hash = "#v1.%%%not-base64%%%";
+
+  await screen.findByRole("alert");
+  await waitFor(() => expect(window.location.hash).toBe(good));
+  expect(replaceSpy).toHaveBeenCalledWith(null, "", good);
+  expect(pushSpy).not.toHaveBeenCalled();
+  // Give a re-entrant hashchange a chance to fire: a second load of the
+  // restored hash would solve and lay out again.
+  await new Promise((r) => setTimeout(r, 25));
+  expect(layoutSpy.calls).toBe(callsBefore);
+  expect(screen.getAllByTestId("target-row").length).toBe(3);
+});
+
+test("a broken hash on first load stays in the URL", async () => {
+  window.location.hash = "#v1.%%%not-base64%%%";
+  render(<App />);
+
+  await screen.findByRole("alert");
+  await new Promise((r) => setTimeout(r, 25));
+  expect(window.location.hash).toContain("%%%not-base64%%%");
+});
+
 test("hashchange to a valid hash recovers from a bad mount hash", async () => {
   // Mount with a malformed hash: the initial-load error screen takes over.
   window.location.hash = "#v1.%%%not-base64%%%";

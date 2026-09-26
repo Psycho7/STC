@@ -30,6 +30,7 @@ export type UiKey =
   | "app.error.solver"
   | "app.error.infeasible"
   | "app.error.infeasible.generic"
+  | "app.error.infeasible.targets"
   | "app.error.producer-unavailable.event"
   | "app.error.producer-unavailable.area"
   | "app.error.dismiss"
@@ -82,7 +83,11 @@ export type UiKey =
   | "canvas.controls.fit_view"
   | "canvas.controls.interactive"
   | "rate.invalid"
+  | "rate.zero"
+  | "rate.negative"
+  | "rate.tooLarge"
   | "rate.reverted"
+  | "rate.revertedReason"
   | "ratePrompt.title"
   | "ratePrompt.confirm"
   | "ratePrompt.cancel"
@@ -157,6 +162,8 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "app.error.infeasible":
       "无可行方案，涉及：{items}。请提高供给上限或降低目标产量。",
     "app.error.infeasible.generic": "当前目标与供给上限下无可行方案。",
+    "app.error.infeasible.targets":
+      "无可行方案，涉及：{items}。请降低目标产量。",
     "app.error.producer-unavailable.event":
       "物品 {itemId} 仅由 {cohort} 活动配方生产，该活动当前未开启。",
     // {area} is the localized settlement name, the same string the settings
@@ -218,9 +225,13 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "canvas.controls.fit_view": "适应视图",
     "canvas.controls.interactive": "切换交互",
     "rate.invalid": "请输入数字，例如 30 或 1/3",
+    "rate.zero": "请输入大于 0 的速率",
+    "rate.negative": "速率不能为负数",
+    "rate.tooLarge": "速率不能超过 {max}/分",
     // Neutral discard wording: an uncapped or auto row reverts to an EMPTY
     // field, so copy claiming a rate came back would be false there.
     "rate.reverted": "输入无效，已放弃本次输入",
+    "rate.revertedReason": "{reason}，已放弃本次输入",
     "ratePrompt.title": "数量",
     "ratePrompt.confirm": "添加",
     "ratePrompt.cancel": "取消",
@@ -285,6 +296,8 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
       "No feasible plan involving: {items}. Raise the supply caps or lower the targets.",
     "app.error.infeasible.generic":
       "No feasible plan for the current targets and supply caps.",
+    "app.error.infeasible.targets":
+      "No feasible plan involving: {items}. Lower the targets.",
     "app.error.producer-unavailable.event":
       "Item {itemId} cannot be a target right now: every recipe producing it is unavailable (the {cohort} event is switched off).",
     "app.error.producer-unavailable.area":
@@ -348,9 +361,13 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "canvas.controls.fit_view": "Fit view",
     "canvas.controls.interactive": "Toggle interactivity",
     "rate.invalid": "Enter a number, e.g. 30 or 1/3",
+    "rate.zero": "Enter a rate above 0",
+    "rate.negative": "A rate cannot be negative",
+    "rate.tooLarge": "A rate cannot exceed {max}/min",
     // Neutral discard wording: an uncapped or auto row reverts to an EMPTY
     // field, so copy claiming a rate came back would be false there.
     "rate.reverted": "That was not a number; the edit was discarded",
+    "rate.revertedReason": "{reason}; the edit was discarded",
     "ratePrompt.title": "Amount",
     "ratePrompt.confirm": "Add",
     "ratePrompt.cancel": "Cancel",

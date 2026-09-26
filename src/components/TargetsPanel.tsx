@@ -7,7 +7,11 @@ import type { RationalString, Target } from "../data/targets";
 import type { ProducerUnavailableCause } from "../data/plan";
 import { useI18n } from "../data/i18n-context";
 import { producibleItemIds } from "../data/recipe-category";
-import { ratePerSecToPerMin } from "../data/rate-format";
+import {
+  rateErrorText,
+  ratePerSecToPerMin,
+  rateRevertedText,
+} from "../data/rate-format";
 import {
   iconIdForItem,
   iconPosition,
@@ -224,21 +228,21 @@ export function TargetsPanel({
                 {...rate.inputProps}
               />
               <span className="unit">{i18n.t("targets.rate.unit")}</span>
-              {rate.invalid ? (
+              {rate.error !== undefined ? (
                 <span
                   className="b-rate-err"
                   id={`t-rate-err-${t.itemId}`}
                   data-testid="rate-invalid"
                 >
-                  {i18n.t("rate.invalid")}
+                  {rateErrorText(i18n, rate.error)}
                 </span>
-              ) : rate.reverted ? (
+              ) : rate.reverted !== undefined ? (
                 <span
                   className="b-rate-err"
                   role="status"
                   data-testid="rate-reverted"
                 >
-                  {i18n.t("rate.reverted")}
+                  {rateRevertedText(i18n, rate.reverted)}
                 </span>
               ) : null}
             </div>
