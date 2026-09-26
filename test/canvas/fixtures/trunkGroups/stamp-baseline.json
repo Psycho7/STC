@@ -33,7 +33,7 @@
     "stampCount": 21,
     "stampSha": "ebd3d57b3a6e3103c16a33596a2a9c0c55a77a837aa25508b4bcae2b9606d547",
     "chipCount": 103,
-    "chipSha": "3cda185e7541dccd8d9eb439507622bb5b7a174df5f64d25d2860ca443dfa846"
+    "chipSha": "c97e79d7296663d077208297c2524dd9316f47846ab75ed1707eec631a7eac93"
   },
   "tundra": {
     "stampCount": 0,
@@ -45,7 +45,7 @@
     "stampCount": 6,
     "stampSha": "17d986ba19eb2ef1decb93a0d509d0569314967b6308392ebc58573f65245f65",
     "chipCount": 35,
-    "chipSha": "bc22b57f1ef51990bac772efd03bf1d4a3142b2dc564836eabf339227d0eead8"
+    "chipSha": "eec492b357a88c14dbd4a3fb81d19f10d57bf8f34b19dd60926e5c7d95dc45b6"
   },
   "coupon-web": {
     "stampCount": 9,
@@ -57,7 +57,7 @@
     "stampCount": 6,
     "stampSha": "f83eaa6e051c015f150609de68ceaa613880338bb7c63916d66cf2154e86cacd",
     "chipCount": 30,
-    "chipSha": "dc394cf8eccede173a8bcf7921091bb72afa1e0868265db393419d5d21d7d2d6"
+    "chipSha": "d7c6ab1f277be1ae4e48458699d165257f42be5d15c1b9c1561b241d46e45c71"
   },
   "rot-bottled_food_3": {
     "stampCount": 5,
@@ -87,7 +87,7 @@
     "stampCount": 7,
     "stampSha": "68c572585b4ba961a85d92904db8270ac49789ccc948e95ff762dc3d0648ef9d",
     "chipCount": 37,
-    "chipSha": "7de99da3d7377d047e1f0cdd1817f23e7909edecba7cfaec150ffca8cc6b3d00"
+    "chipSha": "ebb68cb25ed928cfcae1d34727d5b3041da33b038b6f6f9bf0eb13b17e3ddf1c"
   },
   "rot-bottled_rec_hp_1": {
     "stampCount": 2,
