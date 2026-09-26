@@ -415,10 +415,11 @@ test.describe("InputsPanel golden-path coverage", () => {
     // structural fork, not a large number: it drops the item's mass-balance row
     // and its producer chain, which makes the liquid_copper recipe that eats
     // copper_powder the cheap route, and that in-graph consumption is what puts
-    // the item across the boundary. It also enables the target passthrough this
-    // test checks, which finite-supply items never take. Any finite cap flips
-    // the route to the phase-transfer recipe, which consumes no copper_powder,
-    // and both input nodes disappear.
+    // the item across the boundary. Free supply also lets the target's export
+    // draw from that same input card, so the item gets one merged input card;
+    // finite-supply items never share it. Any finite cap flips the route to the
+    // phase-transfer recipe, which consumes no copper_powder, and the input card
+    // disappears.
     const urlBefore = page.url();
     await addInputRow(page, "copper_powder");
 
