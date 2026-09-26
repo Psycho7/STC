@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Runs a command once one of the machine-wide heavy-command slots is free, so
-# agents working in separate worktrees never run more than SLOTS builds, test
-# suites or browser captures at once. Usage: tools/heavy.sh <command> [args...]
+# agents working in separate worktrees never run more than SLOTS of the
+# commands routed through it at once. Usage: tools/heavy.sh <command> [args...]
 #
 # The command inherits the slot's lock, so the slot stays taken for as long as
 # anything it started is alive: a killed wrapper or a process left running in
