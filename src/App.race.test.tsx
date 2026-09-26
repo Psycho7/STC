@@ -12,9 +12,9 @@
 // refused outright rather than winning the race and rewriting the URL back to
 // the plan the user just navigated away from. A fifth pair covers the other
 // rejection site: when an availability flip (from another tab or from this
-// tab's settings panel) rejects the committed plan, the solve already in flight
-// for that plan must not land - it would clear the banner and rewrite the URL
-// to a plan that fails to load. A sixth bounds that invalidation: a hash
+// tab's settings panel) blocks the committed plan, the solve already in flight
+// for that plan must not land - it would clear the banner the flip raised; the
+// URL holds the committed plan, which reloads under that banner. A sixth bounds that invalidation: a hash
 // navigation in flight at the same time is headed for another plan and is
 // re-run under the new set, not dropped.
 //
@@ -72,25 +72,21 @@ function statusChip(): string {
 }
 
 // Commit a rate edit on the single-target lung plan and leave its solve held by
-// the layout gate. Returns the hash as it stood before the edit.
-async function commitHeldRateEdit(): Promise<string> {
-  const hashBeforeEdit = window.location.hash;
+// the layout gate.
+async function commitHeldRateEdit(): Promise<void> {
   const input = within(screen.getByTestId("targets-section")).getByLabelText(
     /rate/i,
   ) as HTMLInputElement;
   fireEvent.change(input, { target: { value: "600" } });
   fireEvent.blur(input);
   await waitFor(() => expect(layoutGate.pending.length).toBe(1));
-  return hashBeforeEdit;
 }
 
 // Release the held solve and assert it was dropped. The drain gives the stale
 // generation every turn it needs to encode and write its hash, so the negative
 // assertions below are not just winning a race: on the unfixed app the solve
 // lands inside this window.
-async function releaseAndExpectInvalidated(
-  hashBeforeEdit: string,
-): Promise<void> {
+async function releaseAndExpectInvalidated(): Promise<void> {
   await act(async () => {
     layoutGate.pending.shift()!();
     for (let i = 0; i < 10; i++) {
@@ -98,7 +94,16 @@ async function releaseAndExpectInvalidated(
     }
   });
 
-  expect(window.location.hash).toBe(hashBeforeEdit);
+  const committed = {
+    ...LUNG_PLAN,
+    targets: [
+      {
+        itemId: "activity_xiranite_lung",
+        ratePerSec: { num: "10", denom: "1" },
+      },
+    ],
+  };
+  expect(window.location.hash).toBe("#" + (await encodePlan(committed)));
   expect(statusChip()).toBe("ERROR");
   expect(screen.getByRole("alert")).toBeTruthy();
 }
@@ -315,8 +320,7 @@ test("an edit made while a hash navigation is landing is refused", async () => {
 
 // The availability rejection is not a refusal like the one above: the edit has
 // already committed and its solve is running. Letting it land would clear the
-// banner the rejection just raised and write the URL of a plan that no longer
-// validates, so reloading that URL errors.
+// banner the rejection just raised.
 test("a cross-tab availability flip invalidates the in-flight solve", async () => {
   window.location.hash = "#" + (await encodePlan(LUNG_PLAN));
   render(<App />);
@@ -326,14 +330,14 @@ test("a cross-tab availability flip invalidates the in-flight solve", async () =
   await screen.findAllByTestId("target-row");
   await waitFor(() => expect(statusChip()).toBe("READY"));
 
-  const hashBeforeEdit = await commitHeldRateEdit();
+  await commitHeldRateEdit();
 
   // Another tab switches the cohort the committed target depends on off. The
   // re-validation rejects the plan while its solve is still held.
   flipStoredOverrides('{"v1.5": false}');
   await screen.findByRole("alert");
 
-  await releaseAndExpectInvalidated(hashBeforeEdit);
+  await releaseAndExpectInvalidated();
 });
 
 test("a settings-panel availability flip invalidates the in-flight solve", async () => {
@@ -345,7 +349,7 @@ test("a settings-panel availability flip invalidates the in-flight solve", async
   await screen.findAllByTestId("target-row");
   await waitFor(() => expect(statusChip()).toBe("READY"));
 
-  const hashBeforeEdit = await commitHeldRateEdit();
+  await commitHeldRateEdit();
 
   // Same tab, no storage event: the gear's own switch writes the override.
   fireEvent.click(screen.getByRole("button", { name: "Open settings" }));
@@ -356,7 +360,7 @@ test("a settings-panel availability flip invalidates the in-flight solve", async
   fireEvent.keyDown(document, { key: "Escape" });
   await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
 
-  await releaseAndExpectInvalidated(hashBeforeEdit);
+  await releaseAndExpectInvalidated();
 });
 
 // The rejection above must not take a hash navigation down with the solve: a

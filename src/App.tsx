@@ -72,6 +72,7 @@ import { deficitItemsBeyondTolerance } from "./pipeline/render/invariants";
 import type { RationalString } from "./pipeline/types";
 import { LocaleProvider, useI18n } from "./data/i18n-context";
 import type { I18nIndex } from "./data/i18n";
+import { joinSentences } from "./data/i18n-join";
 import { ItemPackProvider } from "./canvas/itemPackContext";
 import StatsStrip from "./canvas/StatsStrip";
 import { displayedInputCount } from "./components/InputsPanel";
@@ -204,7 +205,7 @@ function describeBlocked(
     describeLoadError({ kind: "producer-unavailable", itemId, cause }, i18n),
   );
   sentences.push(i18n.t("app.error.blocked.settings"));
-  return sentences.join(" ");
+  return joinSentences(i18n.locale, sentences);
 }
 
 // Localized text for a solver exception. An infeasibility names the implicated
@@ -467,13 +468,13 @@ function AppInner() {
   // the refusal) supersedes one mid-flight.
   const navigationInFlightRef = useRef(false);
   // The hash the app last handled: written by itself (history.replaceState on
-  // solve success) or already picked up by loadFromHash. The hashchange
+  // every committed plan) or already picked up by loadFromHash. The hashchange
   // handler compares against it so app-initiated writes and spurious events
   // for the current hash never re-trigger a load. replaceState fires no
   // hashchange event, so for self-writes this is belt-and-braces; it becomes
   // load-bearing if a hash write ever switches to a location.hash assignment.
   const lastHandledHashRef = useRef<string | null>(null);
-  // The hash of the plan in the panels: written with the URL on solve success
+  // The hash of the plan in the panels: written with the URL on every commit
   // and by a hash load that decoded, solved or not. A failed hash load over a
   // drawn plan puts it back in the URL, so a reload or a share gets the plan
   // on screen rather than the broken link.
@@ -663,14 +664,17 @@ function AppInner() {
   // target without a producer. A solve still running for an earlier plan is
   // obsolete: landing it would clear this banner and write the URL of a plan
   // the panels no longer hold. The old drawing stays up, marked stale, so its
-  // now-disabled recipes do not read as valid.
+  // now-disabled recipes do not read as valid. The URL still gets the held
+  // plan, under the generation the bump just claimed, so a later commit
+  // supersedes this write like any other.
   const holdBlocked = useCallback(
-    (targets: readonly BlockedTarget[]): void => {
+    (plan: Plan, targets: readonly BlockedTarget[]): void => {
       invalidateInFlight();
       setMutationError({ kind: "blocked", targets });
       setStale(true);
+      void writeHash(plan, solveGen.current);
     },
-    [invalidateInFlight],
+    [invalidateInFlight, writeHash],
   );
 
   // Load a plan from a URL hash, solve it, and swap the whole app state to it.
@@ -813,8 +817,13 @@ function AppInner() {
       void loadFromHash(window.location.hash, "navigation");
     };
     window.addEventListener("hashchange", onHashChange);
-    return () => window.removeEventListener("hashchange", onHashChange);
-  }, [loadFromHash]);
+    return () => {
+      window.removeEventListener("hashchange", onHashChange);
+      // An unmounted app must not write the URL: a commit whose plan is still
+      // encoding would land its hash under whatever mounts next.
+      invalidateInFlight();
+    };
+  }, [loadFromHash, invalidateInFlight]);
 
   // Async derived-state refresh for an already-committed plan. solveGen is
   // last-write-wins: every solve corresponds to a committed plan, so the
@@ -844,6 +853,7 @@ function AppInner() {
         if (myGen !== solveGen.current) return;
         setMutationError({ kind: "solver", error: e });
         setStale(true);
+        await writeHash(nextPlan, myGen);
       } finally {
         if (myGen === solveGen.current) setPending(false);
       }
@@ -854,7 +864,7 @@ function AppInner() {
   // Commit the plan (user intent) synchronously, then kick off the async
   // solve + layout for the derived state. On a solver failure the committed
   // plan stays put and the error banner is the signal; the canvas keeps the
-  // last good render. The URL hash updates on solve success only.
+  // last good render. The URL hash tracks the committed plan, solved or not.
   function commitPlan(nextPlan: Plan): void {
     if (navigationInFlightRef.current) {
       setMutationError({ kind: "busy" });
@@ -874,7 +884,7 @@ function AppInner() {
     // unsolved under the blocked banner, like a flip that orphans a target.
     const blocked = blockedTargets(nextPlan, pack, availability.causes);
     if (blocked.length > 0) {
-      holdBlocked(blocked);
+      holdBlocked(nextPlan, blocked);
       return;
     }
     void scheduleSolve(nextPlan);
@@ -912,7 +922,7 @@ function AppInner() {
         void loadFromHash(window.location.hash, "navigation");
         return;
       }
-      holdBlocked(blocked);
+      holdBlocked(current, blocked);
       return;
     }
     void scheduleSolve(current);
