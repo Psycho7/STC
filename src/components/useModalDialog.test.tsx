@@ -76,6 +76,55 @@ test("a select is a Tab stop, so Shift+Tab off it wraps to the last stop", () =>
   expect(document.activeElement).toBe(close);
 });
 
+// The settings dialog opens with focus on its own container (tabIndex -1),
+// which is not a stop, so the trap cannot rely on focus sitting on an edge.
+function ContainerDialog() {
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const trapTab = useModalDialog(dialogRef, vi.fn());
+  return (
+    <div
+      ref={dialogRef}
+      role="dialog"
+      aria-label="settings"
+      tabIndex={-1}
+      onKeyDown={trapTab}
+    >
+      <button type="button">first</button>
+      <button type="button">middle</button>
+      <button type="button">last</button>
+    </div>
+  );
+}
+
+test.each([
+  { from: "the container", shiftKey: false, lands: "first" },
+  { from: "the container", shiftKey: true, lands: "last" },
+  { from: "first", shiftKey: false, lands: "first" },
+  { from: "first", shiftKey: true, lands: "last" },
+  { from: "last", shiftKey: false, lands: "first" },
+  { from: "last", shiftKey: true, lands: "last" },
+])(
+  "Tab (shift $shiftKey) from $from keeps focus inside the dialog",
+  ({ from, shiftKey, lands }) => {
+    render(<ContainerDialog />);
+    const dialog = screen.getByRole("dialog", { name: "settings" });
+    const start =
+      from === "the container"
+        ? dialog
+        : screen.getByRole("button", { name: from });
+
+    start.focus();
+    fireEvent.keyDown(start, { key: "Tab", shiftKey });
+
+    expect(dialog.contains(document.activeElement)).toBe(true);
+    // A key the trap leaves alone is moved by the browser, not jsdom, so
+    // focus stays put here; the wrapped cases land on the named stop.
+    expect(document.activeElement).toBe(
+      screen.getByRole("button", { name: lands }),
+    );
+  },
+);
+
 test("Tab from a middle stop and non-Tab keys are left alone", () => {
   render(<Dialog onClose={vi.fn()} />);
   const first = screen.getByRole("button", { name: "first" });

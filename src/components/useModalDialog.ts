@@ -39,8 +39,12 @@ export function useModalDialog(
     const first = stops[0];
     const last = stops[stops.length - 1];
     if (!first || !last) return;
+    // Focus off every stop (the container itself, which a dialog focuses on
+    // open) must wrap too: the browser would step from there to whatever
+    // precedes or follows the dialog in the page.
+    const onStop = stops.includes(document.activeElement as HTMLElement);
     const at = e.shiftKey ? first : last;
-    if (document.activeElement !== at) return;
+    if (onStop && document.activeElement !== at) return;
     e.preventDefault();
     (e.shiftKey ? last : first).focus();
   };
