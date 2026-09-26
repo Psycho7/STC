@@ -96,4 +96,34 @@ describe("auditChipNearCard", () => {
 
     expect(auditChipNearCard([besideA], [edge], nodes)).toHaveLength(0);
   });
+
+  it("exempts a bus-drop chip beside a card its fan feeds", () => {
+    // A second iron edge from A drops into F, so F is part of e:1's fan-out
+    // and the trunk-seated aggregate chip may stand flush against it.
+    const fanLeg: RawEdge = {
+      id: "e:2",
+      source: "A",
+      target: "F",
+      item: "iron",
+      d: "M 100,30 L 350,30 L 350,300",
+    };
+    const busDrop: ChipRect = {
+      ...chip([350, cardF.top - CHIP_HALF_H]),
+      kind: "bus-drop",
+    };
+
+    expect(auditChipNearCard([busDrop], [edge, fanLeg], nodes)).toHaveLength(0);
+    // The exemption is the fan's alone: the same box as a plain label chip,
+    // or beside a card fed a different item, still counts.
+    expect(
+      auditChipNearCard([{ ...busDrop, kind: "label" }], [edge, fanLeg], nodes),
+    ).toHaveLength(1);
+    expect(
+      auditChipNearCard(
+        [busDrop],
+        [edge, { ...fanLeg, item: "copper" }],
+        nodes,
+      ),
+    ).toHaveLength(1);
+  });
 });

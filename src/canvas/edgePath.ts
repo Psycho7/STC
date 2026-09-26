@@ -634,9 +634,9 @@ function runsByPreference(
 // run clears, keep the longest run's centre.
 //
 // The candidate positions are a deterministic function of the run and the card
-// rects -- the box seated flush against each blocking card's left or right edge
-// -- with no scoring, no field and no windows: for every card the box could
-// stand on, the two places it just clears it, filtered to the ones that clear
+// rects -- the box seated CHIP_CARD_CLEARANCE past each blocking card's left or
+// right edge -- with no scoring, no field and no windows: for every card the box
+// could stand on, the two places it clears it, filtered to the ones that clear
 // every other card too, nearest to the centre winning (ties to the smaller x).
 // The anchor stays within the run, so the chip never leaves its own line.
 //
