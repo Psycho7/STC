@@ -386,7 +386,9 @@ const CROSSING_BASELINE: Record<string, number> = {
   //
   // #192 pair cost relation: 25 -> 23, the gap order weighs both orders of
   // every column pair and entry rows take slots one at a time across cards.
-  "battery5-xiranite": 23,
+  //
+  // ELK GREEDY SWITCH: 23 -> 22, hierarchical greedy switch on.
+  "battery5-xiranite": 22,
   crystal: 1,
   // CATALYST NODE 2026-09-14 (PR B): 1 -> 2. The plan's one catalyst charge
   // moved to its own card, one layer further from its consumer. UP move,
@@ -418,7 +420,9 @@ const CROSSING_BASELINE: Record<string, number> = {
   //
   // #192 pair cost relation: 97 -> 95, the gap order weighs both orders of
   // every column pair and entry rows take slots one at a time across cards.
-  multi6: 95,
+  //
+  // ELK GREEDY SWITCH: 95 -> 74, hierarchical greedy switch on.
+  multi6: 74,
   tundra: 0,
   // CATALYST NODE 2026-09-14 (PR B of the catalyst supply pools plan): every
   // catalyst charge now leaves the item's own u:cat:* boundary card instead of
@@ -448,7 +452,9 @@ const CROSSING_BASELINE: Record<string, number> = {
   "coupon-web": 21,
   // #192 pair cost relation: 18 -> 16, the gap order weighs both orders of
   // every column pair and entry rows take slots one at a time across cards.
-  "gas-web": 16,
+  //
+  // ELK GREEDY SWITCH: 16 -> 13, hierarchical greedy switch on.
+  "gas-web": 13,
   "rot-bottled_food_3": 2,
   "rot-bottled_food_4": 3,
   // CATALYST NODE 2026-09-14 (PR B of the catalyst supply pools plan): every

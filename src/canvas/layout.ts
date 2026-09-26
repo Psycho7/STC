@@ -198,6 +198,12 @@ export const ROOT_LAYOUT_OPTIONS: Readonly<Record<string, string>> = {
   // stay forward and span fewer layers. On the repro census this drops the
   // long-edge (>820px) count 14 -> 9 and the max span 5507 -> 4334.
   "elk.layered.cycleBreaking.strategy": "DEPTH_FIRST",
+  // Greedy-switch refinement after the layer sweep. Under INCLUDE_CHILDREN ELK
+  // reads only the hierarchical variant, which defaults to OFF, so without this
+  // the sweep's local minimum stands. On gas-web that left the twin Solid-Gas
+  // -> Packaging -> Purification chains stacked crosswise (two X crossings).
+  "org.eclipse.elk.layered.crossingMinimization.greedySwitchHierarchical.type":
+    "TWO_SIDED",
 };
 
 // FIXED_SIDE pins each port to its declared side (WEST inputs / EAST outputs)

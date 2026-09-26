@@ -8,7 +8,7 @@
 // deliberate behaviour changes, and the question this test now answers is which
 // lines they reach. Every field of every other edge and node must still match
 // the extraction byte for byte, and the keys that do differ must be exactly the
-// ones the four tables below enumerate. The ratchet tables in the e2e geometry
+// ones the five tables below enumerate. The ratchet tables in the e2e geometry
 // audit cannot say that:
 // every cell is an upper bound compared with toBeLessThanOrEqual, so a
 // relocation that lowers a count passes silently. A whole-scene diff cannot say
@@ -231,6 +231,16 @@ function flatten(snapshot: Snapshot): Map<string, unknown> {
 //      It also returns script43 e:16, e:17 and script43-xiranite e:17, e:18
 //      to their base geometry (they left G), and draws script43 and
 //      script43-xiranite e:6, still G, three slots further left.
+//   S  the hierarchical greedy switch reorders cards inside their ELK layers
+//      (NODES_MOVED below), so the edges on a moved card, and the ones that
+//      take the rows and columns those vacate, redraw: battery5-xiranite
+//      e:9, e:10, e:14, e:18, e:20, e:23, e:24, e:27; copper-script43 e:1,
+//      e:9, e:10, e:11, e:12, e:13, e:27, e:35; gas-web e:3, e:4, e:5, e:6,
+//      e:9, e:10, e:11, e:12, e:17, e:18, e:19, e:24, e:25; multi6 e:5, e:6,
+//      e:8, e:10, e:23, e:38, e:42, e:43, e:44, e:45, e:46, e:47, e:48,
+//      e:49, e:50, e:52, e:53, e:54, e:55, e:56, e:62, e:67, e:69, e:73,
+//      e:74, e:77, e:78, e:79, e:81, e:83, e:84, e:85, e:86, e:87, e:88,
+//      e:89, e:90. Some of these already sit under an earlier family.
 // An edge key is the short `e:NN` head of the routed edge id.
 const MOVED: Readonly<Record<string, ReadonlyArray<string>>> = {
   battery5: [
@@ -253,8 +263,11 @@ const MOVED: Readonly<Record<string, ReadonlyArray<string>>> = {
     "e:5",
     "e:7",
     "e:9",
+    "e:10",
     "e:11",
     "e:13",
+    "e:14",
+    "e:18",
     "e:20",
     "e:21",
     "e:23",
@@ -268,6 +281,7 @@ const MOVED: Readonly<Record<string, ReadonlyArray<string>>> = {
     "e:35",
   ],
   "copper-script43": [
+    "e:1",
     "e:2",
     "e:6",
     "e:7",
@@ -288,9 +302,11 @@ const MOVED: Readonly<Record<string, ReadonlyArray<string>>> = {
     "e:24",
     "e:25",
     "e:26",
+    "e:27",
     "e:31",
     "e:32",
     "e:33",
+    "e:35",
   ],
   "coupon-web": [
     "e:6",
@@ -310,6 +326,7 @@ const MOVED: Readonly<Record<string, ReadonlyArray<string>>> = {
     "e:3",
     "e:4",
     "e:5",
+    "e:6",
     "e:7",
     "e:8",
     "e:9",
@@ -319,6 +336,7 @@ const MOVED: Readonly<Record<string, ReadonlyArray<string>>> = {
     "e:15",
     "e:18",
     "e:20",
+    "e:23",
     "e:24",
     "e:26",
     "e:27",
@@ -331,8 +349,19 @@ const MOVED: Readonly<Record<string, ReadonlyArray<string>>> = {
     "e:39",
     "e:40",
     "e:41",
+    "e:42",
     "e:43",
+    "e:44",
     "e:45",
+    "e:46",
+    "e:47",
+    "e:48",
+    "e:49",
+    "e:50",
+    "e:52",
+    "e:53",
+    "e:54",
+    "e:55",
     "e:56",
     "e:60",
     "e:61",
@@ -342,11 +371,18 @@ const MOVED: Readonly<Record<string, ReadonlyArray<string>>> = {
     "e:67",
     "e:69",
     "e:71",
+    "e:73",
+    "e:74",
     "e:77",
+    "e:78",
     "e:79",
     "e:81",
+    "e:83",
+    "e:84",
     "e:85",
     "e:86",
+    "e:87",
+    "e:88",
     "e:89",
     "e:90",
     "e:91",
@@ -399,12 +435,71 @@ const MOVED: Readonly<Record<string, ReadonlyArray<string>>> = {
     "e:14",
     "e:15",
   ],
-  "gas-web": ["e:3", "e:4", "e:5", "e:9", "e:10", "e:11", "e:12"],
+  "gas-web": [
+    "e:3",
+    "e:4",
+    "e:5",
+    "e:6",
+    "e:9",
+    "e:10",
+    "e:11",
+    "e:12",
+    "e:17",
+    "e:18",
+    "e:19",
+    "e:24",
+    "e:25",
+  ],
 };
 
 // `edge:e:43:u:class:q:51->...plant_grass_1.railY` -> `e:43`.
 const edgeHeadOf = (key: string): string | null =>
   /^edge:(e:\d+):/.exec(key)?.[1] ?? null;
+
+// The fifth named delta, and the only one that reaches node placement: family S
+// (see MOVED) moves these cards inside their layers. A listed node may differ
+// in x or y; every other node still compares exact, and a listed node that
+// stops moving fails like any stale entry.
+const NODES_MOVED: Readonly<Record<string, ReadonlyArray<string>>> = {
+  "battery5-xiranite": [
+    "u:class:q:7",
+    "u:class:q:8",
+    "u:class:q:18",
+    "u:out:proc_battery_5",
+    "u:surplus:liquid_sewage",
+  ],
+  "copper-script43": ["u:class:q:12", "u:in:copper_ore", "u:in:liquid_water"],
+  "gas-web": [
+    "u:class:q:2",
+    "u:class:q:5",
+    "u:class:q:6",
+    "u:in:copper_ore",
+    "u:in:gas_inert",
+    "u:in:liquid_water",
+  ],
+  multi6: [
+    "loop:plant_grass_1",
+    "loop:plant_grass_2",
+    "u:class:q:5",
+    "u:class:q:6",
+    "u:class:q:7",
+    "u:class:q:10",
+    "u:class:q:13",
+    "u:class:q:15",
+    "u:class:q:25",
+    "u:class:q:39",
+    "u:class:q:59",
+    "u:in:iron_ore",
+    "u:in:liquid_water:loop:plant_grass_1",
+    "u:in:liquid_water:loop:plant_grass_2",
+    "u:in:originium_ore",
+    "u:out:proc_battery_3",
+  ],
+};
+
+// `node:u:class:q:18.y` -> `u:class:q:18`.
+const nodeIdOf = (key: string): string | null =>
+  /^node:(.+)\.[xy]$/.exec(key)?.[1] ?? null;
 
 // The second named delta: family A slides a 1-to-1 chip off any foreign
 // vertical crossing its box, so these edges' chip seats moved and nothing else
@@ -412,7 +507,7 @@ const edgeHeadOf = (key: string): string | null =>
 // fields of a listed edge may differ -- because A moves no polyline, column,
 // level or node placement, and the test should keep saying so.
 //
-// All four tables compose: an unlisted key still compares exact, the union of
+// All five tables compose: an unlisted key still compares exact, the union of
 // what they permit is the whole permitted delta, and a listed edge that stops
 // differing fails whichever table lists it, so no list can rot into a blanket
 // waiver.
@@ -542,6 +637,7 @@ describe("the level-occupancy extraction routes the corpus identically", () => {
       const seats = CHIP_SEATS_MOVED[scenario.id] ?? [];
       const seated = FAR_OWNERS_SEATED[scenario.id] ?? [];
       const swapped = COLUMNS_SWAPPED[scenario.id] ?? [];
+      const movedNodes = NODES_MOVED[scenario.id] ?? [];
       const seatKeys = new Map<string, string>();
       for (const id of seats) {
         for (const field of SEAT_FIELDS)
@@ -562,6 +658,7 @@ describe("the level-occupancy extraction routes the corpus identically", () => {
       const seatsSeen = new Set<string>();
       const seatedSeen = new Set<string>();
       const swappedSeen = new Set<string>();
+      const movedNodesSeen = new Set<string>();
       for (const key of new Set([...lhs.keys(), ...rhs.keys()])) {
         if (Object.is(lhs.get(key), rhs.get(key))) continue;
         // A key any table permits is permitted, and credits every table that
@@ -573,8 +670,11 @@ describe("the level-occupancy extraction routes the corpus identically", () => {
         if (owner !== undefined) seatedSeen.add(owner);
         const slot = slotKeys.get(key);
         if (slot !== undefined) swappedSeen.add(slot);
+        const node = nodeIdOf(key);
         const head = edgeHeadOf(key);
-        if (head !== null && moved.includes(head)) movedHeads.add(head);
+        if (node !== null && movedNodes.includes(node))
+          movedNodesSeen.add(node);
+        else if (head !== null && moved.includes(head)) movedHeads.add(head);
         else if (
           seat === undefined &&
           owner === undefined &&
@@ -583,7 +683,7 @@ describe("the level-occupancy extraction routes the corpus identically", () => {
           unexpected.push(`${key}: ${lhs.get(key)} -> ${rhs.get(key)}`);
       }
 
-      // No node placement and no unlisted key moved, and every listed edge
+      // No unlisted node placement and no unlisted key moved, and every listed edge
       // really did move in the fields its table permits -- an entry that goes
       // stale is as much a finding as a line that moves without one.
       expect(unexpected).toEqual([]);
@@ -591,6 +691,7 @@ describe("the level-occupancy extraction routes the corpus identically", () => {
       expect([...seatsSeen].sort()).toEqual([...seats].sort());
       expect([...seatedSeen].sort()).toEqual([...seated].sort());
       expect([...swappedSeen].sort()).toEqual([...swapped].sort());
+      expect([...movedNodesSeen].sort()).toEqual([...movedNodes].sort());
     }, 600_000);
   }
 });

@@ -15,7 +15,7 @@
     "stampCount": 6,
     "stampSha": "e5f0d29ecc8a18d8d292ec1ef7ac1d91e1794958bd8bf1ab2c9bf7f932a5b4ba",
     "chipCount": 41,
-    "chipSha": "49480bc917ccc31063c733db7bade59fb3a77cb4ba616ab1b21d3d7d44e5bbf9"
+    "chipSha": "a04ab287297684561dc696b13561ca81cfd2a9876885f7cb985a666d3fb0912b"
   },
   "crystal": {
     "stampCount": 2,
@@ -33,7 +33,7 @@
     "stampCount": 21,
     "stampSha": "ebd3d57b3a6e3103c16a33596a2a9c0c55a77a837aa25508b4bcae2b9606d547",
     "chipCount": 103,
-    "chipSha": "1afbed9433fbd82a615c3033e57f8974655182dbafa933ebce4074c1a0b349e6"
+    "chipSha": "c97e79d7296663d077208297c2524dd9316f47846ab75ed1707eec631a7eac93"
   },
   "tundra": {
     "stampCount": 0,
@@ -57,7 +57,7 @@
     "stampCount": 6,
     "stampSha": "f83eaa6e051c015f150609de68ceaa613880338bb7c63916d66cf2154e86cacd",
     "chipCount": 30,
-    "chipSha": "0be1367d7681937eceea7b13114dac1875141d89d24e83dab067f4047c1dfbf3"
+    "chipSha": "d7c6ab1f277be1ae4e48458699d165257f42be5d15c1b9c1561b241d46e45c71"
   },
   "rot-bottled_food_3": {
     "stampCount": 5,
@@ -81,7 +81,7 @@
     "stampCount": 7,
     "stampSha": "1bc2c2fe1d47780538749feac99c7a333fbb8055ca6ae22516b9859bca7c949d",
     "chipCount": 40,
-    "chipSha": "8685778a502589b3718811f5a5dec2eb5fc8b157459be4350a2cab5f2c6e1a87"
+    "chipSha": "a827fe6c15db4aa682fe228212807bc781bb58847965a2b6172143f5edf81ed2"
   },
   "script43-xiranite": {
     "stampCount": 7,
