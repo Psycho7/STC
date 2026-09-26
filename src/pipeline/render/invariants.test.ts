@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import Fraction from "fraction.js";
 import {
   checkEdgeEndpointIntegrity,
@@ -19,6 +19,7 @@ import {
   withoutGasMachines,
 } from "../../solver/closed-form-fixtures";
 import { solveForRender } from "../solveForRender";
+import { rationalFromString } from "./rational";
 import { pack as fullPack } from "../../data/load";
 import type { RenderPlan, RenderUnit, RenderEdge } from "../types";
 import {
@@ -1890,6 +1891,155 @@ describe("checkProductUnitRates: boundary-unit chips and inputProduct edges", ()
     expect(result.violations.some((v) => v.includes("does not consume"))).toBe(
       true,
     );
+  });
+});
+
+describe("checkProductUnitRates: the delivered figure on a target output", () => {
+  // Clause (f): a target card carries `delivered` exactly when the plan feeds
+  // it below its declared rate, and then it states the inbound edge sum.
+  const pack = makeFullPack(
+    [{ id: "R", raw: true }, { id: "F" }],
+    [
+      {
+        id: "recipe-A",
+        in: [{ item: "R", qty: 1 }],
+        out: [{ item: "F", qty: 1 }],
+      },
+    ],
+  );
+  const targets: ReadonlyArray<ItemTarget> = [
+    { itemId: "F", ratePerSec: RATE_ONE },
+  ];
+
+  function argsFor(
+    inbound: Fraction,
+    delivered: RationalString | undefined,
+  ): Parameters<typeof checkProductUnitRates>[0] {
+    const plan: RenderPlan = {
+      units: [
+        {
+          id: "u-A",
+          kind: "recipe",
+          recipeId: "recipe-A",
+          count: 1,
+          multiplicity: RATE_ONE,
+        },
+        {
+          id: "u:out:F",
+          kind: "outputProduct",
+          itemId: "F",
+          count: 1,
+          rate: RATE_ONE,
+          flavor: "target",
+          ...(delivered !== undefined ? { delivered } : {}),
+        },
+      ],
+      edges:
+        inbound.compare(0) > 0
+          ? [
+              {
+                fromUnit: "u-A",
+                toUnit: "u:out:F",
+                item: "F",
+                rate: inbound,
+                transportKind: "belt",
+              },
+            ]
+          : [],
+      containers: [],
+    };
+    return {
+      plan,
+      rates: new Map([["recipe-A", inbound]]),
+      pack,
+      targets,
+      itemOverrides: [],
+      catalystAccount: new Map(),
+    };
+  }
+
+  const deliveredViolations = (
+    args: Parameters<typeof checkProductUnitRates>[0],
+  ): string[] =>
+    checkProductUnitRates(args).violations.filter((v) =>
+      v.includes("delivered"),
+    );
+
+  it("accepts a fully fed target with no delivered figure", () => {
+    expect(deliveredViolations(argsFor(new Fraction(1), undefined))).toEqual(
+      [],
+    );
+  });
+
+  it("accepts an under-fed target whose delivered figure is the inbound sum", () => {
+    expect(
+      deliveredViolations(
+        argsFor(new Fraction(1, 2), { num: "1", denom: "2" }),
+      ),
+    ).toEqual([]);
+  });
+
+  it("accepts an unfed target delivering zero", () => {
+    expect(
+      deliveredViolations(argsFor(new Fraction(0), { num: "0", denom: "1" })),
+    ).toEqual([]);
+  });
+
+  it("fires on an under-fed target with no delivered figure", () => {
+    expect(
+      deliveredViolations(argsFor(new Fraction(1, 2), undefined)),
+    ).toHaveLength(1);
+  });
+
+  it("fires on a delivered figure on a fully fed target", () => {
+    expect(
+      deliveredViolations(argsFor(new Fraction(1), { num: "1", denom: "1" })),
+    ).toHaveLength(1);
+  });
+
+  it("fires on a delivered figure that is not the inbound sum", () => {
+    expect(
+      deliveredViolations(
+        argsFor(new Fraction(1, 2), { num: "1", denom: "4" }),
+      ),
+    ).toHaveLength(1);
+  });
+
+  // copper_jar at 1/s needs more inert gas than a 1/2 per second cap allows
+  // and nothing produces gas_inert, so the plan under-delivers the target.
+  it("a real shortfall plan carries delivered == inbound sum; a fed one carries none", () => {
+    vi.stubEnv("DEV", false);
+    try {
+      const shortTargets: ItemTarget[] = [
+        { itemId: "copper_jar", ratePerSec: RATE_ONE },
+      ];
+      const { plan } = solveForRender({
+        targets: shortTargets,
+        itemOverrides: [
+          { itemId: "gas_inert", ratePerSec: { num: "1", denom: "2" } },
+        ],
+        pack: fullPack,
+      });
+      const target = plan.units.find(
+        (u) => isOutputProductUnit(u) && u.flavor === "target",
+      );
+      if (!target || !isOutputProductUnit(target)) {
+        throw new Error("missing target");
+      }
+      const inbound = plan.edges
+        .filter((e) => e.toUnit === target.id && e.item === target.itemId)
+        .reduce((acc, e) => acc.add(e.rate), new Fraction(0));
+      expect(target.delivered).toBeDefined();
+      expect(rationalFromString(target.delivered!).equals(inbound)).toBe(true);
+      expect(inbound.compare(1)).toBeLessThan(0);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+
+    const fed = mutableArgs(["copper_nugget"]);
+    for (const u of fed.plan.units) {
+      if (isOutputProductUnit(u)) expect(u.delivered).toBeUndefined();
+    }
   });
 });
 

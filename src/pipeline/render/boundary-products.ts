@@ -18,6 +18,7 @@ import type { ItemOverride } from "../../data/plan";
 import type { Item, Recipe } from "@aef/schema";
 import { pushInto } from "../../util/multimap";
 import { rationalFromString, rationalToString } from "./rational";
+import { targetOutputShortfalls } from "./invariants";
 import {
   unitIdForCatalystAggregate,
   unitIdForCatalystContainer,
@@ -1011,6 +1012,22 @@ export function deriveBoundaryProducts(
         transportKind: itemMeta.transportKind,
       });
     }
+  }
+
+  // An under-delivered target card states what actually arrives beside its
+  // declared rate. The flag is the shortfall strip's own predicate, so the card
+  // and the strip always name the same items; a fed target carries nothing.
+  const shortItems = new Set(
+    targetOutputShortfalls({ edges: boundaryEdges }, targets).map(
+      (s) => s.item,
+    ),
+  );
+  for (const out of outputProducts) {
+    if (out.flavor !== "target" || !shortItems.has(out.itemId)) continue;
+    const delivered = boundaryEdges
+      .filter((e) => e.toUnit === out.id && e.item === out.itemId)
+      .reduce((acc, e) => acc.add(e.rate), new Fraction(0));
+    out.delivered = rationalToString(delivered);
   }
 
   return { inputProducts, outputProducts, boundaryEdges };

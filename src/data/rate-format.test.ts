@@ -1,6 +1,7 @@
 import { expect, test } from "vitest";
 import Fraction from "fraction.js";
 import {
+  formatDeliveredPerMin,
   formatFractionPerMin,
   formatRateExactPerMin,
   formatRatePerMin,
@@ -415,4 +416,36 @@ test("groupRateDigits groups the integer part only", () => {
   expect(groupRateDigits("0.0012345")).toBe("0.0012345");
   // An exact-fraction fallback groups each side.
   expect(groupRateDigits("1000001/3")).toBe("1,000,001/3");
+});
+
+// A shortfall smaller than the display resolution must not read "120 of 120".
+test("formatDeliveredPerMin keeps the plain figure when it already differs", () => {
+  const declared = { num: "2", denom: "1" };
+  expect(formatDeliveredPerMin({ num: "7", denom: "12" }, declared)).toBe("35");
+  expect(formatDeliveredPerMin({ num: "40", denom: "27" }, declared)).toBe(
+    formatRationalPerMin({ num: "40", denom: "27" }),
+  );
+});
+
+test("formatDeliveredPerMin adds decimals until the figure differs", () => {
+  const declared = { num: "2", denom: "1" };
+  // 119.96/min and 119.999/min both round to "120" at one decimal.
+  expect(formatDeliveredPerMin({ num: "2999", denom: "1500" }, declared)).toBe(
+    "119.96",
+  );
+  expect(
+    formatDeliveredPerMin({ num: "119999", denom: "60000" }, declared),
+  ).toBe("119.999");
+  // Four extra decimals is the cap: 119.99999/min still fits it.
+  expect(
+    formatDeliveredPerMin({ num: "11999999", denom: "6000000" }, declared),
+  ).toBe("119.99999");
+});
+
+test("formatDeliveredPerMin reads <declared when four extra decimals still tie", () => {
+  const declared = { num: "2", denom: "1" };
+  // 119.999999/min rounds to 120 at five decimals.
+  expect(
+    formatDeliveredPerMin({ num: "119999999", denom: "60000000" }, declared),
+  ).toBe("<120");
 });

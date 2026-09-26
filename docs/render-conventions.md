@@ -88,6 +88,16 @@ the tab's pattern. It is the deliberate exception to the no-words rule above;
 the name gives way to it, eliding its tail like any over-long name, and no
 chip, recipe row or edge carries the word.
 
+A target output that the plan feeds below its declared rate borrows the tap's
+chip. Its figure is the rate that actually arrives, and the chip underneath
+carries the declared one: `35/min` over `of 120/min`, or `0/min` when nothing
+arrives. The short figure is red, which already means "not met" in the panels;
+amber would read as a surplus. The `of` chip stays neutral like the tap's, and
+the lime tab still marks the card a target.
+A target that is fully fed shows the declared rate alone. The card and
+the shortfall strip flag the same items from one predicate, so they never
+disagree about which targets fall short.
+
 Two pools answer the plan's catalyst need: the dedicated catalyst supply and
 whatever headroom the ordinary supply has left after its own consumers. So an
 item's catalyst account reads as the need, how much of it came from catalyst
