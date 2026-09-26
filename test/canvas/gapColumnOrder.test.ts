@@ -8,7 +8,11 @@
 import type { Edge } from "@xyflow/react";
 import { describe, it, expect } from "vitest";
 
-import { jogForwardLegs } from "../../src/canvas/busRouting";
+import {
+  ENTRY_SLOT_PITCH,
+  assignEntryColumns,
+  jogForwardLegs,
+} from "../../src/canvas/busRouting";
 import { buildGapColumnOrder } from "../../src/canvas/gapColumnOrder";
 import type { GapRecord } from "../../src/canvas/layerModel";
 import { mkEdge, productNode } from "./busRouting.testkit";
@@ -126,11 +130,50 @@ describe("gap column order", () => {
     expect(order.unavoidable).toHaveLength(1);
   });
 
-  it("marks the later-routed of two same-side rows overlapping past a stub", () => {
-    // Two bends out of layer 0 on source rows 10 and 27: within the floor,
-    // and both run from their ports to their columns whatever the order.
-    // They diverge (A rises to -300, B falls to 620), so neither order
-    // crosses a vertical and the relation says nothing about them.
+  it("marks the later-routed of two right rows overlapping past a stub", () => {
+    // Two bends into layer 2 on target rows 2 and 15: within the floor, and
+    // both run from their columns to their ports whatever the order. The
+    // target cards are thin so neither row runs into the other card's padded
+    // box (which would make it jog and drop its right row). They come from far
+    // apart (A rises from -320, B falls from 620), so neither order crosses a
+    // vertical and the relation says nothing about them.
+    const nodes = [
+      card("sa", 0, -330, 20),
+      card("sb", 0, 600, 40),
+      card("fa", 2, 0, 4),
+      card("fb", 2, 13, 4),
+      FILLER,
+    ];
+    const edges = [
+      mkEdge("e:9:sa->fa:x", "sa", "fa", "x"),
+      mkEdge("e:4:sb->fb:y", "sb", "fb", "y"),
+    ];
+    const order = buildGapColumnOrder(nodes, edges, GAPS);
+    const a = order.bendId("e:9:sa->fa:x");
+    const b = order.bendId("e:4:sb->fb:y");
+    expect(order.mustStandLeft(a, b) || order.mustStandLeft(b, a)).toBe(false);
+
+    // Columns 600 and 584 units short of the ports: the pair shares 584.
+    const far = new Map([
+      [a, 200],
+      [b, 216],
+    ]);
+    expect([...order.sameSideOwed((id) => far.get(id))]).toEqual([
+      "e:9:sa->fa:x",
+    ]);
+
+    // Columns within a port stub of the ports share no more than a stub.
+    const near = new Map([
+      [a, 780],
+      [b, 790],
+    ]);
+    expect(order.sameSideOwed((id) => near.get(id)).size).toBe(0);
+  });
+
+  it("owes no jog for two left rows, which a jog cannot move", () => {
+    // Two bends out of layer 0 on source rows 10 and 27, columns 100 and 116
+    // units out of the ports. A jog keeps the source run at its source row
+    // out to its column, so the pair shares the same stretch jogged or not.
     const nodes = [
       card("sa", 0, 0, 20),
       card("sb", 0, 22, 10),
@@ -143,31 +186,17 @@ describe("gap column order", () => {
       mkEdge("e:4:sb->fb:y", "sb", "fb", "y"),
     ];
     const order = buildGapColumnOrder(nodes, edges, GAPS);
-    const a = order.bendId("e:9:sa->fa:x");
-    const b = order.bendId("e:4:sb->fb:y");
-    expect(order.mustStandLeft(a, b) || order.mustStandLeft(b, a)).toBe(false);
-
-    // Columns 100 and 116 units out of the ports: the pair shares 100.
     const far = new Map([
-      [a, 200],
-      [b, 216],
+      [order.bendId("e:9:sa->fa:x"), 200],
+      [order.bendId("e:4:sb->fb:y"), 216],
     ]);
-    expect([...order.sameSideOwed((id) => far.get(id))]).toEqual([
-      "e:9:sa->fa:x",
-    ]);
-
-    // Columns within a port stub of the ports share no more than a stub.
-    const near = new Map([
-      [a, 110],
-      [b, 124],
-    ]);
-    expect(order.sameSideOwed((id) => near.get(id)).size).toBe(0);
+    expect(order.sameSideOwed((id) => far.get(id)).size).toBe(0);
   });
 
-  it("jogs the later-routed of two same-side rows because it owes the jog", () => {
+  it("does not jog either of two left rows", () => {
     // The fixture above, routed: bend columns stamped 100 and 116 units out of
     // the ports. No card blocks either edge and each target run is far from
-    // the other's, so the owed jog is the only trigger jogForwardLegs has.
+    // the other's, so only an owed jog could move one, and none is owed.
     const nodes = [
       card("sa", 0, 0, 20),
       card("sb", 0, 22, 10),
@@ -189,7 +218,7 @@ describe("gap column order", () => {
     const jogged = jogForwardLegs(nodes, edges, { gaps: GAPS });
     const dataOf = (id: string) =>
       (jogged.find((e) => e.id === id)!.data ?? {}) as Record<string, unknown>;
-    expect(dataOf(later)["legY"]).toBeDefined();
+    expect(dataOf(later)["legY"]).toBeUndefined();
     expect(dataOf(earlier)["legY"]).toBeUndefined();
   });
 
@@ -362,5 +391,47 @@ describe("gap column order", () => {
     expect(order.mustStandLeft(b, a)).toBe(false);
     expect(order.rankOf(a)!).toBeLessThan(order.rankOf(b)!);
     expect(order.unavoidable).toEqual([]);
+  });
+});
+
+describe("the potential-descent slot reservation", () => {
+  // The descent of a jogged bend is a potential arrival until the jog pass
+  // runs. Where the order puts it right of an arrival row, the row's entry
+  // column (assignEntryColumns) leaves it the slot to the right.
+  //   bend  e:1: row 200 of layer 0 into row 200 of layer 2, its target run
+  //              blocked by the layer-1 card "blk", so it will jog and descend
+  //              in front of "tp".
+  //   late drop e:2: row 0 of layer 1 down to row 400 of "tr", in layer 2.
+  // The descent's run on row 200 lies inside the drop's vertical (0..400), so
+  // the drop's row must stand left of it. Slot 0 is the column nearest the
+  // target zone of gap 1, each further slot one pitch left.
+  const slotX = (k: number): number =>
+    GAPS[1]!.targetZone.left - ENTRY_SLOT_PITCH / 2 - k * ENTRY_SLOT_PITCH;
+  const nodes = [
+    card("sp", 0, 190, 20),
+    card("blk", 1, 150, 100),
+    card("sr", 1, -10, 20),
+    card("tp", 2, 190, 20),
+    card("tr", 2, 390, 20),
+  ];
+  const bend = mkEdge("e:1:sp->tp:x", "sp", "tp", "x");
+  const drop = mkEdge("e:2:sr->tr:y", "sr", "tr", "y");
+  const entryXOf = (edges: Edge[]): unknown => {
+    const out = assignEntryColumns(nodes, edges, { gaps: GAPS });
+    return (out.find((e) => e.id === drop.id)!.data as Record<string, unknown>)[
+      "entryX"
+    ];
+  };
+
+  it("keeps a slot for another card's descent right of the row", () => {
+    const order = buildGapColumnOrder(nodes, [bend, drop], GAPS);
+    const descent = order.descentId(bend.id);
+    expect(order.byId.get(descent)?.potential).toBe(true);
+    expect(order.mustStandLeft(order.arrivalRowId("tr", 400), descent)).toBe(
+      true,
+    );
+
+    expect(entryXOf([drop])).toBe(slotX(0));
+    expect(entryXOf([bend, drop])).toBe(slotX(1));
   });
 });

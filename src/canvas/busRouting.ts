@@ -2910,7 +2910,7 @@ function stubClearColumns(
 // the scan first moves. A run the jog cannot relocate (the stub between a port
 // and its column) is the gap order's: the column order keeps it off a run on
 // the other side of its column, and where no order can -- a constraint cycle,
-// or two runs on the same side sharing more than a port stub -- the later-
+// or two target runs on the same side sharing more than a port stub -- the later-
 // routed edge owes a jog up front (the third trigger). Two runs that coincide on a port row their edges
 // share are waived (sharesPortRow): that pair is one line on purpose. The bands
 // join the tier scan beside the cards, so a level clearing the floor also
@@ -2939,8 +2939,8 @@ export function jogForwardLegs(
 
   // The gap order, and where its columns stand now that every column pass has
   // run. Two kinds of edge owe a jog before any floor is measured: the
-  // later-routed member of a constraint cycle, and the later-routed of two runs
-  // on the same side of their columns that share more than a port stub within
+  // later-routed member of a constraint cycle, and the later-routed of two
+  // target runs right of their columns that share more than a port stub within
   // the floor (gapColumnOrder.ts). No column order can separate either pair.
   const order =
     ctx?.order ?? buildGapColumnOrder(nodes, edges, ctx?.gaps ?? []);

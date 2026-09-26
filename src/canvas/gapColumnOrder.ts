@@ -54,9 +54,11 @@
 //
 // Same side. Two LEFT rows within the floor overlap on the stretch from their
 // ports to the nearer column however the columns are ordered, and two RIGHT
-// rows on the stretch from the farther column to their ports. Where that
-// overlap exceeds a port stub the later-routed member owes a jog as well. It
-// depends on where the columns stand, so it is asked of the order once they do.
+// rows on the stretch from the farther column to their ports. Where a right
+// pair's overlap exceeds a port stub the later-routed member owes a jog as
+// well. It depends on where the columns stand, so it is asked of the order
+// once they do. A left pair owes nothing: a jog keeps the source run on its
+// source row out to its column, so no jog separates it.
 //
 // Pure and deterministic: a function of the node placement, the edge topology
 // and the gap records. Routing stamps and edge types are ignored, so the order
@@ -864,11 +866,8 @@ function orderCandidates(
             if (aLater ? jogA : jogB) owedEdges.add(later);
             else if (aLater ? jogB : jogA) owedEdges.add(earlier);
           };
-          for (const ra of a.leftRows) {
-            for (const rb of b.leftRows) {
-              owe(ra, rb, Math.min(xa, xb) - Math.max(ra.portX, rb.portX));
-            }
-          }
+          // Right rows only: a jog keeps its source run on the source row out
+          // to its column, so two left rows share their stretch jogged or not.
           for (const ra of a.rightRows) {
             for (const rb of b.rightRows) {
               owe(ra, rb, Math.min(ra.portX, rb.portX) - Math.max(xa, xb));
