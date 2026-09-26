@@ -563,7 +563,7 @@ function AppInner() {
   }
   const unavailable = availability.ids;
   // The items behind that map, each with its cause: the pickers dim exactly
-  // these tiles and their hint names the cause the validation error above also
+  // these tiles and their hint names the cause the blocked-target banner also
   // interpolates. Derived beside `availability` from the same settings, so the
   // tiles, the hint, and the banner can never disagree.
   const unavailableItemCauses = useMemo(
