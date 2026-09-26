@@ -266,10 +266,9 @@ export function crossingCueCoverage(
   return out;
 }
 
-// Container node ids (type "group") whose raw rect contains point p. An edge's
-// endpoint sitting inside a group legitimately crosses that group's card, so the
-// audit exempts the endpoints' containers -- the same parentId exemption the
-// routing passes apply, recovered geometrically.
+// Node ids of type "group" whose raw rect contains point p. The canvas draws no
+// node of that type, so this returns [] on every plan and the exemptions its
+// callers build from it are empty.
 export function containersAt(p: Pt, nodes: ReadonlyArray<NodeRect>): string[] {
   return nodes
     .filter(
@@ -320,9 +319,8 @@ export type SegmentViolation = {
 
 // Every edge segment that enters a FOREIGN padded card, each flagged raw (the
 // segment also pierces the unpadded node box) or graze (padding only). Foreign =
-// any node card except the edge's own source, target, and their containing
-// groups (the same exemption the routing corridor tests use). eps guards the
-// boundaries.
+// any node card except the edge's own source and target (the same exemption the
+// routing corridor tests use). eps guards the boundaries.
 export function auditSegmentsVsCards(
   edges: ReadonlyArray<RawEdge>,
   nodes: ReadonlyArray<NodeRect>,
@@ -369,9 +367,8 @@ export type OwnCardPierce = {
 // This surfaces exactly that residue, so a follow-up change that grows it is
 // caught by a ratchet. A normal approach leg touches only the card's port-side
 // boundary (the open-interval test with eps ignores a boundary graze), so it
-// does not count; only a column landing inside the body does. Container (group)
-// endpoints are skipped: a run legitimately lives inside its own container, and
-// the routing passes exempt it the same way. Pure and deterministic.
+// does not count; only a column landing inside the body does. Pure and
+// deterministic.
 export function auditOwnCardPierces(
   edges: ReadonlyArray<RawEdge>,
   nodes: ReadonlyArray<NodeRect>,
@@ -407,41 +404,35 @@ export function auditOwnCardPierces(
   return out;
 }
 
-// Frame rides: segments that run ALONG a container slab's border, close enough
-// that the stroke and the border read as one line (the
-// loop-backedge-braids-container family, #29 follow-on, and the forward jog
-// hugging a frame the casebook re-reports). A ride needs a parallel run, so a
-// near-border segment counts only when it overlaps the border's own extent by
-// more than two port stubs -- a perpendicular crossing or a short corner never
-// does. Diagonal chamfers never ride a frame.
+// Frame rides: segments that run ALONG a loop card's border (type "loop", a
+// collapsed SCC; the "group" arm of the filter matches no drawn node), close
+// enough that the stroke and the border read as one line. A ride needs a
+// parallel run, so a near-border segment counts only when it overlaps the
+// border's own extent by more than two port stubs -- a perpendicular crossing
+// or a short corner never does. Diagonal chamfers never ride a border.
 //
 // The two directions are scored under different rules, because different
 // routing levers stand behind them:
 //
 //   BACKWARD (target at or left of the source, mirroring clampBackwardRails'
-//     nodeGap test): both axes, at `tol`. The rail pass keeps a return's
-//     verticals DRAWN_VERTICAL_GAP off the side borders (Task 7) and the
-//     tolerance matches that constant. The endpoints' own containers are
-//     deliberately NOT exempt: a return between two members of one slab is
-//     exactly the shape whose columns may hug the frame.
+//     nodeGap test): both axes, at `tol`, which equals the DRAWN_VERTICAL_GAP
+//     pitch a rail column keeps off another edge's drawn vertical. Nothing is
+//     exempt, the edge's own endpoint cards included.
 //
 //   FORWARD: HORIZONTALS only, at the wider `forwardTol` -- no forward pass
-//     takes any container clearance, so what a run holds off a border is
+//     keeps a clearance off a loop card's border, so what a run holds off it is
 //     whatever the level search left it, and the band at which the two read as
-//     one edge of the slab is the whole port stub. Forward VERTICALS stay out:
-//     a tap's jog descent may share an entry-gutter line with a container
-//     border by convention, so counting them would pin a shape the doctrine
-//     declares legal. Two more forward exemptions: the endpoints' own
-//     containers (a run leaving a card inside a slab has to travel beside that
-//     slab's border), and an edge drawn as ONE straight horizontal from port to
-//     port (its level is the row its two ports share, not a choice any pass
-//     made).
+//     one line is the whole port stub. Forward VERTICALS are not scored. Two
+//     more forward exemptions: the edge's own source and target cards (a run
+//     leaving or entering a card travels beside that card's border), and an
+//     edge drawn as ONE straight horizontal from port to port (its level is the
+//     row its two ports share, not a choice any pass made).
 //
 // Pure and deterministic.
 export type FrameRideHit = {
   edgeId: string;
   direction: "forward" | "backward";
-  // The container node id whose border is ridden.
+  // The loop node id whose border is ridden.
   target: string;
   border: "left" | "right" | "top" | "bottom";
   seg: [Pt, Pt];
@@ -450,7 +441,7 @@ export type FrameRideHit = {
 
 export const FRAME_RIDE_TOL = 16;
 
-// The band a FORWARD horizontal has to hold off a container border. A port stub
+// The band a FORWARD horizontal has to hold off a loop card border. A port stub
 // is the shortest run the canvas draws, so a stroke nearer than that to a
 // border has no visible corridor of its own between the two.
 export const FORWARD_FRAME_RIDE_TOL = PORT_STUB;
@@ -518,7 +509,7 @@ export function auditFrameRides(
       const horizontal = p0[1] === p1[1];
       if (!vertical && !horizontal) continue; // a chamfer diagonal
       if (vertical) {
-        if (!backward) continue; // tap-descent exception
+        if (!backward) continue; // forward verticals are not scored
         const yLo = Math.min(p0[1], p1[1]);
         const yHi = Math.max(p0[1], p1[1]);
         const overlapY = (r: { top: number; bottom: number }): number =>
@@ -689,13 +680,11 @@ export type ChipCardViolation = {
 
 // Every chip box that enters a FOREIGN node's RAW card, OR seats its CENTRE on
 // its OWN endpoint card's body past the port strip (the P3 chip-vs-card tier,
-// tightened for issue #10). Two exemption tiers, mirroring the seating pass:
-//   - containers (group slabs holding an endpoint) stay WHOLLY exempt; a chip
-//     legitimately sits inside its endpoints' container.
-//   - own endpoint cards are exempt while the chip centre stays in the port strip
-//     (chipEntersOwnCardBody, shared verbatim with the seating pass). Only the
-//     port SIDE is needed (source = right edge, target = left edge); the strip
-//     depth and the centre test live in the shared helper.
+// tightened for issue #10). One exemption tier, mirroring the seating pass: own
+// endpoint cards are exempt while the chip centre stays in the port strip
+// (chipEntersOwnCardBody, shared verbatim with the seating pass). Only the port
+// SIDE is needed (source = right edge, target = left edge); the strip depth and
+// the centre test live in the shared helper.
 // Which endpoints count as "own":
 //   - label chip: the owner edge's source (source zone) and target (target zone).
 //   - bus-drop (aggregate) chip: the shared source plus EVERY member target of
@@ -1560,7 +1549,7 @@ function rowIndexOf(
 //
 // Endpoints whose node is absent from the collected set are skipped, mirroring
 // edgeEndpoints returning null. A node kind the model gives no per-item port
-// (product, and container / loop kinds) rebuilds at the card centre, which is
+// (product and loop kinds) rebuilds at the card centre, which is
 // what portOffsetY returns for it; the whole corpus currently lands every edge
 // endpoint on a recipe or a product, so a loop node entering the corpus would
 // show up here as a row-pitch gap rather than pass unnoticed. LoopNode already
@@ -1657,7 +1646,7 @@ export type CardFrameMismatch = {
 // in flow -- a plate drawn outside the card's layout would show up here as a
 // height mismatch on every environment card.
 //
-// Recipes only. A product or group card rebuilds its model width from the DOM
+// Recipes only. A product card rebuilds its model width from the DOM
 // (nothing else knows it), so it would agree by construction -- the same blind
 // spot auditEndpointParity's product side documents. Recipes rebuild off the
 // model constants, so they carry the contract.
@@ -1781,10 +1770,6 @@ export const CARD_INTRUSION_EPS = 1e-3;
 // a card it saturates at the chip's smaller extent. Conservative (never over-
 // reports): a box that only laps the port strip scores its x-overlap and stays
 // under budget however tall it is.
-//
-// Container slabs (type "group", the `loop:` boxes) are excluded outright: a
-// chip legitimately sits inside a slab its endpoints live in, and the slab's
-// border is not a card border the reader reads a chip against.
 export function auditChipCardIntrusion(
   chips: ReadonlyArray<ChipRect>,
   nodes: ReadonlyArray<NodeRect>,

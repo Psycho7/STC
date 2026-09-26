@@ -373,8 +373,8 @@ test.describe("InputsPanel golden-path coverage", () => {
     // The input ProductNode for copper_ore still renders, no error banner.
     // Capping the ore gives it a mass-balance row, and no producer can cover it
     // (the only recipe that makes it runs on a map deposit), so the whole demand
-    // arrives at the boundary and each consumer gets its own tap alongside the
-    // boundary node. Take the first: this case is about the node existing.
+    // lands on the single boundary pool card. Take the first: this case is
+    // about the node existing.
     const copperOreInput = page
       .locator(
         '[data-testid="product-node"][data-flavor="inputProduct"][data-item-id="copper_ore"]',
