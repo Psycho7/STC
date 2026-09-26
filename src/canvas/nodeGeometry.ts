@@ -9,10 +9,11 @@
 //      drawn one (nodeRectOf): the router, chip seating and every other
 //      consumer read that box. nodeWidth / nodeHeight stay the model sizes the
 //      layout and the ports are placed by. Every other module reads one frame
-//      or the other and never converts. Every drawn-frame export here carries `drawn` in its
-//      name, because comparing a model value against a DRAWN rect is wrong by
-//      1-2 units, exactly at the thresholds the ratcheted occlusion and
-//      crossing counts live on.
+//      or the other and never converts. The card rect needs no marker: there
+//      is only the one, and it is drawn. `drawn` in a name marks a PORT value,
+//      because a port exists in both frames: comparing a model port against
+//      drawn geometry is wrong by the port drift, exactly at the thresholds the
+//      ratcheted occlusion and crossing counts live on.
 //   2. Fallbacks. Recipe and loop nodes carry no top-level width or height.
 //      nodeWidth derives loop width from loopBoxDimensions and otherwise
 //      falls back to RECIPE_WIDTH when node.width is absent; nodeHeight

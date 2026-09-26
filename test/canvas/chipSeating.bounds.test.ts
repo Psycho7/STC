@@ -28,7 +28,7 @@ import {
   nodeWidth,
 } from "../../src/canvas/nodeGeometry";
 import type { RFAnyNode } from "../../src/canvas/layout";
-import { productNode } from "./busRouting.testkit";
+import { mkRecipe, productNode, recipeNode } from "./busRouting.testkit";
 import { pack } from "../../src/data/load";
 import type { Plan } from "../../src/data/plan";
 import { solveFromPlan } from "../../src/pipeline/solveForRender";
@@ -139,6 +139,21 @@ describe("contentBounds: chip extents", () => {
     const owned = contentBounds(NODES, [edgeWith(true)])!;
     const agg = framing(fan.trunkAnchor.x, fan.trunkAnchor.y, aggHalfW);
     expect(owned.x).toBe(Math.min(agg.x, fan.branchAnchor.x - memberHalfW));
+  });
+});
+
+describe("contentBounds: card extents", () => {
+  it("frames a recipe card at the extreme by its drawn box", () => {
+    // A recipe card is the right-most and bottom-most node. Its drawn border
+    // box is 2 wider and 2 taller than the model size, and the frame must reach
+    // that drawn edge or the card's border clips at the viewport rim.
+    const card = recipeNode("r", 600, 300, mkRecipe("r", ["ore"], ["plate"]));
+    const bounds = contentBounds([left, card], [])!;
+
+    expect(bounds.x).toBe(0);
+    expect(bounds.y).toBe(0);
+    expect(bounds.x + bounds.width).toBe(600 + nodeWidth(card) + 2);
+    expect(bounds.y + bounds.height).toBe(300 + nodeHeight(card) + 2);
   });
 });
 
