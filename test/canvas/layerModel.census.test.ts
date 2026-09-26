@@ -52,8 +52,7 @@ const SPAN_TOLERANCE = 1e-6;
 const OUT =
   "/tmp/claude-1000/-home-rins-workspace-STC-workspace-STC/a0f99249-1eb8-4705-b511-edeea31a8f21/scratchpad/layer-width-census.json";
 
-// Laid-out width of a plan: the leaf nodes' bounding span in x. Containers are
-// skipped because they only wrap their children.
+// Laid-out width of a plan: the leaf nodes' bounding span in x.
 function plannedWidth(nodes: ReadonlyArray<RFAnyNode>): number {
   let left = Infinity;
   let right = -Infinity;

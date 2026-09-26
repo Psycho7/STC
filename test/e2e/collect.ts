@@ -582,9 +582,7 @@ export function collectScene(): SceneCollection {
   }
 
   const groups = Array.from(
-    document.querySelectorAll<HTMLElement>(
-      '.rf-group-box, [data-testid="loop-node"]',
-    ),
+    document.querySelectorAll<HTMLElement>('[data-testid="loop-node"]'),
   );
   for (let i = 0; i < groups.length; i++) {
     const el = groups[i]!;

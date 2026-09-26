@@ -501,7 +501,7 @@ describe("hoverGraphFromDom", () => {
 });
 
 describe("expectedDimmed", () => {
-  //   n1 --e1--> n2 --e2--> n3      n4 --e3--> n5      g (group container)
+  //   n1 --e1--> n2 --e2--> n3      n4 --e3--> n5
   const graph: HoverGraph = {
     nodes: [
       { id: "n1", type: "recipe" },
@@ -509,7 +509,6 @@ describe("expectedDimmed", () => {
       { id: "n3", type: "recipe" },
       { id: "n4", type: "recipe" },
       { id: "n5", type: "recipe" },
-      { id: "g", type: "group" },
     ],
     edges: [
       { id: "e1", source: "n1", target: "n2" },
@@ -533,15 +532,6 @@ describe("expectedDimmed", () => {
       "n4",
       "n5",
     ]);
-  });
-
-  // Canvas makes group boxes hover-inert and gives a container with a focused
-  // child `lit-container` instead of `dimmed`. Counting them would put a known
-  // non-defect in every expected set.
-  test("leaves group containers out of the universe", () => {
-    for (const id of ["e1", "e2", "e3"]) {
-      expect(expectedDimmed(graph, { kind: "edge", id })).not.toContain("g");
-    }
   });
 
   // The expectation is a LOWER bound: an ego-network that covers the whole graph
