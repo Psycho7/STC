@@ -783,6 +783,9 @@ function AppInner() {
         // Decode and check the plan without the viewer's settings: a target
         // they switch off blocks the solve, not the link.
         const outcome = await loadPlan(hash, pack);
+        // A newer generation may have started its layout during the decode.
+        // Laying out now would terminate that layout's ELK worker.
+        if (myGen !== solveGen.current) return;
         if (outcome.kind === "error") {
           failLoad(outcome.error);
           return;
