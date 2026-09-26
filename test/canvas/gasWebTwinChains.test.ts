@@ -13,61 +13,51 @@ import type { Edge } from "@xyflow/react";
 import { layoutSolved } from "../../src/canvas/layoutSolved";
 import { drawnEdge } from "../../src/canvas/edgePath";
 import { drawnPortsOf, nodeIndexOf } from "../../src/canvas/nodeGeometry";
-import { properCross } from "../../src/canvas/crossings";
 import { pack } from "../../src/data/load";
 import { solveForRender } from "../../src/pipeline/solveForRender";
 import type { ItemTarget } from "../../src/data/targets";
-
-type Pt = readonly [number, number];
-
-// The exam plan (test/e2e/scenarios.ts, "gas-web").
-const GAS_WEB_TARGETS: ItemTarget[] = [
-  { itemId: "gas_xiranite_enr", ratePerSec: { num: "1", denom: "2" } },
-  { itemId: "gas_copper_enr2", ratePerSec: { num: "1", denom: "2" } },
-  { itemId: "gas_inert", ratePerSec: { num: "1", denom: "4" } },
-];
-
-const crossCount = (a: ReadonlyArray<Pt>, b: ReadonlyArray<Pt>): number => {
-  let hits = 0;
-  for (let i = 0; i + 1 < a.length; i++) {
-    for (let j = 0; j + 1 < b.length; j++) {
-      if (properCross(a[i]!, a[i + 1]!, b[j]!, b[j + 1]!)) hits++;
-    }
-  }
-  return hits;
-};
+import { SCENARIOS } from "../e2e/scenarios";
+import { countCrossings } from "../e2e/geometry";
 
 describe("gas-web twin chains", () => {
   it("draw the two chains without crossing each other", async () => {
+    const scenario = SCENARIOS.find((s) => s.id === "gas-web")!;
+    const targets: ItemTarget[] = scenario.targets.map((t) => ({
+      itemId: t.itemId,
+      ratePerSec: t.ratePerSec,
+    }));
     // layoutSolved builds recipeById from the raw pack, as App.tsx does.
     const { nodes, edges } = await layoutSolved(
-      solveForRender({ targets: GAS_WEB_TARGETS, pack }),
+      solveForRender({ targets, pack }),
     );
     const byId = nodeIndexOf(nodes);
 
-    const polyline = (source: string, target: string): ReadonlyArray<Pt> => {
+    const drawn = (source: string, target: string) => {
       const edge = edges.find(
         (e: Edge) => e.source === source && e.target === target,
       );
       expect(edge, `${source} -> ${target}`).toBeDefined();
       const ports = drawnPortsOf(edge!, byId);
       expect(ports).not.toBeNull();
-      return drawnEdge(ports!, edge!.type, edge!.data).pts;
+      return {
+        id: edge!.id,
+        d: drawnEdge(ports!, edge!.type, edge!.data).path,
+      };
     };
 
     // Solid-Gas -> Packaging, one per chain.
     expect(
-      crossCount(
-        polyline("u:class:q:0", "u:class:q:5"),
-        polyline("u:class:q:1", "u:class:q:6"),
-      ),
+      countCrossings([
+        drawn("u:class:q:0", "u:class:q:5"),
+        drawn("u:class:q:1", "u:class:q:6"),
+      ]),
     ).toBe(0);
     // Packaging -> Purification, one per chain.
     expect(
-      crossCount(
-        polyline("u:class:q:5", "u:class:q:2"),
-        polyline("u:class:q:6", "u:class:q:4"),
-      ),
+      countCrossings([
+        drawn("u:class:q:5", "u:class:q:2"),
+        drawn("u:class:q:6", "u:class:q:4"),
+      ]),
     ).toBe(0);
   });
 });
