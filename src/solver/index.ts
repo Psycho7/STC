@@ -294,6 +294,7 @@ function runSolvePipeline(
     targets,
     augmented,
     boundaryShare,
+    deficit: lpResult.deficit,
   });
   if (devAsserts() && augmented.size > 0) {
     assertAugmentedSeeds({ sccs, augmented, rates, replicas: rawReplicas });

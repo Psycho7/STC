@@ -71,6 +71,7 @@ export function replicatePerConsumer(args: {
   targets: ReadonlyArray<ItemTarget>;
   augmented?: Set<RecipeId>;
   boundaryShare?: ReadonlyMap<ItemId, Fraction>;
+  deficit?: ReadonlyMap<ItemId, Fraction>;
 }): { replicas: Replica[]; supplyShares: Map<string, Fraction> } {
   const state = createReplicateState(args);
   walkFromTargets(state);
@@ -114,6 +115,10 @@ type ReplicateState = {
   // nets each consumer's per-item demand by it, so walk-seeded replica rates
   // reconcile with the LP when a cap diverts demand to the boundary.
   readonly boundaryShare: ReadonlyMap<ItemId, Fraction>;
+  // The LP's unmet demand per item (LpResult.deficit). A target item's deficit
+  // comes off its declared draw, so a short target leaves its in-plan consumers
+  // fed and the target itself takes the shortfall.
+  readonly deficit: ReadonlyMap<ItemId, Fraction>;
 
   // Output accumulators.
   readonly replicas: Replica[];
@@ -197,6 +202,7 @@ function createReplicateState(args: {
   targets: ReadonlyArray<ItemTarget>;
   augmented?: Set<RecipeId>;
   boundaryShare?: ReadonlyMap<ItemId, Fraction>;
+  deficit?: ReadonlyMap<ItemId, Fraction>;
 }): ReplicateState {
   const sccById = new Map<SccId, Condensation["sccs"][number]>();
   for (const s of args.condensation.sccs) sccById.set(s.id, s);
@@ -260,6 +266,7 @@ function createReplicateState(args: {
     targets: args.targets,
     augmented: args.augmented ?? new Set<RecipeId>(),
     boundaryShare: args.boundaryShare ?? new Map<ItemId, Fraction>(),
+    deficit: args.deficit ?? new Map<ItemId, Fraction>(),
     replicas: [],
     supplyShares: new Map(),
     nextId: 0,
@@ -1288,15 +1295,31 @@ function walkFromTargets(state: ReplicateState): void {
   // is counted as a split weight there, share-shrinking a co-producing
   // external sibling that must carry the residual demand at its full LP rate.
   // Duplicate item entries accumulate their declared rates.
+  //
+  // The draw is what the LP delivers: the declared rate less the item's
+  // deficit. The LP bills a short item's deficit to its row, not to a
+  // consumer, and a draw at the full declared rate would take production the
+  // in-plan consumers run on and starve them instead of the target.
+  //   copper_jar declared 1/2, deficit 1/8, filter_core eats 1/8 -> draw 3/8
+  const declaredByItem = new Map<ItemId, Fraction>();
   for (const t of state.targets) {
-    const producers = state.producersByTargetItem.get(t.itemId) ?? [];
+    declaredByItem.set(
+      t.itemId,
+      (declaredByItem.get(t.itemId) ?? new Fraction(0)).add(
+        rationalFromString(t.ratePerSec),
+      ),
+    );
+  }
+  for (const [itemId, declared] of declaredByItem) {
+    const producers = state.producersByTargetItem.get(itemId) ?? [];
     if (producers.length === 0) continue;
-    const declared = rationalFromString(t.ratePerSec);
+    let delivered = declared.sub(state.deficit.get(itemId) ?? 0);
+    if (delivered.compare(0) < 0) delivered = new Fraction(0);
     let totalFlow = new Fraction(0);
     const flows = new Map<RecipeId, Fraction>();
     for (const rid of producers) {
       const outQty =
-        state.g.nodes.get(rid)?.out.find((o) => o.item === t.itemId)?.qty ?? 0;
+        state.g.nodes.get(rid)?.out.find((o) => o.item === itemId)?.qty ?? 0;
       const flow = (state.rates.get(rid) ?? new Fraction(0)).mul(
         new Fraction(outQty),
       );
@@ -1312,10 +1335,7 @@ function walkFromTargets(state: ReplicateState): void {
         perItem = new Map<ItemId, Fraction>();
         state.targetDraw.set(rid, perItem);
       }
-      perItem.set(
-        t.itemId,
-        (perItem.get(t.itemId) ?? new Fraction(0)).add(declared.mul(share)),
-      );
+      perItem.set(itemId, delivered.mul(share));
     }
   }
 
