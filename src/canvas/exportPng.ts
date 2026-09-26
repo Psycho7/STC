@@ -1,4 +1,5 @@
 import { toBlob } from "html-to-image";
+import { bytesToBase64 } from "../data/encoding/base64url";
 import type { ContentRect } from "./chipSeating";
 
 // Flow-unit margin kept on every side of the exported rect, so the outermost
@@ -176,10 +177,6 @@ const ALL_CODE_POINTS = "U+0-10FFFF";
 
 const CSS_URL = /url\(\s*(["']?)([^"')]+)\1\s*\)/g;
 
-// Bytes per String.fromCharCode call; spreading a whole font would overflow
-// the argument limit.
-const BASE64_CHUNK = 0x8000;
-
 function unquote(family: string): string {
   return family.trim().replace(/["']/g, "");
 }
@@ -228,12 +225,8 @@ async function fetchDataUrl(url: string): Promise<string> {
   // Raw bytes work in any realm; a file reader rejects a Blob from another
   // one, which is what fetch returns under jsdom.
   const bytes = new Uint8Array(await response.arrayBuffer());
-  let binary = "";
-  for (let i = 0; i < bytes.length; i += BASE64_CHUNK) {
-    binary += String.fromCharCode(...bytes.subarray(i, i + BASE64_CHUNK));
-  }
   const type = response.headers.get("Content-Type") ?? "";
-  return `data:${type};base64,${btoa(binary)}`;
+  return `data:${type};base64,${bytesToBase64(bytes)}`;
 }
 
 async function inlineUrls(cssText: string, baseUrl: string): Promise<string> {
@@ -258,10 +251,17 @@ function faceCSS(key: string, cssText: string, baseUrl: string) {
 
 // `used` holds the face keys to embed: loaded, and in a canvas family.
 async function buildFontEmbedCSS(used: ReadonlySet<string>): Promise<string> {
+  // Evict faces this build drops, so the cache never outgrows one build.
+  for (const key of faceCSSByKey.keys()) {
+    if (!used.has(key)) {
+      faceCSSByKey.delete(key);
+    }
+  }
+
   const faces: Promise<string>[] = [];
   for (const sheet of Array.from(document.styleSheets)) {
     for (const rule of readableRules(sheet)) {
-      if (!rule.cssText.startsWith("@font-face")) {
+      if (rule.type !== CSSRule.FONT_FACE_RULE) {
         continue;
       }
       const style = (rule as CSSFontFaceRule).style;

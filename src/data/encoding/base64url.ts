@@ -3,13 +3,20 @@
 // engines, so we build the binary string up in 32 KB slices instead.
 const CHUNK = 0x8000;
 
-export function bytesToBase64url(bytes: Uint8Array): string {
+export function bytesToBase64(bytes: Uint8Array): string {
   if (bytes.length === 0) return "";
   let binary = "";
   for (let offset = 0; offset < bytes.length; offset += CHUNK) {
     binary += String.fromCharCode(...bytes.subarray(offset, offset + CHUNK));
   }
-  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=/g, "");
+  return btoa(binary);
+}
+
+export function bytesToBase64url(bytes: Uint8Array): string {
+  return bytesToBase64(bytes)
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=/g, "");
 }
 
 export function base64urlToBytes(encoded: string): Uint8Array {
