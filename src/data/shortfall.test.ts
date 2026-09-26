@@ -88,6 +88,22 @@ describe("attributeShortfall", () => {
     );
   });
 
+  it("joins zh lists with the ideographic comma and zh sentences without a space", () => {
+    const report = attributeShortfall(
+      facts({
+        deficitItemIds: ["mid", "top"],
+        itemCauses: new Map([
+          ["mid", { kind: "manual", recipeId: "make_mid" }],
+          ["top", { kind: "manual", recipeId: "make_top" }],
+        ]),
+      }),
+    );
+
+    expect(shortfallText(report, zh)).toBe(
+      "以下产物需求未满足：mid、top。mid、top 的配方均已在设置中关闭。",
+    );
+  });
+
   it("names a cap only from the capped items the plan exhausted", () => {
     const report = attributeShortfall(
       facts({ underDelivered: ["copper_jar"], cappedAtLimit: ["gas_inert"] }),
