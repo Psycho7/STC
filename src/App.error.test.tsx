@@ -55,6 +55,7 @@ vi.mock("./solver", async (importOriginal) => {
 });
 
 import App from "./App";
+import { layoutRenderPlan } from "./canvas/layout";
 import { loadI18n } from "./data/i18n";
 import { defaultPlan, encodePlan } from "./data/plan";
 import { pack } from "./data/load";
@@ -161,25 +162,119 @@ test("a load failure routes through the load wrapper, not the solver wrapper", a
   expect(banner.textContent).not.toContain("Solver error");
 });
 
-// A link that decodes into a valid plan but has no solution is not damaged:
-// the splash says the plan cannot be solved and never leaks the LP message.
-test.each([
+async function encodedCrystalHash(): Promise<string> {
+  const plan = {
+    ...defaultPlan(pack),
+    targets: [{ itemId: "crystal_enr", ratePerSec: { num: "1", denom: "1" } }],
+  };
+  return "#" + (await encodePlan(plan));
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
+function expectSolverBannerText(text: string | null, advice: boolean) {
+  expect(text).not.toContain("damaged");
+  expect(text).not.toContain("LP solver");
+  expect(text).not.toContain("infeasible problem");
+  expect(text).toMatch(/no feasible plan/i);
+  if (advice) expect(text).toContain("Raise the supply caps");
+  else expect(text).not.toMatch(/supply cap/i);
+}
+
+const CAP_CASES = [
   { name: "no supply cap set", cappedIds: [] as string[], advice: false },
   { name: "a supply cap set", cappedIds: ["liquid_water"], advice: true },
-])(
-  "a share link that decodes but fails to solve, $name",
+];
+
+// A link that decodes is valid plan state even when it has no solution: the
+// panels adopt it, the solver banner explains, and the damaged-link splash
+// (reserved for links that fail to decode) never shows.
+test.each(CAP_CASES)(
+  "a share link that decodes but fails to solve on first load, $name",
   async ({ cappedIds, advice }) => {
-    window.location.hash = "#" + (await encodePlan(defaultPlan(pack)));
+    const hash = await encodedCrystalHash();
+    window.location.hash = hash;
     solverGate.cappedIds = cappedIds;
     solverGate.throwNext = true;
     render(<App />);
 
-    const alert = await screen.findByRole("alert");
-    expect(alert.textContent).not.toContain("damaged");
-    expect(alert.textContent).not.toContain("LP solver");
-    expect(alert.textContent).not.toContain("infeasible problem");
-    expect(alert.textContent).toMatch(/no solution|no feasible plan/i);
-    if (advice) expect(alert.textContent).toContain("Raise the supply caps");
-    else expect(alert.textContent).not.toMatch(/supply cap/i);
+    const rows = await screen.findAllByTestId("target-row");
+    expect(rows.length).toBe(1);
+    const crystalName = loadI18n("en").displayName("crystal_enr");
+    expect(rows[0]!.innerHTML).toContain(crystalName);
+    expect(screen.getByTestId("header-strip")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /fresh plan/i })).toBeNull();
+    const banner = screen.getByRole("alert");
+    expect(banner.className).toContain("app-error-banner");
+    expectSolverBannerText(banner.textContent, advice);
+    expect(window.location.hash).toBe(hash);
   },
 );
+
+test.each(CAP_CASES)(
+  "a decodable hash that fails to solve over a drawn plan adopts the new plan, $name",
+  async ({ cappedIds, advice }) => {
+    render(<App />);
+    await screen.findAllByTestId("target-row");
+    await waitFor(() => expect(window.location.hash).not.toBe(""));
+    await waitFor(() => expect(canvasSpy.status).toBe("READY"));
+    expect(screen.getAllByTestId("target-row").length).toBe(3);
+
+    const hash = await encodedCrystalHash();
+    solverGate.cappedIds = cappedIds;
+    solverGate.throwNext = true;
+    window.location.hash = hash;
+    window.dispatchEvent(new HashChangeEvent("hashchange"));
+
+    const banner = await screen.findByRole("alert");
+    expectSolverBannerText(banner.textContent, advice);
+    await waitFor(() =>
+      expect(screen.getAllByTestId("target-row").length).toBe(1),
+    );
+    const crystalName = loadI18n("en").displayName("crystal_enr");
+    expect(screen.getAllByTestId("target-row")[0]!.innerHTML).toContain(
+      crystalName,
+    );
+    await waitFor(() => expect(canvasSpy.status).toBe("ERROR"));
+    // No restore: the URL keeps the adopted plan's hash.
+    await new Promise((r) => setTimeout(r, 25));
+    expect(window.location.hash).toBe(hash);
+  },
+);
+
+test("a superseded navigation whose solve fails adopts nothing", async () => {
+  render(<App />);
+  await screen.findAllByTestId("target-row");
+  await waitFor(() => expect(window.location.hash).not.toBe(""));
+  await waitFor(() => expect(canvasSpy.status).toBe("READY"));
+
+  // Navigation A (the crystal plan) holds in layout, then fails after a newer
+  // navigation B (the default plan) has already landed.
+  const gate = deferred<never>();
+  vi.mocked(layoutRenderPlan).mockImplementationOnce(() => gate.promise);
+  window.location.hash = await encodedCrystalHash();
+  window.dispatchEvent(new HashChangeEvent("hashchange"));
+  await waitFor(() =>
+    expect(screen.getByTestId("header-strip").textContent).toContain("SOLVING"),
+  );
+
+  const hashB = "#" + (await encodePlan(defaultPlan(pack)));
+  window.location.hash = hashB;
+  window.dispatchEvent(new HashChangeEvent("hashchange"));
+  await waitFor(() => expect(canvasSpy.status).toBe("READY"));
+
+  gate.reject(new Error("superseded layout failed"));
+  await new Promise((r) => setTimeout(r, 25));
+  expect(screen.getAllByTestId("target-row").length).toBe(3);
+  expect(screen.queryByRole("alert")).toBeNull();
+  expect(canvasSpy.status).toBe("READY");
+  expect(window.location.hash).toBe(hashB);
+});
