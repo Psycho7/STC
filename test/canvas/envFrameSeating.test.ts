@@ -9,14 +9,17 @@
 import { describe, it, expect } from "vitest";
 
 import {
-  CARD_BORDER,
   cardRectsFor,
   chipEntersOwnCardBody,
   seatedChipBoxes,
 } from "../../src/canvas/chipSeating";
 import { RECIPE_WIDTH } from "../../src/canvas/dimensions";
 import { ENV_ROW_HEIGHT } from "../../src/canvas/envBanner";
-import { nodeHeight, nodeIndexOf } from "../../src/canvas/nodeGeometry";
+import {
+  CARD_BORDER,
+  nodeHeight,
+  nodeIndexOf,
+} from "../../src/canvas/nodeGeometry";
 import { layoutSolved } from "../../src/canvas/layoutSolved";
 import { solveForRender } from "../../src/pipeline/solveForRender";
 import { pack } from "../../src/data/load";

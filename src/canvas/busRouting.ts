@@ -40,7 +40,6 @@ import {
   drawnPortsOf,
   edgeItem,
   edgeTargetSide,
-  nodeHeight,
   nodeIndexOf,
   nodeRectOf,
   nodeWidth,
@@ -1766,13 +1765,10 @@ export function assignBendColumns(
     const sourceRight = sourceLeft + nodeWidth(source);
     const targetLeft = absoluteLeft(target);
     if (targetLeft - sourceRight <= 0) continue; // backward / zero-gap edge
-    const sourceTop = absoluteTop(source);
-    const targetTop = absoluteTop(target);
-    const yLo = Math.min(sourceTop, targetTop);
-    const yHi = Math.max(
-      sourceTop + nodeHeight(source),
-      targetTop + nodeHeight(target),
-    );
+    const sourceRect = nodeRectOf(source);
+    const targetRect = nodeRectOf(target);
+    const yLo = Math.min(sourceRect.top, targetRect.top);
+    const yHi = Math.max(sourceRect.bottom, targetRect.bottom);
     const band = Math.round(sourceLeft);
     // A bend the order walks with a trunk (it must stand beyond it) takes its
     // walk column and leaves the fan; the fan then keeps off it.
@@ -2547,10 +2543,15 @@ export function clampBackwardRails(
       x !== defaults.xr ? x : (pinnedRight ?? drawnDefaults.xr);
     const drawnXl = (x: number): number =>
       x !== defaults.xl ? x : (pinnedLeft ?? drawnDefaults.xl);
+    // The rail's drawn x-span. The level field it is tested against is drawn
+    // (the card rects, and every earlier rail's band), so the span that picks
+    // what the rail passes over is drawn too.
+    const drawnLo = Math.min(drawnXl(xlDesired), drawnXr(xrDesired));
+    const drawnHi = Math.max(drawnXl(xlDesired), drawnXr(xrDesired));
     let railY = clearRailY(
       preferredY,
-      xlDesired,
-      xrDesired,
+      drawnLo,
+      drawnHi,
       levelObstacles,
       CHAMFER,
     );
@@ -2571,10 +2572,6 @@ export function clampBackwardRails(
       sy: drawnEnds.sourceY,
       ty: drawnEnds.targetY,
     };
-    const railLo = Math.min(xlDesired, xrDesired);
-    const railHi = Math.max(xlDesired, xrDesired);
-    const drawnLo = Math.min(drawnXl(xlDesired), drawnXr(xrDesired));
-    const drawnHi = Math.max(drawnXl(xlDesired), drawnXr(xrDesired));
     const nearBands = runBands.filter(
       (b) => b.right > drawnLo && b.left < drawnHi,
     );
@@ -2583,8 +2580,6 @@ export function clampBackwardRails(
         railY,
         levelCandidates({
           anchorY: railY,
-          x0: railLo,
-          x1: railHi,
           drawnX0: drawnLo,
           drawnX1: drawnHi,
           bands: nearBands,
@@ -2592,7 +2587,7 @@ export function clampBackwardRails(
           pad: CHAMFER,
         }),
         (y) =>
-          clearRailY(y, xlDesired, xrDesired, levelObstacles, CHAMFER) === y &&
+          clearRailY(y, drawnLo, drawnHi, levelObstacles, CHAMFER) === y &&
           !runFloorHit(nearBands, self, drawnRailY(y), drawnLo, drawnHi),
       );
     }
@@ -2682,7 +2677,7 @@ export function clampBackwardRails(
         byId,
       ),
     );
-    levelObstacles.push(railLevelBand(xl, xr, railY));
+    levelObstacles.push(railLevelBand(drawnXl(xl), drawnXr(xr), railY));
   });
 
   if (
@@ -3161,8 +3156,6 @@ export function jogForwardLegs(
       if (cached !== undefined) return cached;
       const rails = levelCandidates({
         anchorY: ty,
-        x0: sx,
-        x1: tx,
         drawnX0: drawnSx,
         drawnX1: drawnTx,
         bands: withBands ? foreignBands : [],

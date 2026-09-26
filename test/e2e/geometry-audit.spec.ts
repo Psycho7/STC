@@ -447,7 +447,12 @@ const CROSSING_BASELINE: Record<string, number> = {
   // e:0 is the loser of the new forward floor against the raw supply run it used
   // to shadow, and crosses one more corridor at its new level. UP move, listed
   // for ruling.
-  script43: 32,
+  //
+  // DRAWN CARD RECT 2026-09-26: 32 -> 35. The router pads the drawn card box,
+  // so e:0's level 6 under u:class:q:23 stops counting as clear; e:1 takes
+  // that level and e:0 escapes below the plan (y 869), crossing the chain on
+  // the way down. UP move, ruled by stc-13.
+  script43: 35,
   // CATALYST NODE 2026-09-14 (PR B of the catalyst supply pools plan): every
   // catalyst charge now leaves the item's own u:cat:* boundary card instead of
   // its ordinary u:in:* one, so each transmuter plan gained a card and a set of
@@ -518,7 +523,8 @@ const CROSSING_BASELINE: Record<string, number> = {
   //
   // #192 gap column order: 38 -> 36, e:8 x e:18 no longer cross.
   "copper-script43": 36,
-  "script43-xiranite": 31,
+  // DRAWN CARD RECT 2026-09-26: 31 -> 30, e:0 escapes above the plan.
+  "script43-xiranite": 30,
 };
 
 // Padding-graze ratchet (tier 3): segments that clip only a foreign card's
@@ -545,7 +551,10 @@ const PADDED_GRAZE_BASELINE: Record<string, number> = {
   // used to shadow by the forward floor, clips u:class:q:23's padding overhang
   // at the level it lands on. The padding, not the box -- tier 1 stays at zero.
   // Both cells: UP moves, listed for ruling.
-  script43: 1,
+  //
+  // DRAWN CARD RECT 2026-09-26: script43 1 -> 0, script43-xiranite 1 -> 0.
+  // The router pads the drawn box, so e:0 no longer lands in q:23's padding.
+  script43: 0,
   "coupon-web": 0,
   "gas-web": 0,
   "rot-bottled_food_3": 0,
@@ -553,12 +562,15 @@ const PADDED_GRAZE_BASELINE: Record<string, number> = {
   // fan-out member of the crossing cell, takes the nearest clear level under
   // the cycle, y 209.5, and clips u:class:q:7's padding there. UP move, ruled
   // by stc-13.
-  "rot-bottled_food_4": 1,
+  //
+  // DRAWN CARD RECT 2026-09-26: 1 -> 0, e:16 keeps its pad off q:7's drawn
+  // bottom (y 211).
+  "rot-bottled_food_4": 0,
   // ROUTING FINDINGS 2026-09-14: 1 -> 0. e:24's liquid_xiranite supply run no
   // longer clips u:class:q:13's padding.
   transmuters: 0,
   "copper-script43": 0,
-  "script43-xiranite": 1,
+  "script43-xiranite": 0,
 };
 
 // Chip-segment ratchet: (segment, chip) pairs where a foreign flow's line passes

@@ -254,9 +254,17 @@ function flatten(snapshot: Snapshot): Map<string, unknown> {
 //      e:49, e:50, e:52, e:53, e:54, e:55, e:56, e:62, e:67, e:69, e:73,
 //      e:74, e:77, e:78, e:79, e:81, e:83, e:84, e:85, e:86, e:87, e:88,
 //      e:89, e:90. Some of these already sit under an earlier family.
+//   R  the router pads the DRAWN card rect (nodeRectOf grows a recipe card by
+//      its border on the right and the bottom), so a run under a card keeps
+//      its pad off the drawn bottom: battery5 e:4, e:11; battery5-xiranite
+//      e:9, e:30; copper-script43 e:0; multi6 e:2, e:71; rot-bottled_food_3
+//      e:16; rot-bottled_food_4 e:16; script43-xiranite e:1. script43 e:1
+//      takes the level e:0 grazed q:23 from, e:0 escapes below the plan and
+//      e:2 and e:28 re-level around it: script43 e:1, e:2, e:28.
 // An edge key is the short `e:NN` head of the routed edge id.
 const MOVED: Readonly<Record<string, ReadonlyArray<string>>> = {
   "copper-script43": [
+    "e:0",
     "e:1",
     "e:2",
     "e:6",
@@ -295,9 +303,16 @@ const MOVED: Readonly<Record<string, ReadonlyArray<string>>> = {
     "e:27",
     "e:29",
   ],
+  battery5: ["e:4", "e:11"],
+  "battery5-xiranite": ["e:9", "e:30"],
   default: ["e:5"],
+  multi6: ["e:2", "e:71"],
+  "rot-bottled_food_3": ["e:16"],
+  "rot-bottled_food_4": ["e:16"],
   script43: [
     "e:0",
+    "e:1",
+    "e:2",
     "e:6",
     "e:7",
     "e:8",
@@ -310,10 +325,12 @@ const MOVED: Readonly<Record<string, ReadonlyArray<string>>> = {
     "e:20",
     "e:22",
     "e:27",
+    "e:28",
     "e:29",
   ],
   "script43-xiranite": [
     "e:0",
+    "e:1",
     "e:2",
     "e:6",
     "e:7",
@@ -377,6 +394,12 @@ const CHIP_SEATS_MOVED: Readonly<Record<string, ReadonlyArray<string>>> = {
     "e:11:u:class:q:4->u:class:q:0:copper_nugget",
   ],
   "copper-script43": ["e:26:u:class:q:9->u:class:q:32:gas_xiranite_enr"],
+  // Family R (see MOVED): script43-xiranite e:0 and e:1 leave their levels,
+  // and these two chips slide off the verticals that now cross them.
+  "script43-xiranite": [
+    "e:24:u:in:copper_ore->u:class:q:11:copper_ore",
+    "e:31:u:in:liquid_water->u:class:q:11:liquid_water",
+  ],
 };
 
 // The third named delta: family H gives a fan-out trunk with no near member a

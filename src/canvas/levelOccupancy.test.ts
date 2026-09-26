@@ -163,8 +163,6 @@ describe("candidate levels", () => {
     expect(
       levelCandidates({
         anchorY: 250,
-        x0: 0,
-        x1: 500,
         drawnX0: 0,
         drawnX1: 500,
         bands: [],
@@ -179,8 +177,6 @@ describe("candidate levels", () => {
     expect(
       levelCandidates({
         anchorY: 100,
-        x0: 0,
-        x1: 500,
         drawnX0: 0,
         drawnX1: 500,
         bands: [band],
@@ -199,8 +195,6 @@ describe("candidate levels", () => {
     const far = { left: 0, right: 500, top: 1000, bottom: 1100 };
     const levels = levelCandidates({
       anchorY: 250,
-      x0: 0,
-      x1: 500,
       drawnX0: 0,
       drawnX1: 500,
       bands: [],
@@ -216,8 +210,6 @@ describe("candidate levels", () => {
     const symmetric = { left: 0, right: 500, top: 208, bottom: 292 };
     const args = {
       anchorY: 250,
-      x0: 0,
-      x1: 500,
       drawnX0: 0,
       drawnX1: 500,
       bands: [],
@@ -236,8 +228,6 @@ describe("candidate levels", () => {
     expect(
       levelCandidates({
         anchorY: 250,
-        x0: 0,
-        x1: 500,
         drawnX0: 0,
         drawnX1: 500,
         bands: [],
@@ -247,21 +237,19 @@ describe("candidate levels", () => {
     ).toEqual([192, 308]);
   });
 
-  it("spans the drawn bands with the drawn span and the model rects with the model one", () => {
-    // A run whose drawn span sits 5 right of its model span: a band only the
-    // drawn span reaches offers its levels, a card only the model span reaches
-    // offers its escapes, and neither is filtered by the other frame's span.
-    const bandOnlyDrawn = bandAt(100, 502, 700);
-    const cardOnlyModel = { left: 496, right: 498, top: 200, bottom: 300 };
+  it("filters the bands and the cards by the one drawn span", () => {
+    // A recipe source card at model x 0..240 draws 0..242, and its port draws
+    // at 245. The run's drawn span starts at that port, so the card it leaves
+    // offers nothing; a card and a band inside the span offer their levels.
+    const sourceCard = { left: 0, right: 242, top: 400, bottom: 500 };
+    const spanned = { left: 600, right: 700, top: 200, bottom: 300 };
     expect(
       levelCandidates({
         anchorY: 100,
-        x0: 0,
-        x1: 500,
-        drawnX0: 5,
-        drawnX1: 505,
-        bands: [bandOnlyDrawn],
-        cards: [cardOnlyModel],
+        drawnX0: 245,
+        drawnX1: 800,
+        bands: [bandAt(100, 600, 800)],
+        cards: [sourceCard, spanned],
         pad: 8,
       }),
     ).toEqual([
@@ -279,8 +267,6 @@ describe("candidate levels", () => {
     expect(
       levelCandidates({
         anchorY: 250,
-        x0: 0,
-        x1: 500,
         drawnX0: 0,
         drawnX1: 500,
         bands: [bandAt(100, 900, 1200)],
