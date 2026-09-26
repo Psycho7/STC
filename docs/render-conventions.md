@@ -171,11 +171,41 @@ while rows every edge drops into from above reverse among themselves and put the
 bottom row leftmost, so a lower row's source sitting inside the upper row's drop
 does not braid the two.
 
+Every vertical in one gap stands in one column order: trunk junction columns,
+the bend columns of edges that skip a layer, entry columns, and the descent of a
+jogged leg. A horizontal on a port row can only be kept off a neighbouring run
+by where its column stands, and it crosses a neighbour's vertical only where
+the column order lets it pass. So every pair of columns is weighed in both
+orders, from the rows alone. Each order costs one merge for every arriving run
+it lays within a chip box of a leaving run on the stretch between the two
+columns, and one crossing for every run it passes through the other column's
+vertical. The cheaper order wins: fewer merges first, then fewer crossings.
+Merges come first because two lines that close read as one and nothing on
+screen separates them again, while a crossing is cued. A merge is the old rule
+in other words: where one column's run leaves on a row within a chip box of the
+row another column's run arrives on, the arriving column stands left of the
+leaving one. Nesting follows from the crossing count: two bends that rise
+stand with the upper one left, two that fall with the lower one left. The rule
+holds whatever kind either column is, even when it moves a trunk column off its
+usual place at the edge of the gap. Where both orders cost the same, including
+where neither costs anything, each kind keeps its own sense: trunks by port
+row, bends and entry columns by port row with the from-above reversal. Entry
+columns take their slots one row at a time across the cards of a layer, so a
+row of one card can stand between two rows of another. A jogged leg's descent
+takes its place in the same order. It stands where the columns it is paired
+with allow, and a late drop leaves a slot open for a descent that must stand
+right of it.
+
 Forward horizontals keep a floor off each other, the horizontal sibling of the
 column floor under Fan-out and fan-in. Where two such runs of DIFFERENT edges
 share more than a port stub of x, they stay at least a chip box apart in y, and
-the one routed later jogs to the nearest clear level to buy it. Runs of the same
-edge, and the members of one trunk on their shared column, are exempt. The defect
+the one routed later jogs to the nearest clear level to buy it. A run between a
+port and its column cannot move to another level, so the column order keeps it
+clear, and it puts a merge before any number of crossings. Where no order
+can -- the pairwise choices form a cycle, or two runs on the same
+side of their columns share more than a port stub within a chip box -- the one
+routed later jogs. Runs of the same edge, and the members of one trunk on their
+shared column, are exempt. The defect
 it exists to prevent is the same one: two lines a couple of units apart read as
 one thick stroke, and the two rate chips centred on them smear into one figure
 that names neither.

@@ -399,10 +399,13 @@ describe("routeTrunkEdges: the slot order of two trunks in one gap", () => {
     expect(b).toBeLessThan(a);
   });
 
-  it("restores the plain port order when the constraints form a cycle", () => {
+  it("settles a merge in either order by the crossings", () => {
     // The mirror added: B also has a target on A's out-port row, so each trunk
-    // leaves on the other's arriving row. No order satisfies both, and the sort
-    // falls back to the plain one -- A's higher port row takes the left column.
+    // leaves on the other's arriving row and either order merges one pair of
+    // runs. The crossings decide: with A left, A's legs on B's row and on
+    // OFF_ROW_1 cross B's column and B's stub crosses A's (three); with B left,
+    // B's legs pass A's column only on A's own end row and below it (none).
+    // So B takes the left column against the plain order.
     const nodes: RFAnyNode[] = [
       producer("srcA", 0, SRC_A_Y),
       producer("srcB", 0, SRC_B_Y),
@@ -427,7 +430,7 @@ describe("routeTrunkEdges: the slot order of two trunks in one gap", () => {
     expect(Math.abs(portsB.ty - portsA.sy)).toBeLessThan(FORWARD_LEVEL_FLOOR);
 
     const { a, b } = columnsOf(nodes, edges);
-    expect(a).toBeLessThan(b);
+    expect(b).toBeLessThan(a);
   });
 });
 

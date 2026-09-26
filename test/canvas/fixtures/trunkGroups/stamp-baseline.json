@@ -7,15 +7,15 @@
   },
   "battery5": {
     "stampCount": 4,
-    "stampSha": "e51855b78ceb6aa8a04333fed2480aebe235d1974da633dbf7b607758572784c",
+    "stampSha": "3f2d9e570ff34779c667bbbed70512b5552a6b4ff088c207f36b325c6012bddc",
     "chipCount": 28,
-    "chipSha": "55f3787f632b8c705e6422011b7dd4057c9d61b06ed6230cae96010fc99c1bc1"
+    "chipSha": "208df927e82cd88ebffda57fc13c0b2c9b44691e3eda8047408adbca7542df79"
   },
   "battery5-xiranite": {
     "stampCount": 6,
-    "stampSha": "26d941601befef799452536088a2ab74ae6d70762b640eedb88de48d5286ea80",
+    "stampSha": "e5f0d29ecc8a18d8d292ec1ef7ac1d91e1794958bd8bf1ab2c9bf7f932a5b4ba",
     "chipCount": 41,
-    "chipSha": "218eee6a103e954c713bd53c73036c1a03cbe81a7be92dd7751c681c8f9036a5"
+    "chipSha": "49480bc917ccc31063c733db7bade59fb3a77cb4ba616ab1b21d3d7d44e5bbf9"
   },
   "crystal": {
     "stampCount": 2,
@@ -27,13 +27,13 @@
     "stampCount": 2,
     "stampSha": "ac62e78e25c88c751250a8200bd19b460c084aabb639c0ba45968b62177f4c36",
     "chipCount": 15,
-    "chipSha": "21d3f67e4366330721c508f397434a4603951104a78849f577976576b9957fd0"
+    "chipSha": "17e4930abf2f4196f699bfccbaad6eec543287a22e8127972020eb629037f839"
   },
   "multi6": {
     "stampCount": 21,
-    "stampSha": "a74b3474e258befa2d7877526dd2819e1a28035473ab3c880fb8255cb6c52347",
+    "stampSha": "ebd3d57b3a6e3103c16a33596a2a9c0c55a77a837aa25508b4bcae2b9606d547",
     "chipCount": 103,
-    "chipSha": "ee80b4f1ce4224d240dd5b4d400d6041ac11ae99936e07234b8ad548e36dd579"
+    "chipSha": "1afbed9433fbd82a615c3033e57f8974655182dbafa933ebce4074c1a0b349e6"
   },
   "tundra": {
     "stampCount": 0,
@@ -43,21 +43,21 @@
   },
   "script43": {
     "stampCount": 6,
-    "stampSha": "846e29e60984b7bead4ec29d5852649f1e3991696fa8fd4def2beb4266c5223e",
+    "stampSha": "17d986ba19eb2ef1decb93a0d509d0569314967b6308392ebc58573f65245f65",
     "chipCount": 35,
-    "chipSha": "f77c3629c807107b41bf98816c0c1c8ace11b7c7b06c147607de6445757f2ffc"
+    "chipSha": "eec492b357a88c14dbd4a3fb81d19f10d57bf8f34b19dd60926e5c7d95dc45b6"
   },
   "coupon-web": {
     "stampCount": 9,
-    "stampSha": "d2af6a3c9276001fcf5937e74b2d26d2b0551898a96107bd0ceb3916c9a76324",
+    "stampSha": "e131cc53a443a91406e922bb1da5e5fc06807e6345c7447bedc0f71783854007",
     "chipCount": 38,
-    "chipSha": "250263d3938bda2d21b1d5be759af9f4a56a4d3569f1d23ed29daaa3ff814fb8"
+    "chipSha": "91c9286209f0be834d1473fcc3290f0e3dde204cfce8e92d360646ad3208659e"
   },
   "gas-web": {
     "stampCount": 6,
     "stampSha": "f83eaa6e051c015f150609de68ceaa613880338bb7c63916d66cf2154e86cacd",
     "chipCount": 30,
-    "chipSha": "0abb33527cb9e3452e4714f0c3a28888d650d5c491392b91efcf32d355ccf664"
+    "chipSha": "0be1367d7681937eceea7b13114dac1875141d89d24e83dab067f4047c1dfbf3"
   },
   "rot-bottled_food_3": {
     "stampCount": 5,
@@ -73,21 +73,21 @@
   },
   "transmuters": {
     "stampCount": 8,
-    "stampSha": "c84ccbca8d553531c21ad49ca12f61d1e45df662899fb5166c9bcf5ea3d6f261",
+    "stampSha": "8a4623c413659353c767ca858bb68d36da0e048334aed214dda67dc4ae5f4553",
     "chipCount": 29,
-    "chipSha": "a02f4895c72563d69d8d46dc2937f18580bb5d921430a2eead06a62040d25627"
+    "chipSha": "cdcb02fc995329c6a73c13db6545e667cc0022717b1d4f5082929d68ea935deb"
   },
   "copper-script43": {
     "stampCount": 7,
-    "stampSha": "9de9243b91a78ad5dc741f3b9e92af4db78112c363674ff56f15b19a4b867ce7",
+    "stampSha": "1bc2c2fe1d47780538749feac99c7a333fbb8055ca6ae22516b9859bca7c949d",
     "chipCount": 40,
-    "chipSha": "45b903c5e084765d121c96cb4f5a7689f98e93f3fc7be28bb9b43d023554c907"
+    "chipSha": "8685778a502589b3718811f5a5dec2eb5fc8b157459be4350a2cab5f2c6e1a87"
   },
   "script43-xiranite": {
     "stampCount": 7,
-    "stampSha": "6442b46b442afff4a9117e4fd39ec29d1358f724dd8e6e2568690282eb7cd747",
+    "stampSha": "68c572585b4ba961a85d92904db8270ac49789ccc948e95ff762dc3d0648ef9d",
     "chipCount": 37,
-    "chipSha": "0309a81df7a23e17bcc20deff5cd2c32dc660723171ef9acb0b803c0afd523cd"
+    "chipSha": "ebb68cb25ed928cfcae1d34727d5b3041da33b038b6f6f9bf0eb13b17e3ddf1c"
   },
   "rot-bottled_rec_hp_1": {
     "stampCount": 2,
