@@ -34,6 +34,7 @@ export type UiKey =
   | "app.error.infeasible.targets"
   | "app.error.producer-unavailable.event"
   | "app.error.producer-unavailable.area"
+  | "app.error.blocked.settings"
   | "app.error.dismiss"
   | "app.error.busy"
   | "app.error.crash"
@@ -168,11 +169,14 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "app.error.infeasible.targets":
       "无可行方案，涉及：{items}。请降低目标产量。",
     "app.error.producer-unavailable.event":
-      "物品 {itemId} 仅由 {cohort} 活动配方生产，该活动当前未开启。",
+      "物品 {item} 仅由 {cohort} 活动配方生产，该活动当前未开启。",
     // {area} is the localized settlement name, the same string the settings
     // panel's area option carries, so the banner and the control agree.
     "app.error.producer-unavailable.area":
-      "物品 {itemId} 的配方均无法在{area}建造。",
+      "物品 {item} 的配方均无法在{area}建造。",
+    // Closes the banner of a plan adopted with blocked targets: the header
+    // gear is the way out that keeps the plan.
+    "app.error.blocked.settings": "可在设置中更改区域或活动。",
     "app.error.dismiss": "关闭",
     "app.error.busy": "方案正在加载，请等加载完成后再修改。",
     "app.error.crash": "规划器遇到意外错误，无法绘制当前方案。",
@@ -307,9 +311,10 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "app.error.infeasible.targets":
       "No feasible plan involving: {items}. Lower the targets.",
     "app.error.producer-unavailable.event":
-      "Item {itemId} cannot be a target right now: every recipe producing it is unavailable (the {cohort} event is switched off).",
+      "Item {item} cannot be a target right now: every recipe producing it is unavailable (the {cohort} event is switched off).",
     "app.error.producer-unavailable.area":
-      "Item {itemId} cannot be a target right now: none of the recipes producing it can be built in {area}.",
+      "Item {item} cannot be a target right now: none of the recipes producing it can be built in {area}.",
+    "app.error.blocked.settings": "Change the area or events in Settings.",
     "app.error.dismiss": "Dismiss",
     "app.error.busy":
       "A plan is still loading. Try that change again once it lands.",

@@ -858,7 +858,7 @@ test("off-cohort event items render as disabled tiles with the cohort hint (add-
   expect(hint).toBe(loadI18n("en").t("picker.event.off", { cohorts: COHORT }));
   // Parity with the validation message: both carry the same cohort token.
   const validation = loadI18n("en").t("app.error.producer-unavailable.event", {
-    itemId: "activity_xiranite_lung",
+    item: "activity_xiranite_lung",
     cohort: COHORT,
   });
   expect(validation).toContain(COHORT);
@@ -874,7 +874,7 @@ test("the cohort hint localizes under zh with the same token parity", () => {
     loadI18n("en").t("picker.event.off", { cohorts: COHORT }),
   );
   const validation = loadI18n("zh").t("app.error.producer-unavailable.event", {
-    itemId: "activity_xiranite_lung",
+    item: "activity_xiranite_lung",
     cohort: COHORT,
   });
   expect(validation).toContain(COHORT);
