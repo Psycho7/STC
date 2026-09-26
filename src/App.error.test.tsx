@@ -124,6 +124,28 @@ test("an infeasible mutation with no supply cap set gives no raise-caps advice",
   expect(banner.textContent).not.toMatch(/supply cap/i);
 });
 
+test("the zh infeasible banner lists items with the ideographic comma", async () => {
+  window.localStorage.setItem("aef.locale", "zh");
+  render(<App />);
+  await screen.findAllByTestId("target-row");
+  await waitFor(() => expect(window.location.hash).not.toBe(""));
+
+  solverGate.cappedIds = ["liquid_water", "iron_powder"];
+  solverGate.throwNext = true;
+  // The rate field's label is localized, so reach it by role here.
+  const input = within(screen.getByTestId("targets-section")).getAllByRole(
+    "textbox",
+  )[0]!;
+  fireEvent.change(input, { target: { value: "240" } });
+  fireEvent.blur(input);
+
+  const banner = await screen.findByRole("alert");
+  const zh = loadI18n("zh");
+  expect(banner.textContent).toContain(
+    `${zh.displayName("liquid_water")}、${zh.displayName("iron_powder")}`,
+  );
+});
+
 test("stale ERROR status persists after dismiss, then clears on a successful solve", async () => {
   render(<App />);
   await screen.findAllByTestId("target-row");

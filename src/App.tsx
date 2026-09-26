@@ -73,7 +73,7 @@ import { deficitItemsBeyondTolerance } from "./pipeline/render/invariants";
 import type { RationalString } from "./pipeline/types";
 import { LocaleProvider, useI18n } from "./data/i18n-context";
 import type { I18nIndex, UiKey } from "./data/i18n";
-import { joinSentences } from "./data/i18n-join";
+import { joinList, joinSentences } from "./data/i18n-join";
 import { ItemPackProvider } from "./canvas/itemPackContext";
 import StatsStrip from "./canvas/StatsStrip";
 import { displayedInputCount } from "./components/InputsPanel";
@@ -215,7 +215,10 @@ function describeBlocked(
 function describeSolveError(e: unknown, i18n: I18nIndex): string {
   if (e instanceof LpInfeasibleError) {
     const items = (ids: readonly string[]): string =>
-      ids.map((id) => i18n.displayName(id)).join(", ");
+      joinList(
+        i18n.locale,
+        ids.map((id) => i18n.displayName(id)),
+      );
     if (e.cappedItemIds.length > 0) {
       return i18n.t("app.error.infeasible", { items: items(e.cappedItemIds) });
     }
