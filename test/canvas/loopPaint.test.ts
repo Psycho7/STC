@@ -11,6 +11,7 @@ import {
   loopMemberSets,
   loopPaints,
 } from "../../src/canvas/loopPaint";
+import { nodeRectOf } from "../../src/canvas/nodeGeometry";
 import { mkEdge, mkRecipe, recipeNode } from "./busRouting.testkit";
 
 const plant = mkRecipe("r:a", ["aseed"], ["a"]);
@@ -49,16 +50,34 @@ describe("loop paint", () => {
       mkEdge("e:1", "u:seed", "u:a", "aseed"),
     ];
 
-    // Open corridor: the two padded cards, one join, one caption band.
-    const open = loopPaints(pair, edges)[0]!;
-    expect(open.rects).toHaveLength(4);
+    // The join: the joint bounding box of the two padded cards.
+    const [a, b] = pair.map((n) => nodeRectOf(n));
+    const join = {
+      left: a!.left - LOOP_PAINT_PAD,
+      right: b!.right + LOOP_PAINT_PAD,
+      top: a!.top - LOOP_PAINT_PAD,
+      bottom: a!.bottom + LOOP_PAINT_PAD,
+    };
 
-    // A foreign card in the corridor: the join would cover it, so none.
-    const blocked = loopPaints(
-      [...pair, recipeNode("u:other", 400, 0, sink)],
-      edges,
-    )[0]!;
-    expect(blocked.rects).toHaveLength(3);
+    // Open corridor: the join is painted.
+    const open = loopPaints(pair, edges)[0]!;
+    expect(open.rects).toContainEqual(join);
+
+    // A foreign card in the corridor: the join would cover it, so none, and
+    // nothing else painted covers the card either.
+    const other = recipeNode("u:other", 400, 0, sink);
+    const blocked = loopPaints([...pair, other], edges)[0]!;
+    expect(blocked.rects).not.toContainEqual(join);
+    const card = nodeRectOf(other);
+    expect(
+      blocked.rects.filter(
+        (r) =>
+          r.left < card.right &&
+          card.left < r.right &&
+          r.top < card.bottom &&
+          card.top < r.bottom,
+      ),
+    ).toEqual([]);
   });
 
   it("seats the caption on a member's top, below it when the top is taken", () => {
@@ -80,6 +99,27 @@ describe("loop paint", () => {
     const lid2 = recipeNode("u:lid2", 400, 140, mkRecipe("r:lid2", [], ["q"]));
     const pushed = loopPaints([...pair, lid, lid2], edges)[0]!;
     expect(pushed.caption!.top).toBeGreaterThan(200);
+  });
+
+  it("widens the caption band over the paint region it sits on", () => {
+    // Two members side by side, joined: the band spans both, not one card.
+    const pair = [
+      recipeNode("u:a", 0, 200, plant),
+      recipeNode("u:seed", 400, 200, seed),
+    ];
+    const edges = [
+      mkEdge("e:0", "u:a", "u:seed", "a"),
+      mkEdge("e:1", "u:seed", "u:a", "aseed"),
+    ];
+
+    const paint = loopPaints(pair, edges)[0]!;
+    const members = pair.map((n) => nodeRectOf(n));
+    expect(paint.caption!.left).toBeLessThanOrEqual(
+      members[0]!.left - LOOP_PAINT_PAD,
+    );
+    expect(paint.caption!.right).toBeGreaterThanOrEqual(
+      members[1]!.right + LOOP_PAINT_PAD,
+    );
   });
 });
 

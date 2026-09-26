@@ -45,6 +45,7 @@ import {
 } from "./busRouting";
 import { SegmentHoverContext, type SegmentHover } from "./hoverSegment";
 import type { RFAnyNode } from "./layout";
+import LoopCaption from "./LoopCaption";
 import { loopCaption, loopPaints } from "./loopPaint";
 import type { GapRecord } from "./layerModel";
 import { ExportModeProvider } from "./exportMode";
@@ -826,21 +827,12 @@ function CanvasInner({
                   const caption = loopCaption(paint.titleItems, (id) =>
                     i18n.displayName(id),
                   );
-                  const { left, top, right, bottom } = paint.caption;
                   return (
-                    <div
+                    <LoopCaption
                       key={paint.members[0]}
-                      className="loop-caption"
-                      data-testid="loop-caption"
-                      title={caption}
-                      style={{
-                        transform: `translate(${left}px, ${top}px)`,
-                        width: right - left,
-                        height: bottom - top,
-                      }}
-                    >
-                      {caption}
-                    </div>
+                      band={paint.caption}
+                      text={caption}
+                    />
                   );
                 })}
               </ViewportPortal>

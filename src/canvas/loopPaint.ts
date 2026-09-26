@@ -1,6 +1,7 @@
 // The loop paint: a tint behind the cards of one directed cycle of the drawn
-// plan, painted after routing. It is no node and no obstacle, so nothing lays
-// out or routes around it; a stroke may cross it.
+// plan, and behind the strokes of the cycle's own edges, painted after routing.
+// It is no node and no obstacle, so nothing lays out or routes around it; a
+// stroke may cross it.
 //
 // Membership is a fact of the RENDERED edges: every strongly connected set of
 // two or more recipe cards over the edges between them. So a cycle that closes
@@ -15,26 +16,50 @@
 //   | caption band                |      each member card padded by
 //   +---------+---------+---------+      LOOP_PAINT_PAD, a bridge between two
 //   | +-----+ |  bridge | +-----+ |      members an edge joins (their joint
-//   | |  A  | |         | |  B  | |      bounding box, only when it keeps clear
-//   | +-----+ |         | +-----+ |      of every other card), and one caption
-//   +---------+---------+---------+      band on a member's top or bottom side
+//   | |  A  |=|=========|=|  B  | |      bounding box, only when it keeps clear
+//   | +-----+ |         | +-----+ |      of every other card), every drawn
+//   +---------+---------+---------+      segment of an edge between two members
+//   |  ===== own return rail ==== |      padded the same, and one caption band
+//   +-----------------------------+      on a member's top or bottom side
 //
-// The caption band is placed where it covers no card and no chip.
+// The loop's own strokes are part of its drawing, so a return rail reads as
+// inside the loop instead of tracing the tint edge, and every loop is one
+// connected region (its members are joined by those strokes). A stroke's pad
+// yields where it would reach a foreign card or come within LOOP_PAINT_AIR of
+// another loop's paint: it is clipped, never merged.
+//
+// The segments come from drawnEdge over drawnPortsOf, the drawn geometry the
+// edges render with, so the paint follows a drag with them.
+//
+// The caption band is placed where it covers no card and no chip, and is as
+// wide as the paint region under it.
 
 import type { Edge } from "@xyflow/react";
 
 import { tarjanScc } from "../solver/scc";
 import type { RecipeEdge, RecipeGraph } from "../solver/types";
 import type { ItemId } from "../pipeline/types";
+import { OBSTACLE_PAD_Y } from "./busRouting";
 import { seatedChipBoxes } from "./chipSeating";
+import { drawnEdge } from "./edgePath";
 import type { RFAnyNode } from "./layout";
-import { nodeIndexOf, nodeRectOf, type Rect } from "./nodeGeometry";
+import {
+  drawnPortsOf,
+  nodeIndexOf,
+  nodeRectOf,
+  type Rect,
+} from "./nodeGeometry";
 
 // Air between a member card and the paint edge. It must stay at or below half
 // NODE_NODE_SPACING (30 / 2 = 15), or the paints of two neighbouring loops can
 // merge. 16 currently exceeds that bound, pending a look review; the closest
 // loop-to-loop gap in the corpus is 16 (rot-bottled_food_3).
 export const LOOP_PAINT_PAD = 16;
+
+// The least air between a loop's paint and a rail or another loop's paint. The
+// paint is a tint, not a card, so it owes the pad a rail keeps off an obstacle
+// (OBSTACLE_PAD_Y), not the full air a rail keeps off a raw card.
+export const LOOP_PAINT_AIR = OBSTACLE_PAD_Y;
 
 // The caption band's height: the old loop box's caption strip.
 export const LOOP_CAPTION_HEIGHT = 22;
@@ -115,6 +140,72 @@ const span = (a: Rect, b: Rect): Rect => ({
   bottom: Math.max(a.bottom, b.bottom),
 });
 
+const area = (r: Rect): number => (r.right - r.left) * (r.bottom - r.top);
+
+// `a` minus `b`, as up to four rects: the slabs above and below `b`, then the
+// pieces left and right of it in between.
+function subtract(a: Rect, b: Rect): Rect[] {
+  if (!overlaps(a, b)) return [a];
+  const out: Rect[] = [];
+  if (a.top < b.top) out.push({ ...a, bottom: b.top });
+  if (b.bottom < a.bottom) out.push({ ...a, top: b.bottom });
+  const top = Math.max(a.top, b.top);
+  const bottom = Math.min(a.bottom, b.bottom);
+  if (a.left < b.left) out.push({ left: a.left, right: b.left, top, bottom });
+  if (b.right < a.right)
+    out.push({ left: b.right, right: a.right, top, bottom });
+  return out;
+}
+
+// A stroke's padded rect, yielding to every blocker it reaches. Where a blocker
+// stands to one side of the stroke, the pad on that side is pulled back to it
+// (the side that keeps the most area), so the rect stays one rect and the
+// stroke keeps its pad everywhere else. Only a blocker that reaches the stroke
+// itself cuts the rect into pieces.
+function yieldingPad(stroke: Rect, blockers: ReadonlyArray<Rect>): Rect[] {
+  let pieces = [grow(stroke, LOOP_PAINT_PAD)];
+  for (const b of blockers) {
+    pieces = pieces.flatMap((p) => {
+      if (!overlaps(p, b)) return [p];
+      const trims: Rect[] = [];
+      if (b.bottom <= stroke.top) trims.push({ ...p, top: b.bottom });
+      if (b.top >= stroke.bottom) trims.push({ ...p, bottom: b.top });
+      if (b.right <= stroke.left) trims.push({ ...p, left: b.right });
+      if (b.left >= stroke.right) trims.push({ ...p, right: b.left });
+      if (trims.length === 0) return subtract(p, b);
+      return [trims.reduce((best, t) => (area(t) > area(best) ? t : best))];
+    });
+  }
+  return pieces;
+}
+
+// The bounding box of every drawn segment of every edge between two members,
+// read off the same drawn geometry the edges render with.
+function ownStrokes(
+  memberSet: ReadonlySet<string>,
+  edges: ReadonlyArray<Edge>,
+  byId: ReadonlyMap<string, RFAnyNode>,
+): Rect[] {
+  const strokes: Rect[] = [];
+  for (const e of edges) {
+    if (!memberSet.has(e.source) || !memberSet.has(e.target)) continue;
+    const ends = drawnPortsOf(e, byId);
+    if (ends === null) continue;
+    const { pts } = drawnEdge(ends, e.type, e.data);
+    for (let i = 1; i < pts.length; i++) {
+      const [x0, y0] = pts[i - 1]!;
+      const [x1, y1] = pts[i]!;
+      strokes.push({
+        left: Math.min(x0, x1),
+        right: Math.max(x0, x1),
+        top: Math.min(y0, y1),
+        bottom: Math.max(y0, y1),
+      });
+    }
+  }
+  return strokes;
+}
+
 export function loopPaints(
   nodes: ReadonlyArray<RFAnyNode>,
   edges: ReadonlyArray<Edge>,
@@ -133,18 +224,17 @@ export function loopPaints(
     bottom: c.y + c.halfH,
   }));
 
-  return sets.map((members) => {
+  // Every loop's core first: its members padded and bridged.
+  const cores = sets.map((members) => {
     const memberSet = new Set(members);
     const foreign = cards
       .filter((c) => !memberSet.has(c.id))
       .map((c) => grow(c.rect, CARD_CLEARANCE));
-    const padded = new Map(
-      members.map((id) => [
-        id,
-        grow(nodeRectOf(byId.get(id)!), LOOP_PAINT_PAD),
-      ]),
+    const padded = members.map((id) =>
+      grow(nodeRectOf(byId.get(id)!), LOOP_PAINT_PAD),
     );
-    const rects = [...padded.values()];
+    const paddedById = new Map(members.map((id, i) => [id, padded[i]!]));
+    const rects = [...padded];
 
     // One bridge per joined pair, both directions of a 2-cycle counted once.
     const joined = new Set<string>();
@@ -153,20 +243,48 @@ export function loopPaints(
       const key = [e.source, e.target].sort().join("\0");
       if (joined.has(key)) continue;
       joined.add(key);
-      const bridge = span(padded.get(e.source)!, padded.get(e.target)!);
+      const bridge = span(paddedById.get(e.source)!, paddedById.get(e.target)!);
       if (foreign.some((f) => overlaps(f, bridge))) continue;
       rects.push(bridge);
     }
+    return { members, memberSet, foreign, padded, rects };
+  });
 
-    const caption = captionSeat(
-      members.map((id) => padded.get(id)!),
-      cards.map((c) => grow(c.rect, CARD_CLEARANCE)),
-      chips,
-    );
-    if (caption !== undefined) rects.push(caption);
+  // Then the own strokes, loop by loop: a stroke's pad yields to foreign cards,
+  // to every other loop's core and to the strokes of the loops before it, so
+  // two paints always keep LOOP_PAINT_AIR apart.
+  const bodies = cores.map((core) => [...core.rects]);
+  cores.forEach((core, k) => {
+    const blockers = [
+      ...core.foreign,
+      ...bodies
+        .filter((_, j) => j !== k)
+        .flat()
+        .map((r) => grow(r, LOOP_PAINT_AIR)),
+    ];
+    for (const stroke of ownStrokes(core.memberSet, edges, byId)) {
+      bodies[k]!.push(...yieldingPad(stroke, blockers));
+    }
+  });
+
+  // Last the captions, which keep off every card, chip and other paint.
+  const cardBlockers = cards.map((c) => grow(c.rect, CARD_CLEARANCE));
+  const captions: Rect[] = [];
+  return cores.map((core, k) => {
+    const rects = bodies[k]!;
+    const others = [...bodies.filter((_, j) => j !== k).flat(), ...captions];
+    const caption = captionSeat(core.padded, rects, [
+      ...cardBlockers,
+      ...chips,
+      ...others.map((r) => grow(r, LOOP_PAINT_AIR)),
+    ]);
+    if (caption !== undefined) {
+      rects.push(caption);
+      captions.push(caption);
+    }
 
     const titleItems: ItemId[] = [];
-    for (const id of members) {
+    for (const id of core.members) {
       const node = byId.get(id);
       if (node?.type !== "recipe") continue;
       const item = node.data.recipe.out[0]?.item;
@@ -175,27 +293,28 @@ export function loopPaints(
       }
     }
 
-    return { members, rects, titleItems, caption };
+    return { members: core.members, rects, titleItems, caption };
   });
 }
 
 // The first clear caption band: on top of a member's padded rect, the topmost
 // member first (left to right on a tie), then under one, bottommost first. A
-// band is clear when it covers no card, member or not, and no chip.
+// band is clear when it covers no blocker (cards, chips, other paints). The
+// seated band then widens over the paint region it sits on.
 function captionSeat(
   memberRects: ReadonlyArray<Rect>,
-  cards: ReadonlyArray<Rect>,
-  chips: ReadonlyArray<Rect>,
+  paint: ReadonlyArray<Rect>,
+  blockers: ReadonlyArray<Rect>,
 ): Rect | undefined {
   const clear = (band: Rect): boolean =>
-    !cards.some((c) => overlaps(c, band)) &&
-    !chips.some((c) => overlaps(c, band));
+    !blockers.some((b) => overlaps(b, band));
   const above = [...memberRects].sort(
     (a, b) => a.top - b.top || a.left - b.left,
   );
   for (const r of above) {
     const band = { ...r, top: r.top - LOOP_CAPTION_HEIGHT, bottom: r.top };
-    if (clear(band)) return band;
+    if (clear(band))
+      return widened(band, band.bottom + ROW_PROBE, paint, blockers);
   }
   const below = [...memberRects].sort(
     (a, b) => b.bottom - a.bottom || a.left - b.left,
@@ -206,7 +325,46 @@ function captionSeat(
       top: r.bottom,
       bottom: r.bottom + LOOP_CAPTION_HEIGHT,
     };
-    if (clear(band)) return band;
+    if (clear(band))
+      return widened(band, band.top - ROW_PROBE, paint, blockers);
   }
   return undefined;
+}
+
+// How far inside the paint the row under a caption band is read.
+const ROW_PROBE = 0.5;
+
+// The band stretched over the run of paint on row `y` that it stands on, and
+// stopped short of any blocker level with it on either side.
+function widened(
+  band: Rect,
+  y: number,
+  paint: ReadonlyArray<Rect>,
+  blockers: ReadonlyArray<Rect>,
+): Rect {
+  const runs = paint
+    .filter((r) => r.top < y && y < r.bottom)
+    .sort((a, b) => a.left - b.left);
+  let left = band.left;
+  let right = band.right;
+  for (let grew = true; grew; ) {
+    grew = false;
+    for (const r of runs) {
+      if (r.right < left || r.left > right) continue;
+      if (r.left < left) {
+        left = r.left;
+        grew = true;
+      }
+      if (r.right > right) {
+        right = r.right;
+        grew = true;
+      }
+    }
+  }
+  for (const b of blockers) {
+    if (b.bottom <= band.top || b.top >= band.bottom) continue;
+    if (b.right <= band.left) left = Math.max(left, b.right);
+    if (b.left >= band.right) right = Math.min(right, b.left);
+  }
+  return { ...band, left, right };
 }

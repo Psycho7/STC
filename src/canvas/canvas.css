@@ -1173,15 +1173,19 @@
 }
 
 /* The loop caption, on its own band of the paint: the old loop box's caption
-   type, with no strip of its own. */
+   type, with no strip of its own. A block, not a flex box: text-overflow never
+   reaches a flex box's anonymous text. LoopCaption elides the text itself and
+   centres it with an inline line-height; the ellipsis here only backs that up.
+   The pointer reaches it (the viewport passes events through) so its title,
+   the full caption, shows on hover. */
 .loop-caption {
   position: absolute;
   left: 0;
   top: 0;
   z-index: -1;
   box-sizing: border-box;
-  display: flex;
-  align-items: center;
+  display: block;
+  pointer-events: auto;
   padding: 0 10px;
   font-family: var(--font-mono);
   font-size: 11px;
