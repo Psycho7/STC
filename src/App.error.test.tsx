@@ -33,7 +33,10 @@ vi.mock("./canvas/Canvas", () => ({
 
 // Delegate to the real solver, but throw an LpInfeasibleError on demand so a
 // mutation can fail deterministically (real packs never go infeasible).
-const solverGate = vi.hoisted(() => ({ throwNext: false }));
+const solverGate = vi.hoisted(() => ({
+  throwNext: false,
+  cappedIds: ["liquid_water"] as string[],
+}));
 vi.mock("./solver", async (importOriginal) => {
   const orig = await importOriginal<typeof import("./solver")>();
   return {
@@ -42,7 +45,9 @@ vi.mock("./solver", async (importOriginal) => {
       ...args: Parameters<typeof orig.solvePlanWithIntermediates>
     ) => {
       if (solverGate.throwNext) {
-        throw new orig.LpInfeasibleError(["liquid_water"], ["copper_bottle"]);
+        throw new orig.LpInfeasibleError(solverGate.cappedIds, [
+          "copper_bottle",
+        ]);
       }
       return orig.solvePlanWithIntermediates(...args);
     },
@@ -51,6 +56,8 @@ vi.mock("./solver", async (importOriginal) => {
 
 import App from "./App";
 import { loadI18n } from "./data/i18n";
+import { defaultPlan, encodePlan } from "./data/plan";
+import { pack } from "./data/load";
 
 beforeEach(() => {
   vi.stubGlobal(
@@ -64,6 +71,7 @@ beforeEach(() => {
   window.location.hash = "";
   window.localStorage.setItem("aef.locale", "en");
   solverGate.throwNext = false;
+  solverGate.cappedIds = ["liquid_water"];
 });
 
 afterEach(() => {
@@ -96,6 +104,23 @@ test("an infeasible mutation banner names the implicated item, not dev-speak", a
   // No raw solver dev-speak leaks through.
   expect(banner.textContent).not.toContain("LP solver");
   expect(banner.textContent).not.toContain("infeasible problem");
+  // A cap is set, so raising it is advice worth giving.
+  expect(banner.textContent).toContain("Raise the supply caps");
+});
+
+test("an infeasible mutation with no supply cap set gives no raise-caps advice", async () => {
+  render(<App />);
+  await screen.findAllByTestId("target-row");
+  await waitFor(() => expect(window.location.hash).not.toBe(""));
+
+  solverGate.cappedIds = [];
+  solverGate.throwNext = true;
+  editFirstTargetRate("240");
+
+  const banner = await screen.findByRole("alert");
+  const bottleName = loadI18n("en").displayName("copper_bottle");
+  expect(banner.textContent).toContain(bottleName);
+  expect(banner.textContent).not.toMatch(/supply cap/i);
 });
 
 test("stale ERROR status persists after dismiss, then clears on a successful solve", async () => {
@@ -135,3 +160,26 @@ test("a load failure routes through the load wrapper, not the solver wrapper", a
   expect(banner.textContent).toContain("Failed to load plan");
   expect(banner.textContent).not.toContain("Solver error");
 });
+
+// A link that decodes into a valid plan but has no solution is not damaged:
+// the splash says the plan cannot be solved and never leaks the LP message.
+test.each([
+  { name: "no supply cap set", cappedIds: [] as string[], advice: false },
+  { name: "a supply cap set", cappedIds: ["liquid_water"], advice: true },
+])(
+  "a share link that decodes but fails to solve, $name",
+  async ({ cappedIds, advice }) => {
+    window.location.hash = "#" + (await encodePlan(defaultPlan(pack)));
+    solverGate.cappedIds = cappedIds;
+    solverGate.throwNext = true;
+    render(<App />);
+
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).not.toContain("damaged");
+    expect(alert.textContent).not.toContain("LP solver");
+    expect(alert.textContent).not.toContain("infeasible problem");
+    expect(alert.textContent).toMatch(/no solution|no feasible plan/i);
+    if (advice) expect(alert.textContent).toContain("Raise the supply caps");
+    else expect(alert.textContent).not.toMatch(/supply cap/i);
+  },
+);

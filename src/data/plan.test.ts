@@ -68,6 +68,39 @@ describe("loadPlan - malformed but well-encoded wire payloads", () => {
   });
 });
 
+// Chat auto-linking often swallows the punctuation after a share link. Those
+// characters never occur in base64url, so the loader tolerates them as a tail.
+describe("loadPlan - trailing punctuation from auto-linked share links", () => {
+  it.each([".", ")", "]", ",", ";", ")."])(
+    "decodes a valid hash followed by %j",
+    async (tail) => {
+      const hash = "#" + (await encodePlan(basePlan())) + tail;
+      const outcome = await loadPlan(hash, pack);
+      expect(outcome.kind).toBe("loaded");
+    },
+  );
+
+  it("still rejects a payload that is invalid after the tail is stripped", async () => {
+    // A truncated payload passes the envelope once the "." goes, then fails
+    // to decode.
+    const full = await encodePlan(basePlan());
+    const truncated = "#" + full.slice(0, full.length - 7) + ".";
+    const outcome = await loadPlan(truncated, pack);
+    expect(outcome.kind).toBe("error");
+    if (outcome.kind === "error") {
+      expect(outcome.error.kind).toBe("malformed-hash");
+    }
+  });
+
+  it("still checks the version of a hash with a tolerated tail", async () => {
+    const outcome = await loadPlan("#v9.abc)", pack);
+    expect(outcome.kind).toBe("error");
+    if (outcome.kind === "error") {
+      expect(outcome.error.kind).toBe("unrecognized-version");
+    }
+  });
+});
+
 // The rate input and the loader share one digit cap. Without the parser half,
 // a pasted long decimal commits, writes the hash, and only fails on the next
 // load, taking the plan with it.

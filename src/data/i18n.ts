@@ -30,6 +30,8 @@ export type UiKey =
   | "app.error.solver"
   | "app.error.infeasible"
   | "app.error.infeasible.generic"
+  | "app.error.infeasible.targets"
+  | "app.error.unsolvable"
   | "app.error.producer-unavailable.event"
   | "app.error.producer-unavailable.area"
   | "app.error.dismiss"
@@ -161,6 +163,9 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "app.error.infeasible":
       "无可行方案，涉及：{items}。请提高供给上限或降低目标产量。",
     "app.error.infeasible.generic": "当前目标与供给上限下无可行方案。",
+    "app.error.infeasible.targets":
+      "无可行方案，涉及：{items}。请降低目标产量。",
+    "app.error.unsolvable": "此方案已加载，但无法求解。",
     "app.error.producer-unavailable.event":
       "物品 {itemId} 仅由 {cohort} 活动配方生产，该活动当前未开启。",
     // {area} is the localized settlement name, the same string the settings
@@ -293,6 +298,9 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
       "No feasible plan involving: {items}. Raise the supply caps or lower the targets.",
     "app.error.infeasible.generic":
       "No feasible plan for the current targets and supply caps.",
+    "app.error.infeasible.targets":
+      "No feasible plan involving: {items}. Lower the targets.",
+    "app.error.unsolvable": "This plan loaded, but it has no solution.",
     "app.error.producer-unavailable.event":
       "Item {itemId} cannot be a target right now: every recipe producing it is unavailable (the {cohort} event is switched off).",
     "app.error.producer-unavailable.area":

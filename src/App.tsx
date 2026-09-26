@@ -153,10 +153,10 @@ type BannerError =
 
 // Boot-time failure before any plan renders, owning the whole viewport: the
 // structured load error when validation failed (so the splash can localize
-// the user-facing kinds), or a solve exception's message.
+// the user-facing kinds), or the solve exception of a link that decoded fine.
 type InitialError =
   | { kind: "load"; error: PlanLoadError }
-  | { kind: "solve"; message: string };
+  | { kind: "solve"; error: unknown };
 
 // Localized text for a plan-load error on a user-facing surface. The
 // producer-unavailable kind is the one failure aimed at the player rather
@@ -183,6 +183,28 @@ function describeLoadError(error: PlanLoadError, i18n: I18nIndex): string {
     }
   }
   return describePlanLoadError(error);
+}
+
+// Localized text for a solver exception. An infeasibility names the implicated
+// items instead of the raw LP message, and advises raising the supply caps
+// only when the plan sets at least one; otherwise it names the targets.
+function describeSolveError(e: unknown, i18n: I18nIndex): string {
+  if (e instanceof LpInfeasibleError) {
+    const items = (ids: readonly string[]): string =>
+      ids.map((id) => i18n.displayName(id)).join(", ");
+    if (e.cappedItemIds.length > 0) {
+      return i18n.t("app.error.infeasible", { items: items(e.cappedItemIds) });
+    }
+    if (e.targetItemIds.length > 0) {
+      return i18n.t("app.error.infeasible.targets", {
+        items: items(e.targetItemIds),
+      });
+    }
+    return i18n.t("app.error.infeasible.generic");
+  }
+  return i18n.t("app.error.solver", {
+    message: e instanceof Error ? e.message : String(e),
+  });
 }
 
 type SideSection = "targets" | "inputs";
@@ -429,6 +451,11 @@ function AppInner() {
   // hashchange event, so for self-writes this is belt-and-braces; it becomes
   // load-bearing if a hash write ever switches to a location.hash assignment.
   const lastHandledHashRef = useRef<string | null>(null);
+  // The hash of the last plan that loaded and solved: written with the URL on
+  // solve success and by a successful hash load. A failed hash load over a
+  // drawn plan puts it back in the URL, so a reload or a share gets the plan
+  // on screen rather than the broken link.
+  const lastGoodHashRef = useRef<string | null>(null);
   // Event-cohort overrides (#144): cohort -> forced on/off beyond the default
   // rule (on iff the cohort matches the pack's own version). Read once at
   // boot; every later change goes through handleEventOverridesChange, which
@@ -590,6 +617,7 @@ function AppInner() {
       const newHash = "#" + (await encodePlan(nextPlan));
       if (myGen !== solveGen.current) return;
       lastHandledHashRef.current = newHash;
+      lastGoodHashRef.current = newHash;
       history.replaceState(null, "", newHash);
     },
     [],
@@ -631,22 +659,28 @@ function AppInner() {
       // dismissible banner. That test is the committed plan, not the source of
       // the load: a second bad hash pasted while the splash is up must refresh
       // the splash, and a failed reset from the splash must not write a banner
-      // nothing displays.
+      // nothing displays. The splash keeps the broken hash in the URL so it can
+      // be reported; over a drawn plan the last good hash goes back in place
+      // (replaceState: no history entry and no hashchange, and the handled ref
+      // covers a spurious one).
       const failLoad = (error: PlanLoadError) => {
         if (myGen !== solveGen.current) return;
-        if (planRef.current === null) setInitialError({ kind: "load", error });
-        else {
-          setMutationError({ kind: "load", error });
-          setStale(true);
+        if (planRef.current === null) {
+          setInitialError({ kind: "load", error });
+          return;
+        }
+        setMutationError({ kind: "load", error });
+        setStale(true);
+        const good = lastGoodHashRef.current;
+        if (good !== null) {
+          lastHandledHashRef.current = good;
+          history.replaceState(null, "", good);
         }
       };
       const failSolve = (e: unknown) => {
         if (myGen !== solveGen.current) return;
         if (planRef.current === null) {
-          setInitialError({
-            kind: "solve",
-            message: e instanceof Error ? e.message : String(e),
-          });
+          setInitialError({ kind: "solve", error: e });
         } else {
           setMutationError({ kind: "solver", error: e });
           setStale(true);
@@ -671,6 +705,7 @@ function AppInner() {
         const laid = await layoutSolved(solved);
         if (outcome.kind === "seeded") await writeHash(nextPlan, myGen);
         if (myGen !== solveGen.current) return;
+        if (outcome.kind === "loaded") lastGoodHashRef.current = hash;
         planRef.current = nextPlan;
         setPlan(nextPlan);
         applySolved(solved, laid);
@@ -944,11 +979,15 @@ function AppInner() {
     return (
       <div className="ak-app-shell" style={splashStyle}>
         <div role="alert" style={splashCardStyle}>
-          <p style={splashTitleStyle}>{i18n.t("app.error.corrupt")}</p>
+          <p style={splashTitleStyle}>
+            {initialError.kind === "load"
+              ? i18n.t("app.error.corrupt")
+              : i18n.t("app.error.unsolvable")}
+          </p>
           <p style={splashDetailStyle}>
             {initialError.kind === "load"
               ? describeLoadError(initialError.error, i18n)
-              : initialError.message}
+              : describeSolveError(initialError.error, i18n)}
           </p>
           <button type="button" onClick={handleReset}>
             {i18n.t("app.error.reset")}
@@ -1012,19 +1051,7 @@ function AppInner() {
         message: describeLoadError(err.error, i18n),
       });
     if (err.kind === "busy") return i18n.t("app.error.busy");
-    const e = err.error;
-    if (e instanceof LpInfeasibleError) {
-      const ids =
-        e.cappedItemIds.length > 0 ? e.cappedItemIds : e.targetItemIds;
-      if (ids.length > 0) {
-        const items = ids.map((id) => i18n.displayName(id)).join(", ");
-        return i18n.t("app.error.infeasible", { items });
-      }
-      return i18n.t("app.error.infeasible.generic");
-    }
-    return i18n.t("app.error.solver", {
-      message: e instanceof Error ? e.message : String(e),
-    });
+    return describeSolveError(err.error, i18n);
   };
 
   const targetCount = plan.targets.length;
