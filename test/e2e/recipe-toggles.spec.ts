@@ -18,10 +18,11 @@ const TEXT = {
   openSettings: "打开设置",
   showAllRecipes: "显示全部配方",
   filter: "赤铜瓶",
+  reenable: "可在设置的「配方」中重新启用该配方",
 } as const;
 
 // The bottle's only producer is the recipe of the same id, so one toggle is
-// the whole distance between a solved plan and a validation error.
+// the whole distance between a solved plan and a blocked one.
 const BOTTLE_TARGETS = [
   { itemId: "copper_bottle", ratePerSec: { num: "1", denom: "1" } },
 ];
@@ -59,22 +60,22 @@ test("a recipe switched off in the panel banners by name and survives a reload",
     ),
   ).toBe('["copper_bottle"]');
 
-  // The committed plan revalidates: the banner names the item and the toggle
-  // the user just flipped, rather than the solver throwing.
+  // The plan is kept and blocked: the banner names the item by its display
+  // name and points back to the recipe toggle, rather than the solver throwing.
   await page.keyboard.press("Escape");
   const alert = page.getByRole("alert");
   await expect(alert).toBeVisible();
-  await expect(alert).toContainText("copper_bottle");
   await expect(alert).toContainText(TEXT.filter);
+  await expect(alert).toContainText(TEXT.reenable);
 
   await page.reload();
 
-  // Both halves hold across the reload: the plan still refuses by name, and
+  // Both halves hold across the reload: the plan is still blocked by name, and
   // the panel still reads the toggle off.
   const reloaded = page.getByRole("alert");
   await expect(reloaded).toBeVisible();
-  await expect(reloaded).toContainText("copper_bottle");
   await expect(reloaded).toContainText(TEXT.filter);
+  await expect(reloaded).toContainText(TEXT.reenable);
 
   await page.getByRole("button", { name: TEXT.openSettings }).click();
   const reopened = page.getByRole("dialog");
