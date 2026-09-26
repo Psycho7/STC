@@ -27,6 +27,8 @@ export type UiKey =
   | "app.error.load"
   | "app.error.edit"
   | "app.error.corrupt"
+  | "app.error.link-broken"
+  | "app.error.details"
   | "app.error.reset"
   | "app.error.solver"
   | "app.error.infeasible"
@@ -167,6 +169,8 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "app.error.load": "加载方案失败: {message}",
     "app.error.edit": "无法应用此更改: {message}",
     "app.error.corrupt": "此分享链接已损坏，或来自更新版本的规划器。",
+    "app.error.link-broken": "链接不完整或已被修改。",
+    "app.error.details": "详情",
     "app.error.reset": "从新方案开始",
     "app.error.solver": "求解器错误: {message}",
     "app.error.infeasible":
@@ -316,6 +320,8 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "app.error.edit": "Cannot apply this change: {message}",
     "app.error.corrupt":
       "This share link is damaged or from a newer version of the planner.",
+    "app.error.link-broken": "The link is incomplete or was altered.",
+    "app.error.details": "Details",
     "app.error.reset": "Start with a fresh plan",
     "app.error.solver": "Solver error: {message}",
     "app.error.infeasible":
