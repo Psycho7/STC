@@ -36,6 +36,7 @@ import App from "./App";
 import { layoutRenderPlan } from "./canvas/layout";
 import { defaultPlan, encodePlan } from "./data/plan";
 import { pack } from "./data/load";
+import { deferred } from "./App.testkit";
 
 // One laid-out node is all App reads: the button is offered only over a plan
 // with something to capture.
@@ -51,14 +52,6 @@ const ONE_NODE = {
   edges: [],
   gaps: [],
 } as unknown as Awaited<ReturnType<typeof layoutRenderPlan>>;
-
-function deferred<T>() {
-  let resolve!: (value: T) => void;
-  const promise = new Promise<T>((r) => {
-    resolve = r;
-  });
-  return { promise, resolve };
-}
 
 async function encodedDefaultHash(): Promise<string> {
   return "#" + (await encodePlan(defaultPlan(pack)));

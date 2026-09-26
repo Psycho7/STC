@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { pack } from "./load";
 import { unavailableCauses } from "./availability";
 import {
+  blockedTargets,
   decodeItemOverrideKey,
   defaultPlan,
   describePlanLoadError,
@@ -344,11 +345,11 @@ describe("validatePlan - rational wire fields", () => {
 });
 
 // The availability seam: with a map of unavailable recipe ids, an item whose
-// producers all sit in the map stops being a valid target, carrying the cause
-// that switched them off.
-describe("validatePlan - unavailable producers", () => {
+// producers all sit in the map is a blocked target, carrying the cause that
+// switched them off. The plan itself still validates.
+describe("blockedTargets", () => {
   // Causes keyed like the availability core hands them over, one kind per
-  // helper so the precedence and the messages can be pinned per kind.
+  // helper so the precedence can be pinned per kind.
   function causesFor(
     recipeIds: readonly string[],
     cause:
@@ -374,95 +375,84 @@ describe("validatePlan - unavailable producers", () => {
     return plan;
   }
 
-  it("returns producer-unavailable naming the event cohort when every producer is switched off", () => {
+  it("names the event cohort when every producer is switched off", () => {
     // activity_xiranite_lung's only producer is the v1.5 event recipe of the
     // same id.
     expect(
-      validatePlan(targeting("activity_xiranite_lung"), pack, v15),
-    ).toEqual({
-      kind: "producer-unavailable",
-      itemId: "activity_xiranite_lung",
-      cause: { kind: "event", cohort: "v1.5" },
-    });
+      blockedTargets(targeting("activity_xiranite_lung"), pack, v15),
+    ).toEqual([
+      {
+        itemId: "activity_xiranite_lung",
+        cause: { kind: "event", cohort: "v1.5" },
+      },
+    ]);
   });
 
-  it("describes the error naming the item and the cohort", () => {
-    const error = validatePlan(targeting("activity_xiranite_lung"), pack, v15)!;
-    expect(error.kind).toBe("producer-unavailable");
-    const message = describePlanLoadError(error);
-    expect(message).toContain("activity_xiranite_lung");
-    expect(message).toContain("v1.5");
-  });
-
-  it("accepts the same target with an empty set (the default)", () => {
+  it("blocks nothing with an empty set (the default)", () => {
     expect(validatePlan(targeting("activity_xiranite_lung"), pack)).toBeNull();
     expect(
-      validatePlan(targeting("activity_xiranite_lung"), pack, new Map()),
-    ).toBeNull();
+      blockedTargets(targeting("activity_xiranite_lung"), pack, new Map()),
+    ).toEqual([]);
   });
 
-  it("still returns target-not-producible for an item with no producers at all", () => {
+  it("leaves an item with no producers at all to target-not-producible", () => {
     // domain_key_tundra comes only from an input-supply recipe: no producers
-    // under the shared predicate, so the availability set must not redirect
-    // the error - the two kinds partition.
-    expect(validatePlan(targeting("domain_key_tundra"), pack, v15)?.kind).toBe(
+    // under the shared predicate, so the availability set must not claim it -
+    // the two outcomes partition.
+    expect(validatePlan(targeting("domain_key_tundra"), pack)?.kind).toBe(
       "target-not-producible",
+    );
+    expect(blockedTargets(targeting("domain_key_tundra"), pack, v15)).toEqual(
+      [],
     );
   });
 
   it("accepts an item with a partially available producer set", () => {
     // jinlong_coupon has 12 always-on producers besides the two v1.5 event
     // exchanges; switching the cohort off must not make it untargetable.
-    expect(validatePlan(targeting("jinlong_coupon"), pack, v15)).toBeNull();
+    expect(blockedTargets(targeting("jinlong_coupon"), pack, v15)).toEqual([]);
   });
 
   it("carries an area cause when the area is what hides the producers", () => {
     const causes = causesFor(v15Ids, { kind: "area", area: "tundra" });
-    const error = validatePlan(
-      targeting("activity_xiranite_lung"),
-      pack,
-      causes,
-    )!;
-    expect(error).toEqual({
-      kind: "producer-unavailable",
-      itemId: "activity_xiranite_lung",
-      cause: { kind: "area", area: "tundra" },
-    });
-    const message = describePlanLoadError(error);
-    expect(message).toContain("activity_xiranite_lung");
-    expect(message).toContain("tundra");
+    expect(
+      blockedTargets(targeting("activity_xiranite_lung"), pack, causes),
+    ).toEqual([
+      {
+        itemId: "activity_xiranite_lung",
+        cause: { kind: "area", area: "tundra" },
+      },
+    ]);
   });
 
-  it("rejects a target the selected area has no producer for, end to end", () => {
+  it("blocks a target the selected area has no producer for, end to end", () => {
     // Not a hand-built cause map: the real area rule over the shipped pack.
     // liquid_copper's two producers both sit in jinlong, so the tundra leaves
-    // the item untargetable and the message has to name the area.
-    const error = validatePlan(
-      targeting("liquid_copper"),
-      pack,
-      unavailableCauses(pack, { eventOverrides: {}, area: "tundra" }),
-    )!;
-    expect(error).toEqual({
-      kind: "producer-unavailable",
-      itemId: "liquid_copper",
-      cause: { kind: "area", area: "tundra" },
-    });
-    expect(describePlanLoadError(error)).toContain("tundra");
+    // the item without a producer.
+    expect(
+      blockedTargets(
+        targeting("liquid_copper"),
+        pack,
+        unavailableCauses(pack, { eventOverrides: {}, area: "tundra" }),
+      ),
+    ).toEqual([
+      { itemId: "liquid_copper", cause: { kind: "area", area: "tundra" } },
+    ]);
     // The same target under jinlong, and under no area at all, is fine.
     expect(
-      validatePlan(
+      blockedTargets(
         targeting("liquid_copper"),
         pack,
         unavailableCauses(pack, { eventOverrides: {}, area: "jinlong" }),
       ),
-    ).toBeNull();
+    ).toEqual([]);
     expect(
-      validatePlan(
+      blockedTargets(
         targeting("liquid_copper"),
         pack,
         unavailableCauses(pack, { eventOverrides: {} }),
       ),
-    ).toBeNull();
+    ).toEqual([]);
   });
 
   it("carries a manual cause naming the recipe the user switched off", () => {
@@ -470,22 +460,15 @@ describe("validatePlan - unavailable producers", () => {
       kind: "manual",
       recipeId,
     }));
-    const error = validatePlan(
-      targeting("activity_xiranite_lung"),
-      pack,
-      causes,
-    )!;
-    expect(error.kind).toBe("producer-unavailable");
-    const message = describePlanLoadError(error);
     // The recipe id is the whole point of the manual kind: it names the toggle.
-    if (
-      error.kind === "producer-unavailable" &&
-      error.cause.kind === "manual"
-    ) {
-      expect(message).toContain(error.cause.recipeId);
-    } else {
-      throw new Error("expected a manual producer-unavailable cause");
-    }
+    expect(
+      blockedTargets(targeting("activity_xiranite_lung"), pack, causes),
+    ).toEqual([
+      {
+        itemId: "activity_xiranite_lung",
+        cause: { kind: "manual", recipeId: "activity_xiranite_lung" },
+      },
+    ]);
   });
 
   it("reports the outermost cause when producers are off for different reasons", () => {
@@ -502,11 +485,9 @@ describe("validatePlan - unavailable producers", () => {
           : { kind: "area", area: "tundra" },
       ]),
     );
-    expect(validatePlan(targeting("jinlong_coupon"), pack, causes)).toEqual({
-      kind: "producer-unavailable",
-      itemId: "jinlong_coupon",
-      cause: { kind: "area", area: "tundra" },
-    });
+    expect(blockedTargets(targeting("jinlong_coupon"), pack, causes)).toEqual([
+      { itemId: "jinlong_coupon", cause: { kind: "area", area: "tundra" } },
+    ]);
   });
 });
 

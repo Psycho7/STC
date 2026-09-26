@@ -23,13 +23,15 @@ vi.mock("./canvas/layout", async (importOriginal) => {
   };
 });
 
-const canvasSpy = vi.hoisted(() => ({ status: "" }));
-vi.mock("./canvas/Canvas", () => ({
-  default: (props: { status?: string }) => {
-    canvasSpy.status = props.status ?? "";
-    return null;
-  },
-}));
+vi.mock("./canvas/Canvas", async () => {
+  const { canvasSpy } = await import("./App.testkit");
+  return {
+    default: (props: { status?: string }) => {
+      canvasSpy.status = props.status ?? "";
+      return null;
+    },
+  };
+});
 
 // Delegate to the real solver, but throw an LpInfeasibleError on demand so a
 // mutation can fail deterministically (real packs never go infeasible).
@@ -59,6 +61,7 @@ import { layoutRenderPlan } from "./canvas/layout";
 import { loadI18n } from "./data/i18n";
 import { defaultPlan, encodePlan } from "./data/plan";
 import { pack } from "./data/load";
+import { canvasSpy, deferred } from "./App.testkit";
 
 beforeEach(() => {
   vi.stubGlobal(
@@ -190,16 +193,6 @@ async function encodedCrystalHash(): Promise<string> {
     targets: [{ itemId: "crystal_enr", ratePerSec: { num: "1", denom: "1" } }],
   };
   return "#" + (await encodePlan(plan));
-}
-
-function deferred<T>() {
-  let resolve!: (value: T) => void;
-  let reject!: (reason: unknown) => void;
-  const promise = new Promise<T>((res, rej) => {
-    resolve = res;
-    reject = rej;
-  });
-  return { promise, resolve, reject };
 }
 
 function expectSolverBannerText(text: string | null, advice: boolean) {

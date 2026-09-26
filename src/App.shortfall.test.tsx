@@ -12,13 +12,7 @@
 // test. layoutRenderPlan is mocked away and Canvas is stubbed; neither is part
 // of the behaviour here.
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
-import {
-  cleanup,
-  fireEvent,
-  render,
-  screen,
-  waitFor,
-} from "@testing-library/react";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
 
 vi.mock("./canvas/layout", async (importOriginal) => {
   const orig = await importOriginal<typeof import("./canvas/layout")>();
@@ -28,33 +22,27 @@ vi.mock("./canvas/layout", async (importOriginal) => {
   };
 });
 
-const canvasSpy = vi.hoisted(() => ({ status: "" }));
-vi.mock("./canvas/Canvas", () => ({
-  default: (props: { status?: string }) => {
-    canvasSpy.status = props.status ?? "";
-    return null;
-  },
-}));
+vi.mock("./canvas/Canvas", async () => {
+  const { canvasSpy } = await import("./App.testkit");
+  return {
+    default: (props: { status?: string }) => {
+      canvasSpy.status = props.status ?? "";
+      return null;
+    },
+  };
+});
 
 import App from "./App";
 import { defaultPlan, encodePlan, validatePlan, type Plan } from "./data/plan";
 import { pack } from "./data/load";
 import { loadI18n } from "./data/i18n";
 import { AREA_STORAGE_KEY } from "./data/storage-keys";
+import { canvasSpy, flipStoredArea } from "./App.testkit";
 
 const en = loadI18n("en");
 // The sentence the strip used to print for every shortfall, cause unknown or
 // not. Asserted against so no case silently returns to blaming supply caps.
 const OLD_CAP_WORDING = "Raise the supply caps";
-
-// Simulate another tab picking a settlement: same-document writes fire no
-// `storage` event, so write the key and dispatch what the browser would have
-// delivered to the other windows. `undefined` clears the selection.
-function flipStoredArea(area: string | undefined): void {
-  if (area === undefined) window.localStorage.removeItem(AREA_STORAGE_KEY);
-  else window.localStorage.setItem(AREA_STORAGE_KEY, area);
-  fireEvent(window, new StorageEvent("storage", { key: AREA_STORAGE_KEY }));
-}
 
 // copper_jar at 1/s needs more inert gas than the 1/2 per second cap allows,
 // and no recipe produces gas_inert, so the shortfall cannot be routed around.

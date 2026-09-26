@@ -126,11 +126,6 @@ export type PlanLoadError =
   | { kind: "duplicate-target"; itemId: string }
   | { kind: "unknown-target-item"; itemId: string }
   | { kind: "target-not-producible"; itemId: string }
-  | {
-      kind: "producer-unavailable";
-      itemId: string;
-      cause: ProducerUnavailableCause;
-    }
   | { kind: "unknown-recipe-cost"; recipeId: string }
   | { kind: "unknown-item-override"; itemId: string }
   | { kind: "duplicate-item-override"; itemId: string }
@@ -158,19 +153,6 @@ export function defaultPlan(pack: RecipePack): Plan {
   };
 }
 
-// The parenthetical a producer-unavailable message carries: which setting is
-// hiding the producers. Each kind names the control the user would go flip.
-function describeCause(cause: ProducerUnavailableCause): string {
-  switch (cause.kind) {
-    case "event":
-      return `event ${cause.cohort} is switched off`;
-    case "area":
-      return `none of them can be built in ${cause.area}`;
-    case "manual":
-      return `recipe ${cause.recipeId} is switched off in settings`;
-  }
-}
-
 export function describePlanLoadError(error: PlanLoadError): string {
   switch (error.kind) {
     case "malformed-hash":
@@ -187,8 +169,6 @@ export function describePlanLoadError(error: PlanLoadError): string {
       return `Target references unknown item ${error.itemId}.`;
     case "target-not-producible":
       return `Item ${error.itemId} cannot be a target: no non-internal, non-input-supply recipe produces it.`;
-    case "producer-unavailable":
-      return `Item ${error.itemId} cannot be a target right now: every recipe producing it is unavailable (${describeCause(error.cause)}).`;
     case "unknown-recipe-cost":
       return `Recipe cost references unknown recipe ${error.recipeId}.`;
     case "unknown-item-override":
@@ -240,7 +220,6 @@ function isValidRational(r: RationalString): boolean {
 export async function loadPlan(
   hash: string,
   pack: RecipePack,
-  unavailableCauses?: ReadonlyMap<string, ProducerUnavailableCause>,
 ): Promise<LoadOutcome> {
   if (!hash || hash === "#") {
     return { kind: "seeded", plan: defaultPlan(pack) };
@@ -297,7 +276,7 @@ export async function loadPlan(
     };
   }
   const plan = fromWire(wire);
-  const error = validatePlan(plan, pack, unavailableCauses);
+  const error = validatePlan(plan, pack);
   if (error) return { kind: "error", error };
   return { kind: "loaded", plan };
 }
@@ -312,7 +291,7 @@ export async function encodePlan(plan: Plan): Promise<string> {
 // outermost one is reported - it points at the setting to flip first.
 // Undefined when at least one producer is available (or none exist, which is
 // target-not-producible's case, not this one).
-function producerUnavailableCause(
+export function producerUnavailableCause(
   pack: RecipePack,
   itemId: string,
   unavailableCauses: ReadonlyMap<string, ProducerUnavailableCause>,
@@ -351,7 +330,6 @@ export function blockedTargets(
 export function validatePlan(
   plan: Plan,
   pack: RecipePack,
-  unavailableCauses?: ReadonlyMap<string, ProducerUnavailableCause>,
 ): PlanLoadError | null {
   if (plan.pack.schemaVersion !== pack.schemaVersion) {
     return {
@@ -390,15 +368,6 @@ export function validatePlan(
     // byproduct-only items ARE producible and pass here.
     if (!producible.has(itemId)) {
       return { kind: "target-not-producible", itemId };
-    }
-    // Availability seam: an item WITH producers can still be untargetable when
-    // every one of them is switched off. Same producer notion as the producible
-    // set above (producersOfItem shares its predicate), so the two errors
-    // partition: no producers at all -> target-not-producible; producers, all
-    // unavailable -> here.
-    if (unavailableCauses) {
-      const cause = producerUnavailableCause(pack, itemId, unavailableCauses);
-      if (cause) return { kind: "producer-unavailable", itemId, cause };
     }
   }
   if (plan.itemOverrides) {

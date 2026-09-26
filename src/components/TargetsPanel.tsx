@@ -275,17 +275,14 @@ export function TargetsPanel({
     </div>
   );
 
-  // One sentence per reason a tile is dimmed: already a target (only when such
-  // a tile is in the grid), then the availability sentences, joined with the
-  // " · " separator InputsPanel uses, since the popup renders one hint line.
+  // The "already a target" sentence applies only when such a tile is in the
+  // grid; the flow appends the availability sentences.
   function pickerHint(targetedIds: ReadonlySet<string>): string | undefined {
-    const sentences = [
-      ...(pickableItems.some((it) => targetedIds.has(it.id))
-        ? [i18n.t("targets.picker.listed")]
-        : []),
-      ...(flow.unavailableHint !== undefined ? [flow.unavailableHint] : []),
-    ];
-    return sentences.length > 0 ? sentences.join(" · ") : undefined;
+    return flow.pickerHint(
+      pickableItems.some((it) => targetedIds.has(it.id))
+        ? i18n.t("targets.picker.listed")
+        : undefined,
+    );
   }
 
   function renderPicker() {

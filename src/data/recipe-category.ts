@@ -70,9 +70,9 @@ export function isSinkRecipe(recipe: Recipe): boolean {
 // The producer predicate shared by producibleItemIds and producersOfItem: a
 // recipe counts as a producer only when it is neither `__internal` (synthetic
 // raw source) nor input-supply (`__domain_transfer`). Extraction recipes are
-// deliberately NOT excluded - what the plan loader counts as a producer stays
-// one notion, so its two target errors (target-not-producible vs
-// producer-unavailable) partition cleanly.
+// deliberately NOT excluded - what counts as a producer stays one notion, so
+// validatePlan (target-not-producible) and blockedTargets (no producer
+// available under the current settings) partition cleanly.
 function isSyntheticOrSupplyRecipe(recipe: Recipe): boolean {
   return recipe.category === "__internal" || isInputSupplyRecipe(recipe);
 }

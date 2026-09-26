@@ -152,9 +152,7 @@ loadTransportConfig(defaultTransportConfig, pack);
 // which the render layer maps to localized copy (naming the implicated items
 // for an LpInfeasibleError);
 // "busy" reports an edit refused because a hash navigation was still landing.
-// The load/edit kinds carry the structured PlanLoadError so the render phase,
-// which holds the i18n index, can localize the user-facing kinds - see
-// describeLoadError.
+// The load/edit kinds carry the structured PlanLoadError, described at render.
 type BannerError =
   | { kind: "load"; error: PlanLoadError }
   | { kind: "edit"; error: PlanLoadError }
@@ -162,38 +160,32 @@ type BannerError =
   | { kind: "busy" }
   | { kind: "solver"; error: unknown };
 
-// Boot-time failure before any plan renders, owning the whole viewport: the
-// structured load error of a link that failed to decode or validate (so the
-// splash can localize the user-facing kinds). A link that decodes is adopted
-// even when its solve fails, so a solve failure never reaches the splash.
-type InitialError = { error: PlanLoadError };
-
-// Localized text for a plan-load error on a user-facing surface. The
-// producer-unavailable kind is the one failure aimed at the player rather
-// than the link: its event cause names the switched-off cohort (#144) and its
-// area cause the selected settlement (#124), both in the UI language, and the
-// item goes by its display name. The manual cause keeps describePlanLoadError's
-// text until #125 ships the toggles that can produce it. Every other kind
-// describes a damaged share link - developer-facing detail - and keeps that
-// text too.
-function describeLoadError(error: PlanLoadError, i18n: I18nIndex): string {
-  if (error.kind === "producer-unavailable") {
-    if (error.cause.kind === "event") {
+// One banner sentence for a target the viewer's settings leave without a
+// producer. The event cause names the switched-off cohort (#144) and the area
+// cause the selected settlement (#124), both in the UI language, and the item
+// goes by its display name. The manual cause keeps its English text naming the
+// raw ids until #125 ships the toggles that can produce it. Exported so a test
+// can pin the manual wording, which no settings path reaches yet.
+export function describeBlockedTarget(
+  { itemId, cause }: BlockedTarget,
+  i18n: I18nIndex,
+): string {
+  switch (cause.kind) {
+    case "event":
       return i18n.t("app.error.producer-unavailable.event", {
-        item: i18n.displayName(error.itemId),
-        cohort: error.cause.cohort,
+        item: i18n.displayName(itemId),
+        cohort: cause.cohort,
       });
-    }
-    if (error.cause.kind === "area") {
+    case "area":
       // The settlement is named the way the panel names it, not by its raw
       // pack id: the sentence has to point at the option the user would flip.
       return i18n.t("app.error.producer-unavailable.area", {
-        item: i18n.displayName(error.itemId),
-        area: i18n.displayName(error.cause.area),
+        item: i18n.displayName(itemId),
+        area: i18n.displayName(cause.area),
       });
-    }
+    case "manual":
+      return `Item ${itemId} cannot be a target right now: every recipe producing it is unavailable (recipe ${cause.recipeId} is switched off in settings).`;
   }
-  return describePlanLoadError(error);
 }
 
 // Banner copy for a plan adopted with blocked targets: one sentence per target
@@ -202,8 +194,8 @@ function describeBlocked(
   targets: readonly BlockedTarget[],
   i18n: I18nIndex,
 ): string {
-  const sentences = targets.map(({ itemId, cause }) =>
-    describeLoadError({ kind: "producer-unavailable", itemId, cause }, i18n),
+  const sentences = targets.map((target) =>
+    describeBlockedTarget(target, i18n),
   );
   sentences.push(i18n.t("app.error.blocked.settings"));
   return joinSentences(i18n.locale, sentences);
@@ -446,7 +438,11 @@ function AppInner() {
   // local edits when it changes, so a freshly loaded plan never shows leftover
   // text from the previous one.
   const [planEpoch, setPlanEpoch] = useState(0);
-  const [initialError, setInitialError] = useState<InitialError | null>(null);
+  // Boot-time failure before any plan renders, owning the whole viewport: the
+  // load error of a link that failed to decode or validate. A link that
+  // decodes is adopted even when its solve fails, so a solve failure never
+  // reaches the splash.
+  const [initialError, setInitialError] = useState<PlanLoadError | null>(null);
   const [mutationError, setMutationError] = useState<BannerError | null>(null);
   // Target items the last successful render delivers below their declared rate.
   // Kept apart from mutationError on purpose: this describes the plan on screen
@@ -646,17 +642,23 @@ function AppInner() {
     [setNodes, setEdges, setGaps, setBaseEdges],
   );
 
+  // Put a hash in the URL in place, marked handled so the hashchange listener
+  // never reloads it.
+  const replaceHash = useCallback((hash: string): void => {
+    lastHandledHashRef.current = hash;
+    history.replaceState(null, "", hash);
+  }, []);
+
   // Write the plan's hash into the URL, unless a newer generation superseded
   // this one while the plan encoded.
   const writeHash = useCallback(
     async (nextPlan: Plan, myGen: number): Promise<void> => {
       const newHash = "#" + (await encodePlan(nextPlan));
       if (myGen !== solveGen.current) return;
-      lastHandledHashRef.current = newHash;
       lastGoodHashRef.current = newHash;
-      history.replaceState(null, "", newHash);
+      replaceHash(newHash);
     },
-    [],
+    [replaceHash],
   );
 
   // Drop whatever solve or navigation is in flight without starting a new one.
@@ -722,16 +724,13 @@ function AppInner() {
       const failLoad = (error: PlanLoadError) => {
         if (myGen !== solveGen.current) return;
         if (planRef.current === null) {
-          setInitialError({ error });
+          setInitialError(error);
           return;
         }
         setMutationError({ kind: "load", error });
         setStale(true);
         const good = lastGoodHashRef.current;
-        if (good !== null) {
-          lastHandledHashRef.current = good;
-          history.replaceState(null, "", good);
-        }
+        if (good !== null) replaceHash(good);
       };
       // A plan that decoded is plan state even when it cannot be solved, or
       // cannot be built under the viewer's settings, and the URL already holds
@@ -784,7 +783,7 @@ function AppInner() {
           const laid = await layoutSolved(solved);
           if (outcome.kind === "seeded") await writeHash(nextPlan, myGen);
           if (myGen !== solveGen.current) return;
-          if (outcome.kind === "loaded") lastGoodHashRef.current = hash;
+          if (goodHash !== null) lastGoodHashRef.current = goodHash;
           planRef.current = nextPlan;
           setPlan(nextPlan);
           applySolved(solved, laid);
@@ -807,7 +806,7 @@ function AppInner() {
         }
       }
     },
-    [applySolved, writeHash],
+    [applySolved, writeHash, replaceHash],
   );
 
   // Recover from a damaged share link: drop the hash and load the default plan
@@ -874,6 +873,28 @@ function AppInner() {
     [applySolved, writeHash, unavailable],
   );
 
+  // Solve a committed plan, or hold it unsolved when the viewer's settings
+  // leave a target without a producer. A hash navigation still landing is
+  // headed for another plan, so a block is not its concern: re-run it so the
+  // pasted link is checked under the current set rather than dropped along
+  // with the blocked plan. Only the availability effect can meet that case;
+  // commitPlan refuses while a navigation is in flight.
+  const solveOrHold = useCallback(
+    (plan: Plan): void => {
+      const blocked = blockedTargets(plan, pack, availability.causes);
+      if (blocked.length > 0) {
+        if (navigationInFlightRef.current) {
+          void loadFromHash(window.location.hash, "navigation");
+          return;
+        }
+        holdBlocked(plan, blocked);
+        return;
+      }
+      void scheduleSolve(plan);
+    },
+    [availability, holdBlocked, loadFromHash, scheduleSolve],
+  );
+
   // Commit the plan (user intent) synchronously, then kick off the async
   // solve + layout for the derived state. On a solver failure the committed
   // plan stays put and the error banner is the signal; the canvas keeps the
@@ -895,12 +916,7 @@ function AppInner() {
     setPlan(nextPlan);
     // An edit to a plan the settings block is still plan state: it commits
     // unsolved under the blocked banner, like a flip that orphans a target.
-    const blocked = blockedTargets(nextPlan, pack, availability.causes);
-    if (blocked.length > 0) {
-      holdBlocked(nextPlan, blocked);
-      return;
-    }
-    void scheduleSolve(nextPlan);
+    solveOrHold(nextPlan);
   }
 
   // A mid-session availability change (#144, #124) re-checks the committed
@@ -926,20 +942,8 @@ function AppInner() {
       }
       return;
     }
-    const blocked = blockedTargets(current, pack, availability.causes);
-    if (blocked.length > 0) {
-      // A hash navigation still landing is headed for another plan, so this
-      // block is not its concern: re-run it so the pasted link is checked
-      // under the new set rather than dropped along with the blocked plan.
-      if (navigationInFlightRef.current) {
-        void loadFromHash(window.location.hash, "navigation");
-        return;
-      }
-      holdBlocked(current, blocked);
-      return;
-    }
-    void scheduleSolve(current);
-  }, [availability, scheduleSolve, loadFromHash, holdBlocked]);
+    solveOrHold(current);
+  }, [availability, solveOrHold, loadFromHash]);
 
   // Cross-tab sync for the settings keys: a `storage` event fires in every
   // OTHER window sharing this origin's localStorage when a key changes, which
@@ -1066,9 +1070,7 @@ function AppInner() {
       <div className="ak-app-shell" style={splashStyle}>
         <div role="alert" style={splashCardStyle}>
           <p style={splashTitleStyle}>{i18n.t("app.error.corrupt")}</p>
-          <p style={splashDetailStyle}>
-            {describeLoadError(initialError.error, i18n)}
-          </p>
+          <p style={splashDetailStyle}>{describePlanLoadError(initialError)}</p>
           <button type="button" onClick={handleReset}>
             {i18n.t("app.error.reset")}
           </button>
@@ -1124,11 +1126,11 @@ function AppInner() {
   const bannerText = (err: BannerError): string => {
     if (err.kind === "load")
       return i18n.t("app.error.load", {
-        message: describeLoadError(err.error, i18n),
+        message: describePlanLoadError(err.error),
       });
     if (err.kind === "edit")
       return i18n.t("app.error.edit", {
-        message: describeLoadError(err.error, i18n),
+        message: describePlanLoadError(err.error),
       });
     if (err.kind === "blocked") return describeBlocked(err.targets, i18n);
     if (err.kind === "busy") return i18n.t("app.error.busy");

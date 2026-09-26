@@ -216,6 +216,23 @@ test("ratePerSecToPerMin prints a terminating per-minute rate as its exact decim
   );
 });
 
+test("ratePerSecToPerMin pins the exact decimal text across signs and sizes", () => {
+  // Per-minute value -> expected text. The per-second input is value / 60.
+  const table: [string, string, string][] = [
+    ["1", "1024", "0.0009765625"],
+    ["-7", "80", "-0.0875"],
+    ["12345678901234567890123", "1024", "12056327051986882705.1982421875"],
+    ["0", "1", "0"],
+    ["120", "1", "120"],
+    ["-3", "1", "-3"],
+  ];
+  for (const [num, denom, expected] of table) {
+    const perSec = new Fraction(`${num}/${denom}`).div(60);
+    const [n, d] = perSec.toFraction(false).split("/");
+    expect(ratePerSecToPerMin({ num: n!, denom: d ?? "1" })).toBe(expected);
+  }
+});
+
 test("parseRateText trims before parsing", () => {
   expect(parseRateText(" 45 ", "invalid")).toEqual({
     kind: "rate",

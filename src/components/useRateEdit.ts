@@ -67,6 +67,22 @@ export type RateEdit = {
   pruneEditsTo: (liveRowKeys: ReadonlySet<string>) => void;
 };
 
+// Set or clear (undefined) one row's reason in a reason map, keeping the map
+// identity when nothing changes so an unchanged field does not re-render.
+function setReason(
+  setter: React.Dispatch<React.SetStateAction<Map<string, RateTextError>>>,
+  rowKey: string,
+  value: RateTextError | undefined,
+): void {
+  setter((prev) => {
+    if (value === prev.get(rowKey)) return prev;
+    const next = new Map(prev);
+    if (value !== undefined) next.set(rowKey, value);
+    else next.delete(rowKey);
+    return next;
+  });
+}
+
 // The edit / commit / revert / invalid protocol behind one rate input family.
 // One instance owns one disjoint family of rows: it carries its own invalid
 // set, so a caller with two families (auto rows and override rows) needs two
@@ -106,26 +122,6 @@ export function useRateEdit(config: RateEditConfig): RateEdit {
     new Map(),
   );
 
-  function markInvalid(rowKey: string, error: RateTextError | undefined) {
-    setInvalidIds((prev) => {
-      if (error === prev.get(rowKey)) return prev;
-      const next = new Map(prev);
-      if (error !== undefined) next.set(rowKey, error);
-      else next.delete(rowKey);
-      return next;
-    });
-  }
-
-  function markReverted(rowKey: string, reason: RateTextError | undefined) {
-    setRevertedIds((prev) => {
-      if (reason === prev.get(rowKey)) return prev;
-      const next = new Map(prev);
-      if (reason !== undefined) next.set(rowKey, reason);
-      else next.delete(rowKey);
-      return next;
-    });
-  }
-
   function dropText(rowKey: string) {
     setTexts((prev) => {
       if (!prev.has(rowKey)) return prev;
@@ -138,8 +134,8 @@ export function useRateEdit(config: RateEditConfig): RateEdit {
   function handleChange(rowKey: string, value: string) {
     dirty.current.add(rowKey);
     // Typing clears any prior invalid cue; the value is re-checked on commit.
-    markInvalid(rowKey, undefined);
-    markReverted(rowKey, undefined);
+    setReason(setInvalidIds, rowKey, undefined);
+    setReason(setRevertedIds, rowKey, undefined);
     setTexts((prev) => new Map(prev).set(rowKey, value));
   }
 
@@ -154,8 +150,8 @@ export function useRateEdit(config: RateEditConfig): RateEdit {
     if (text === undefined) return;
     function finishCommit(): void {
       dirty.current.delete(rowKey);
-      markInvalid(rowKey, undefined);
-      markReverted(rowKey, undefined);
+      setReason(setInvalidIds, rowKey, undefined);
+      setReason(setRevertedIds, rowKey, undefined);
       if (!config.keepTextAfterCommit) dropText(rowKey);
     }
     // parseRateText owns what empty text and zero mean per emptyMeans; it
@@ -164,15 +160,15 @@ export function useRateEdit(config: RateEditConfig): RateEdit {
     if (result.kind === "error") {
       if (revert) {
         dirty.current.delete(rowKey);
-        markInvalid(rowKey, undefined);
+        setReason(setInvalidIds, rowKey, undefined);
         // The field is valid again, so the row says what happened instead of
         // marking it wrong: a revert the user never sees reads as the panel
         // eating the edit.
-        markReverted(rowKey, result.error);
+        setReason(setRevertedIds, rowKey, result.error);
         dropText(rowKey);
       } else {
-        markInvalid(rowKey, result.error);
-        markReverted(rowKey, undefined);
+        setReason(setInvalidIds, rowKey, result.error);
+        setReason(setRevertedIds, rowKey, undefined);
       }
       return;
     }
@@ -198,7 +194,7 @@ export function useRateEdit(config: RateEditConfig): RateEdit {
           onBlur: () => commitFromLocal(rowKey, true),
           // Coming back to the field retires the revert notice: the user is
           // about to type over the restored value anyway.
-          onFocus: () => markReverted(rowKey, undefined),
+          onFocus: () => setReason(setRevertedIds, rowKey, undefined),
           onKeyDown: (e) => {
             if (e.key === "Enter") commitFromLocal(rowKey, false);
           },
@@ -212,8 +208,8 @@ export function useRateEdit(config: RateEditConfig): RateEdit {
     // id.
     clearPendingEdit(rowKey) {
       dirty.current.delete(rowKey);
-      markInvalid(rowKey, undefined);
-      markReverted(rowKey, undefined);
+      setReason(setInvalidIds, rowKey, undefined);
+      setReason(setRevertedIds, rowKey, undefined);
       dropText(rowKey);
     },
     // An uncommitted edit follows the row to its new key, dirty flag and all, so

@@ -120,14 +120,9 @@ function exactDecimal(f: Fraction): string | undefined {
   }
   if (rest !== 1n) return undefined;
 
-  // n/d = n * (10^k / d) / 10^k with k = max(twos, fives).
-  const places = Math.max(twos, fives);
-  const scaled = (f.n * 10n ** BigInt(places)) / f.d;
-  const sign = f.s < 0n ? "-" : "";
-  if (places === 0) return sign + scaled.toString();
-  const digits = scaled.toString().padStart(places + 1, "0");
-  const cut = digits.length - places;
-  return `${sign}${digits.slice(0, cut)}.${digits.slice(cut)}`;
+  // n/d terminates after exactly max(twos, fives) places, so toString prints
+  // every digit (its default 15-place cap would cut 1/2^30 short).
+  return f.toString(Math.max(twos, fives));
 }
 
 // Mantissa and exponent of exponent-notation text: "1e6", "2.5E3", "6e-1".
@@ -167,6 +162,12 @@ export function parsePerMinToRatePerSec(
 ): RationalString | undefined {
   const perMin = parsePerMinText(perMinStr);
   if (perMin === undefined) return undefined;
+  return rateFromPerMin(perMin);
+}
+
+// A parsed per-minute value as a per-second rational, or undefined when it is
+// negative or too long to store.
+function rateFromPerMin(perMin: Fraction): RationalString | undefined {
   const f = perMin.div(new Fraction(60));
   if (f.compare(0) < 0) return undefined;
   const s = f.toFraction(false);
@@ -258,7 +259,7 @@ export function parseRateText(
   }
 
   // Past the checks above, the parser only refuses a value too long to store.
-  const rate = parsePerMinToRatePerSec(trimmed);
+  const rate = rateFromPerMin(perMin);
   return rate === undefined
     ? { kind: "error", error: "notNumber" }
     : { kind: "rate", rate };

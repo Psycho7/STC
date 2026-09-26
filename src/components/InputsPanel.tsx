@@ -858,23 +858,20 @@ export function InputsPanel({
     // popup cannot usefully take over, or (on a catalyst row) it has no
     // catalyst pool at all - for all three the advice is to edit the row that
     // has it - and/or it belongs to an off-cohort event. A single cause renders
-    // its sentence alone; both together join with the panel's " · " separator,
-    // since the popup renders exactly one hint line. Before the first solve
-    // lands there are no auto-rows and no overrides, so with every cohort on
-    // nothing is dimmed and the hint would explain an absence.
-    const hintSentences = [
-      ...(listedCount > 0 ? [i18n.t("inputs.picker.listed")] : []),
-      ...(flow.unavailableHint !== undefined ? [flow.unavailableHint] : []),
-    ];
+    // its sentence alone; both together join into the popup's one hint line.
+    // Before the first solve lands there are no auto-rows and no overrides, so
+    // with every cohort on nothing is dimmed and the hint would explain an
+    // absence.
+    const hint = flow.pickerHint(
+      listedCount > 0 ? i18n.t("inputs.picker.listed") : undefined,
+    );
     return (
       <ItemPickerPopup
         items={pack.items}
         disabledIds={disabledIds}
         selectedId={row?.itemId}
         tierByItemId={flow.tierByItemId}
-        disabledHint={
-          hintSentences.length > 0 ? hintSentences.join(" · ") : undefined
-        }
+        disabledHint={hint}
         onPick={(newId) => {
           if (row === undefined) {
             // The general side is where a new row goes; when it is already

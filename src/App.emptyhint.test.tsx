@@ -23,6 +23,7 @@ vi.mock("./canvas/layout", async (importOriginal) => {
 import App from "./App";
 import { defaultPlan, encodePlan } from "./data/plan";
 import { pack } from "./data/load";
+import { LOCALE_STORAGE_KEY } from "./data/storage-keys";
 import { loadI18n, type Locale } from "./data/i18n";
 import { cssValue } from "./canvas/cssContract.testkit";
 import { pickerTile, promptInput } from "./components/panel.testkit";
@@ -49,7 +50,7 @@ beforeEach(() => {
     },
   );
   window.location.hash = "";
-  window.localStorage.setItem("aef.locale", "en");
+  window.localStorage.setItem(LOCALE_STORAGE_KEY, "en");
 });
 
 afterEach(() => {
@@ -86,7 +87,7 @@ test("a plan with targets never shows the hint", async () => {
 });
 
 test("the hint reads in zh under the zh locale", async () => {
-  window.localStorage.setItem("aef.locale", "zh");
+  window.localStorage.setItem(LOCALE_STORAGE_KEY, "zh");
   window.location.hash = await emptyPlanHash();
   render(<App />);
 

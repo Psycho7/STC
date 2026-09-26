@@ -24,35 +24,40 @@ vi.mock("./canvas/layout", async (importOriginal) => {
   };
 });
 
-const canvasSpy = vi.hoisted(() => ({ status: "" }));
-vi.mock("./canvas/Canvas", () => ({
-  default: (props: { status?: string }) => {
-    canvasSpy.status = props.status ?? "";
-    return null;
-  },
-}));
+vi.mock("./canvas/Canvas", async () => {
+  const { canvasSpy } = await import("./App.testkit");
+  return {
+    default: (props: { status?: string }) => {
+      canvasSpy.status = props.status ?? "";
+      return null;
+    },
+  };
+});
 
-import App from "./App";
+import App, { describeBlockedTarget } from "./App";
 import { defaultPlan, encodePlan, loadPlan, type Plan } from "./data/plan";
 import { pack } from "./data/load";
 import { loadI18n, type Locale } from "./data/i18n";
 import {
   AREA_STORAGE_KEY,
   EVENT_COHORT_OVERRIDES_STORAGE_KEY,
+  LOCALE_STORAGE_KEY,
 } from "./data/storage-keys";
-import { LUNG_PLAN, flipStoredOverrides } from "./App.testkit";
+import {
+  LUNG_PLAN,
+  NUGGET_AND_POWDER_PLAN,
+  POWDER_PLAN,
+  VALLEY,
+  canvasSpy,
+  flipStoredArea,
+  flipStoredOverrides,
+} from "./App.testkit";
 
 // copper_nugget is Wuling-only: under Valley IV (tundra) none of its producers
 // can be built.
 const NUGGET_PLAN: Plan = {
   ...defaultPlan(pack),
   targets: [{ itemId: "copper_nugget", ratePerSec: { num: "1", denom: "1" } }],
-};
-
-// Solves in full under either area, so it can stand as a drawn plan.
-const POWDER_PLAN: Plan = {
-  ...defaultPlan(pack),
-  targets: [{ itemId: "iron_powder", ratePerSec: { num: "1", denom: "1" } }],
 };
 
 // Blocked under Valley IV through copper_nugget; shares no target with
@@ -65,15 +70,6 @@ const NUGGET_AND_BOTTLE_PLAN: Plan = {
   ],
 };
 
-const NUGGET_AND_POWDER_PLAN: Plan = {
-  ...defaultPlan(pack),
-  targets: [
-    { itemId: "copper_nugget", ratePerSec: { num: "1", denom: "1" } },
-    { itemId: "iron_powder", ratePerSec: { num: "1", denom: "1" } },
-  ],
-};
-
-const VALLEY = "tundra";
 const WULING = "jinlong";
 
 // The texts that belong to other outcomes and must never show for a blocked
@@ -84,11 +80,6 @@ function expectNoRejection(locale: Locale): void {
   expect(text).not.toContain(i18n.t("app.error.corrupt"));
   expect(text).not.toContain(i18n.t("app.error.reset"));
   expect(text).not.toContain(i18n.t("app.error.edit", { message: "" }).trim());
-}
-
-function flipStoredArea(area: string): void {
-  window.localStorage.setItem(AREA_STORAGE_KEY, area);
-  fireEvent(window, new StorageEvent("storage", { key: AREA_STORAGE_KEY }));
 }
 
 beforeEach(() => {
@@ -141,7 +132,7 @@ test.each(
   "first load of $name adopts the plan under the blocked banner ($locale)",
   async ({ plan, itemId, setting, seed, locale }) => {
     const i18n = loadI18n(locale);
-    window.localStorage.setItem("aef.locale", locale);
+    window.localStorage.setItem(LOCALE_STORAGE_KEY, locale);
     seed();
     const hash = "#" + (await encodePlan(plan));
     window.location.hash = hash;
@@ -171,7 +162,7 @@ test.each(
 
 test("a navigation to a blocked plan over a drawn plan adopts it and marks the drawing stale", async () => {
   const en = loadI18n("en");
-  window.localStorage.setItem("aef.locale", "en");
+  window.localStorage.setItem(LOCALE_STORAGE_KEY, "en");
   window.localStorage.setItem(AREA_STORAGE_KEY, VALLEY);
   window.location.hash = "#" + (await encodePlan(POWDER_PLAN));
   render(<App />);
@@ -210,7 +201,7 @@ test("a navigation to a blocked plan over a drawn plan adopts it and marks the d
 
 test("a settings-panel area flip that orphans a target keeps the area and adopts the blocked state; flipping back re-solves", async () => {
   const en = loadI18n("en");
-  window.localStorage.setItem("aef.locale", "en");
+  window.localStorage.setItem(LOCALE_STORAGE_KEY, "en");
   window.location.hash = "#" + (await encodePlan(NUGGET_PLAN));
   render(<App />);
   await screen.findAllByTestId("target-row");
@@ -243,7 +234,7 @@ test("a settings-panel area flip that orphans a target keeps the area and adopts
 
 test("a cross-tab event flip that orphans a target adopts the blocked state in zh; flipping back re-solves", async () => {
   const zh = loadI18n("zh");
-  window.localStorage.setItem("aef.locale", "zh");
+  window.localStorage.setItem(LOCALE_STORAGE_KEY, "zh");
   window.location.hash = "#" + (await encodePlan(LUNG_PLAN));
   render(<App />);
   await screen.findAllByTestId("target-row");
@@ -274,7 +265,7 @@ test("a cross-tab event flip that orphans a target adopts the blocked state in z
 // is part of the plan that solves once the setting is flipped back.
 test("an edit made while a target is blocked is adopted, not rejected", async () => {
   const en = loadI18n("en");
-  window.localStorage.setItem("aef.locale", "en");
+  window.localStorage.setItem(LOCALE_STORAGE_KEY, "en");
   window.localStorage.setItem(AREA_STORAGE_KEY, VALLEY);
   window.location.hash = "#" + (await encodePlan(NUGGET_AND_POWDER_PLAN));
   render(<App />);
@@ -310,3 +301,49 @@ test("an edit made while a target is blocked is adopted, not rejected", async ()
   const powder = outcome.plan.targets.find((t) => t.itemId === "iron_powder");
   expect(powder?.ratePerSec).toEqual({ num: "10", denom: "1" });
 });
+
+// One sentence per blocked target. The area and event causes speak the UI
+// language and name the item by display name; the manual cause has no
+// localized copy yet, so it keeps the English text naming both raw ids.
+test.each(LOCALES)(
+  "describeBlockedTarget words every cause kind (%s)",
+  (locale) => {
+    const i18n = loadI18n(locale);
+    expect(
+      describeBlockedTarget(
+        { itemId: "copper_nugget", cause: { kind: "area", area: VALLEY } },
+        i18n,
+      ),
+    ).toBe(
+      i18n.t("app.error.producer-unavailable.area", {
+        item: i18n.displayName("copper_nugget"),
+        area: i18n.displayName(VALLEY),
+      }),
+    );
+    expect(
+      describeBlockedTarget(
+        {
+          itemId: "activity_xiranite_lung",
+          cause: { kind: "event", cohort: "v1.5" },
+        },
+        i18n,
+      ),
+    ).toBe(
+      i18n.t("app.error.producer-unavailable.event", {
+        item: i18n.displayName("activity_xiranite_lung"),
+        cohort: "v1.5",
+      }),
+    );
+    expect(
+      describeBlockedTarget(
+        {
+          itemId: "activity_xiranite_lung",
+          cause: { kind: "manual", recipeId: "activity_xiranite_lung" },
+        },
+        i18n,
+      ),
+    ).toBe(
+      "Item activity_xiranite_lung cannot be a target right now: every recipe producing it is unavailable (recipe activity_xiranite_lung is switched off in settings).",
+    );
+  },
+);

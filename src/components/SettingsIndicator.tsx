@@ -1,5 +1,6 @@
 import type { RecipePack } from "@aef/schema";
 import {
+  effectiveCohortEnabled,
   eventCohortsOf,
   latestArea,
   type EventCohortOverrides,
@@ -32,12 +33,12 @@ export function SettingsIndicator({
   // Walk the pack's cohorts, not the stored keys: a stale stored cohort the
   // pack no longer carries changes nothing, so it must not show.
   for (const cohort of eventCohortsOf(pack)) {
-    const override = overrides[cohort];
-    if (override === undefined || override === (cohort === packCohort)) {
+    const enabled = effectiveCohortEnabled(cohort, packCohort, overrides);
+    if (enabled === effectiveCohortEnabled(cohort, packCohort, {})) {
       continue;
     }
     parts.push(
-      i18n.t(override ? "app.settings.event.on" : "app.settings.event.off", {
+      i18n.t(enabled ? "app.settings.event.on" : "app.settings.event.off", {
         cohort,
       }),
     );

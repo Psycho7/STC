@@ -220,6 +220,7 @@ function fontFaceRule(face: FakeFace, url: string) {
     .map(([k, v]) => `${k}: ${v};`)
     .join(" ");
   return {
+    type: CSSRule.FONT_FACE_RULE,
     cssText: `@font-face { ${body} }`,
     style: { getPropertyValue: (name: string) => props[name] ?? "" },
   };
@@ -428,6 +429,26 @@ describe("font embedding", () => {
     expect(styleSheetReads).toBe(2);
     expect(fontEmbedCSSPassed(0)).not.toContain("Cinzel");
     expect(fontEmbedCSSPassed(1)).toContain("Cinzel");
+  });
+
+  // A face dropped from one build is evicted, so the cache holds only the
+  // faces of the latest build.
+  test("a rebuild evicts the faces it no longer uses", async () => {
+    stubDocumentFonts();
+    const capturePlanPng = await freshCapture();
+    const viewport = canvasViewport();
+    const label = viewport.firstChild!;
+
+    await capturePlanPng(viewport, FRAME, "#000");
+    viewport.removeChild(label);
+    await capturePlanPng(viewport, FRAME, "#000");
+    viewport.appendChild(label);
+    await capturePlanPng(viewport, FRAME, "#000");
+
+    expect(fontFetch.mock.calls.map(([url]) => url)).toEqual([
+      LATIN_URL,
+      LATIN_URL,
+    ]);
   });
 
   // An empty string, not undefined: html-to-image only falls back to its own
