@@ -64,7 +64,7 @@ const JINLONG_STEER: Map<string, number> = new Map(
     )
     .map((r) => [r.id, 1000]),
 );
-import { loadPlan } from "../../data/plan";
+import { defaultPlan, loadPlan } from "../../data/plan";
 import { isMachineRecipeVertex, isRecipeUnit } from "../types";
 import { rationalFromString } from "./rational";
 import type { RenderPlan } from "../types";
@@ -480,6 +480,136 @@ describe("render corpus: raw-also-target boundary feed (1B regression)", () => {
     expect(targetInflow(plan, "quartz_sand").equals(new Fraction(1))).toBe(
       true,
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Capped raw target. A raw item with a finite cap builds an LP row, and the
+// row's bounded draw meets the target. The export is fed from what that draw
+// has left after the item's in-plan consumers, so the target card is fed from
+// the item's input card rather than from nothing (a false SHORTFALL).
+// ---------------------------------------------------------------------------
+describe("render corpus: capped raw target is fed from the LP draw", () => {
+  const capped = (
+    targets: Target[],
+    item: string,
+    cap: { num: string; denom: string },
+  ) =>
+    solveFromPlan({
+      ...defaultPlan(pack),
+      targets,
+      itemOverrides: [{ itemId: item, ratePerSec: cap }],
+    });
+
+  const inflowTo = (plan: RenderPlan, toUnit: string, item: string) =>
+    plan.edges
+      .filter((e) => e.toUnit === toUnit && e.item === item)
+      .reduce((acc, e) => acc.add(e.rate), new Fraction(0));
+
+  it.each([
+    ["gas_inert", "1"],
+    ["copper_ore", "10"],
+    ["liquid_water", "10"],
+  ])("%s target 1/4/s under a %s/s cap draws the export", (item, cap) => {
+    const quarter = new Fraction(1, 4);
+    const out = capped(
+      [{ itemId: item, ratePerSec: { num: "1", denom: "4" } }],
+      item,
+      { num: cap, denom: "1" },
+    );
+    expect(out.full.feasibility.deficits.size).toBe(0);
+    expect(out.underDelivered).toEqual([]);
+    const input = out.plan.units.find(
+      (u) => u.id === `u:in:${item}` && u.kind === "inputProduct",
+    );
+    expect(input).toMatchObject({
+      rate: { num: "1", denom: "4" },
+      rateCap: { num: cap, denom: "1" },
+    });
+    const exportEdge = out.plan.edges.find(
+      (e) => e.fromUnit === `u:in:${item}` && e.toUnit === `u:out:${item}`,
+    );
+    expect(exportEdge?.rate.equals(quarter)).toBe(true);
+    expect(inflowTo(out.plan, `u:out:${item}`, item).equals(quarter)).toBe(
+      true,
+    );
+  });
+
+  // gas-web: gas_inert is both a 15/min target and a copper_jar input.
+  const GAS_WEB: Target[] = [
+    { itemId: "gas_xiranite_enr", ratePerSec: { num: "1", denom: "2" } },
+    { itemId: "gas_copper_enr2", ratePerSec: { num: "1", denom: "2" } },
+    { itemId: "gas_inert", ratePerSec: { num: "1", denom: "4" } },
+  ];
+  const GAS_WEB_CAPS = Array.from({ length: 32 }, (_, i) => 14 + i);
+
+  it("gas-web with gas_inert capped 14..45/min delivers what the LP draws", () => {
+    const declared = new Fraction(1, 4);
+    const wrong: string[] = [];
+    vi.stubEnv("DEV", false);
+    try {
+      for (const perMin of GAS_WEB_CAPS) {
+        const out = capped(GAS_WEB, "gas_inert", {
+          num: String(perMin),
+          denom: "60",
+        });
+        const deficit =
+          out.full.feasibility.deficits.get("gas_inert") ?? new Fraction(0);
+        const delivered = inflowTo(out.plan, "u:out:gas_inert", "gas_inert");
+        const short = deficit.compare(0) > 0;
+        const violations = checkRenderPlan({
+          plan: out.plan,
+          rates: out.full.rates,
+          pack,
+          targets: out.targets,
+          itemOverrides: out.itemOverrides,
+          catalystAccount: out.full.catalystAccount,
+        }).flatMap((r) => r.violations);
+        const allowed = (v: string) =>
+          short && v.startsWith('target output "gas_inert"');
+        if (!delivered.equals(declared.sub(deficit))) {
+          wrong.push(`${perMin}/min: delivered ${delivered.toFraction()}`);
+        }
+        if (out.underDelivered.includes("gas_inert") !== short) {
+          wrong.push(`${perMin}/min: underDelivered ${out.underDelivered}`);
+        }
+        for (const v of violations.filter((v) => !allowed(v))) {
+          wrong.push(`${perMin}/min: ${v}`);
+        }
+      }
+    } finally {
+      vi.unstubAllEnvs();
+    }
+    expect(wrong).toEqual([]);
+  });
+
+  it("gas-web capped plans pass the DEV render asserts", () => {
+    const INVARIANTS_HEADER = "render invariants violated:\n";
+    const thrown: string[] = [];
+    vi.stubEnv("DEV", true);
+    try {
+      for (const perMin of GAS_WEB_CAPS) {
+        try {
+          capped(GAS_WEB, "gas_inert", { num: String(perMin), denom: "60" });
+        } catch (e) {
+          // A cap below the 15/min target leaves a real LP deficit, which the
+          // DEV target assert reports; nothing else may throw. Only the
+          // aggregate invariants error is split; any other throw stays whole.
+          const msg = e instanceof Error ? e.message : String(e);
+          const lines = msg.startsWith(INVARIANTS_HEADER)
+            ? msg.split("\n").slice(1)
+            : [msg];
+          const other = lines.filter(
+            (l) => perMin >= 15 || !l.startsWith('target output "gas_inert"'),
+          );
+          if (other.length > 0)
+            thrown.push(`${perMin}/min: ${other.join("; ")}`);
+        }
+      }
+    } finally {
+      vi.unstubAllEnvs();
+    }
+    expect(thrown).toEqual([]);
   });
 });
 

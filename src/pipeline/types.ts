@@ -280,6 +280,10 @@ export type RenderPolicyInput = {
   // sizes each boundary import as totalDemand * (1 - share) and skips emission
   // entirely for finite-capped items with no entry (realized draw 0).
   boundaryShare: ReadonlyMap<ItemId, Fraction>;
+  // The LP's boundary draw per finite-capped item. deriveBoundaryProducts feeds
+  // a capped target's export from what the draw has left after the item's
+  // in-plan consumers.
+  draws: ReadonlyMap<ItemId, Fraction>;
 };
 
 export type RenderPolicy = (input: RenderPolicyInput) => RenderPlan;

@@ -81,6 +81,7 @@ export function renderPlanFromSolve(
     rates,
     supplyShares,
     boundaryShare,
+    draws,
   } = full;
 
   // Raw versus netted, and both are used deliberately. `nettedRecipeById`
@@ -161,6 +162,7 @@ export function renderPlanFromSolve(
     supply,
     idealCount,
     boundaryShare,
+    draws,
   });
 
   // Dev/test-only: assert render invariants, skipped in production builds and
