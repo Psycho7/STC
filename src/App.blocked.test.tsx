@@ -32,7 +32,7 @@ vi.mock("./canvas/Canvas", () => ({
   },
 }));
 
-import App from "./App";
+import App, { describeBlockedTarget } from "./App";
 import { defaultPlan, encodePlan, loadPlan, type Plan } from "./data/plan";
 import { pack } from "./data/load";
 import { loadI18n, type Locale } from "./data/i18n";
@@ -310,3 +310,49 @@ test("an edit made while a target is blocked is adopted, not rejected", async ()
   const powder = outcome.plan.targets.find((t) => t.itemId === "iron_powder");
   expect(powder?.ratePerSec).toEqual({ num: "10", denom: "1" });
 });
+
+// One sentence per blocked target. The area and event causes speak the UI
+// language and name the item by display name; the manual cause has no
+// localized copy yet, so it keeps the English text naming both raw ids.
+test.each(LOCALES)(
+  "describeBlockedTarget words every cause kind (%s)",
+  (locale) => {
+    const i18n = loadI18n(locale);
+    expect(
+      describeBlockedTarget(
+        { itemId: "copper_nugget", cause: { kind: "area", area: VALLEY } },
+        i18n,
+      ),
+    ).toBe(
+      i18n.t("app.error.producer-unavailable.area", {
+        item: i18n.displayName("copper_nugget"),
+        area: i18n.displayName(VALLEY),
+      }),
+    );
+    expect(
+      describeBlockedTarget(
+        {
+          itemId: "activity_xiranite_lung",
+          cause: { kind: "event", cohort: "v1.5" },
+        },
+        i18n,
+      ),
+    ).toBe(
+      i18n.t("app.error.producer-unavailable.event", {
+        item: i18n.displayName("activity_xiranite_lung"),
+        cohort: "v1.5",
+      }),
+    );
+    expect(
+      describeBlockedTarget(
+        {
+          itemId: "activity_xiranite_lung",
+          cause: { kind: "manual", recipeId: "activity_xiranite_lung" },
+        },
+        i18n,
+      ),
+    ).toBe(
+      "Item activity_xiranite_lung cannot be a target right now: every recipe producing it is unavailable (recipe activity_xiranite_lung is switched off in settings).",
+    );
+  },
+);

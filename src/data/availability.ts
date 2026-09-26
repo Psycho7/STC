@@ -18,8 +18,7 @@
 import type { Recipe, RecipePack } from "@aef/schema";
 import type { RecipeId } from "../solver/types";
 import type { ProducerUnavailableCause } from "./plan";
-import { outermostCause } from "./plan";
-import { producersOfItem } from "./recipe-category";
+import { producerUnavailableCause } from "./plan";
 import {
   AREA_STORAGE_KEY,
   EVENT_COHORT_OVERRIDES_STORAGE_KEY as STORAGE_KEY,
@@ -243,14 +242,7 @@ export function unavailableItems(
 
   for (const item of pack.items) {
     if (causes.has(item.id)) continue;
-    const producers = producersOfItem(pack.recipes, item.id);
-    if (producers.length === 0) continue;
-    const producerCauses = producers.flatMap((r) => {
-      const cause = recipeCauses.get(r.id);
-      return cause ? [cause] : [];
-    });
-    if (producerCauses.length < producers.length) continue;
-    const cause = outermostCause(producerCauses);
+    const cause = producerUnavailableCause(pack, item.id, recipeCauses);
     if (cause) causes.set(item.id, cause);
   }
   return causes;
