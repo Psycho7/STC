@@ -1920,11 +1920,11 @@ const OBSTACLE_PAD_RIGHT = PORT_STUB;
 export const OBSTACLE_PAD_LEFT = Math.max(PORT_STUB, ENTRY_GUTTER_OVERHANG);
 export const OBSTACLE_PAD_Y = CHAMFER;
 
-// Horizontal clearance a rail column keeps off an obstacle flagged `container`,
-// in place of the plain gap. Only another edge's drawn vertical carries the
-// flag (drawnColumnBands), so this is the pitch a rail column keeps off every
-// vertical already on the canvas.
-export const CONTAINER_COLUMN_GAP = 16;
+// Horizontal clearance a rail column keeps off an obstacle flagged
+// `drawnVertical`, in place of the plain gap. Only another edge's drawn vertical
+// carries the flag (drawnColumnBands), so this is the pitch a rail column keeps
+// off every vertical already on the canvas.
+export const DRAWN_VERTICAL_GAP = 16;
 
 // nodeId identifies the node an obstacle belongs to, so a consumer can exempt an
 // edge's OWN target card / gutter (the default rise and backward entry columns
@@ -1979,9 +1979,9 @@ export function paddedObstacles(
 // clear air off the card edge, and two obstacles closer than 2*gap merge into one
 // no-go band (a candidate that would land between them fails the clear test and
 // is skipped, pushing the column to the outer edge). Obstacles flagged
-// `container` take the wider `containerGap` for BOTH the strike test and the
-// candidate edges; it defaults to the plain gap, so a caller that passes none
-// is byte-identical to before. A zero-width obstacle (left === right) is a
+// `drawnVertical` take the wider `drawnVerticalGap` for BOTH the strike test and
+// the candidate edges; it defaults to the plain gap, so a caller that passes
+// none is byte-identical to before. A zero-width obstacle (left === right) is a
 // BORDER BAND: it blocks exactly (x - gap, x + gap) around that line and offers
 // the two candidates x - gap / x + gap.
 //
@@ -2020,7 +2020,7 @@ export function clearColumnX(
     towardTarget?: number;
     radius?: number;
     gap?: number;
-    containerGap?: number | undefined;
+    drawnVerticalGap?: number | undefined;
     accept?: (x: number) => boolean;
     // Candidate columns the caller derives from a constraint the obstacle list
     // cannot express -- the x where a HORIZONTAL neighbour of the run's own
@@ -2033,11 +2033,12 @@ export function clearColumnX(
   },
 ): number {
   const gap = opts?.gap ?? CHAMFER;
-  const containerGap = opts?.containerGap ?? gap;
+  const drawnVerticalGap = opts?.drawnVerticalGap ?? gap;
   const radius = opts?.radius ?? CLEAR_COLUMN_RADIUS;
   const toward = opts?.towardTarget ?? 0;
   const accept = opts?.accept ?? (() => true);
-  const gapOf = (o: ObstacleRect): number => (o.container ? containerGap : gap);
+  const gapOf = (o: ObstacleRect): number =>
+    o.drawnVertical ? drawnVerticalGap : gap;
   const ymin = Math.min(yLo, yHi);
   const ymax = Math.max(yLo, yHi);
   // Only obstacles whose vertical extent the run overlaps can block it.
@@ -2179,10 +2180,10 @@ function clearColumnKeepingLeg(args: {
   // connecting legs -- and tested in the drawn frame (DrawnColumnBands).
   // Absent means none.
   drawnColumns?: DrawnColumnBands | undefined;
-  // Wider column gap for obstacles flagged `container` (CONTAINER_COLUMN_GAP).
+  // Wider column gap for obstacles flagged `drawnVertical` (DRAWN_VERTICAL_GAP).
   // Defaults to the tier's plain gap, so an omitting caller resolves exactly as
   // before.
-  containerGap?: number | undefined;
+  drawnVerticalGap?: number | undefined;
   // Own-side guard for a port-anchored column. Both are optional and default to
   // a no-op, so the clampBackwardRails callers (which omit them) are unchanged.
   //   sideClamp -- reject any candidate on the wrong side of the port (target
@@ -2217,7 +2218,7 @@ function clearColumnKeepingLeg(args: {
     foreignPadded,
     foreignRawCards,
     drawnColumns,
-    containerGap,
+    drawnVerticalGap,
     ownLegRect,
     sideClamp,
     columnAccept,
@@ -2237,25 +2238,29 @@ function clearColumnKeepingLeg(args: {
     x: number,
     set: ReadonlyArray<PaddedObstacle>,
     gap: number,
-    cGap: number,
+    verticalGap: number,
   ): boolean =>
     !set.some(
       (o) =>
         o.bottom > ymin &&
         o.top < ymax &&
-        x > o.left - (o.container ? cGap : gap) &&
-        x < o.right + (o.container ? cGap : gap),
+        x > o.left - (o.drawnVertical ? verticalGap : gap) &&
+        x < o.right + (o.drawnVertical ? verticalGap : gap),
     );
 
   // The same predicate for the drawn verticals, in their own frame.
-  const drawnColumnClear = (x: number, gap: number, cGap: number): boolean =>
+  const drawnColumnClear = (
+    x: number,
+    gap: number,
+    verticalGap: number,
+  ): boolean =>
     drawnColumns === undefined ||
     !drawnColumns.bands.some(
       (o) =>
         o.bottom > Math.min(drawnColumns.yLo, drawnColumns.yHi) &&
         o.top < Math.max(drawnColumns.yLo, drawnColumns.yHi) &&
-        drawnColumns.xOf(x) > o.left - (o.container ? cGap : gap) &&
-        drawnColumns.xOf(x) < o.right + (o.container ? cGap : gap),
+        drawnColumns.xOf(x) > o.left - (o.drawnVertical ? verticalGap : gap) &&
+        drawnColumns.xOf(x) < o.right + (o.drawnVertical ? verticalGap : gap),
     );
 
   // One resolve-then-verify step, shared by every tier below. clearColumnX hands
@@ -2272,13 +2277,13 @@ function clearColumnKeepingLeg(args: {
     const x = clearColumnX(desired, yLo, yHi, set, {
       towardTarget: toward,
       gap,
-      containerGap,
+      drawnVerticalGap,
       radius,
       accept,
       drawnColumns,
     });
-    return columnClear(x, set, gap, containerGap ?? gap) &&
-      drawnColumnClear(x, gap, containerGap ?? gap) &&
+    return columnClear(x, set, gap, drawnVerticalGap ?? gap) &&
+      drawnColumnClear(x, gap, drawnVerticalGap ?? gap) &&
       accept(x)
       ? x
       : null;
@@ -2374,9 +2379,9 @@ function clearColumnKeepingLeg(args: {
 // another edge's vertical is a plain crossing, which the crossing-cue pass
 // already draws.
 //
-// `container: true` puts them on the wider containerGap arm, which the rail
-// callers set to CONTAINER_COLUMN_GAP -- the same 16 units as the column pitch
-// floor (ENTRY_SLOT_PITCH), so one gap value serves both.
+// `drawnVertical: true` puts them on the wider drawnVerticalGap arm, which the
+// rail callers set to DRAWN_VERTICAL_GAP -- the same 16 units as the column
+// pitch floor (ENTRY_SLOT_PITCH), so one gap value serves both.
 function drawnColumnBands(
   edge: Edge,
   byId: ReadonlyMap<string, RFAnyNode>,
@@ -2396,7 +2401,7 @@ function drawnColumnBands(
       bottom: Math.max(y0, y1),
       kind: "card",
       nodeId: `column:${edge.id}`,
-      container: true,
+      drawnVertical: true,
     });
   }
   return out;
@@ -2621,7 +2626,7 @@ export function clampBackwardRails(
             yHi: drawnRailY(railY),
             xOf: drawnXr,
           },
-          containerGap: CONTAINER_COLUMN_GAP,
+          drawnVerticalGap: DRAWN_VERTICAL_GAP,
           columnAccept: zoneAccept(sourceGap),
         }),
         sourceGap,
@@ -2650,7 +2655,7 @@ export function clampBackwardRails(
             yHi: drawnEnds.targetY,
             xOf: drawnXl,
           },
-          containerGap: CONTAINER_COLUMN_GAP,
+          drawnVerticalGap: DRAWN_VERTICAL_GAP,
           columnAccept: zoneAccept(targetGap),
         }),
         targetGap,

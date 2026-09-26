@@ -420,7 +420,7 @@ export function auditOwnCardPierces(
 //
 //   BACKWARD (target at or left of the source, mirroring clampBackwardRails'
 //     nodeGap test): both axes, at `tol`. The rail pass keeps a return's
-//     verticals CONTAINER_COLUMN_GAP off the side borders (Task 7) and the
+//     verticals DRAWN_VERTICAL_GAP off the side borders (Task 7) and the
 //     tolerance matches that constant. The endpoints' own containers are
 //     deliberately NOT exempt: a return between two members of one slab is
 //     exactly the shape whose columns may hug the frame.
