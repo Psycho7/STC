@@ -16,6 +16,7 @@ import { rationalFromString, type RationalString } from "../data/targets";
 import {
   formatFractionPerMin,
   formatRatePerMin,
+  groupRateDigits,
   rateErrorText,
   ratePerSecToPerMin,
   rateRevertedText,
@@ -394,7 +395,7 @@ export function InputsPanel({
     if (ordinary === undefined && part.valueOf() === 0) return undefined;
     const base =
       ordinary === undefined ? RATE_ZERO : rationalFromString(ordinary);
-    return formatFractionPerMin(base.add(part));
+    return groupRateDigits(formatFractionPerMin(base.add(part)));
   }
 
   // What the catalyst pool is asked to hold: the whole cycled charge less
@@ -403,7 +404,9 @@ export function InputsPanel({
   function catalystRateText(itemId: string): string {
     const entry = catalystAccount?.get(itemId);
     if (entry === undefined) return "0";
-    return formatFractionPerMin(entry.need.sub(entry.fromGeneral));
+    return groupRateDigits(
+      formatFractionPerMin(entry.need.sub(entry.fromGeneral)),
+    );
   }
 
   function catalystPartText(itemId: string): string | undefined {
@@ -412,7 +415,7 @@ export function InputsPanel({
       return undefined;
     }
     return i18n.t("inputs.catalyst.part", {
-      rate: formatRatePerMin(fromGeneral),
+      rate: groupRateDigits(formatRatePerMin(fromGeneral)),
     });
   }
 
@@ -424,7 +427,7 @@ export function InputsPanel({
     const onCatalystRow = hasRow({ itemId: key.itemId, role: "catalyst" });
     if (onCatalystRow !== (key.role === "catalyst")) return undefined;
     return i18n.t("product.catalyst.short", {
-      rate: formatRatePerMin(entry.unmet),
+      rate: groupRateDigits(formatRatePerMin(entry.unmet)),
     });
   }
 

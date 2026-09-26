@@ -5,6 +5,7 @@ import {
   formatRateExactPerMin,
   formatRatePerMin,
   formatRationalPerMin,
+  groupRateDigits,
   parsePerMinToRatePerSec,
   parseRateText,
   RATE_ERROR_KEY,
@@ -402,4 +403,16 @@ test("the too-large reason has its own message in en and zh", () => {
     expect(tooLarge).toContain("1,000,000");
     expect(tooLarge).not.toContain("{max}");
   }
+});
+
+test("groupRateDigits groups the integer part only", () => {
+  expect(groupRateDigits("1000000")).toBe("1,000,000");
+  expect(groupRateDigits("1234567.5")).toBe("1,234,567.5");
+  expect(groupRateDigits("-12345")).toBe("-12,345");
+  expect(groupRateDigits("999")).toBe("999");
+  expect(groupRateDigits("0")).toBe("0");
+  // Fraction digits are never grouped.
+  expect(groupRateDigits("0.0012345")).toBe("0.0012345");
+  // An exact-fraction fallback groups each side.
+  expect(groupRateDigits("1000001/3")).toBe("1,000,001/3");
 });

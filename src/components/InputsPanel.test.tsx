@@ -1476,3 +1476,70 @@ test("a cap's blur revert names a negative or over-bound reason", () => {
     "A rate cannot exceed 1,000,000/min; the edit was discarded",
   ]);
 });
+
+// Panel readouts group their digits in both locales ("1,000,000", the same
+// Western grouping the too-large error already uses). 50000/3 per second is
+// exactly 1,000,000/min.
+test("a 1,000,000/min readout is digit-grouped in en and zh", () => {
+  const cases = [
+    { locale: "en", text: "needed 1,000,000/min" },
+    { locale: "zh", text: "需求 1,000,000/分" },
+  ] as const;
+  for (const { locale, text } of cases) {
+    render(
+      <LocaleProvider locale={locale}>
+        <InputsPanel
+          itemOverrides={[]}
+          onChange={() => {}}
+          pack={CATALYST_PACK}
+          assumedRawItemIds={["gas_xiranite"]}
+          supplyRateByItem={
+            new Map([["gas_xiranite", { num: "50000", denom: "3" }]])
+          }
+        />
+      </LocaleProvider>,
+    );
+    expect(screen.getByTestId("input-realized-rate").textContent).toBe(text);
+    cleanup();
+  }
+});
+
+// Every rate the rows print as text is grouped: the catalyst part, the
+// shortage line, the capped row's realized chip. The editable cap is not: the
+// field shows the value as it would be typed.
+test("catalyst part, shortage and cap chip are grouped; the cap input is not", () => {
+  render(
+    <LocaleProvider locale="en">
+      <InputsPanel
+        itemOverrides={[
+          { itemId: "gas_xiranite", ratePerSec: { num: "50000", denom: "3" } },
+          { itemId: "gas_xiranite", role: "catalyst" },
+        ]}
+        onChange={() => {}}
+        pack={CATALYST_PACK}
+        catalystAccount={account("gas_xiranite", {
+          need: "100000/3",
+          fromGeneral: "50000/3",
+          unmet: "50000/3",
+        })}
+        supplyRateByItem={
+          new Map([["gas_xiranite", { num: "50000", denom: "3" }]])
+        }
+      />
+    </LocaleProvider>,
+  );
+  const general = rowFor("gas_xiranite");
+  const catalyst = rowFor("gas_xiranite", "catalyst");
+  expect(rateText(catalyst)).toBe("needed 1,000,000/min");
+  expect(
+    general.querySelector('[data-testid="input-catalyst-part"]')?.textContent,
+  ).toBe("1,000,000/min catalyst");
+  expect(
+    catalyst.querySelector('[data-testid="rate-catalyst-short"]')?.textContent,
+  ).toBe("catalyst short by 1,000,000/min");
+  expect(rateText(general)).toBe("2,000,000/min");
+  expect(general.querySelector("input[type=text]")).toHaveProperty(
+    "value",
+    "1000000",
+  );
+});
