@@ -584,6 +584,7 @@ describe("render corpus: capped raw target is fed from the LP draw", () => {
   });
 
   it("gas-web capped plans pass the DEV render asserts", () => {
+    const INVARIANTS_HEADER = "render invariants violated:\n";
     const thrown: string[] = [];
     vi.stubEnv("DEV", true);
     try {
@@ -592,8 +593,12 @@ describe("render corpus: capped raw target is fed from the LP draw", () => {
           capped(GAS_WEB, "gas_inert", { num: String(perMin), denom: "60" });
         } catch (e) {
           // A cap below the 15/min target leaves a real LP deficit, which the
-          // DEV target assert reports; nothing else may throw.
-          const lines = String(e).split("\n").slice(1);
+          // DEV target assert reports; nothing else may throw. Only the
+          // aggregate invariants error is split; any other throw stays whole.
+          const msg = e instanceof Error ? e.message : String(e);
+          const lines = msg.startsWith(INVARIANTS_HEADER)
+            ? msg.split("\n").slice(1)
+            : [msg];
           const other = lines.filter(
             (l) => perMin >= 15 || !l.startsWith('target output "gas_inert"'),
           );
