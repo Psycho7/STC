@@ -161,10 +161,10 @@ export function backwardRailDefaults(args: {
 // An axis-aligned card rectangle in absolute graph coordinates, for rail
 // obstacle avoidance.
 export type ObstacleRect = Rect & {
-  // Takes the wider `containerGap` in a column search (clearColumnX) instead of
-  // the plain gap. Only another edge's drawn vertical carries it (see
+  // Takes the wider `drawnVerticalGap` in a column search (clearColumnX)
+  // instead of the plain gap. Only another edge's drawn vertical carries it (see
   // drawnColumnBands in busRouting.ts); absent on cards and gutters.
-  container?: boolean;
+  drawnVertical?: boolean;
 };
 
 // Optional per-edge routing hints. The routing passes (busRouting) merge these
