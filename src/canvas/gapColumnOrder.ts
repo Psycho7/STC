@@ -85,7 +85,7 @@ import {
   type GapRecord,
   type Trunk,
 } from "./layerModel";
-import { edgeItem, nodeIndexOf } from "./nodeGeometry";
+import { drawnPortsOf, edgeItem, nodeIndexOf } from "./nodeGeometry";
 import type { RFAnyNode } from "./layout";
 
 export type ColumnKind = "fanOut" | "fanIn" | "bend" | "arrival";
@@ -183,23 +183,24 @@ export function buildGapColumnOrder(
   // (its bend or trunk column stands somewhere in there, and no card does).
   // An edge that jogs rides no port row across the gap and descends in front
   // of its target instead; one that does not rides its target row out of its
-  // column, so that row is known before routing.
-  const willJog = (
-    edge: Edge,
-    ports: { sx: number; sy: number; tx: number; ty: number },
-  ): boolean => {
+  // column, so that row is known before routing. Asked at the drawn ports, as
+  // the jog pass asks it.
+  const willJog = (edge: Edge): boolean => {
     const source = byId.get(edge.source);
     const target = byId.get(edge.target);
-    if (source === undefined || target === undefined) return false;
+    const ends = drawnPortsOf(edge, byId);
+    if (source === undefined || target === undefined || ends === null) {
+      return false;
+    }
     const zone = gapByKey.get(gapOfNode(edge.source, "depart"))?.columnZone;
     const dropX =
       zone === undefined
-        ? (ports.sx + ports.tx) / 2
+        ? (ends.sourceX + ends.targetX) / 2
         : (zone.left + zone.right) / 2;
     const { srcBlocked, tgtBlocked } = forwardLegsBlocked(
       cards,
       ownExempt([source, target]),
-      ports,
+      ends,
       dropX,
     );
     return srcBlocked || tgtBlocked;
@@ -379,7 +380,7 @@ export function buildGapColumnOrder(
       // A far member pinned on a trunk column. A fan-out-pinned member whose
       // target row is not card-clear will jog, and then descends in front of
       // its target: a potential arrival.
-      if (drawn === "fanOut" && willJog(edge, ports)) {
+      if (drawn === "fanOut" && willJog(edge)) {
         add({
           id: descentIdOf(edge.id),
           edgeId: edge.id,
@@ -439,7 +440,7 @@ export function buildGapColumnOrder(
 
     // A bend column. Drawn only when the ports differ in y; a straight edge
     // takes a slot in the fan with no rows.
-    const jogs = willJog(edge, ports);
+    const jogs = willJog(edge);
     const bends = sy !== ty;
     add({
       id: bendIdOf(edge.id),

@@ -8,10 +8,16 @@
 import type { Edge } from "@xyflow/react";
 import { describe, it, expect } from "vitest";
 
-import { jogForwardLegs } from "../../src/canvas/busRouting";
+import { OBSTACLE_PAD_Y, jogForwardLegs } from "../../src/canvas/busRouting";
 import { buildGapColumnOrder } from "../../src/canvas/gapColumnOrder";
 import type { GapRecord } from "../../src/canvas/layerModel";
-import { mkEdge, productNode } from "./busRouting.testkit";
+import { drawnPortsOf, nodeIndexOf } from "../../src/canvas/nodeGeometry";
+import {
+  mkEdge,
+  mkRecipe,
+  productNode,
+  recipeNode,
+} from "./busRouting.testkit";
 
 const LAYER_X = [0, 400, 800];
 const card = (id: string, layer: number, y: number, h: number) =>
@@ -362,5 +368,23 @@ describe("gap column order", () => {
     expect(order.mustStandLeft(b, a)).toBe(false);
     expect(order.rankOf(a)!).toBeLessThan(order.rankOf(b)!);
     expect(order.unavoidable).toEqual([]);
+  });
+});
+
+describe("gap column order jog prediction", () => {
+  it("predicts the jog off the drawn source row, as the jog pass takes it", () => {
+    // A recipe's resolved row draws CARD_BORDER below its model row. F's
+    // padded top sits between the two, so only the drawn source run enters
+    // it: the order must predict the jog the pass then takes.
+    const s = recipeNode("s", 0, 0, mkRecipe("rs", [], ["ore"]));
+    const t = productNode("t", 1200, 400, 148, 78);
+    const edge = mkEdge("e:0:s->t:ore", "s", "t", "ore");
+    const drawnSy = drawnPortsOf(edge, nodeIndexOf([s, t]))!.sourceY;
+    const f = productNode("F", 600, drawnSy - 0.5 + OBSTACLE_PAD_Y, 148, 78);
+    const nodes = [s, f, t];
+
+    const order = buildGapColumnOrder(nodes, [edge], []);
+    expect(order.byId.has(order.descentId(edge.id))).toBe(true);
+    expect(jogForwardLegs(nodes, [edge])[0]).not.toBe(edge);
   });
 });
