@@ -823,14 +823,12 @@
         [5766.5, 622.5]
       ],
       "anchors": {
-        "labelAnchor": [3533.5, 562.5]
+        "labelAnchor": [1172.25, 825]
       },
       "bendX": 5612.5,
       "jogDescentX": 5612.5,
       "srcColX": 1454.5,
-      "legY": 562.5,
-      "chipX": 3533.5,
-      "chipY": 562.5
+      "legY": 562.5
     },
     {
       "id": "e:28:u:class:q:28->u:class:q:19:copper_nugget",
@@ -866,11 +864,9 @@
         [5766.5, 622.5]
       ],
       "anchors": {
-        "labelAnchor": [3352.75, 967]
+        "labelAnchor": [1172.25, 967]
       },
-      "bendX": 5612.5,
-      "chipX": 3352.75,
-      "chipY": 967
+      "bendX": 5612.5
     },
     {
       "id": "e:30:u:class:q:29->u:class:q:20:copper_nugget",
@@ -904,14 +900,12 @@
         [5766.5, 622.5]
       ],
       "anchors": {
-        "labelAnchor": [3533.5, 521]
+        "labelAnchor": [1172.25, 683]
       },
       "bendX": 5612.5,
       "jogDescentX": 5612.5,
       "srcColX": 1454.5,
-      "legY": 521,
-      "chipX": 3533.5,
-      "chipY": 521
+      "legY": 521
     },
     {
       "id": "e:32:u:class:q:3->u:class:q:45:gas_copper_enr",

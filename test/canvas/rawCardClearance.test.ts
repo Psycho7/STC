@@ -475,6 +475,60 @@ describe("the chip slide's obstacle tiers", () => {
   });
 });
 
+describe("a same-trunk sibling's vertical beside a chip", () => {
+  // e:1 runs straight along its row from p to t. e:2 is another flow (another
+  // source) whose bend column drops through that row at `bendX`. Stamped with
+  // a trunk group e:1 also carries, e:2 is a sibling of the same trunk: the
+  // same item beside the same item reads as one trunk, so only its stroke
+  // itself -- not the bevel pad around it -- keeps the chip off a seat.
+  const scene = (bendX: number, shared: boolean) => {
+    const nodes: RFAnyNode[] = [
+      producer("p", 0, 0),
+      consumer("t", 1600, 0),
+      producer("p2", 400, -900),
+      consumer("t2", 1300, 900),
+    ];
+    const groups = shared ? { trunkGroups: ["s|t"] } : {};
+    const own = edge("e:1", "p", "t");
+    own.data = { ...own.data, trunkGroups: ["s|t"] };
+    const other = edge("e:2", "p2", "t2");
+    other.data = { ...other.data, ...groups, bendX };
+    return deconflictChipAnchors(nodes, [own, other]);
+  };
+  const chipOf = (edges: Edge[]) => {
+    const laid = edges.find((e) => e.id === "e:1")!;
+    return {
+      stamped: routingHintsFromData(laid.data).chipX !== undefined,
+      halfW: chipSeatHalfW(rateChipText(laid), false),
+    };
+  };
+  // e:1's rule seat and box, read with e:2 parked far off its row's reach.
+  const rule = (() => {
+    const edges = scene(1500, false);
+    const laid = edges.find((e) => e.id === "e:1")!;
+    const nodes: RFAnyNode[] = [producer("p", 0, 0), consumer("t", 1600, 0)];
+    const ports = drawnPortsOf(laid, nodeIndexOf(nodes))!;
+    const drawn = drawnEdge(ports, laid.type, laid.data);
+    if (drawn.shape !== "item") throw new Error("e:1 draws as an item edge");
+    return { x: drawn.labelAnchor.x, halfW: chipOf(edges).halfW };
+  })();
+  // Inside the base bevel pad (CHAMFER) of the grown box's right edge, but
+  // clear of the box and its card clearance.
+  const besideBox = rule.x + rule.halfW + CHAMFER;
+
+  it("keeps the chip when a same-trunk sibling's stroke clears the box", () => {
+    expect(chipOf(scene(besideBox, true)).stamped).toBe(false);
+  });
+
+  it("evicts the chip when a foreign stroke stands in the same place", () => {
+    expect(chipOf(scene(besideBox, false)).stamped).toBe(true);
+  });
+
+  it("evicts the chip when a same-trunk sibling's stroke enters the box", () => {
+    expect(chipOf(scene(rule.x, true)).stamped).toBe(true);
+  });
+});
+
 describe("jogForwardLegs: a demoted member whose same-row leg crosses a card", () => {
   // s feeds t1 at its OWN row and t2 below it. `blk` stands between s and t1 on
   // that row, and `bridge` (far below, out of every run's way) overlaps s and

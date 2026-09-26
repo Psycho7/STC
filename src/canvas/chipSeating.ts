@@ -52,6 +52,7 @@ import {
 } from "./crossings";
 import {
   isTrunkOwner,
+  trunkGroupsOf,
   type FaninBusEdgeData,
   type FanoutBusEdgeData,
 } from "./busRouting";
@@ -317,16 +318,18 @@ function segmentBox(seg: readonly [number, number, number, number]): Box {
 //           \
 //            (x+c, y1)
 //
+// padBevel false gives the bare stroke (pad 0), for a same-trunk sibling.
 // Exported for the seating suite, which reads the rects of a single polyline.
 export function verticalBlockerRects(
   segs: ReadonlyArray<readonly [number, number, number, number]>,
+  padBevel = true,
 ): PortZoneRect[] {
   const rects: PortZoneRect[] = [];
   segs.forEach((seg, i) => {
     const [x0, y0, x1, y1] = seg;
     if (x0 !== x1 || y0 === y1) return;
-    let pad = CHAMFER;
-    for (const near of [segs[i - 1], segs[i + 1]]) {
+    let pad = padBevel ? CHAMFER : 0;
+    for (const near of padBevel ? [segs[i - 1], segs[i + 1]] : []) {
       // A neighbour that is straight (or absent) is not a bevel of this stroke.
       if (near === undefined) continue;
       if (near[0] === near[2] || near[1] === near[3]) continue;
@@ -719,14 +722,30 @@ export function deconflictChipAnchors(
       blockers: ReadonlyArray<PortZoneRect>,
     ): boolean => !chipBoxClearsCards(x, y, halfW, blockers);
     // Every vertical stroke the reconstruction above drew, tagged with the flow
-    // that drew it: which of them are foreign is a question each chip answers
-    // against its own flow key.
-    const verticalsByFlow: Array<{ flowKey: string; rect: PortZoneRect }> = [];
-    for (const other of edgeSegments) {
-      for (const rect of verticalBlockerRects(other.segs)) {
-        verticalsByFlow.push({ flowKey: other.flowKey, rect });
-      }
-    }
+    // that drew it and the trunks it belongs to: which of them are foreign is a
+    // question each chip answers against its own flow key. A vertical of
+    // another flow in the chip's OWN trunk (a sibling member's jog column)
+    // blocks with its bare stroke only: the same item beside the same item
+    // reads as one trunk, so the bevel pad is waived for it, but the stroke
+    // still may not enter the box.
+    const verticalsByFlow: Array<{
+      flowKey: string;
+      groups: ReadonlyArray<string>;
+      rect: PortZoneRect;
+      stroke: PortZoneRect;
+    }> = [];
+    edgeSegments.forEach((other, i) => {
+      const groups = trunkGroupsOf(edges[edgeIndexOfSegment[i]!]!.data);
+      const strokes = verticalBlockerRects(other.segs, false);
+      verticalBlockerRects(other.segs).forEach((rect, j) => {
+        verticalsByFlow.push({
+          flowKey: other.flowKey,
+          groups,
+          rect,
+          stroke: strokes[j]!,
+        });
+      });
+    });
     edges.forEach((edge, index) => {
       if (edge.type !== "item") return;
       const pts = itemPtsById.get(edge.id);
@@ -741,11 +760,16 @@ export function deconflictChipAnchors(
         ports.targetX,
       );
       const ownFlow = flowKeyOf(edge);
+      const ownGroups = trunkGroupsOf(edge.data);
       const withVerticals: PortZoneRect[] = [
         ...withFurniture,
         ...verticalsByFlow
           .filter((vertical) => vertical.flowKey !== ownFlow)
-          .map((vertical) => vertical.rect),
+          .map((vertical) =>
+            vertical.groups.some((group) => ownGroups.includes(group))
+              ? vertical.stroke
+              : vertical.rect,
+          ),
       ];
       if (!boxHits(ruleX, ruleY, halfW, withVerticals)) return;
       // The slide against one obstacle tier, or nothing when no run of this
