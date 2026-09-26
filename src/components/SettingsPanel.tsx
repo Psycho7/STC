@@ -10,7 +10,10 @@ import {
 } from "../data/availability";
 import { iconSheetUrl } from "../canvas/iconSprite";
 import { Sprite } from "../canvas/RecipeNode";
+import type { ProducerUnavailableCause } from "../data/plan";
+import type { RecipeId } from "../solver/types";
 import { LocaleSwitcher } from "./LocaleSwitcher";
+import { RecipeToggles } from "./RecipeToggles";
 import { useModalDialog } from "./useModalDialog";
 
 // Icons a cohort row's strip shows before the "+N" overflow chip.
@@ -34,6 +37,16 @@ type Props = {
   // one-writer terms as the overrides above.
   area: string;
   onAreaChange: (next: string) => void;
+  // The hand-disabled recipes (#125), owned by the parent on the same terms.
+  disabledRecipeIds: ReadonlySet<RecipeId>;
+  onDisabledRecipesChange: (next: ReadonlySet<RecipeId>) => void;
+  // Why each unavailable recipe is off, so the Recipes section can tell a
+  // choice the user still has from one an area or an event already took.
+  unavailableCauses: ReadonlyMap<RecipeId, ProducerUnavailableCause>;
+  // The committed plan's target items and the item-level causes, forwarded to
+  // the Recipes section for its stranded-target notice.
+  committedTargetItemIds: ReadonlySet<string>;
+  unavailableItemCauses: ReadonlyMap<string, ProducerUnavailableCause>;
   onClose: () => void;
 };
 
@@ -56,6 +69,11 @@ export function SettingsPanel({
   onOverridesChange,
   area,
   onAreaChange,
+  disabledRecipeIds,
+  onDisabledRecipesChange,
+  unavailableCauses,
+  committedTargetItemIds,
+  unavailableItemCauses,
   onClose,
 }: Props) {
   const i18n = useI18n();
@@ -179,9 +197,7 @@ export function SettingsPanel({
               })}
             </div>
           </section>
-          {/* The Events section (#144). The remaining settings row - recipe
-              toggles (#125) - becomes one more .settings-section sibling in
-              this body, ordered Locale, Area, Recipes, Events. */}
+          {/* The Events section (#144). */}
           <section
             className="settings-section"
             aria-label={i18n.t("settings.events.title")}
@@ -206,6 +222,18 @@ export function SettingsPanel({
               />
             ))}
           </section>
+          {/* The Recipes section (#125), which renders its own
+              .settings-section so the body stays a plain list of them. It reads
+              last: it is by far the longest, so the three short controls above
+              stay reachable without scrolling past the whole catalogue. */}
+          <RecipeToggles
+            pack={pack}
+            unavailableCauses={unavailableCauses}
+            disabledRecipeIds={disabledRecipeIds}
+            onDisabledRecipesChange={onDisabledRecipesChange}
+            committedTargetItemIds={committedTargetItemIds}
+            unavailableItemCauses={unavailableItemCauses}
+          />
         </div>
       </div>
     </div>,

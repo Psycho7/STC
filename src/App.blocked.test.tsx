@@ -302,9 +302,9 @@ test("an edit made while a target is blocked is adopted, not rejected", async ()
   expect(powder?.ratePerSec).toEqual({ num: "10", denom: "1" });
 });
 
-// One sentence per blocked target. The area and event causes speak the UI
-// language and name the item by display name; the manual cause has no
-// localized copy yet, so it keeps the English text naming both raw ids.
+// One sentence per blocked target. Every cause speaks the UI language and
+// names the item by display name; the manual cause also names the recipe the
+// way the Recipes section labels its toggle.
 test.each(LOCALES)(
   "describeBlockedTarget words every cause kind (%s)",
   (locale) => {
@@ -343,7 +343,10 @@ test.each(LOCALES)(
         i18n,
       ),
     ).toBe(
-      "Item activity_xiranite_lung cannot be a target right now: every recipe producing it is unavailable (recipe activity_xiranite_lung is switched off in settings).",
+      i18n.t("app.error.producer-unavailable.manual", {
+        item: i18n.displayName("activity_xiranite_lung"),
+        recipe: i18n.displayName("activity_xiranite_lung"),
+      }),
     );
   },
 );

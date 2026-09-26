@@ -3016,6 +3016,82 @@
 .settings-recipe-meta {
   color: var(--ak-text-secondary);
 }
+/* The Recipes section (#125): a filter box over the item groups, with the full
+   machine-grouped catalogue behind the disclosure. Both lists are the same row
+   shape, so the two views read as one list seen two ways. */
+.settings-recipe-filter {
+  width: 100%;
+  box-sizing: border-box;
+  margin-bottom: 8px;
+  padding: 5px 8px;
+  background: var(--ak-bg-secondary);
+  border: 1px solid var(--ak-divider);
+  color: var(--ak-text-primary);
+  font-family: var(--font-ui);
+  font-size: 12px;
+}
+.settings-recipe-filter:focus-visible {
+  outline: 2px solid var(--ak-accent-cyan);
+  outline-offset: -2px;
+}
+.settings-recipe-group + .settings-recipe-group {
+  margin-top: 10px;
+}
+.settings-recipe-group-title {
+  display: block;
+  font-family: var(--font-ui);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ak-text-primary);
+}
+.settings-recipe-toggles {
+  margin: 4px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.settings-recipe-toggle {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--ak-divider);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  letter-spacing: 0.02em;
+}
+/* A row an area or an event already hides: readable, but plainly not a choice
+   the user has here. */
+.settings-recipe-toggle.off {
+  opacity: 0.55;
+}
+.settings-recipe-check {
+  flex-shrink: 0;
+  accent-color: var(--ak-accent-cyan);
+}
+.settings-recipe-reason {
+  color: var(--ak-accent-red);
+}
+/* The stranded-target line. It stays mounted so the live region can announce,
+   so an empty one must take no space. It collapses to zero size rather than
+   display: none, which would drop it from the accessibility tree. */
+.settings-recipe-notice {
+  margin: 8px 0 0;
+  color: var(--ak-accent-red);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+}
+.settings-recipe-notice:empty {
+  margin: 0;
+  font-size: 0;
+  line-height: 0;
+}
+.settings-recipe-empty {
+  margin: 8px 0 0;
+  color: var(--ak-text-decoration);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+}
 
 /* Empty-plan hint over the canvas: centred in App's canvas wrapper and
    transparent to the pointer so pan and zoom still reach the pane below. */
@@ -3050,6 +3126,7 @@
 :lang(zh) .settings-pill,
 :lang(zh) .settings-default,
 :lang(zh) .settings-disclosure,
+:lang(zh) .settings-recipe-toggle,
 :lang(zh) .topbar .stat-chip,
 :lang(zh) .ak-app-shell .canvas-empty-hint {
   letter-spacing: normal;

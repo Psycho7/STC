@@ -242,9 +242,14 @@ test("a reason-only availability change with an unchanged id set updates the ban
   };
   flipStoredOverrides('{"v1.5": false, "v1.1": true}');
 
+  // #125 gave the manual kind its own localized sentence, so the banner now
+  // reads that one; it still names the recipe the recast cause points at.
   await waitFor(() =>
     expect(screen.getByRole("alert").textContent).toContain(
-      "activity_xiranite_lung is switched off in settings",
+      loadI18n("zh").t("app.error.producer-unavailable.manual", {
+        item: loadI18n("zh").displayName("activity_xiranite_lung"),
+        recipe: loadI18n("zh").displayName("activity_xiranite_lung"),
+      }),
     ),
   );
   expect(screen.getByRole("alert").textContent).not.toContain(zhCohortError);
