@@ -15,11 +15,14 @@
 // chips as the camera pulls out, so a collision only visible at reading zoom is
 // still the defect.
 //
-// The three ports the scoped layer model was built for are pinned by name first:
-// a fan-out whose source and targets all sit inside one loop container, with a
-// root card bridging the interior corridor. Under a single global layering those
-// three ports merged into one layer, the trunk was declined, and both members
-// took the same seat on the shared prefix.
+// Three loop fan-outs are pinned by name first: a planter loop's Seed-Picking
+// unit feeding the Planting Unit on the cycle and the tail Planting Unit it
+// only feeds. A loop is no compound node (its members are root cards), so ELK
+// breaks the 2-cycle itself and the member back into the cycle is drawn as a
+// backward rail. What must hold is one column and one total: the rail stands
+// on the trunk's junction column, and one member owns the aggregate. (Pinning
+// which edge ELK reverses, so both members run forward again, is the lever-D
+// follow-up: rule M1, reverse the intra-loop edges into the loop's entry.)
 
 import { describe, it, expect } from "vitest";
 import type { Edge } from "@xyflow/react";
@@ -166,7 +169,7 @@ function drawnOf(
   return drawnEdge(ends, edge.type, edge.data);
 }
 
-describe("the loop fan-outs the scoped layer model was built for", () => {
+describe("the planter loop fan-outs", () => {
   const CASES: Array<{ plan: string; source: string; targets: string[] }> = [
     {
       plan: "multi6",
@@ -198,19 +201,36 @@ describe("the loop fan-outs the scoped layer model was built for", () => {
 
       const shape = members.map((edge) => {
         const data = edge.data as
-          | { fanout?: boolean; junctionX?: number; busChipOwner?: boolean }
+          | {
+              fanout?: boolean;
+              junctionX?: number;
+              busChipOwner?: boolean;
+              railXRight?: number;
+            }
           | undefined;
         return {
           type: edge.type,
           fanout: data?.fanout === true,
           junctionX: data?.junctionX,
+          railXRight: data?.railXRight,
           owner: data?.busChipOwner === true,
         };
       });
-      // Bus-typed members of one fan-out trunk, all on ONE junction column.
-      expect(shape.every((s) => s.type === "bus" && s.fanout)).toBe(true);
-      expect(new Set(shape.map((s) => s.junctionX)).size).toBe(1);
-      expect(shape[0]!.junctionX).toBeTypeOf("number");
+      // Each member is a bus-typed fan-out member on the junction column, or a
+      // backward member whose rail leaves on that column.
+      const bus = shape.filter((s) => s.type === "bus" && s.fanout);
+      const backward = shape.filter(
+        (s) => s.type === "item" && s.railXRight !== undefined,
+      );
+      expect(bus.length).toBeGreaterThan(0);
+      expect(bus.length + backward.length).toBe(shape.length);
+      // All on ONE column.
+      const columns = new Set([
+        ...bus.map((s) => s.junctionX),
+        ...backward.map((s) => s.railXRight),
+      ]);
+      expect(columns.size).toBe(1);
+      expect(bus[0]!.junctionX).toBeTypeOf("number");
       // Exactly one member draws the trunk's aggregate chip.
       expect(shape.filter((s) => s.owner)).toHaveLength(1);
     },

@@ -35,7 +35,6 @@ import Fraction from "fraction.js";
 
 import {
   BETWEEN_LAYERS_SPACING,
-  CONTAINER_CAPTION_BAND,
   NODE_NODE_SPACING,
   PORT_HEIGHT,
   PORT_WIDTH,
@@ -177,6 +176,10 @@ const DEFAULT_LOOP_INTERIOR: LoopInteriorSize = { width: 200, height: 100 };
 export const ROOT_LAYOUT_OPTIONS: Readonly<Record<string, string>> = {
   "elk.algorithm": "layered",
   "elk.direction": "RIGHT",
+  // No node is compound (loop members sit at the root, see
+  // renderPlanToElkGraph), yet the mode still decides how ELK breaks cycles:
+  // without it ELK reverses the other edge of each planter 2-cycle, and on
+  // multi6 the return rail's stub then pierces four foreign cards.
   "org.eclipse.elk.hierarchyHandling": "INCLUDE_CHILDREN",
   "elk.edgeRouting": "ORTHOGONAL",
   "elk.spacing.nodeNode": String(NODE_NODE_SPACING),
@@ -324,28 +327,13 @@ export function renderPlanToElkGraph(input: LayoutInput): ElkGraph {
 
   const rootChildren: ElkNode[] = [];
 
-  // Add containers first so their order is preserved in the layout call.
+  // A container is no ELK node: its members go to the root as ordinary cards,
+  // container by container and ahead of the standalone units, the order ELK
+  // got them in when each container was a compound node. The loop is marked
+  // after routing by a paint nothing lays out or routes around (loopPaint.ts).
   for (const container of plan.containers) {
     const members = unitsByContainer.get(container.id) ?? [];
-    rootChildren.push({
-      id: container.id,
-      children: members.map(unitToElk),
-      layoutOptions: {
-        // Reserve a taller top band for the caption strip so a member card
-        // flush against the corner cannot cover the "LOOP - N" label; keep the
-        // other sides tight so members do not leave large empty quadrants.
-        "org.eclipse.elk.padding": `[top=${CONTAINER_CAPTION_BAND},left=10,bottom=10,right=10]`,
-        // Slab interiors do not inherit the root spacing pair: without these
-        // the members pack at ELK's default spacing (~36 measured) and the
-        // corridor cannot hold a rate chip (chips are ~99-110 units wide), so
-        // every chip in a slab buries its own endpoint card. Mirror the root
-        // values so a slab corridor equals an open-layout corridor.
-        "elk.spacing.nodeNode": String(NODE_NODE_SPACING),
-        "elk.layered.spacing.nodeNodeBetweenLayers": String(
-          BETWEEN_LAYERS_SPACING,
-        ),
-      },
-    });
+    rootChildren.push(...members.map(unitToElk));
   }
 
   // Then the standalone units (no containerId), in plan order.
@@ -587,78 +575,22 @@ export function fromElkRenderLayout(
 
   const unitById = new Map<string, RenderUnit>();
   for (const u of plan.units) unitById.set(u.id, u);
-  const containerById = new Map<ContainerId, Container>();
-  for (const c of plan.containers) containerById.set(c.id, c);
 
-  // Caption items per container: the primary output of each member recipe,
-  // deduped and in plan order (not ELK child order, which layout may permute).
-  const titleItemsByContainer = new Map<ContainerId, ItemId[]>();
-  for (const u of plan.units) {
-    if (u.kind !== "recipe" || u.containerId === undefined) continue;
-    const item = recipeById.get(u.recipeId)?.out[0]?.item;
-    if (item === undefined) continue;
-    const items = titleItemsByContainer.get(u.containerId) ?? [];
-    if (!items.includes(item)) items.push(item);
-    titleItemsByContainer.set(u.containerId, items);
-  }
-
+  // Every laid-out child is a unit card at the root: the graph builder emits
+  // no container node.
   const nodes: RFAnyNode[] = [];
-
   for (const top of laid.children ?? []) {
-    const container = containerById.get(top.id);
-    if (container) {
-      const w = top.width ?? 0;
-      const h = top.height ?? 0;
-      const memberCount = (top.children ?? []).filter((child) =>
-        unitById.has(child.id),
-      ).length;
-      const titleItems = titleItemsByContainer.get(container.id);
-      nodes.push({
-        id: container.id,
-        type: "group",
-        position: { x: top.x ?? 0, y: top.y ?? 0 },
-        data: {
-          containerKind: container.kind,
-          containerId: container.id,
-          memberCount,
-          ...(titleItems !== undefined && titleItems.length > 0
-            ? { titleItems }
-            : {}),
-        },
-        // Group bounding boxes carry their size both as top-level width/height
-        // (what React Flow checks to treat the node as initialized) and on style.
-        width: w,
-        height: h,
-        style: { width: w, height: h },
-      } satisfies RFContainerNode);
-      for (const child of top.children ?? []) {
-        const childUnit = unitById.get(child.id);
-        if (!childUnit) continue;
-        nodes.push(
-          unitToRFNode(
-            child,
-            childUnit,
-            container.id,
-            recipeById,
-            interiorByLoopId,
-            input.catalystAccount,
-          ),
-        );
-      }
-    } else {
-      const unit = unitById.get(top.id);
-      if (!unit) continue;
-      nodes.push(
-        unitToRFNode(
-          top,
-          unit,
-          undefined,
-          recipeById,
-          interiorByLoopId,
-          input.catalystAccount,
-        ),
-      );
-    }
+    const unit = unitById.get(top.id);
+    if (!unit) continue;
+    nodes.push(
+      unitToRFNode(
+        top,
+        unit,
+        recipeById,
+        interiorByLoopId,
+        input.catalystAccount,
+      ),
+    );
   }
 
   // Attach each RenderEdge's data to its ELK edge so ItemEdge can label it.
@@ -784,14 +716,13 @@ function catalystBreakdownOf(
 function unitToRFNode(
   laidChild: ElkNode,
   unit: RenderUnit,
-  parentId: ContainerId | undefined,
   recipeById: ReadonlyMap<RecipeId, Recipe>,
   interiorByLoopId: ReadonlyMap<SccId, LoopInteriorSize>,
   catalystAccount: CatalystAccount | undefined,
 ): RFAnyNode {
   // Every ELK box is the card box, so ELK's top-left IS the card's.
   const position = { x: laidChild.x ?? 0, y: laidChild.y ?? 0 };
-  const base = parentId !== undefined ? { position, parentId } : { position };
+  const base = { position };
   const portTransportKinds = portKindsFromElkNode(laidChild);
 
   switch (unit.kind) {

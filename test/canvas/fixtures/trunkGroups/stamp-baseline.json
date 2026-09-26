@@ -7,33 +7,33 @@
   },
   "battery5": {
     "stampCount": 4,
-    "stampSha": "3f2d9e570ff34779c667bbbed70512b5552a6b4ff088c207f36b325c6012bddc",
-    "chipCount": 28,
-    "chipSha": "208df927e82cd88ebffda57fc13c0b2c9b44691e3eda8047408adbca7542df79"
+    "stampSha": "098e73eab6704cc395a0bb45ead66a67bdbacfc1c4e406e8ef488193dad7d0db",
+    "chipCount": 29,
+    "chipSha": "1d7733ef6e87624cabddd4a7db8b8f95fd6259f25b0ed014b531a73cf4163c23"
   },
   "battery5-xiranite": {
     "stampCount": 6,
-    "stampSha": "e5f0d29ecc8a18d8d292ec1ef7ac1d91e1794958bd8bf1ab2c9bf7f932a5b4ba",
-    "chipCount": 41,
-    "chipSha": "a04ab287297684561dc696b13561ca81cfd2a9876885f7cb985a666d3fb0912b"
+    "stampSha": "058aab9e210485191926d16846a65ef1f50ee4f5e240253327607bd3d7cc4d04",
+    "chipCount": 42,
+    "chipSha": "28aacfca3fd25f6e7128588f0335ccbebcf907b576eb508446c39d82734805f7"
   },
   "crystal": {
-    "stampCount": 2,
-    "stampSha": "25264381f19b68b25655e4ed803e7b16397e82638eb5e0af9d5f3e19f6ce32ea",
+    "stampCount": 1,
+    "stampSha": "05a5cc52c26d0436e646a89581d9a7cc1e61cf1fa7e8c48b4d9572fa9af9ed16",
     "chipCount": 11,
-    "chipSha": "fe9674acdefda9f818e17852cf976eaf9af0decb2a41955618765b779a0fa4d6"
+    "chipSha": "afe2eadb45935dd6c2e86f19d1b96f5b1cbc4388b4ffea6f063c836dc1566c0c"
   },
   "equip4": {
-    "stampCount": 2,
-    "stampSha": "ac62e78e25c88c751250a8200bd19b460c084aabb639c0ba45968b62177f4c36",
+    "stampCount": 1,
+    "stampSha": "c1b42114652c5c8e0c767ada52258e7bb19b8fa9dde6561403531694c4420815",
     "chipCount": 15,
-    "chipSha": "17e4930abf2f4196f699bfccbaad6eec543287a22e8127972020eb629037f839"
+    "chipSha": "0355bb67a9868ac9d982423dccd23b2584ce83ae56248386b75029cc8b17d721"
   },
   "multi6": {
-    "stampCount": 21,
-    "stampSha": "ebd3d57b3a6e3103c16a33596a2a9c0c55a77a837aa25508b4bcae2b9606d547",
-    "chipCount": 103,
-    "chipSha": "c97e79d7296663d077208297c2524dd9316f47846ab75ed1707eec631a7eac93"
+    "stampCount": 23,
+    "stampSha": "61a2c942099bf7b11ce9c550c4fd04882d4ea9a191f19f3fc66d8d36244fa729",
+    "chipCount": 99,
+    "chipSha": "e02cf969231f70c78663062f60ad34d44589397fd814ef7e94105bbc1a77408a"
   },
   "tundra": {
     "stampCount": 0,
@@ -55,21 +55,21 @@
   },
   "gas-web": {
     "stampCount": 6,
-    "stampSha": "f83eaa6e051c015f150609de68ceaa613880338bb7c63916d66cf2154e86cacd",
+    "stampSha": "0e691f4725ca4616b6ba5e26626777202af4edf2c376b9f56eb38842bce7a205",
     "chipCount": 30,
-    "chipSha": "d7c6ab1f277be1ae4e48458699d165257f42be5d15c1b9c1561b241d46e45c71"
+    "chipSha": "bde83281edc74e9bdb4fae8202168cfa2f8a8ca3a15905dcafb084d9ff9a73aa"
   },
   "rot-bottled_food_3": {
     "stampCount": 5,
-    "stampSha": "014ac19f2e63b72245641231f6e5a7c9238b8f25f970d541b0fb159770c0dd81",
+    "stampSha": "1f5e6828fc07910d847e9c21c6987d1bf09163c1d74423a8cfbce61afc88898c",
     "chipCount": 22,
-    "chipSha": "4c297aec74ec928c8ee92ef8e7cc856f0efaf97858669999892b193178b5b9c8"
+    "chipSha": "a319ca2bcde77289317b50da24a131721dc0fc3861030481d1735646bacdcec6"
   },
   "rot-bottled_food_4": {
-    "stampCount": 4,
-    "stampSha": "ec72b467c8558aa6b8e63e021d2a427b0ea6d74d0b1668a56c659e3dfd7a447f",
-    "chipCount": 22,
-    "chipSha": "6e6962b0f70c636ec6d861c34856bc1d9f3c0eec1b3abefaeb34c57c13b3b0e5"
+    "stampCount": 3,
+    "stampSha": "744137fc5bc7ee756cc4b91f26d0ef58ad0ed6fd89d559051daef6e87e059b19",
+    "chipCount": 20,
+    "chipSha": "e58bca2605912ae18fec0ac944884f48ebb051eed7aed61b601c4df32dd0ff18"
   },
   "transmuters": {
     "stampCount": 8,
@@ -90,15 +90,15 @@
     "chipSha": "ebb68cb25ed928cfcae1d34727d5b3041da33b038b6f6f9bf0eb13b17e3ddf1c"
   },
   "rot-bottled_rec_hp_1": {
-    "stampCount": 2,
-    "stampSha": "2bbf9aa9bb2b0580d46754c91371a1d060444b335d79558de6a1085ac589ec1d",
+    "stampCount": 1,
+    "stampSha": "b89e6f759b44e461b6dca281646d43800e7d810af737249a37453047d2afe830",
     "chipCount": 10,
-    "chipSha": "8e585b0adfb17cd700760d8150eec6695c3f88174365c37b284a028c07b44292"
+    "chipSha": "542c48baea875f6e413e5b153153a3503e4011f17bc3e97c1ae6b694dbc0f19d"
   },
   "rot-proc_bomb_1": {
-    "stampCount": 2,
-    "stampSha": "d2850271a2a28afb70d815b697a24c1bd714d50e091a20c673684786f1d16210",
+    "stampCount": 1,
+    "stampSha": "4fcb11d0a0b48e9e0310cb535e48edfeb2417b6378c140aef62b4f81a3b4d642",
     "chipCount": 10,
-    "chipSha": "3caa2ffb5be30caf516f7011dfaf0c1d518de51665accfdcaae4919dcdb3a4f9"
+    "chipSha": "805ca6cc8dfae69d780088368617ba363500d68244e082450566e422ffed9bab"
   }
 }

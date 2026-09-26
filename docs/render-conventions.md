@@ -23,17 +23,24 @@ so every rate stands at its row's inner end. The rate holds a column of its
 own: it is always drawn whole, never clipped and never wrapped, and the name is
 what gives way, eliding to whatever width is left. Row rates are drawn at rest
 and drop only under the low-zoom band. Cyan product chips are boundary inputs
-and outputs rather than machines. Group slabs and loop boxes are containers,
-and the cards inside one are its members. A loop box is drawn only when the
-cards that survived the solve still form a directed cycle in the solved graph:
-a candidate cycle whose bridging recipes solved to zero leaves free cards, not
-a box.
+and outputs rather than machines.
 
-An item imported at the boundary draws one input chip. Consumers outside any
-container draw straight from that chip; a container gets a chip of its own,
-marked as a tap and fed by the item's chip, because an edge entering a
-container has to enter it once. So several tap chips of one item mean several
-containers, not several consumers.
+A loop is marked by a faint tint behind its cards, not by a box. Its members are
+the cards that form a directed cycle over the edges the canvas draws. A card the
+cycle only feeds, such as a planter loop's second Planting Unit, stays outside
+the tint. A card whose cycle closes only through a recaptured byproduct edge is
+inside it. A candidate cycle whose bridging recipes solved to zero leaves free
+cards and no tint. The tint is each member card padded a little, joined to the
+member at the other end of an edge wherever the join covers no other card. On
+the top or bottom of one member it carries a caption band that names the loop by
+what its members make (`LOOP · JINCAO · JINCAO SEED`). The band covers no card
+and no chip. The tint has no border and is painted under the strokes. Nothing
+is laid out or routed around it, so a stroke of another flow may cross it. It
+never covers a card outside the cycle.
+
+An item imported at the boundary draws one input chip, and every consumer draws
+straight from it, a loop member included. Each edge's own rate chip states that
+consumer's share.
 
 A name too long for its row or its title loses its tail: the longest head that
 fits is drawn, followed by an ellipsis. One rule, every surface, every locale --
@@ -68,8 +75,8 @@ machine").
 A boundary card draws the item's name and its amount. Nothing else: no word on
 it names the card's direction, its provenance or its class. What kind of card it
 is reads off the drawing instead -- direction off the side the accent tab sits on
-and the column the card stands in, a tap off its dashed tab and the `of N/min`
-share under its figure, catalyst supply off a TICKED tab in the catalyst yellow.
+and the column the card stands in, catalyst supply off a TICKED tab in the
+catalyst yellow.
 The words are not lost, they ride the card's aria-label, so a screen reader still
 hears the direction and the class. Any of them drawn on the card is a defect --
 with the one exception the next paragraph names.
@@ -78,8 +85,8 @@ Catalyst supply leaves the boundary on cards of its own, the `u:cat:<item>`
 family, never on the item's ordinary supply card: an item feeding both an input
 row somewhere and a catalyst row elsewhere draws two boundary cards, and each
 card's rate counts only its own side. The catalyst family follows the ordinary
-one's shape -- a single card when one bucket takes the item, otherwise an
-aggregate card plus a tap slice per container. A cap typed on the catalyst
+one's shape: one card per item, and every catalyst row draws straight from it.
+A cap typed on the catalyst
 supply draws its chip in the ordinary cap slot. The catalyst boundary card also
 carries the one word any boundary card draws: a small yellow boxed CATALYST
 badge after the item's name, so the pool reads at a glance and not only through
@@ -91,7 +98,7 @@ Two pools answer the plan's catalyst need: the dedicated catalyst supply and
 whatever headroom the ordinary supply has left after its own consumers. So an
 item's catalyst account reads as the need, how much of it came from catalyst
 supply, how much from general supply, and how much neither pool could cover.
-Naming an aggregate or single catalyst card states that breakdown under the item
+Naming a catalyst card states that breakdown under the item
 name, with the unmet line drawn only when there is a shortage; the inputs panel
 states the same account across the item's two rows, and flags the shortage there
 as well.
@@ -132,31 +139,10 @@ own row on the card, never through the line. Kind is a property of the item, so
 the line would only repeat what the glyph and the icon already say, and it would
 spend the one visual channel the catalyst rule needs.
 
-A container's frame is kept clear of strokes. A loop's return edge runs in the
-corridor, never along the box border: its two verticals hold a fixed gap off
-the side borders of whatever container each endpoint sits inside, and its rail
-escapes only the cards it actually spans -- one connected band of them --
-rather than flying over every card that shares its x-range. Any stroke drawn as
-one line with a slab border is a defect, a loop's return and a forward run
-alike: a horizontal running along a container's top or bottom border reads as
-the edge of the slab rather than as a line of the plan, whichever direction it
-travels.
-
-How much air the two owe that border is not the same number, because they are
-not the same line. A loop return's rail clears a container by about 56 units; a
-forward run a jog relocates clears a FOREIGN container's top or bottom border by 32. The rail is a stroke the reader follows across the whole graph and can be
-parked anywhere in the corridor, while a jog takes the nearest clear level to
-the row it is heading for, and a rail-sized moat there would push the run past
-the box or into the next layer for no gain. Each is the clearance its own family
-owes, not a single number two passes disagree about, and the pair are tuned
-separately by eye.
-
-Three things are exempt. A forward tap's jog descent, dropping into its
-consumer, may share an entry-gutter line with a container border -- that column
-is a tap approach, not a stroke riding the frame. A run inside a container one of
-its own endpoints sits in is getting out, not riding. And an unjogged port-to-port
-horizontal lies where its two ports are: it took no level from any pass, and
-lifting it off a border would lift it off a port.
+A loop's return edge is routed like any other stroke, because no frame is drawn
+around a loop and so there is no border to keep clear. Its rail escapes only the
+cards it actually spans (one connected band of them). It does not fly over every
+card that shares its x-range.
 
 A forward edge between two adjacent layers drops LATE. It holds its source
 port's row from the port all the way across the gap and turns down only in the
@@ -221,7 +207,7 @@ cued like any other crossing.
 Where two strokes of DIFFERENT flows properly cross, the stroke passing under
 shows a gap: a short break is cut out of that stroke around the crossing, the
 other stroke runs through it unbroken, and whatever lies beneath the pair (a
-slab tint) shows through the break untouched, so the crossing
+loop's tint) shows through the break untouched, so the crossing
 reads as two flows crossing, not as a join. A
 merge never looks like that -- it shows a dot or a shared run -- and a bare X
 of two continuous strokes is a defect: it is indistinguishable from a merge,
@@ -382,14 +368,10 @@ Do not report these as defects.
   offset is the chamfer that bevels the corner away: the dot stands on the run
   the members share, which is where the reader looks for it, not on the column
   they take.
-- A forward edge drawn as one straight horizontal, port to port with no jog at
-  all, may lie along a container border. Its level is the row its two ports
-  share, not a level any pass picked, and lifting the line off the border would
-  take it off a port.
-- A forward run may travel beside the border of a container one of its own
-  endpoints sits inside. A line leaving a card within a slab has to get past
-  that slab's edge, so the stretch beside it is the way out rather than a
-  stroke riding a frame it has no business near.
+- A stroke of another flow may cross a loop's tint, and a chip may sit on it.
+  The tint is paint, not a frame: nothing is laid out or routed around it.
+- A loop's tint may fall into separate pieces. Two members stay unjoined where
+  the join would cover a card outside the loop.
 - Mid-drag, a fan-in merge dot can vanish while the merged run still shows one
   member's rate. The dot hides as soon as its stamped x leaves the owner's live
   polyline, while a non-owner member's chip hide is pinned to the port ROW

@@ -24,16 +24,13 @@ import type {
 //
 // The grammar is `u:`-prefixed and `:`-separated, and the families below are
 // distinguished by the word after `u:` (`scc`, `class`, `in`, `cat`, `out`,
-// `surplus`). Injectivity across the families rests on exactly two clauses
-// about the ids fed in:
-//   1. An item id contains no `:`. Otherwise `u:in:a:b` is ambiguous between
-//      the aggregate for item "a:b" and the container "b" of item "a", and
-//      `u:cat:a:b` the same way for the catalyst family.
-//   2. A container id is not literally "target", the one reserved container
-//      slot under `u:in:<item>:`.
-// The pack census in src/solver/pack-shape.test.ts pins clause 1 on the
-// shipped pack; clause 2 holds because container ids are minted inside the
-// pipeline, not read off the pack.
+// `surplus`). Injectivity across the families rests on one clause about the
+// ids fed in: an item id contains no `:`. Otherwise `u:in:a:b` is ambiguous
+// between the aggregate for item "a:b" and the container "b" of item "a", and
+// `u:cat:a:b` the same way for the catalyst family. No container slot under
+// `u:in:<item>:` is reserved: a free-supply target's export draws from the
+// item's ordinary input card, not from a card of its own. The pack census in
+// src/solver/pack-shape.test.ts pins the clause on the shipped pack.
 
 // Every SCC vertex with the same sccId collapses to one loop unit so all
 // inbound and outbound edges resolve to the same render endpoint.
@@ -61,12 +58,6 @@ export const unitIdForCatalystContainer = (
   item: ItemId,
   containerId: ContainerId,
 ): RenderUnitId => `u:cat:${item}:${containerId}`;
-
-// Dedicated boundary import that feeds a free-supply target item's export
-// passthrough; distinct from the consumer-feeding input ids so consumer
-// plumbing is untouched.
-export const unitIdForInputTargetFeed = (item: ItemId): RenderUnitId =>
-  `u:in:${item}:target`;
 
 export const unitIdForOutputProduct = (item: ItemId): RenderUnitId =>
   `u:out:${item}`;

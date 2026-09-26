@@ -1,6 +1,5 @@
 import Fraction from "fraction.js";
 import type {
-  ContainerId,
   ItemId,
   MachineGraph,
   MachineVertexId,
@@ -20,78 +19,37 @@ import { pushInto } from "../../util/multimap";
 import { rationalFromString, rationalToString } from "./rational";
 import {
   unitIdForCatalystAggregate,
-  unitIdForCatalystContainer,
   unitIdForInputAggregate,
-  unitIdForInputContainer,
-  unitIdForInputTargetFeed,
   unitIdForOutputProduct,
   unitIdForSurplus,
 } from "./unit-ids";
 
-// A boundary item's consumers are grouped per pool and then into buckets: one
-// bucket per real container (an SCC loop or blueprint group,
-// `u:in:<item>:<container>`) plus a single shared "loose" bucket holding every
-// consumer that sits in no container. Only a container bucket ever gets its own
-// card, because an edge must enter a compound node once; loose consumers draw
-// straight from the item's input card and their per-branch rate chip already
-// states the amount.
+// A boundary item's consumers are grouped per pool, and each pool draws one
+// card that every consumer takes a direct edge from; the per-edge rate chip
+// states each consumer's amount.
 //
 // The pool is the consumer's role: ordinary consumption draws from the `u:in:`
 // family, a cycled catalyst charge from the `u:cat:` family. The two are
 // accounted apart end to end, so an item consumed as a reagent AND cycled as a
-// catalyst emits one node of each rather than one node carrying both draws.
+// catalyst emits one card of each rather than one card carrying both draws.
 //
-// Topology per (item, role), decided once:
-//   - Loose bucket only: one node `u:in:<item>`, consumer edges direct.
-//   - One container bucket and nothing loose: one node `u:in:<item>:<ctr>`.
-//   - Otherwise: an aggregate node `u:in:<item>` carrying the pool's rateCap
-//     and the sum of all bucket rates (loose included), one `isFanout` slice
-//     per container bucket, and the loose consumers' edges straight off the
-//     aggregate.
+// A consumer's containerId is not read. A container used to get a tap card of
+// its own because an edge had to enter a compound node once, but no container
+// reaches the layout any more (a loop is painted, not boxed). That is exact
+// only while the render policy mints loop-box containers alone (PillarsOnly
+// does): a policy that mints another container kind which the canvas draws as
+// a node has to decide its taps here again.
 type BoundaryRole = "ordinary" | "catalyst";
-type BoundaryBucket =
-  | { kind: "container"; containerId: ContainerId }
-  | { kind: "loose" };
-const LOOSE_BUCKET: BoundaryBucket = { kind: "loose" };
-const bucketFor = (containerId: ContainerId | undefined): BoundaryBucket =>
-  containerId === undefined ? LOOSE_BUCKET : { kind: "container", containerId };
-// BoundaryBucket is local to this file, so these stay here as thin dispatchers
-// over the shared constructors.
-const unitIdForAggregate = (item: ItemId, role: BoundaryRole): RenderUnitId =>
+const unitIdForPool = (item: ItemId, role: BoundaryRole): RenderUnitId =>
   role === "catalyst"
     ? unitIdForCatalystAggregate(item)
     : unitIdForInputAggregate(item);
-const unitIdForContainer = (
-  item: ItemId,
-  role: BoundaryRole,
-  containerId: ContainerId,
-): RenderUnitId =>
-  role === "catalyst"
-    ? unitIdForCatalystContainer(item, containerId)
-    : unitIdForInputContainer(item, containerId);
-const unitIdForInputBucket = (
-  item: ItemId,
-  role: BoundaryRole,
-  bucket: BoundaryBucket,
-): RenderUnitId =>
-  bucket.kind === "container"
-    ? unitIdForContainer(item, role, bucket.containerId)
-    : unitIdForAggregate(item, role);
-// The pool an item's consumers are grouped under, and the key both the
-// per-bucket and the per-pool maps below hang off. `\0` sorts below every id
+// The key the per-pool maps below hang off. `\0` sorts below every id
 // character, so sorting pool keys keeps an item's ordinary pool next to its
 // catalyst pool and the items themselves in id order.
 type PoolKey = string;
 const poolKey = (item: ItemId, role: BoundaryRole): PoolKey =>
   role === "catalyst" ? `${item}\0cat` : item;
-const boundaryKey = (
-  item: ItemId,
-  role: BoundaryRole,
-  bucket: BoundaryBucket,
-): string =>
-  bucket.kind === "container"
-    ? `${poolKey(item, role)}\0c\0${bucket.containerId}`
-    : `${poolKey(item, role)}\0loose`;
 
 const FRAC_ONE = new Fraction(1);
 
@@ -125,8 +83,8 @@ export type DeriveBoundaryProductsResult = {
  * items become output products (at their target rate); items consumed in the
  * plan with nonzero `effectiveSupply` become input products (with a rate cap
  * when overridden); surplus byproducts become amber output products; a
- * free-supply target item gets a dedicated passthrough import sized to the
- * slice of its declared rate that in-plan production spare does not cover.
+ * free-supply target item's export draws the slice of its declared rate that
+ * in-plan production spare does not cover from the item's own input card.
  * Per-consumer flow conservation holds when a boundary input coexists with an
  * in-graph producer for the same item.
  *
@@ -215,7 +173,6 @@ export function deriveBoundaryProducts(
     // than by re-reading the vertices further down. No unit mixes the two: a
     // class collects the vertices of one replica, a loop those of one sccId.
     kind: "recipe" | "loop";
-    containerId: ContainerId | undefined;
     produced: Map<ItemId, Fraction>;
     consumed: Map<ItemId, Fraction>;
     /** Cycled catalyst charge, held per machine rather than consumed per cycle. */
@@ -236,7 +193,6 @@ export function deriveBoundaryProducts(
     if (!facts) {
       facts = {
         kind: isMachineRecipeVertex(v) ? "recipe" : "loop",
-        containerId: v.containerId,
         produced: new Map(),
         consumed: new Map(),
         catalyst: new Map(),
@@ -394,375 +350,6 @@ export function deriveBoundaryProducts(
   }
   for (const e of recaptureEdges) boundaryEdges.push(e);
 
-  // Boundary item := consumed by a machine, produced by no machine in the plan,
-  // and surfaced by `effectiveSupply` (Infinity or positive Fraction). Items an
-  // in-plan recipe produces upstream stay internal. Track each consumer with
-  // its per-consumer rate so the render policy can emit a boundary edge from the
-  // input product to that consumer (boundary items have no MachineEdge, since
-  // the solver walk terminated upstream of them).
-  type BoundaryConsumer = {
-    toUnit: RenderUnitId;
-    item: ItemId;
-    rate: Fraction;
-    containerId: ContainerId | undefined;
-    // A cycled catalyst charge rather than ordinary consumption. It bypasses
-    // every skip rule collectConsumed applies and never takes part in the
-    // share split below: the plan draws the whole charge from the boundary.
-    catalyst?: true;
-  };
-  const boundaryConsumers: BoundaryConsumer[] = [];
-  const collectConsumed = (
-    toUnit: RenderUnitId,
-    itemId: ItemId,
-    rate: Fraction,
-    containerId: ContainerId | undefined,
-  ): void => {
-    const item = itemById.get(itemId);
-    if (!item) return;
-    const supply = supplyTable.supplyOf(itemId);
-    // Zero finite supply -> emit nothing (item is fully built internally).
-    if (supply !== Infinity && (supply as Fraction).equals(new Fraction(0))) {
-      return;
-    }
-    // Infinity supply with an in-plan producer means the consumer is fed
-    // internally; skip the boundary input. Exception: a recapture item, whose
-    // byproduct only partially covers demand, so the deficit still draws from
-    // the boundary.
-    if (supply === Infinity && producedItems.has(itemId)) {
-      if (!recaptureItems.has(itemId)) return;
-      const recap =
-        recapturedByConsumerUnitItem.get(`${toUnit}\0${itemId}`) ??
-        new Fraction(0);
-      const deficit = rate.sub(recap);
-      if (deficit.compare(new Fraction(0)) <= 0) return;
-      boundaryConsumers.push({
-        toUnit,
-        item: itemId,
-        rate: deficit,
-        containerId,
-      });
-      return;
-    }
-    // Finite positive supply -> dual-emit: the boundary input carries the
-    // LP-drawn portion (1 - share of demand) alongside the in-graph producer's
-    // residual edges. A finite cap whose realized draw is 0 (no boundaryShare
-    // entry, or a degenerate share of 1) emits neither the input product nor
-    // its boundary edges: forced byproduct production covers the consumption
-    // and the unit would be an unjustified zero-rate import.
-    // Infinity supply with no in-graph producer -> single boundary emit.
-    if (supply !== Infinity) {
-      const share = boundaryShare.get(itemId);
-      if (share === undefined || share.compare(FRAC_ONE) >= 0) return;
-    }
-    boundaryConsumers.push({ toUnit, item: itemId, rate, containerId });
-  };
-  // An SCC unit's consumption comes from its netIO, a recipe unit's from its
-  // inputs; the rollup above already holds both, so one loop covers them. A
-  // boundary item consumed only by an in-loop recipe still surfaces as an input
-  // product this way.
-  for (const [unitId, facts] of unitFacts) {
-    for (const [item, rate] of facts.consumed) {
-      collectConsumed(unitId, item, rate, facts.containerId);
-    }
-    // Catalysts are boundary supply unconditionally: the machine holds the
-    // charge and hands it back, so no producer is ever expanded for it and none
-    // of collectConsumed's rules (zero supply, an in-plan producer, a finite cap
-    // with no realized draw) can suppress the draw. The rate is the unit's
-    // `catalystCharge`, which is per machine rather than per cycle; a unit with
-    // no charge (a catalyst-free recipe, or a materialisation with no machine
-    // speed to compute one from) draws nothing.
-    for (const [item, rate] of facts.catalyst) {
-      if (!itemById.has(item)) continue;
-      if (rate.compare(new Fraction(0)) <= 0) continue;
-      boundaryConsumers.push({
-        toUnit: unitId,
-        item,
-        rate,
-        containerId: facts.containerId,
-        catalyst: true,
-      });
-    }
-  }
-
-  // Precompute realized rates before emitting product units. Each input
-  // ProductNode shows its rate as primary chrome; keying is `(itemId,
-  // containerId)` so a high-fan-out raw consumed across several blueprint-group
-  // containers emits one node per container, each pinned near its consumers.
-  //
-  // The supply cap is item-level (effectiveSupply is keyed by item). To keep
-  // the mass-balance invariant -- split input-rate sums equal the pre-split
-  // single-input rate -- compute the cap once per item, then give each
-  // (item, container) ProductNode the per-container slice
-  //   realizedRate(item, ctr) = consumedSupply(item) * containerDemand(item, ctr)
-  //                                                     / totalDemand(item)
-  // Per-edge rate inside a container is `c.rate * consumedSupply(item) /
-  // totalDemand(item)`, same as the single-node formula; the split just
-  // redistributes the same total across more ProductNodes.
-  type ConsumerKey = string;
-  const consumersByKey = new Map<ConsumerKey, BoundaryConsumer[]>();
-  const itemByKey = new Map<ConsumerKey, ItemId>();
-  const roleByKey = new Map<ConsumerKey, BoundaryRole>();
-  const bucketByKey = new Map<ConsumerKey, BoundaryBucket>();
-  // Ordinary consumption and the cycled catalyst charge are accounted
-  // separately: only ordinary demand takes the boundary share split, while a
-  // catalyst charge is drawn whole. Every rate below (per-edge, per-bucket
-  // node, aggregate) is a sum over the same per-consumer rule, so the node
-  // chip and its outbound edges can never disagree.
-  const ordinaryDemandByItem = new Map<ItemId, Fraction>();
-  for (const c of boundaryConsumers) {
-    const bucket = bucketFor(c.containerId);
-    const role: BoundaryRole = c.catalyst ? "catalyst" : "ordinary";
-    const k = boundaryKey(c.item, role, bucket);
-    pushInto(consumersByKey, k, c);
-    itemByKey.set(k, c.item);
-    roleByKey.set(k, role);
-    bucketByKey.set(k, bucket);
-    if (c.catalyst) continue;
-    ordinaryDemandByItem.set(
-      c.item,
-      (ordinaryDemandByItem.get(c.item) ?? new Fraction(0)).add(c.rate),
-    );
-  }
-
-  const consumedSupplyByItem = new Map<ItemId, Fraction>();
-  for (const [itemId, totalDemand] of ordinaryDemandByItem) {
-    if (totalDemand.equals(new Fraction(0))) {
-      consumedSupplyByItem.set(itemId, new Fraction(0));
-      continue;
-    }
-    const supply = supplyTable.supplyOf(itemId);
-    let consumed: Fraction;
-    if (supply === Infinity) {
-      consumed = totalDemand;
-    } else {
-      // Finite positive cap: the boundary supplies exactly the LP draw's
-      // fraction of demand, (1 - share). min(cap, totalDemand) is wrong
-      // whenever forced internal byproduct production makes the LP draw less
-      // than the cap. Items with no share entry (draw 0) never reach here:
-      // collectConsumed gates them out of boundaryConsumers.
-      const share = boundaryShare.get(itemId) ?? FRAC_ONE;
-      consumed = totalDemand.mul(FRAC_ONE.sub(share));
-    }
-    consumedSupplyByItem.set(itemId, consumed);
-  }
-
-  // The rate one consumer's boundary edge carries: a catalyst charge whole, an
-  // ordinary consumer its prorated slice of the realized draw. Multiply before
-  // divide to keep precision under exact rationals.
-  const edgeRateOf = (c: BoundaryConsumer): Fraction => {
-    if (c.catalyst) return c.rate;
-    const ordinaryDemand = ordinaryDemandByItem.get(c.item) ?? new Fraction(0);
-    if (ordinaryDemand.equals(new Fraction(0))) return new Fraction(0);
-    const consumed = consumedSupplyByItem.get(c.item) ?? new Fraction(0);
-    return c.rate.mul(consumed).div(ordinaryDemand);
-  };
-
-  const realizedRateByKey = new Map<ConsumerKey, Fraction>();
-  for (const [key, consumers] of consumersByKey) {
-    realizedRateByKey.set(
-      key,
-      consumers.reduce((acc, c) => acc.add(edgeRateOf(c)), new Fraction(0)),
-    );
-  }
-
-  // Group keys by pool so the topology decision (single bucket vs aggregate +
-  // container fanout slices) is made once per (item, role). An item with one
-  // ordinary bucket and one catalyst bucket has one bucket in each pool, so it
-  // emits two single-bucket nodes and no aggregate.
-  const keysByPool = new Map<PoolKey, ConsumerKey[]>();
-  const poolItem = new Map<PoolKey, ItemId>();
-  const poolRole = new Map<PoolKey, BoundaryRole>();
-  for (const key of consumersByKey.keys()) {
-    const itemId = itemByKey.get(key)!;
-    const role = roleByKey.get(key)!;
-    const pool = poolKey(itemId, role);
-    pushInto(keysByPool, pool, key);
-    poolItem.set(pool, itemId);
-    poolRole.set(pool, role);
-  }
-
-  const inputProducts: RenderUnitInputProduct[] = [];
-  const emittedKeys = new Set<ConsumerKey>();
-  // aggregateIdByPool[pool] is set iff that pool emitted an aggregate node; the
-  // edge emission below uses it to wire aggregate -> fanout slices.
-  const aggregateIdByPool = new Map<PoolKey, RenderUnitId>();
-  const sortedPools = [...keysByPool.keys()].sort();
-  for (const pool of sortedPools) {
-    const itemId = poolItem.get(pool)!;
-    const role = poolRole.get(pool)!;
-    const roleField = role === "catalyst" ? ({ role } as const) : {};
-    // No target gating here. A target item never suppresses its own input
-    // product: every item that reaches this loop was admitted by
-    // collectConsumed, which drops zero supply outright, so a target item with
-    // no override is raw with unlimited supply and its consumers stay
-    // boundary-fed like any other free item (the declared export gets its own
-    // passthrough import below). An overridden or recapture-deficit target
-    // renders BOTH as an input (pinned FIRST) and a target output (pinned
-    // LAST): the override path imports a capped portion, the
-    // recapture-deficit path draws the demand its target-claimed production
-    // cannot feed.
-    const ov =
-      role === "catalyst"
-        ? catalystOverrideByItem.get(itemId)
-        : overrideByItem.get(itemId);
-    const keys = keysByPool.get(pool)!.slice().sort();
-
-    if (keys.length <= 1) {
-      // Single bucket: emit one node with the per-bucket id, no fanout.
-      const key = keys[0]!;
-      const bucket = bucketByKey.get(key)!;
-      const realizedRate = realizedRateByKey.get(key) ?? new Fraction(0);
-      const base: Omit<RenderUnitInputProduct, "rateCap"> = {
-        id: unitIdForInputBucket(itemId, role, bucket),
-        kind: "inputProduct",
-        itemId,
-        count: 1,
-        rate: rationalToString(realizedRate),
-        ...roleField,
-      };
-      inputProducts.push(
-        ov?.ratePerSec !== undefined
-          ? { ...base, rateCap: ov.ratePerSec }
-          : base,
-      );
-      emittedKeys.add(key);
-      continue;
-    }
-
-    // Multiple buckets: emit an aggregate node plus one fanout slice per
-    // container bucket. The aggregate carries the pool's rateCap and the
-    // total realized rate (loose share included); each slice carries only its
-    // per-container rate, so the slice label reads as a tap rather than another
-    // item-level cap.
-    const aggregateId = unitIdForAggregate(itemId, role);
-    aggregateIdByPool.set(pool, aggregateId);
-    const aggregateRate = keys.reduce(
-      (acc, k) => acc.add(realizedRateByKey.get(k) ?? new Fraction(0)),
-      new Fraction(0),
-    );
-    const aggregateBase: Omit<RenderUnitInputProduct, "rateCap"> = {
-      id: aggregateId,
-      kind: "inputProduct",
-      itemId,
-      count: 1,
-      rate: rationalToString(aggregateRate),
-      isAggregate: true,
-      ...roleField,
-    };
-    inputProducts.push(
-      ov?.ratePerSec !== undefined
-        ? { ...aggregateBase, rateCap: ov.ratePerSec }
-        : aggregateBase,
-    );
-    for (const key of keys) {
-      const bucket = bucketByKey.get(key)!;
-      emittedKeys.add(key);
-      // The loose bucket gets no card of its own: its consumers hang off the
-      // aggregate directly.
-      if (bucket.kind !== "container") continue;
-
-      const realizedRate = realizedRateByKey.get(key) ?? new Fraction(0);
-      inputProducts.push({
-        id: unitIdForContainer(itemId, role, bucket.containerId),
-        kind: "inputProduct",
-        itemId,
-        count: 1,
-        rate: rationalToString(realizedRate),
-        isFanout: true,
-        parentRate: rationalToString(aggregateRate),
-        ...roleField,
-      });
-    }
-  }
-
-  // Boundary edges connect each emitted input product to its recipe/SCC
-  // consumers, and each target recipe unit to the output product. Without
-  // them ELK has no signal that product nodes sit upstream or downstream of
-  // recipes, so layerConstraint=FIRST/LAST collapses them into the recipes'
-  // layers (boundary nodes overlap the leftmost/rightmost recipe column).
-  //
-  // Per-consumer flow conservation: when an in-graph producer and a boundary
-  // input feed the same item, the boundary edge to each consumer carries the
-  // consumer's prorated share of the cap, not the full demand. Otherwise
-  // sum(producer edges -> c) + (boundary edge -> c) overshoots c's per-input
-  // demand.
-  //
-  // Edge rate per consumer = c.rate * (consumedSupply / totalDemand), reusing
-  // the per-item consumedSupply from the realized-rate pass above. Cases:
-  //  - effectiveSupply === Infinity: producer not in graph, consumedSupply
-  //    collapses to totalDemand, edge rate = c.rate (single emit preserved).
-  //  - finite cap, LP draw covers all demand (share 0): consumedSupply =
-  //    totalDemand, edge rate = c.rate; the in-graph producer runs at 0 and
-  //    emits no unit.
-  //  - finite cap, partial draw (0 < share < 1): consumedSupply =
-  //    totalDemand * (1 - share); each consumer's boundary edge plus its
-  //    residual producer edges (computeEdgeRates nets demand by share) sum to
-  //    its full per-item demand as exact rationals.
-  //  - finite cap, draw 0: gated in collectConsumed (no input product, no
-  //    boundary edges).
-  //  - effectiveSupply == 0: gated upstream (no input product emitted).
-  for (const [key, consumers] of consumersByKey) {
-    if (!emittedKeys.has(key)) continue;
-    const itemId = itemByKey.get(key)!;
-    const role = roleByKey.get(key)!;
-    const bucket = bucketByKey.get(key)!;
-    const item = itemById.get(itemId);
-    if (!item) continue;
-    // With an aggregate, a container bucket's consumer edges originate from its
-    // fanout slice and the loose bucket's originate from the aggregate itself;
-    // without one, from the single-bucket node (which is either the container
-    // card or the bare `u:in:<item>` / `u:cat:<item>` card). Every catalyst
-    // edge leaves the catalyst pool's node, never the ordinary one.
-    const fromUnit = unitIdForInputBucket(itemId, role, bucket);
-    // Avoid 0/0 when every ordinary consumer's rate collapses to zero. A
-    // catalyst consumer takes no share of that demand, so its charge is still
-    // drawn (collectConsumed already dropped any zero-rate catalyst).
-    const noOrdinaryDemand = (
-      ordinaryDemandByItem.get(itemId) ?? new Fraction(0)
-    ).equals(new Fraction(0));
-    for (const c of consumers) {
-      if (noOrdinaryDemand && !c.catalyst) continue;
-      const rate = edgeRateOf(c);
-      boundaryEdges.push({
-        fromUnit,
-        toUnit: c.toUnit,
-        item: itemId,
-        rate,
-        transportKind: item.transportKind,
-        ...(c.catalyst ? { toPortKind: "catalyst" as const } : {}),
-        ...(role === "catalyst" ? { fromPool: "catalyst" as const } : {}),
-      });
-    }
-  }
-
-  // Aggregate -> fanout slice edges: one per slice per aggregate-emitting pool,
-  // carrying the slice's realized rate. Emitted after the per-bucket consumer
-  // edges so aggregate edges always trail their pool's consumer edges (stable
-  // ordering).
-  for (const pool of sortedPools) {
-    const aggregateId = aggregateIdByPool.get(pool);
-    if (aggregateId === undefined) continue;
-    const itemId = poolItem.get(pool)!;
-    const role = poolRole.get(pool)!;
-    const item = itemById.get(itemId);
-    if (!item) continue;
-    const keys = keysByPool.get(pool)!.slice().sort();
-    for (const key of keys) {
-      const bucket = bucketByKey.get(key)!;
-      if (bucket.kind !== "container") continue;
-
-      const realizedRate = realizedRateByKey.get(key) ?? new Fraction(0);
-      boundaryEdges.push({
-        fromUnit: aggregateId,
-        toUnit: unitIdForContainer(itemId, role, bucket.containerId),
-        item: itemId,
-        rate: realizedRate,
-        transportKind: item.transportKind,
-        ...(role === "catalyst" ? { fromPool: "catalyst" as const } : {}),
-      });
-    }
-  }
-
   // Output boundary edges: each target-recipe unit's per-item spare = produced -
   // outgoing machine edges for that item. Units with positive spare get a target
   // edge; the declared rate splits across them in proportion to spare. For a
@@ -776,6 +363,12 @@ export function deriveBoundaryProducts(
   // passes need the post-target-emission view of outgoing flow so the same
   // production is not counted as both delivered (to the target port) and
   // surplus.
+  //
+  // This pass runs before the input pools are grouped because the part of a
+  // free-supply target that in-plan spare leaves uncovered is boundary draw:
+  // the export joins its item's pool as a consumer (see below). Its edges are
+  // held back and appended after the input edges, their original order.
+  const targetEdges: RenderEdge[] = [];
   const outgoingByUnitItem = new Map<string, Fraction>();
   const unitItemKey = (unitId: RenderUnitId, item: ItemId): string =>
     `${unitId}\0${item}`;
@@ -810,7 +403,7 @@ export function deriveBoundaryProducts(
   // once at that level. Differencing per machine vertex instead discarded one
   // vertex's deficit against its sibling's spare and inflated the unit's apparent
   // spare, so the proportional split below over-fed it past its production. This
-  // mirrors the surplus pass directly below; the two passes must agree.
+  // mirrors the surplus pass further down; the two passes must agree.
   //
   // Collect from EVERY recipe unit producing target item X, not just the one the
   // target seeded. When an SCC target recipe co-produces the looped item with a
@@ -854,7 +447,7 @@ export function deriveBoundaryProducts(
     targetBilledByItem.set(outItem, distributed);
     for (const u of units) {
       const rate = u.spare.mul(distributed).div(totalSpare);
-      boundaryEdges.push({
+      targetEdges.push({
         fromUnit: u.unitId,
         toUnit: unitIdForOutputProduct(outItem),
         item: outItem,
@@ -865,39 +458,262 @@ export function deriveBoundaryProducts(
     }
   }
 
-  // ----- Free-boundary target passthrough -------------------------------------
-  //
-  // A target item with unlimited free supply (raw:true, or plan:true via an
-  // override) builds no LP row: nothing is forced to run and the solver meets
-  // the declared rate with a reported boundary draw. Whatever slice of the
-  // declared rate in-plan spare did not cover above must therefore arrive
-  // from the boundary: emit a dedicated import unit and a passthrough edge
-  // into the target output, sized to the shortfall. Finite-supply target
-  // items never take this path (their import is the capped override dual
-  // render and the LP builds a real row for them).
+  // Boundary item := consumed by a machine, produced by no machine in the plan,
+  // and surfaced by `effectiveSupply` (Infinity or positive Fraction). Items an
+  // in-plan recipe produces upstream stay internal. Track each consumer with
+  // its per-consumer rate so the render policy can emit a boundary edge from the
+  // input product to that consumer (boundary items have no MachineEdge, since
+  // the solver walk terminated upstream of them).
+  type BoundaryConsumer = {
+    toUnit: RenderUnitId;
+    item: ItemId;
+    rate: Fraction;
+    // A cycled catalyst charge rather than ordinary consumption. It bypasses
+    // every skip rule collectConsumed applies and never takes part in the
+    // share split below: the plan draws the whole charge from the boundary.
+    catalyst?: true;
+  };
+  const boundaryConsumers: BoundaryConsumer[] = [];
+  const collectConsumed = (
+    toUnit: RenderUnitId,
+    itemId: ItemId,
+    rate: Fraction,
+  ): void => {
+    const item = itemById.get(itemId);
+    if (!item) return;
+    const supply = supplyTable.supplyOf(itemId);
+    // Zero finite supply -> emit nothing (item is fully built internally).
+    if (supply !== Infinity && (supply as Fraction).equals(new Fraction(0))) {
+      return;
+    }
+    // Infinity supply with an in-plan producer means the consumer is fed
+    // internally; skip the boundary input. Exception: a recapture item, whose
+    // byproduct only partially covers demand, so the deficit still draws from
+    // the boundary.
+    if (supply === Infinity && producedItems.has(itemId)) {
+      if (!recaptureItems.has(itemId)) return;
+      const recap =
+        recapturedByConsumerUnitItem.get(`${toUnit}\0${itemId}`) ??
+        new Fraction(0);
+      const deficit = rate.sub(recap);
+      if (deficit.compare(new Fraction(0)) <= 0) return;
+      boundaryConsumers.push({ toUnit, item: itemId, rate: deficit });
+      return;
+    }
+    // Finite positive supply -> dual-emit: the boundary input carries the
+    // LP-drawn portion (1 - share of demand) alongside the in-graph producer's
+    // residual edges. A finite cap whose realized draw is 0 (no boundaryShare
+    // entry, or a degenerate share of 1) emits neither the input product nor
+    // its boundary edges: forced byproduct production covers the consumption
+    // and the unit would be an unjustified zero-rate import.
+    // Infinity supply with no in-graph producer -> single boundary emit.
+    if (supply !== Infinity) {
+      const share = boundaryShare.get(itemId);
+      if (share === undefined || share.compare(FRAC_ONE) >= 0) return;
+    }
+    boundaryConsumers.push({ toUnit, item: itemId, rate });
+  };
+  // An SCC unit's consumption comes from its netIO, a recipe unit's from its
+  // inputs; the rollup above already holds both, so one loop covers them. A
+  // boundary item consumed only by an in-loop recipe still surfaces as an input
+  // product this way.
+  for (const [unitId, facts] of unitFacts) {
+    for (const [item, rate] of facts.consumed) {
+      collectConsumed(unitId, item, rate);
+    }
+    // Catalysts are boundary supply unconditionally: the machine holds the
+    // charge and hands it back, so no producer is ever expanded for it and none
+    // of collectConsumed's rules (zero supply, an in-plan producer, a finite cap
+    // with no realized draw) can suppress the draw. The rate is the unit's
+    // `catalystCharge`, which is per machine rather than per cycle; a unit with
+    // no charge (a catalyst-free recipe, or a materialisation with no machine
+    // speed to compute one from) draws nothing.
+    for (const [item, rate] of facts.catalyst) {
+      if (!itemById.has(item)) continue;
+      if (rate.compare(new Fraction(0)) <= 0) continue;
+      boundaryConsumers.push({
+        toUnit: unitId,
+        item,
+        rate,
+        catalyst: true,
+      });
+    }
+  }
+
+  // Free-boundary target export. A target item with unlimited free supply
+  // (raw:true, or plan:true via an override) builds no LP row: nothing is
+  // forced to run and the solver meets the declared rate with a reported
+  // boundary draw. The slice of the declared rate that in-plan spare did not
+  // cover above arrives from the boundary, so the export is one more loose
+  // consumer of the item's ordinary pool. It then draws from the same card as
+  // every other consumer (one boundary card per imported item) and the pool
+  // topology below applies to it unchanged. Finite-supply target items never
+  // take this path: the LP builds a real row for them.
   for (const [outItem, total] of targetRateByItem) {
     if (!supplyTable.isFree(outItem)) continue;
+    if (!itemById.has(outItem)) continue;
     const billed = targetBilledByItem.get(outItem) ?? new Fraction(0);
     const shortfall = total.sub(billed);
     if (shortfall.compare(0) <= 0) continue;
-    const item = itemById.get(outItem);
-    if (!item) continue;
-    const importId = unitIdForInputTargetFeed(outItem);
-    inputProducts.push({
-      id: importId,
-      kind: "inputProduct",
-      itemId: outItem,
-      count: 1,
-      rate: rationalToString(shortfall),
-    });
-    boundaryEdges.push({
-      fromUnit: importId,
+    boundaryConsumers.push({
       toUnit: unitIdForOutputProduct(outItem),
       item: outItem,
       rate: shortfall,
-      transportKind: item.transportKind,
     });
   }
+
+  // Precompute realized rates before emitting product units. Each input
+  // ProductNode shows its rate as primary chrome, the sum of its pool's edge
+  // rates. The supply cap is item-level (effectiveSupply is keyed by item), so
+  // the realized draw is computed once per item and each ordinary consumer's
+  // edge carries `c.rate * consumedSupply(item) / totalDemand(item)`.
+  const consumersByPool = new Map<PoolKey, BoundaryConsumer[]>();
+  const poolItem = new Map<PoolKey, ItemId>();
+  const poolRole = new Map<PoolKey, BoundaryRole>();
+  // Ordinary consumption and the cycled catalyst charge are accounted
+  // separately: only ordinary demand takes the boundary share split, while a
+  // catalyst charge is drawn whole. The card rate and its edge rates are sums
+  // over the same per-consumer rule, so the card chip and its outbound edges
+  // can never disagree.
+  const ordinaryDemandByItem = new Map<ItemId, Fraction>();
+  for (const c of boundaryConsumers) {
+    const role: BoundaryRole = c.catalyst ? "catalyst" : "ordinary";
+    const pool = poolKey(c.item, role);
+    pushInto(consumersByPool, pool, c);
+    poolItem.set(pool, c.item);
+    poolRole.set(pool, role);
+    if (c.catalyst) continue;
+    ordinaryDemandByItem.set(
+      c.item,
+      (ordinaryDemandByItem.get(c.item) ?? new Fraction(0)).add(c.rate),
+    );
+  }
+
+  const consumedSupplyByItem = new Map<ItemId, Fraction>();
+  for (const [itemId, totalDemand] of ordinaryDemandByItem) {
+    if (totalDemand.equals(new Fraction(0))) {
+      consumedSupplyByItem.set(itemId, new Fraction(0));
+      continue;
+    }
+    const supply = supplyTable.supplyOf(itemId);
+    let consumed: Fraction;
+    if (supply === Infinity) {
+      consumed = totalDemand;
+    } else {
+      // Finite positive cap: the boundary supplies exactly the LP draw's
+      // fraction of demand, (1 - share). min(cap, totalDemand) is wrong
+      // whenever forced internal byproduct production makes the LP draw less
+      // than the cap. Items with no share entry (draw 0) never reach here:
+      // collectConsumed gates them out of boundaryConsumers.
+      const share = boundaryShare.get(itemId) ?? FRAC_ONE;
+      consumed = totalDemand.mul(FRAC_ONE.sub(share));
+    }
+    consumedSupplyByItem.set(itemId, consumed);
+  }
+
+  // The rate one consumer's boundary edge carries: a catalyst charge whole, an
+  // ordinary consumer its prorated slice of the realized draw. Multiply before
+  // divide to keep precision under exact rationals.
+  const edgeRateOf = (c: BoundaryConsumer): Fraction => {
+    if (c.catalyst) return c.rate;
+    const ordinaryDemand = ordinaryDemandByItem.get(c.item) ?? new Fraction(0);
+    if (ordinaryDemand.equals(new Fraction(0))) return new Fraction(0);
+    const consumed = consumedSupplyByItem.get(c.item) ?? new Fraction(0);
+    return c.rate.mul(consumed).div(ordinaryDemand);
+  };
+
+  // One card per pool, in pool-key order.
+  const inputProducts: RenderUnitInputProduct[] = [];
+  for (const pool of [...consumersByPool.keys()].sort()) {
+    const itemId = poolItem.get(pool)!;
+    const role = poolRole.get(pool)!;
+    const roleField = role === "catalyst" ? ({ role } as const) : {};
+    // No target gating here. A target item never suppresses its own input
+    // product: every item that reaches this loop was admitted by
+    // collectConsumed, which drops zero supply outright, so a target item with
+    // no override is raw with unlimited supply and its consumers stay
+    // boundary-fed like any other free item (the declared export is one more
+    // consumer of this pool). An overridden or recapture-deficit target
+    // renders BOTH as an input (pinned FIRST) and a target output (pinned
+    // LAST): the override path imports a capped portion, the
+    // recapture-deficit path draws the demand its target-claimed production
+    // cannot feed.
+    const ov =
+      role === "catalyst"
+        ? catalystOverrideByItem.get(itemId)
+        : overrideByItem.get(itemId);
+    const realizedRate = consumersByPool
+      .get(pool)!
+      .reduce((acc, c) => acc.add(edgeRateOf(c)), new Fraction(0));
+    const base: Omit<RenderUnitInputProduct, "rateCap"> = {
+      id: unitIdForPool(itemId, role),
+      kind: "inputProduct",
+      itemId,
+      count: 1,
+      rate: rationalToString(realizedRate),
+      ...roleField,
+    };
+    inputProducts.push(
+      ov?.ratePerSec !== undefined ? { ...base, rateCap: ov.ratePerSec } : base,
+    );
+  }
+
+  // Boundary edges connect each emitted input product to its recipe/SCC
+  // consumers, and each target recipe unit to the output product. Without
+  // them ELK has no signal that product nodes sit upstream or downstream of
+  // recipes, so layerConstraint=FIRST/LAST collapses them into the recipes'
+  // layers (boundary nodes overlap the leftmost/rightmost recipe column).
+  //
+  // Per-consumer flow conservation: when an in-graph producer and a boundary
+  // input feed the same item, the boundary edge to each consumer carries the
+  // consumer's prorated share of the cap, not the full demand. Otherwise
+  // sum(producer edges -> c) + (boundary edge -> c) overshoots c's per-input
+  // demand.
+  //
+  // Edge rate per consumer = c.rate * (consumedSupply / totalDemand), reusing
+  // the per-item consumedSupply from the realized-rate pass above. Cases:
+  //  - effectiveSupply === Infinity: producer not in graph, consumedSupply
+  //    collapses to totalDemand, edge rate = c.rate (single emit preserved).
+  //  - finite cap, LP draw covers all demand (share 0): consumedSupply =
+  //    totalDemand, edge rate = c.rate; the in-graph producer runs at 0 and
+  //    emits no unit.
+  //  - finite cap, partial draw (0 < share < 1): consumedSupply =
+  //    totalDemand * (1 - share); each consumer's boundary edge plus its
+  //    residual producer edges (computeEdgeRates nets demand by share) sum to
+  //    its full per-item demand as exact rationals.
+  //  - finite cap, draw 0: gated in collectConsumed (no input product, no
+  //    boundary edges).
+  //  - effectiveSupply == 0: gated upstream (no input product emitted).
+  for (const [pool, consumers] of consumersByPool) {
+    const itemId = poolItem.get(pool)!;
+    const role = poolRole.get(pool)!;
+    const item = itemById.get(itemId);
+    if (!item) continue;
+    // Every catalyst edge leaves the catalyst pool's card, never the ordinary
+    // one.
+    const fromUnit = unitIdForPool(itemId, role);
+    // Avoid 0/0 when every ordinary consumer's rate collapses to zero. A
+    // catalyst consumer takes no share of that demand, so its charge is still
+    // drawn (collectConsumed already dropped any zero-rate catalyst).
+    const noOrdinaryDemand = (
+      ordinaryDemandByItem.get(itemId) ?? new Fraction(0)
+    ).equals(new Fraction(0));
+    for (const c of consumers) {
+      if (noOrdinaryDemand && !c.catalyst) continue;
+      const rate = edgeRateOf(c);
+      boundaryEdges.push({
+        fromUnit,
+        toUnit: c.toUnit,
+        item: itemId,
+        rate,
+        transportKind: item.transportKind,
+        ...(c.catalyst ? { toPortKind: "catalyst" as const } : {}),
+        ...(role === "catalyst" ? { fromPool: "catalyst" as const } : {}),
+      });
+    }
+  }
+
+  for (const e of targetEdges) boundaryEdges.push(e);
 
   // Surplus output products: any item produced beyond its outgoing consumption
   // (internal MachineEdges + the target output edges above) surfaces as an amber

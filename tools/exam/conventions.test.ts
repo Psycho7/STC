@@ -134,22 +134,26 @@ describe("docs/render-conventions.md", () => {
     );
   });
 
-  // The frame rule covers every stroke, not only a loop's return: a forward run
-  // along a slab border is the same defect, and only the tap descent is exempt.
-  test("states the frame rule for every stroke, not only loop returns", () => {
-    const edges = flat(section(doc(), "Edges"));
-    expect(edges).toContain("a loop's return and a forward run alike");
-    expect(edges).toContain("not a stroke riding the frame");
+  // A loop is a tint, not a box. An evaluator still briefed on the old frame
+  // rule files every stroke across a loop's tint as a frame ride, and a card
+  // the cycle only feeds, drawn outside the tint, as a member left out.
+  test("states that a loop is an unbordered tint over its cycle", () => {
+    const cards = flat(section(doc(), "Cards"));
+    expect(cards).toContain("A loop is marked by a faint tint");
+    expect(cards).toContain("The tint has no border");
+    expect(cards).toContain("a stroke of another flow may cross it");
+    expect(cards).toContain("never covers a card outside the cycle");
+    expect(cards).toContain("A card the cycle only feeds");
+    expect(flat(section(doc(), "Intentional behaviours"))).toContain(
+      "A stroke of another flow may cross a loop's tint",
+    );
   });
 
-  // The two forward shapes the audit lets past the frame rule. An evaluator
-  // given only the rule files both of them, and neither is a placement the
-  // renderer chose.
-  test("states the forward exemptions from the frame rule", () => {
-    const intentional = flat(section(doc(), "Intentional behaviours"));
-    expect(intentional).toContain("the row its two ports share");
-    expect(intentional).toContain(
-      "a container one of its own endpoints sits inside",
+  // The per-loop boundary tap went with the box: every consumer draws from the
+  // item's one boundary card.
+  test("states one boundary card per imported item, loop members included", () => {
+    expect(flat(section(doc(), "Cards"))).toContain(
+      "every consumer draws straight from it, a loop member included",
     );
   });
 
@@ -160,5 +164,15 @@ describe("docs/render-conventions.md", () => {
     expect(text).not.toContain("contested");
     expect(text).not.toContain("too short for its box");
     expect(text).not.toContain("deliberately hidden");
+  });
+
+  // No container is drawn, so no frame rule, frame exemption or tap card can
+  // be stated.
+  test("describes no container frame and no tap card", () => {
+    const text = flat(doc());
+    expect(text).not.toContain("container");
+    expect(text).not.toContain("slab");
+    expect(text).not.toContain("riding the frame");
+    expect(text).not.toContain("tap chip");
   });
 });

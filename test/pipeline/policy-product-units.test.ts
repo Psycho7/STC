@@ -109,7 +109,7 @@ describe("render policy / boundary product units", () => {
   });
 
   it("target = copper_ore (raw): renders as an import -> export passthrough", () => {
-    const { inputs, outputs } = emitProducts(
+    const { inputs, outputs, plan } = emitProducts(
       [
         {
           itemId: "copper_ore",
@@ -119,14 +119,18 @@ describe("render policy / boundary product units", () => {
       [],
     );
     // copper_ore is raw: the LP runs nothing and reports a boundary draw, so
-    // the render emits the target output fed by a dedicated passthrough
-    // import of the same item.
+    // the render emits the target output fed by the item's one input card.
+    // The export is an ordinary consumer of that card, never a card of its own.
     const outputItems = new Set(outputs.map((u) => u.itemId));
     expect(outputItems).toContain("copper_ore");
-    const passthrough = inputs.find((u) => u.id === "u:in:copper_ore:target");
-    expect(passthrough).toBeDefined();
-    expect(passthrough!.itemId).toBe("copper_ore");
-    expect(passthrough!.rate).toEqual({ num: "1", denom: "1" });
+    const oreCards = inputs.filter((u) => u.itemId === "copper_ore");
+    expect(oreCards.map((u) => u.id)).toEqual(["u:in:copper_ore"]);
+    expect(oreCards[0]!.rate).toEqual({ num: "1", denom: "1" });
+    const exportEdges = plan.edges.filter(
+      (e) => e.toUnit === "u:out:copper_ore",
+    );
+    expect(exportEdges.map((e) => e.fromUnit)).toEqual(["u:in:copper_ore"]);
+    expect(exportEdges[0]!.rate.equals(new Fraction(1))).toBe(true);
   });
 
   it("target = copper_nugget, override copper_ore: plan=true seeds nothing and drops the ore from the plan", () => {
@@ -1287,14 +1291,14 @@ describe("render policy / boundary product units", () => {
   });
 });
 
-// ----- input ProductNode fan-out per blueprint group ------------------------
+// ----- one input ProductNode per pool, whatever the containers --------------
 //
-// Verifies that consumers in distinct containers each get their own input
-// ProductNode, while consumers in a single container (or loose / unclustered
-// plans) keep the single-input behavior. Mass-balance invariant: per-container
-// rates sum to the pre-split single-input rate.
+// A consumer's container does not split its item's boundary card: consumers in
+// distinct containers, in one container, or in none all draw straight from the
+// single u:in card. Mass-balance invariant: the card's rate is the sum of its
+// outbound edge rates.
 
-describe("render policy / input fan-out per container", () => {
+describe("render policy / one input card per pool, containers or not", () => {
   const itemById = new Map<string, Item>([
     [
       "water",
@@ -1391,7 +1395,7 @@ describe("render policy / input fan-out per container", () => {
     return [v_a, v_b];
   }
 
-  it("Infinity supply, consumers in distinct containers: emits aggregate + per-container fanout slices with chained edges", () => {
+  it("Infinity supply, consumers in distinct containers: one card, a direct edge each", () => {
     const [v_a, v_b] = makeConsumers({
       containerA: "grp:A",
       containerB: "grp:B",
@@ -1413,42 +1417,21 @@ describe("render policy / input fan-out per container", () => {
     const inputs = plan.units
       .filter(isInputProductUnit)
       .filter((u) => u.itemId === "water");
-    const ids = inputs.map((u) => u.id).sort();
-    expect(ids).toEqual(["u:in:water", "u:in:water:grp:A", "u:in:water:grp:B"]);
-    const byId = new Map(inputs.map((u) => [u.id, u]));
-    // Aggregate carries the summed rate; fanout slices carry per-bucket rate.
-    expect(byId.get("u:in:water")!.rate).toEqual({ num: "2", denom: "1" });
-    expect(byId.get("u:in:water")!.isFanout).toBeUndefined();
-    expect(byId.get("u:in:water:grp:A")!.rate).toEqual({
-      num: "1",
-      denom: "1",
-    });
-    expect(byId.get("u:in:water:grp:A")!.isFanout).toBe(true);
-    expect(byId.get("u:in:water:grp:B")!.rate).toEqual({
-      num: "1",
-      denom: "1",
-    });
-    expect(byId.get("u:in:water:grp:B")!.isFanout).toBe(true);
-    // Aggregate -> fanout edges (one per slice).
-    const aggregateOut = plan.edges.filter(
+    expect(inputs.map((u) => u.id)).toEqual(["u:in:water"]);
+    const card = inputs[0]!;
+    expect(card.rate).toEqual({ num: "2", denom: "1" });
+    expect(card.isAggregate).toBeUndefined();
+    expect(card.isFanout).toBeUndefined();
+    const out = plan.edges.filter(
       (e) => e.fromUnit === "u:in:water" && e.item === "water",
     );
-    expect(aggregateOut.map((e) => e.toUnit).sort()).toEqual([
-      "u:in:water:grp:A",
-      "u:in:water:grp:B",
+    expect(out.map((e) => e.toUnit).sort()).toEqual([
+      "u:class:r_a#0",
+      "u:class:r_b#0",
     ]);
-    // Fanout slice -> consumer edges (one per slice; consumer scoped to bucket).
-    const aEdges = plan.edges.filter(
-      (e) => e.fromUnit === "u:in:water:grp:A" && e.item === "water",
-    );
-    const bEdges = plan.edges.filter(
-      (e) => e.fromUnit === "u:in:water:grp:B" && e.item === "water",
-    );
-    expect(aEdges.map((e) => e.toUnit)).toEqual(["u:class:r_a#0"]);
-    expect(bEdges.map((e) => e.toUnit)).toEqual(["u:class:r_b#0"]);
   });
 
-  it("regression: consumers in a single container collapse to one input node", () => {
+  it("consumers in a single container draw from the bare u:in:water card", () => {
     const [v_a, v_b] = makeConsumers({
       containerA: "grp:shared",
       containerB: "grp:shared",
@@ -1471,7 +1454,7 @@ describe("render policy / input fan-out per container", () => {
       .filter(isInputProductUnit)
       .filter((u) => u.itemId === "water");
     expect(inputs.length).toBe(1);
-    expect(inputs[0]!.id).toBe("u:in:water:grp:shared");
+    expect(inputs[0]!.id).toBe("u:in:water");
     expect(inputs[0]!.rate).toEqual({ num: "2", denom: "1" });
   });
 
@@ -1540,7 +1523,7 @@ describe("render policy / input fan-out per container", () => {
     expect(inputs[0]!.isFanout).toBeUndefined();
   });
 
-  it("mixed grouped + loose consumer: aggregate + grouped fanout, loose edge off the aggregate", () => {
+  it("mixed grouped + loose consumer: one card feeds both", () => {
     const [v_a, v_b] = makeConsumers({ containerA: "grp:A" }); // B undefined
     const plan = foldRender({
       containers: { containers: [], containerByMember: new Map() },
@@ -1559,47 +1542,72 @@ describe("render policy / input fan-out per container", () => {
     const inputs = plan.units
       .filter(isInputProductUnit)
       .filter((u) => u.itemId === "water");
-    const ids = inputs.map((u) => u.id).sort();
-    // Aggregate keeps the bare `u:in:water` id; only the container bucket gets
-    // a slice card.
-    expect(ids).toEqual(["u:in:water", "u:in:water:grp:A"]);
-    const byId = new Map(inputs.map((u) => [u.id, u]));
-    expect(byId.get("u:in:water")!.isAggregate).toBe(true);
-    expect(byId.get("u:in:water")!.isFanout).toBeUndefined();
-    expect(byId.get("u:in:water:grp:A")!.isFanout).toBe(true);
-    // The aggregate feeds its slice and the loose consumer directly.
-    const aggregateOut = plan.edges.filter(
+    expect(inputs.map((u) => u.id)).toEqual(["u:in:water"]);
+    const out = plan.edges.filter(
       (e) => e.fromUnit === "u:in:water" && e.item === "water",
     );
-    expect(aggregateOut.map((e) => e.toUnit).sort()).toEqual([
+    expect(out.map((e) => e.toUnit).sort()).toEqual([
+      "u:class:r_a#0",
       "u:class:r_b#0",
-      "u:in:water:grp:A",
     ]);
-    const groupEdges = plan.edges.filter(
-      (e) => e.fromUnit === "u:in:water:grp:A" && e.item === "water",
-    );
-    expect(groupEdges.map((e) => e.toUnit)).toEqual(["u:class:r_a#0"]);
-    // Aggregate rate == sum(slice inbound) + sum(direct loose edges).
-    const aggSum = aggregateOut.reduce(
-      (acc, e) => acc.add(e.rate),
-      new Fraction(0),
-    );
-    const aggRate = byId.get("u:in:water")!.rate;
-    expect(aggSum.equals(new Fraction(`${aggRate.num}/${aggRate.denom}`))).toBe(
-      true,
-    );
+    // Card rate == sum of its edges.
+    const sum = out.reduce((acc, e) => acc.add(e.rate), new Fraction(0));
+    const rate = inputs[0]!.rate;
+    expect(sum.equals(new Fraction(`${rate.num}/${rate.denom}`))).toBe(true);
   });
 
-  it("finite cap below total demand: aggregate carries cap + total rate; fanouts prorate (mass-balance invariant)", () => {
+  it("free-target export with container-only consumers: one card feeds the consumer and the export", () => {
+    // water is raw (free) and also a declared target. Its only in-plan
+    // consumer sits in a container; the export and the consumer both draw
+    // from the item's one card, which carries consumer draw + export shortfall.
+    const [v_a] = makeConsumers({ containerA: "grp:A" });
+    const plan = foldRender({
+      containers: { containers: [], containerByMember: new Map() },
+      machineGraph: { vertices: [v_a!], edges: [] },
+      targets: [
+        { itemId: "out_a", ratePerSec: { num: "1", denom: "1" } },
+        { itemId: "water", ratePerSec: { num: "1", denom: "2" } },
+      ],
+      itemOverrides: [],
+      itemById,
+      recipeById,
+      supply: mkSupply(itemById),
+      boundaryShare: new Map(),
+    });
+    const inputs = plan.units
+      .filter(isInputProductUnit)
+      .filter((u) => u.itemId === "water");
+    expect(inputs.map((u) => u.id)).toEqual(["u:in:water"]);
+    expect(inputs[0]!.rate).toEqual({ num: "3", denom: "2" });
+
+    const out = plan.edges.filter(
+      (e) => e.fromUnit === "u:in:water" && e.item === "water",
+    );
+    expect(out.map((e) => e.toUnit).sort()).toEqual([
+      "u:class:r_a#0",
+      "u:out:water",
+    ]);
+    const byTo = new Map(out.map((e) => [e.toUnit, e]));
+    expect(byTo.get("u:class:r_a#0")!.rate.equals(new Fraction(1))).toBe(true);
+    expect(byTo.get("u:out:water")!.rate.equals(new Fraction(1, 2))).toBe(true);
+    // Nothing else feeds the export.
+    expect(
+      plan.edges
+        .filter((e) => e.toUnit === "u:out:water")
+        .map((e) => e.fromUnit),
+    ).toEqual(["u:in:water"]);
+  });
+
+  it("finite cap below total demand: the card carries cap + realized rate; consumer edges prorate (mass-balance invariant)", () => {
     const [v_a, v_b] = makeConsumers({
       containerA: "grp:A",
       containerB: "grp:B",
       rateA: new Fraction(3),
       rateB: new Fraction(1),
     });
-    // Cap is 2/sec; total demand is 4/sec. Per-container realized rates
-    // should be (3/4)*2 = 3/2 and (1/4)*2 = 1/2 respectively. The aggregate
-    // carries the item-level cap and the sum (=2).
+    // Cap is 2/sec; total demand is 4/sec. Per-consumer edges should carry
+    // (3/4)*2 = 3/2 and (1/4)*2 = 1/2 respectively; the card carries the
+    // item-level cap and the sum (=2).
     const itemOverrides: ItemOverride[] = [
       { itemId: "water", ratePerSec: { num: "2", denom: "1" } },
     ];
@@ -1615,54 +1623,30 @@ describe("render policy / input fan-out per container", () => {
       recipeById,
       supply: mkSupply(itemById, itemOverrides),
       // Cap 2/s draws against total demand 4/s: consumedSupply =
-      // totalDemand * (1 - share) = 4 * 1/2 = 2, so the aggregate realizes the
-      // full cap and the per-container fanouts prorate to 3/2 and 1/2.
+      // totalDemand * (1 - share) = 4 * 1/2 = 2.
       boundaryShare: new Map([["water", new Fraction(1, 2)]]),
     });
     const inputs = plan.units
       .filter(isInputProductUnit)
       .filter((u) => u.itemId === "water");
-    const byId = new Map(inputs.map((u) => [u.id, u]));
-    const aggregate = byId.get("u:in:water")!;
-    const a = byId.get("u:in:water:grp:A")!;
-    const b = byId.get("u:in:water:grp:B")!;
-    expect(aggregate).toBeDefined();
-    expect(a).toBeDefined();
-    expect(b).toBeDefined();
-    // Aggregate carries the item-level cap.
-    expect(aggregate.rateCap).toEqual({ num: "2", denom: "1" });
-    expect(aggregate.isFanout).toBeUndefined();
+    expect(inputs.map((u) => u.id)).toEqual(["u:in:water"]);
+    const card = inputs[0]!;
+    expect(card.rateCap).toEqual({ num: "2", denom: "1" });
     expect(
-      new Fraction(`${aggregate.rate.num}/${aggregate.rate.denom}`).equals(
+      new Fraction(`${card.rate.num}/${card.rate.denom}`).equals(
         new Fraction(2),
       ),
     ).toBe(true);
-    // Fanouts carry per-slice rate; no rateCap on slices (the cap is item-level).
-    expect(a.isFanout).toBe(true);
-    expect(b.isFanout).toBe(true);
-    expect(a.rateCap).toBeUndefined();
-    expect(b.rateCap).toBeUndefined();
-    expect(
-      new Fraction(`${a.rate.num}/${a.rate.denom}`).equals(new Fraction(3, 2)),
-    ).toBe(true);
-    expect(
-      new Fraction(`${b.rate.num}/${b.rate.denom}`).equals(new Fraction(1, 2)),
-    ).toBe(true);
-    // Sum of fanout realized rates equals the cap.
-    const sum = new Fraction(`${a.rate.num}/${a.rate.denom}`).add(
-      new Fraction(`${b.rate.num}/${b.rate.denom}`),
+    const byTo = new Map(
+      plan.edges
+        .filter((e) => e.fromUnit === "u:in:water" && e.item === "water")
+        .map((e) => [e.toUnit, e]),
     );
-    expect(sum.equals(new Fraction(2))).toBe(true);
-    // Aggregate -> fanout edges carry the fanout's rate.
-    const aggEdges = plan.edges.filter(
-      (e) => e.fromUnit === "u:in:water" && e.item === "water",
+    expect(byTo.get("u:class:r_a#0")!.rate.equals(new Fraction(3, 2))).toBe(
+      true,
     );
-    const aggEdgeByTo = new Map(aggEdges.map((e) => [e.toUnit, e]));
-    expect(
-      aggEdgeByTo.get("u:in:water:grp:A")!.rate.equals(new Fraction(3, 2)),
-    ).toBe(true);
-    expect(
-      aggEdgeByTo.get("u:in:water:grp:B")!.rate.equals(new Fraction(1, 2)),
-    ).toBe(true);
+    expect(byTo.get("u:class:r_b#0")!.rate.equals(new Fraction(1, 2))).toBe(
+      true,
+    );
   });
 });
