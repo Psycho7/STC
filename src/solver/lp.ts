@@ -75,7 +75,8 @@ export const SURPLUS_WEIGHT = 1e-3;
 export const DEFICIT_WEIGHT = 1e9;
 
 // Big-M cost for target-only and excluded-producer recipes. Named once so the
-// extraction's pass-2 leak filter and recipeCostWeight key on the same value.
+// tie-break passes' big-M column exclusion and recipeCostWeight key on the same
+// value.
 const BIG_M_COST = 1e6;
 
 // Default cost weights. The ordering deficit >> recipe >> surplus is the cost
@@ -454,6 +455,7 @@ export function solveLp(input: LpInput): LpResult {
     mode: "primary" | "boundary" | "lex",
     costCap?: number,
     boundaryCap?: number,
+    frozenZero?: ReadonlySet<RecipeId>,
   ): LpModel => {
     // Fresh objects per pass: an onModel observer may hold every pass's model.
     const variables: LpModelVars = {};
@@ -462,7 +464,14 @@ export function solveLp(input: LpInput): LpResult {
       constraints[name] = { ...row };
     }
 
-    for (const r of recipes) {
+    // Recipes that get a column in this pass. The tie-break passes leave out
+    // the big-M recipes pass 1 kept at zero, see frozenZero below.
+    const columns =
+      frozenZero === undefined
+        ? recipes
+        : recipes.filter((r) => !frozenZero.has(r.id));
+
+    for (const r of columns) {
       const objective =
         mode === "primary"
           ? costById.get(r.id)!
@@ -499,7 +508,7 @@ export function solveLp(input: LpInput): LpResult {
     if (mode !== "primary" && costCap !== undefined) {
       const capName = "cost_cap";
       constraints[capName] = { max: costCap + capSlack(costCap) };
-      for (const r of recipes) {
+      for (const r of columns) {
         const cost = costById.get(r.id)!;
         if (cost !== 0) variables[`x_${r.id}`]![capName] = cost;
       }
@@ -516,7 +525,7 @@ export function solveLp(input: LpInput): LpResult {
     if (mode === "lex" && boundaryCap !== undefined) {
       const capName = "boundary_cap";
       constraints[capName] = { max: boundaryCap + capSlack(boundaryCap) };
-      for (const r of recipes) {
+      for (const r of columns) {
         const coef = boundaryCoefById.get(r.id)!;
         if (coef !== 0) variables[`x_${r.id}`]![capName] = coef;
       }
@@ -620,13 +629,28 @@ export function solveLp(input: LpInput): LpResult {
     const boundaryTol = (value: number): number =>
       Math.max(Math.abs(value) * COST_REL_TOL, COST_REL_TOL);
 
+    // Big-M recipes pass 1 left at zero get no column in the tie-break passes.
+    // The cost cap's slack (up to CAP_SLACK_MAX cost units) can otherwise buy a
+    // ~1e-9 execution of a 1e6-cost transfer, which the boundary objective
+    // takes because it lowers the boundary draw, and at exact primals that is
+    // a ~1.5e-6 row break once the transfer is dropped. Leaving the columns out
+    // only shrinks the feasible region, and pass 1's point stays feasible in it.
+    const frozenZero = new Set<RecipeId>();
+    for (const r of recipes) {
+      if (costById.get(r.id)! < BIG_M_COST) continue;
+      if ((pass1[`x_${r.id}`] ?? 0) > RATE_ZERO) continue;
+      frozenZero.add(r.id);
+    }
+
     // A pack whose surviving recipes pull nothing from the boundary has no
     // boundary pass and no boundary_cap row, so it builds the same lex model it
     // always did.
     let boundaryPass: LpRaw | undefined;
     let boundaryBest: number | undefined;
     if (hasBoundaryConsumption) {
-      const pass = solvePass(buildModel("boundary", costCap));
+      const pass = solvePass(
+        buildModel("boundary", costCap, undefined, frozenZero),
+      );
       if (costValid(pass)) {
         boundaryPass = pass;
         boundaryBest = boundaryObjective(pass, recipes, boundaryCoefById);
@@ -647,7 +671,9 @@ export function solveLp(input: LpInput): LpResult {
         ? boundaryBest
         : undefined;
 
-    const lexPass = solvePass(buildModel("lex", costCap, boundaryCap));
+    const lexPass = solvePass(
+      buildModel("lex", costCap, boundaryCap, frozenZero),
+    );
     let lexValid = costValid(lexPass);
     if (lexValid && boundaryBest !== undefined) {
       const lexBoundary = boundaryObjective(lexPass, recipes, boundaryCoefById);
@@ -678,12 +704,10 @@ export function solveLp(input: LpInput): LpResult {
 
   return extractResult({
     lpResult,
-    pass1,
     recipes,
     items,
     recipeById,
     supplyTable,
-    costById,
     demand,
     planScale,
     mbTol,
@@ -871,12 +895,10 @@ const FRAC_ZERO = new Fraction(0);
 
 type ExtractArgs = {
   lpResult: LpRaw;
-  pass1: LpRaw;
   recipes: Recipe[];
   items: RecipePack["items"];
   recipeById: Map<string, Recipe>;
   supplyTable: SupplyTable;
-  costById: Map<RecipeId, number>;
   demand: Map<ItemId, number>;
   planScale: number;
   mbTol: (itemId: ItemId) => number;
@@ -886,7 +908,7 @@ type ExtractArgs = {
 
 // Turn the raw float primals of a feasible solve into an exact, self-consistent
 // LpResult. Ordered hygiene pass:
-//   1. snap rates (pass-2 big-M filter, relative snap)
+//   1. snap rates (relative snap)
 //   2. tentatively zero sub-noise rates (flow-blind candidate set)
 //   3. recompute per-item slack exactly; re-admit whatever the checkers would
 //      tag (in-pass checkMassBalance-tolerance gate)
@@ -895,12 +917,10 @@ type ExtractArgs = {
 function extractResult(args: ExtractArgs): LpResult {
   const {
     lpResult,
-    pass1,
     recipes,
     items,
     recipeById,
     supplyTable,
-    costById,
     demand,
     planScale,
     mbTol,
@@ -920,23 +940,12 @@ function extractResult(args: ExtractArgs): LpResult {
     );
   }
 
-  // Rate extraction. On pass-2 results, big-M recipes that pass 1 kept at zero
-  // are dropped: the lex cost_cap row magnitude grows with target scale and
-  // the solver's internal relative tolerance can buy them a tiny positive
-  // rate, while a legitimate big-M activation (a sole producer of a demanded
-  // item) forces pass-1 positivity too.
-  const isPass2 = lpResult !== pass1;
+  // Rate extraction. A big-M recipe pass 1 kept at zero has no column in the
+  // tie-break models, so no pass can hand it a rate to drop here.
   const rates = new Map<RecipeId, Fraction>();
   for (const r of recipes) {
     const v = lpResult[`x_${r.id}`] ?? 0;
     if (v <= RATE_ZERO) continue;
-    if (
-      isPass2 &&
-      costById.get(r.id)! >= BIG_M_COST &&
-      (pass1[`x_${r.id}`] ?? 0) <= RATE_ZERO
-    ) {
-      continue;
-    }
     rates.set(r.id, plainSnap(v));
   }
 
