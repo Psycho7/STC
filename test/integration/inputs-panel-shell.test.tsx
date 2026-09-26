@@ -27,7 +27,7 @@ afterEach(() => {
 });
 
 describe("inputs-panel-shell: side-panel layout", () => {
-  it("renders both TargetsPanel and InputsPanel inside the side-panel container", async () => {
+  it("renders both section heads with their counts inside the side-panel container", async () => {
     render(<App />);
     await waitFor(
       () => {
@@ -35,9 +35,35 @@ describe("inputs-panel-shell: side-panel layout", () => {
       },
       { timeout: 5000 },
     );
+    await waitFor(
+      () => {
+        expect(screen.getAllByTestId("input-auto-row").length).toBeGreaterThan(
+          0,
+        );
+      },
+      { timeout: 10000 },
+    );
     const sidePanel = screen.getByTestId("side-panel");
-    expect(within(sidePanel).getByText("目标")).toBeInTheDocument();
-    expect(within(sidePanel).getByText("输入")).toBeInTheDocument();
+    const targetsHead = within(sidePanel).getByTestId("targets-head");
+    const inputsHead = within(sidePanel).getByTestId("inputs-head");
+    // Both heads are siblings of the one scroll body, which is what lets them
+    // stack and keep both counts on screen at any scroll offset.
+    expect(targetsHead.parentElement).toBe(inputsHead.parentElement);
+    expect(targetsHead.parentElement?.className).toContain("side-panel-scroll");
+    // The default plan has three targets; the supply count is whatever the
+    // panel shows, and the point here is that both heads carry one.
+    expect(targetsHead.querySelector(".count .v")?.textContent).toBe("3");
+    const supplyCount = inputsHead.querySelector(".count .v")?.textContent;
+    expect(Number(supplyCount)).toBeGreaterThan(0);
+
+    // Each labelled block appears with its own rows and carries their count.
+    // No override is declared on the default plan, so everything the plan
+    // draws sits under Assumed unlimited and the Supplies head stays away
+    // rather than standing over an empty body.
+    expect(within(sidePanel).queryByTestId("inputs-block-supplies")).toBeNull();
+    const assumed = within(sidePanel).getByTestId("inputs-block-assumed");
+    const assumedRows = screen.getAllByTestId("input-auto-row").length;
+    expect(assumed.querySelector(".n")?.textContent).toBe(`${assumedRows} 行`);
   });
 
   it("editing an input row's rate triggers a re-solve that updates the URL", async () => {

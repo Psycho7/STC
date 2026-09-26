@@ -3,7 +3,6 @@ import raw from "@aef/data/recipe-pack.i18n.json";
 export type Locale = "en" | "zh";
 
 export type UiKey =
-  | "targets.title"
   | "targets.add"
   | "targets.rate.unit"
   | "targets.rate.forItem"
@@ -50,7 +49,6 @@ export type UiKey =
   | "app.status.solving"
   | "app.settings.event.on"
   | "app.settings.event.off"
-  | "inputs.title"
   | "inputs.rate.label"
   | "inputs.rate.forItem"
   | "inputs.rate.unit"
@@ -65,6 +63,13 @@ export type UiKey =
   | "inputs.picker.listed"
   | "inputs.duplicate"
   | "inputs.unlimited"
+  | "inputs.block.supplies"
+  | "inputs.block.supplies.sub"
+  | "inputs.block.assumed"
+  | "inputs.block.assumed.sub"
+  | "inputs.block.rows"
+  | "inputs.setCap"
+  | "inputs.setCap.label"
   | "inputs.needed"
   | "inputs.empty"
   | "inputs.catalyst.role"
@@ -121,8 +126,7 @@ export type UiKey =
   | "stats.output"
   | "stats.output.unit"
   | "stats.input"
-  | "stats.input.unit"
-  | "side.nav.label";
+  | "stats.input.unit";
 
 export type I18nIndex = {
   locale: Locale;
@@ -134,7 +138,6 @@ const DEFAULT_LOCALE: Locale = "zh";
 
 const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
   zh: {
-    "targets.title": "目标",
     "targets.add": "添加目标",
     "targets.rate.unit": "/分",
     // Row controls name their item: a rail of identically named fields and X
@@ -203,7 +206,6 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     // whose effective state departs from its default rule.
     "app.settings.event.on": "{cohort} 活动已开启",
     "app.settings.event.off": "{cohort} 活动已关闭",
-    "inputs.title": "输入",
     "inputs.rate.label": "速率",
     // An item can hold a row in both supply pools, so an input row's controls
     // name the pool as well as the item.
@@ -220,6 +222,13 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "inputs.picker.listed": "灰显的物品已在面板中 — 请直接编辑对应行",
     "inputs.duplicate": "该物品已声明",
     "inputs.unlimited": "无限",
+    "inputs.block.supplies": "供给",
+    "inputs.block.supplies.sub": "// 由你设定 · 求解器不得超出",
+    "inputs.block.assumed": "默认无限",
+    "inputs.block.assumed.sub": "// 未设上限 · 设定前只读",
+    "inputs.block.rows": "{count} 行",
+    "inputs.setCap": "设定上限",
+    "inputs.setCap.label": "为 {name} 设定上限",
     "inputs.needed": "需求 {rate}/分",
     "inputs.empty": "未配置任何输入 — 全部按原料自动求解",
     "inputs.catalyst.role": "催化",
@@ -281,10 +290,8 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "stats.output.unit": "目标",
     "stats.input": "输入",
     "stats.input.unit": "供给",
-    "side.nav.label": "边界面板分区",
   },
   en: {
-    "targets.title": "Targets",
     "targets.add": "Add target",
     "targets.rate.unit": "/min",
     "targets.rate.forItem": "Rate for {name}",
@@ -352,7 +359,6 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "app.status.solving": "SOLVING",
     "app.settings.event.on": "{cohort} on",
     "app.settings.event.off": "{cohort} off",
-    "inputs.title": "Inputs",
     "inputs.rate.label": "Rate",
     "inputs.rate.forItem": "{pool} rate for {name}",
     "inputs.rate.unit": "/min",
@@ -368,6 +374,14 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
       "Dimmed items already have a row in the panel — edit that row instead",
     "inputs.duplicate": "Item already declared",
     "inputs.unlimited": "Unlimited",
+    "inputs.block.supplies": "Supplies",
+    "inputs.block.supplies.sub":
+      "// you set these · solver may not exceed them",
+    "inputs.block.assumed": "Assumed unlimited",
+    "inputs.block.assumed.sub": "// no cap set · read-only until you set one",
+    "inputs.block.rows": "{count} rows",
+    "inputs.setCap": "Set cap",
+    "inputs.setCap.label": "Set cap for {name}",
     "inputs.needed": "needed {rate}/min",
     "inputs.empty": "No declared inputs — defaults to raw-source feed",
     "inputs.catalyst.role": "catalyst",
@@ -428,7 +442,6 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "stats.output.unit": "targets",
     "stats.input": "Input",
     "stats.input.unit": "supply",
-    "side.nav.label": "Boundary panel sections",
   },
 };
 
