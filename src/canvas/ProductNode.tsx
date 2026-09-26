@@ -2,7 +2,10 @@ import { Handle, Position, type NodeProps, type Node } from "@xyflow/react";
 import type { Item } from "@aef/schema";
 import { useI18n } from "../data/i18n-context";
 import type { I18nIndex } from "../data/i18n";
-import { formatRationalPerMin } from "../data/rate-format";
+import {
+  formatDeliveredPerMin,
+  formatRationalPerMin,
+} from "../data/rate-format";
 import type { RationalString } from "../pipeline/types";
 import { portId } from "../pipeline/render/port-ids";
 import { PortGlyph } from "./PortGlyph";
@@ -53,7 +56,7 @@ export type ProductNodeData =
       itemId: string;
       rate: RationalString;
       // What an under-delivered target actually receives; `rate` stays declared.
-      delivered?: RationalString | undefined;
+      delivered?: RationalString;
       flavor: "target" | "surplus";
       portTransportKinds?: PortTransportKinds;
     };
@@ -232,7 +235,10 @@ export default function ProductNode({
   // surplus rate, except an under-delivered target, which leads with what
   // actually arrives.
   const delivered = isInput ? undefined : data.delivered;
-  const rateValue = formatRationalPerMin(delivered ?? data.rate);
+  const rateValue =
+    delivered !== undefined
+      ? formatDeliveredPerMin(delivered, data.rate)
+      : formatRationalPerMin(data.rate);
   // Share of the parent aggregate, fanout slices only: "of <total>/min" points
   // the reader back at the source card this tap draws from. An under-delivered
   // target states its declared rate in the same chip.

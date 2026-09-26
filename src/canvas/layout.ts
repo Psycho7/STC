@@ -855,7 +855,7 @@ function unitToRFNode(
           kind: "outputProduct",
           itemId: unit.itemId,
           rate: unit.rate,
-          delivered: unit.delivered,
+          ...(unit.delivered && { delivered: unit.delivered }),
           flavor: unit.flavor,
           portTransportKinds,
         },

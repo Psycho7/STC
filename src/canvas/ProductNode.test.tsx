@@ -139,3 +139,24 @@ test("an under-delivered target reads delivered of declared in zh", () => {
   expect(rate?.getAttribute("title")).toBe("实际 35/分，共需 120/分");
   expect(container.textContent).not.toMatch(/min/i);
 });
+
+// A shortfall under the display resolution gains decimals, or reads "<120",
+// instead of the red "120 of 120/min".
+test("a sub-resolution shortfall never reads its declared figure", () => {
+  const card = (delivered: { num: string; denom: string }) =>
+    wrap(
+      <ProductNode
+        {...makeProductNodeProps({
+          kind: "outputProduct",
+          itemId: "ore",
+          rate: { num: "2", denom: "1" },
+          delivered,
+          flavor: "target",
+        })}
+      />,
+    ).container.querySelector(".pn-rate")?.firstChild?.textContent;
+
+  expect(card({ num: "119999", denom: "60000" })).toBe("119.999");
+  cleanup();
+  expect(card({ num: "119999999", denom: "60000000" })).toBe("<120");
+});
