@@ -35,10 +35,10 @@
 // its plan, so the tables carry no entries for it:
 // - gas-web.json, when a free-supply target's export stopped drawing from a
 //   card of its own and joined its item's input card (written on the stack
-//   with the gap column order and the hierarchical greedy switch). That change
-//   removes the node u:in:gas_inert:target, so e:20's source id becomes
-//   u:in:gas_inert; the edge ids e:0..e:25 are unchanged. It was rewritten
-//   again with the loop plans below;
+//   with the gap column order, the numeric tie-break and the hierarchical
+//   greedy switch). That change removes the node u:in:gas_inert:target, so
+//   e:20's source id becomes u:in:gas_inert; the edge ids e:0..e:25 are
+//   unchanged. It was rewritten again with the loop plans below;
 // - every plan with a loop (battery5, battery5-xiranite, crystal, equip4,
 //   multi6, rot-bottled_food_3, rot-bottled_food_4, rot-bottled_rec_hp_1,
 //   rot-proc_bomb_1), when the loop boxes left the layout: the box node and
