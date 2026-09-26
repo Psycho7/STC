@@ -5,7 +5,13 @@
 // containers and product chips. Clustering can aggregate replicas into class
 // units, so the chip is labeled UNITS rather than REPLICAS.
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
-import { act, cleanup, fireEvent, render } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  waitFor,
+} from "@testing-library/react";
 import { createRef, type FC } from "react";
 import type { Edge, Node } from "@xyflow/react";
 import { useEdgesState, useNodesState } from "@xyflow/react";
@@ -731,13 +737,38 @@ function lastEdges(): Edge[] {
   return rfRenders.at(-1)!.edges as Edge[];
 }
 
-test("edge aria-labels read the localized item name and rate", () => {
-  renderCanvas(HOVER_NODES, [LABELLED_EDGE]);
+// Edges mount only once React Flow has measured their endpoint nodes. The
+// beforeEach no-op ResizeObserver never reports a size, so drop it and fall
+// back to test/setup.ts's mock, which does.
+function measureNodes(): void {
+  vi.unstubAllGlobals();
+}
+
+// The rendered edge wrapper, once React Flow has measured its endpoints.
+async function edgeWrapper(
+  container: HTMLElement,
+  id: string,
+): Promise<HTMLElement> {
+  let el: HTMLElement | null = null;
+  await waitFor(() => {
+    el = container.querySelector<HTMLElement>(
+      `.react-flow__edge[data-id="${id}"]`,
+    );
+    expect(el).not.toBeNull();
+  });
+  return el!;
+}
+
+test("edge aria-labels read the localized item name and rate", async () => {
+  measureNodes();
+  const en = renderCanvas(HOVER_NODES, [LABELLED_EDGE]);
   expect(lastEdges()[0]!.ariaLabel).toBe("Ferrium Powder x 30/min");
+  const enWrapper = await edgeWrapper(en.container, "e1");
+  expect(enWrapper.getAttribute("aria-label")).toBe("Ferrium Powder x 30/min");
   cleanup();
 
   rfRenders.length = 0;
-  render(
+  const zh = render(
     <LocaleProvider locale="zh">
       <ItemPackProvider value={PACK}>
         <Canvas nodes={HOVER_NODES} edges={[LABELLED_EDGE]} />
@@ -745,6 +776,8 @@ test("edge aria-labels read the localized item name and rate", () => {
     </LocaleProvider>,
   );
   expect(lastEdges()[0]!.ariaLabel).toBe("蓝铁粉末 x 30/分");
+  const zhWrapper = await edgeWrapper(zh.container, "e1");
+  expect(zhWrapper.getAttribute("aria-label")).toBe("蓝铁粉末 x 30/分");
 });
 
 // React Flow memoizes each edge wrapper on the edge object, so labelling must
@@ -778,13 +811,22 @@ test("an unchanged edge keeps its labelled object until the locale changes", () 
 
 // The render-exam probe reads each edge's endpoints off its wrapper, so the
 // adjacency it checks hover against never depends on accessibility text.
-test("every edge wrapper carries its endpoints as data attributes", () => {
+test("every edge wrapper carries its endpoints as data attributes", async () => {
+  measureNodes();
   const bare = { id: "e2", source: "u2", target: "u1" } as Edge;
-  renderCanvas(HOVER_NODES, [LABELLED_EDGE, bare]);
+  const { container } = renderCanvas(HOVER_NODES, [LABELLED_EDGE, bare]);
   expect(lastEdges().map((e) => e.domAttributes)).toEqual([
     { "data-source": "u1", "data-target": "u2" },
     { "data-source": "u2", "data-target": "u1" },
   ]);
+  for (const [id, source, target] of [
+    ["e1", "u1", "u2"],
+    ["e2", "u2", "u1"],
+  ] as const) {
+    const wrapper = await edgeWrapper(container, id);
+    expect(wrapper.getAttribute("data-source")).toBe(source);
+    expect(wrapper.getAttribute("data-target")).toBe(target);
+  }
 });
 
 // The screen-reader hints React Flow ships describe deleting and arrow-key
@@ -827,9 +869,12 @@ test("node and edge a11y descriptions are localized and never mention delete", (
 // Edges carry no keyboard behavior (no click, key or focus handler, and the
 // hover dim is pointer-only), so they are not tab stops: a big plan would
 // otherwise put hundreds of them in the Tab order.
-test("edges are not keyboard focusable", () => {
-  renderCanvas(HOVER_NODES, [LABELLED_EDGE]);
+test("edges are not keyboard focusable", async () => {
+  measureNodes();
+  const { container } = renderCanvas(HOVER_NODES, [LABELLED_EDGE]);
   expect(rfRenders.at(-1)!.edgesFocusable).toBe(false);
+  const wrapper = await edgeWrapper(container, "e1");
+  expect(wrapper.tabIndex).toBeLessThan(0);
 });
 
 test("HUD chip shows UNITS counting only recipe-type nodes", () => {
