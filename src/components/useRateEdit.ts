@@ -252,21 +252,9 @@ export function useRateEdit(config: RateEditConfig): RateEdit {
         for (const id of stale) next.delete(id);
         return next;
       }
-      setInvalidIds((prev) => {
-        const stale = [...prev.keys()].filter((id) => !liveRowKeys.has(id));
-        if (stale.length === 0) return prev;
-        const next = new Map(prev);
-        for (const id of stale) next.delete(id);
-        return next;
-      });
+      setInvalidIds(pruneMap);
       setRevertedIds(pruneMap);
-      setTexts((prev) => {
-        const stale = [...prev.keys()].filter((id) => !liveRowKeys.has(id));
-        if (stale.length === 0) return prev;
-        const next = new Map(prev);
-        for (const id of stale) next.delete(id);
-        return next;
-      });
+      setTexts(pruneMap);
     },
   };
 }
