@@ -718,7 +718,8 @@ describe("a manual disable at solve level", () => {
   });
 
   it("reproduces the untouched solution once the recipe is re-enabled", () => {
-    runningRecipes(["carbon_enr_powder-carbon_powder"]);
+    const disabled = runningRecipes(["carbon_enr_powder-carbon_powder"]);
+    expect(disabled).not.toEqual(untouched);
     expect(runningRecipes([])).toEqual(untouched);
   });
 });
