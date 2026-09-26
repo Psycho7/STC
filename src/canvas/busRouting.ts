@@ -40,7 +40,6 @@ import {
   drawnPortsOf,
   edgeItem,
   edgeTargetSide,
-  nodeHeight,
   nodeIndexOf,
   nodeRectOf,
   nodeWidth,
@@ -1766,13 +1765,10 @@ export function assignBendColumns(
     const sourceRight = sourceLeft + nodeWidth(source);
     const targetLeft = absoluteLeft(target);
     if (targetLeft - sourceRight <= 0) continue; // backward / zero-gap edge
-    const sourceTop = absoluteTop(source);
-    const targetTop = absoluteTop(target);
-    const yLo = Math.min(sourceTop, targetTop);
-    const yHi = Math.max(
-      sourceTop + nodeHeight(source),
-      targetTop + nodeHeight(target),
-    );
+    const sourceRect = nodeRectOf(source);
+    const targetRect = nodeRectOf(target);
+    const yLo = Math.min(sourceRect.top, targetRect.top);
+    const yHi = Math.max(sourceRect.bottom, targetRect.bottom);
     const band = Math.round(sourceLeft);
     // A bend the order walks with a trunk (it must stand beyond it) takes its
     // walk column and leaves the fan; the fan then keeps off it.

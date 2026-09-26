@@ -4,10 +4,12 @@
 // Contract:
 //   1. This module owns BOTH frames and the single conversion between them.
 //      The MODEL frame is the coordinate the layout positions by; the DRAWN
-//      frame is the coordinate React Flow paints, model plus PORT_DRIFT (the
-//      box-side counterpart, CARD_GROWTH, stays with the card rects in
-//      chipSeating.ts). Every other module reads one frame or the other and
-//      never converts. Every drawn-frame export here carries `drawn` in its
+//      frame is the coordinate React Flow paints, model plus PORT_DRIFT on the
+//      ports and plus CARD_GROWTH on the card box. A card has one rect, the
+//      drawn one (nodeRectOf): the router, chip seating and every other
+//      consumer read that box. nodeWidth / nodeHeight stay the model sizes the
+//      layout and the ports are placed by. Every other module reads one frame
+//      or the other and never converts. Every drawn-frame export here carries `drawn` in its
 //      name, because comparing a model value against a DRAWN rect is wrong by
 //      1-2 units, exactly at the thresholds the ratcheted occlusion and
 //      crossing counts live on.
@@ -122,7 +124,7 @@ export function nodeHeight(node: RFAnyNode): number {
   }
 }
 
-// An axis-aligned box in absolute MODEL-frame coordinates.
+// An axis-aligned box in absolute coordinates.
 export type Rect = {
   left: number;
   right: number;
@@ -130,16 +132,61 @@ export type Rect = {
   bottom: number;
 };
 
-// A node's absolute model box: absoluteLeft / absoluteTop plus its width and
-// height. Callers pad or grow the edges they need from here.
+// The card border, in graph units per side: the 1px frame a rendered recipe
+// card draws around its content box (canvas.css .recipe-node). PORT_DRIFT.recipe
+// below derives its handle offsets from the same border, seen from the port
+// side, so the two stay in this one module.
+export const CARD_BORDER = 1;
+
+// How much WIDER and TALLER a node's DRAWN border box is than its model size
+// (nodeWidth x nodeHeight), per node kind. The origin never moves: the wrapper
+// sits at the model position and the border grows the box on the right and the
+// bottom only.
+//   recipe: the card is content-box RECIPE_WIDTH (240) with a CARD_BORDER frame
+//     per side, so the drawn box is 242 wide and two units taller than
+//     recipeHeight.
+//   product: the model width ALREADY counts the card's borders (124 content +
+//     20 padding + 1 border + a 3 accent border = the 148 layout assigns), and
+//     PRODUCT_HEIGHT is the drawn height, so the drawn box is the model box.
+//   loop: sized by inline width / height in model units, so the border stays
+//     inside the box and adds no growth.
+// Re-derive alongside PORT_DRIFT whenever a card's border or box-sizing
+// changes.
+const CARD_GROWTH: Record<"recipe" | "product" | "other", number> = {
+  recipe: 2 * CARD_BORDER,
+  product: 0,
+  other: 0,
+};
+
+// The drawn-vs-model box growth for one node kind, keyed by the `type` string
+// React Flow carries on the node (and the e2e audit reads off the DOM), so the
+// audit can state the same contract against the rendered card.
+export function cardGrowth(type: string | undefined): number {
+  if (type === "recipe") return CARD_GROWTH.recipe;
+  if (type === "product") return CARD_GROWTH.product;
+  return CARD_GROWTH.other;
+}
+
+// The frame width one node kind draws per side (half its growth): the port
+// furniture anchors on the row edge, one border inside the drawn edge.
+export function cardBorder(type: string | undefined): number {
+  return type === "recipe" ? CARD_BORDER : 0;
+}
+
+// A node's card rect: the DRAWN border box, the one the browser paints and the
+// e2e audit measures. absoluteLeft / absoluteTop plus the model width and
+// height, grown by cardGrowth on the right and the bottom. This is the only
+// card-rect definition; the router's obstacles, chip seating, loop paint and
+// the content bounds all read it. Callers pad the edges they need from here.
 export function nodeRectOf(node: RFAnyNode): Rect {
   const left = absoluteLeft(node);
   const top = absoluteTop(node);
+  const growth = cardGrowth(node.type);
   return {
     left,
-    right: left + nodeWidth(node),
+    right: left + nodeWidth(node) + growth,
     top,
-    bottom: top + nodeHeight(node),
+    bottom: top + nodeHeight(node) + growth,
   };
 }
 
@@ -280,9 +327,16 @@ export function edgeTargetSide(edge: Edge): PortSide {
 // Every other unit suite calls drawnPortsOf rather than copying the numbers.
 type PortDrift = { sourceDx: number; targetDx: number; dy: number };
 
+// Half the 8x8 handle box: React Flow anchors at the box's outer edge.
+const HANDLE_HALF = 4;
+
 const PORT_DRIFT: Record<"recipe" | "product" | "other", PortDrift> = {
-  recipe: { sourceDx: 5, targetDx: -3, dy: 1 },
-  product: { sourceDx: 4, targetDx: -4, dy: 0 },
+  recipe: {
+    sourceDx: CARD_BORDER + HANDLE_HALF,
+    targetDx: CARD_BORDER - HANDLE_HALF,
+    dy: CARD_BORDER,
+  },
+  product: { sourceDx: HANDLE_HALF, targetDx: -HANDLE_HALF, dy: 0 },
   other: { sourceDx: 0, targetDx: 0, dy: 0 },
 };
 

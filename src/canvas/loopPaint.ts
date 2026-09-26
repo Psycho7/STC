@@ -39,9 +39,9 @@ export const LOOP_PAINT_PAD = 16;
 // The caption band's height: the old loop box's caption strip.
 export const LOOP_CAPTION_HEIGHT = 22;
 
-// How far a bridge or the caption band keeps off a card it must not cover. A
-// drawn card is a unit or two larger than its model rect (the border and the
-// port drift), so flush is not clear.
+// How far a bridge or the caption band keeps off a card it must not cover. The
+// card rect is the drawn border box, but the port handles hang a few units past
+// it (PORT_DRIFT), so flush is not clear.
 const CARD_CLEARANCE = 4;
 
 export type LoopPaint = {
