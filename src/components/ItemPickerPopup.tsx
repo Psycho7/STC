@@ -28,7 +28,7 @@ type Props = {
   // by the caller so the popup stays presentational.
   tierByItemId: Map<string, number>;
   // Optional one-line explanation of what a dimmed tile means, rendered under
-  // the search box. A caller that disables tiles for a reason the grid cannot
+  // the search box while the filter leaves a dimmed tile visible. A caller that disables tiles for a reason the grid cannot
   // show passes it; a caller whose disabled tiles are self-explanatory omits
   // it. Not a per-tile title: a disabled button dispatches no pointer events,
   // so a title on one never renders a tooltip, and aria-label beats title for
@@ -103,6 +103,9 @@ export function ItemPickerPopup({
     [groups],
   );
   const firstEnabled = navIds.find((id) => !disabledIds.has(id)) ?? null;
+  // The hint explains dimmed tiles, so a filter that leaves none hides it.
+  const showHint =
+    disabledHint !== undefined && navIds.some((id) => disabledIds.has(id));
 
   // Where each group sits in navIds. A row move happens inside one group's own
   // grid, so stepping by a flat column count over navIds lands a column off
@@ -289,7 +292,7 @@ export function ItemPickerPopup({
           onChange={(e) => setSearch(e.target.value)}
           onKeyDown={onSearchKeyDown}
         />
-        {disabledHint !== undefined ? (
+        {showHint ? (
           <div className="recipe-picker-hint" data-testid="picker-hint">
             {disabledHint}
           </div>
