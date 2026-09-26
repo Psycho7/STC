@@ -1805,7 +1805,10 @@
    A line height the font metrics decide would make the drawn card disagree with
    the model, and the port would leave the card's vertical centre. ProductNode
    elides the name to fit the row; nowrap and the clip are the fallback that
-   keeps the row one line if an estimate ever runs short. */
+   keeps the row one line if an estimate ever runs short. The rate row is kept
+   to one line as well but never clipped: a rate wider than the column spills
+   past the card edge rather than wrap (which grows the card past
+   PRODUCT_HEIGHT) or hide a digit. */
 .pn-name {
   min-width: 0;
   white-space: nowrap;
@@ -1825,6 +1828,8 @@
   letter-spacing: -0.01em;
   line-height: 18px;
   margin-top: 2px;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .product-node.input .pn-rate {

@@ -8,6 +8,7 @@ import { ItemPackProvider } from "../../src/canvas/itemPackContext";
 import {
   cssBlock,
   cssPx,
+  cssSelectorsMatching,
   cssValue,
 } from "../../src/canvas/cssContract.testkit";
 import { PRODUCT_HEIGHT } from "../../src/canvas/dimensions";
@@ -613,6 +614,26 @@ describe("ProductNode", () => {
     expect(head.length).toBeGreaterThan(0);
     expect(head.length).toBeLessThan("Buck Capsule [C]".length);
     expect("Buck Capsule [C]".startsWith(head)).toBe(true);
+  });
+
+  // The two rows of the card split the width differently: the name row clips
+  // (elision plus an ellipsis fallback), the rate row never does. A wrapped rate
+  // row, e.g. a share chip pushed onto a second line, grows the card past
+  // PRODUCT_HEIGHT, and a clipped one hides a number the reader needs.
+  it("keeps the name row clipping and the rate row on one unclipped line", () => {
+    expect(cssValue(".pn-name", "min-width")).toBe("0");
+    expect(cssValue(".pn-name", "white-space")).toBe("nowrap");
+    expect(cssValue(".pn-name", "overflow")).toBe("hidden");
+    expect(cssValue(".pn-name", "text-overflow")).toBe("ellipsis");
+
+    expect(cssValue(".pn-rate", "white-space")).toBe("nowrap");
+    expect(cssValue(".pn-rate", "flex-shrink")).toBe("0");
+    const rateRules = cssSelectorsMatching(/\.pn-rate/);
+    expect(rateRules.length).toBeGreaterThan(0);
+    for (const selector of rateRules) {
+      expect(cssBlock(selector), selector).not.toMatch(/[;{]\s*overflow/);
+      expect(cssBlock(selector), selector).not.toMatch(/text-overflow/);
+    }
   });
 
   it("falls back to the raw id when i18n has no translation for the item", () => {
