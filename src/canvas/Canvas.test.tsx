@@ -10,12 +10,13 @@ import { createRef, type FC } from "react";
 import type { Edge, Node } from "@xyflow/react";
 import { useEdgesState, useNodesState } from "@xyflow/react";
 import type { Recipe } from "@aef/schema";
+import Fraction from "fraction.js";
 import Canvas, { zoomBand, type CanvasHandle } from "./Canvas";
 import { contentBounds } from "./chipSeating";
 import type { RFAnyNode } from "./layout";
 import { exportFrame } from "./exportPng";
 import { ItemPackProvider, type ItemPackContextValue } from "./itemPackContext";
-import { LocaleProvider } from "../data/i18n-context";
+import { LocaleProvider, useLocale } from "../data/i18n-context";
 import { cssBlock } from "./cssContract.testkit";
 
 // The camera-refit effect drives fitView imperatively off the React Flow
@@ -32,15 +33,22 @@ const fitBoundsSpy = vi.hoisted(() => vi.fn());
 // with a stable identity across re-renders is the contract that keeps a zoom
 // tick or a drag frame from re-reconciling the whole graph.
 const rfRenders = vi.hoisted(() => [] as Array<Record<string, unknown>>);
+// Every props object the Controls panel was handed, newest last.
+const controlsRenders = vi.hoisted(() => [] as Array<Record<string, unknown>>);
 vi.mock("@xyflow/react", async (importOriginal) => {
   const orig = await importOriginal<typeof import("@xyflow/react")>();
   const { createElement } = await import("react");
   const OrigFlow = orig.ReactFlow as unknown as FC<Record<string, unknown>>;
+  const OrigControls = orig.Controls as unknown as FC<Record<string, unknown>>;
   return {
     ...orig,
     ReactFlow: (props: Record<string, unknown>) => {
       rfRenders.push(props);
       return createElement(OrigFlow, props);
+    },
+    Controls: (props: Record<string, unknown>) => {
+      controlsRenders.push(props);
+      return createElement(OrigControls, props);
     },
     useReactFlow: () => ({ fitView: fitViewSpy, fitBounds: fitBoundsSpy }),
     useNodesInitialized: () => true,
@@ -115,6 +123,7 @@ beforeEach(() => {
   fitBoundsSpy.mockClear();
   toBlobSpy.mockClear();
   rfRenders.length = 0;
+  controlsRenders.length = 0;
   vi.stubGlobal(
     "ResizeObserver",
     class {
@@ -686,6 +695,141 @@ test("exporting an empty graph throws rather than capturing nothing", async () =
   );
   await expect(ref.current!.exportPng()).rejects.toThrow(/no content/);
   expect(toBlobSpy).not.toHaveBeenCalled();
+});
+
+// The Controls fit button must frame what the initial fit frames (cards plus
+// chips, via fitContent's fitBounds), not React Flow's cards-only fitView: the
+// two land on either side of the chip zoom cutoff on a big plan. The vendor
+// button runs its own fitView before any onFitView callback, so it is switched
+// off and a replacement button carries the vendor class and label.
+test("the Controls fit button runs the content fit and nothing else", () => {
+  const { container } = renderCanvas(NODES, []);
+  expect(controlsRenders.at(-1)?.showFitView).toBe(false);
+  const buttons = container.querySelectorAll<HTMLButtonElement>(
+    ".react-flow__controls-fitview",
+  );
+  expect(buttons).toHaveLength(1);
+  expect(buttons[0]!.getAttribute("aria-label")).toBe("Fit view");
+
+  fitBoundsSpy.mockClear();
+  fireEvent.click(buttons[0]!);
+  expect(fitBoundsSpy).toHaveBeenCalledTimes(1);
+  expect(fitBoundsSpy.mock.calls[0]![1]).toEqual({ padding: 0.12 });
+});
+
+// An edge is named by the same "Name x rate/min" string its rate chip speaks,
+// not React Flow's "Edge from u:... to u:..." default.
+const LABELLED_EDGE = {
+  id: "e1",
+  source: "u1",
+  target: "u2",
+  type: "item",
+  data: { item: "iron_powder", rate: new Fraction(1, 2) },
+} as unknown as Edge;
+
+function lastEdges(): Edge[] {
+  return rfRenders.at(-1)!.edges as Edge[];
+}
+
+test("edge aria-labels read the localized item name and rate", () => {
+  renderCanvas(HOVER_NODES, [LABELLED_EDGE]);
+  expect(lastEdges()[0]!.ariaLabel).toBe("Ferrium Powder x 30/min");
+  cleanup();
+
+  rfRenders.length = 0;
+  render(
+    <LocaleProvider locale="zh">
+      <ItemPackProvider value={PACK}>
+        <Canvas nodes={HOVER_NODES} edges={[LABELLED_EDGE]} />
+      </ItemPackProvider>
+    </LocaleProvider>,
+  );
+  expect(lastEdges()[0]!.ariaLabel).toBe("蓝铁粉末 x 30/分");
+});
+
+// React Flow memoizes each edge wrapper on the edge object, so labelling must
+// not hand it a fresh clone of an unchanged edge on every edges update (a
+// selection click, say). A locale switch still relabels.
+test("an unchanged edge keeps its labelled object until the locale changes", () => {
+  let switchLocale: (next: "en" | "zh") => void = () => {};
+  function LocaleSwitch() {
+    switchLocale = useLocale().setLocale;
+    return null;
+  }
+  const tree = (edges: Edge[]) => (
+    <LocaleProvider locale="en">
+      <LocaleSwitch />
+      <ItemPackProvider value={PACK}>
+        <Canvas nodes={HOVER_NODES} edges={edges} />
+      </ItemPackProvider>
+    </LocaleProvider>
+  );
+  const { rerender } = render(tree([LABELLED_EDGE]));
+  const first = lastEdges()[0]!;
+  expect(first.ariaLabel).toBe("Ferrium Powder x 30/min");
+
+  rerender(tree([LABELLED_EDGE]));
+  expect(lastEdges()[0]).toBe(first);
+
+  act(() => switchLocale("zh"));
+  expect(lastEdges()[0]).not.toBe(first);
+  expect(lastEdges()[0]!.ariaLabel).toBe("蓝铁粉末 x 30/分");
+});
+
+// The render-exam probe reads each edge's endpoints off its wrapper, so the
+// adjacency it checks hover against never depends on accessibility text.
+test("every edge wrapper carries its endpoints as data attributes", () => {
+  const bare = { id: "e2", source: "u2", target: "u1" } as Edge;
+  renderCanvas(HOVER_NODES, [LABELLED_EDGE, bare]);
+  expect(lastEdges().map((e) => e.domAttributes)).toEqual([
+    { "data-source": "u1", "data-target": "u2" },
+    { "data-source": "u2", "data-target": "u1" },
+  ]);
+});
+
+// The screen-reader hints React Flow ships describe deleting and arrow-key
+// moving, neither of which the canvas allows, and are English-only.
+test("node and edge a11y descriptions are localized and never mention delete", () => {
+  for (const [locale, deleteWord] of [
+    ["en", /delete/i],
+    ["zh", /删除/],
+  ] as const) {
+    rfRenders.length = 0;
+    const { container } = render(
+      <LocaleProvider locale={locale}>
+        <ItemPackProvider value={PACK}>
+          <Canvas nodes={NODES} edges={[]} />
+        </ItemPackProvider>
+      </LocaleProvider>,
+    );
+    const config = rfRenders.at(-1)!.ariaLabelConfig as Record<string, unknown>;
+    const keys = [
+      "node.a11yDescription.default",
+      "node.a11yDescription.keyboardDisabled",
+      "edge.a11yDescription.default",
+    ];
+    for (const key of keys) {
+      expect(typeof config[key]).toBe("string");
+      expect(config[key]).not.toMatch(deleteWord);
+    }
+    const nodeDesc = container.querySelector('[id^="react-flow__node-desc-"]');
+    const edgeDesc = container.querySelector('[id^="react-flow__edge-desc-"]');
+    expect(nodeDesc?.textContent).toBe(config["node.a11yDescription.default"]);
+    expect(edgeDesc?.textContent).toBe(config["edge.a11yDescription.default"]);
+    expect(edgeDesc?.textContent).not.toMatch(/delete/i);
+    if (locale === "zh") {
+      expect(edgeDesc?.textContent).not.toMatch(/[A-Za-z]/);
+    }
+    cleanup();
+  }
+});
+
+// Edges carry no keyboard behavior (no click, key or focus handler, and the
+// hover dim is pointer-only), so they are not tab stops: a big plan would
+// otherwise put hundreds of them in the Tab order.
+test("edges are not keyboard focusable", () => {
+  renderCanvas(HOVER_NODES, [LABELLED_EDGE]);
+  expect(rfRenders.at(-1)!.edgesFocusable).toBe(false);
 });
 
 test("HUD chip shows UNITS counting only recipe-type nodes", () => {

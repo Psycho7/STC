@@ -28,7 +28,12 @@ import RecipeNode from "./RecipeNode";
 import GroupNode from "./GroupNode";
 import LoopNode from "./LoopNode";
 import ProductNode from "./ProductNode";
-import ItemEdge, { edgeStrokeWidth, withFocusFlags } from "./ItemEdge";
+import ItemEdge, {
+  edgeRateLabel,
+  edgeStrokeWidth,
+  withFocusFlags,
+} from "./ItemEdge";
+import FitViewButton from "./FitViewButton";
 import BusEdge from "./BusEdge";
 import { contentBounds } from "./chipSeating";
 import { examChipReservations } from "./chipMetrics";
@@ -44,6 +49,7 @@ import type { GapRecord } from "./layerModel";
 import { ExportModeProvider } from "./exportMode";
 import { capturePlanPng, exportFrame, withInlinedSprites } from "./exportPng";
 import { useI18n } from "../data/i18n-context";
+import type { I18nIndex } from "../data/i18n";
 import { pack } from "../data/load";
 import { pushInto } from "../util/multimap";
 import type { CSSProperties } from "react";
@@ -217,6 +223,41 @@ export function focusNodes(
       className: withDimmed(n.className),
     }));
   });
+}
+
+// Name each edge by its rate chip's "Name x rate/min" string instead of React
+// Flow's "Edge from u:... to u:..." default. An edge with no item or no nonzero
+// rate has no such string and keeps the default. The wrapper also carries its
+// endpoints as data attributes, the render-exam probe's adjacency source.
+//
+// Cached per locale index (loadI18n hands out one per locale) and per edge
+// object, so an unchanged edge keeps one labelled clone and React Flow's
+// memoized edge wrapper can skip it. Both keys are weak.
+const labelledEdgeCache = new WeakMap<I18nIndex, WeakMap<Edge, Edge>>();
+
+function labelEdge(edge: Edge, i18n: I18nIndex): Edge {
+  let byEdge = labelledEdgeCache.get(i18n);
+  if (!byEdge) {
+    byEdge = new WeakMap();
+    labelledEdgeCache.set(i18n, byEdge);
+  }
+  const cached = byEdge.get(edge);
+  if (cached) {
+    return cached;
+  }
+
+  const ariaLabel = edgeRateLabel(edge, i18n);
+  const labelled: Edge = {
+    ...edge,
+    ...(ariaLabel === "" ? {} : { ariaLabel }),
+    // React's SVG attribute types declare no data-* keys.
+    domAttributes: {
+      "data-source": edge.source,
+      "data-target": edge.target,
+    } as NonNullable<Edge["domAttributes"]>,
+  };
+  byEdge.set(edge, labelled);
+  return labelled;
 }
 
 // Stamp the hover focus onto the edges React Flow renders. Idle (`focus` null)
@@ -589,6 +630,12 @@ function CanvasInner({
       "controls.zoomOut.ariaLabel": i18n.t("canvas.controls.zoom_out"),
       "controls.fitView.ariaLabel": i18n.t("canvas.controls.fit_view"),
       "controls.interactive.ariaLabel": i18n.t("canvas.controls.interactive"),
+      // Both node keys: the vendor reads "default" when disableKeyboardA11y is
+      // set, the reverse of what the names say. The vendor text offers delete,
+      // which deleteKeyCode={null} unbinds.
+      "node.a11yDescription.default": i18n.t("canvas.a11y.node"),
+      "node.a11yDescription.keyboardDisabled": i18n.t("canvas.a11y.node"),
+      "edge.a11yDescription.default": i18n.t("canvas.a11y.edge"),
     }),
     [i18n],
   );
@@ -711,9 +758,14 @@ function CanvasInner({
     [nodes, focus],
   );
 
+  const labelledEdges = useMemo<Edge[]>(
+    () => edges.map((edge) => labelEdge(edge, i18n)),
+    [edges, i18n],
+  );
+
   const displayEdges = useMemo<Edge[]>(
-    () => focusEdges(edges, focus),
-    [edges, focus],
+    () => focusEdges(labelledEdges, focus),
+    [labelledEdges, focus],
   );
 
   // Memoized on nodes: the annotation re-renders every zoom tick (this
@@ -771,8 +823,19 @@ function CanvasInner({
             // layout. React Flow gates the arrow-key move handler on this flag; it
             // leaves keyboard focus traversal intact.
             disableKeyboardA11y
+            // Edges carry no keyboard behavior and their rates are on the chips,
+            // so they stay out of the Tab order (hundreds of stops on big plans).
+            edgesFocusable={false}
           >
-            <Controls aria-label={i18n.t("canvas.controls.panel")} />
+            <Controls
+              aria-label={i18n.t("canvas.controls.panel")}
+              showFitView={false}
+            >
+              <FitViewButton
+                label={i18n.t("canvas.controls.fit_view")}
+                onFit={fitContent}
+              />
+            </Controls>
           </ReactFlow>
         </SegmentHoverContext.Provider>
       </ExportModeProvider>

@@ -10,6 +10,7 @@ import { useCallback, useMemo } from "react";
 import type Fraction from "fraction.js";
 import type { ItemId, TransportKindId } from "../pipeline/types";
 import { useI18n } from "../data/i18n-context";
+import type { I18nIndex } from "../data/i18n";
 import { formatRateExactPerMin } from "../data/rate-format";
 import { aggregateChipText, rateChipText } from "./chipMetrics";
 // Type-only: the trunk-aggregate stamps routeTrunkEdges puts on a far owner,
@@ -644,6 +645,19 @@ export function rateLabel(name: string, value: string): string {
   return `${name} x ${value}`;
 }
 
+// The full "Name x rate/min" string an item edge is spoken by: its rate chip's
+// aria-label, and through Canvas the edge wrapper's own. "" when the edge
+// carries no item or no nonzero rate.
+export function edgeRateLabel(edge: Edge, i18n: I18nIndex): string {
+  const item = (edge.data as ItemEdgeData | undefined)?.item;
+  const body = rateChipText(edge)?.body;
+  if (item === undefined || !body) return "";
+  return rateLabel(
+    i18n.displayName(item),
+    `${body}${i18n.t("canvas.rate.unit")}`,
+  );
+}
+
 export default function ItemEdge({
   id,
   source,
@@ -699,14 +713,17 @@ export default function ItemEdge({
     () =>
       item !== undefined && rate !== undefined && rateStr
         ? {
-            fullLabel: rateLabel(i18n.displayName(item), `${rateStr}${unit}`),
+            fullLabel: edgeRateLabel(
+              { id: "", source: "", target: "", data: sourceData } as Edge,
+              i18n,
+            ),
             exactTitle: rateLabel(
               i18n.displayName(item),
               `${formatRateExactPerMin(rate)}${unit}`,
             ),
           }
         : { fullLabel: "", exactTitle: "" },
-    [item, rate, rateStr, unit, i18n],
+    [item, rate, rateStr, unit, i18n, sourceData],
   );
 
   // The trunk total this edge carries when it is the elected far owner of a
