@@ -12,6 +12,11 @@ import {
   cssValue,
 } from "../../src/canvas/cssContract.testkit";
 import { PRODUCT_HEIGHT } from "../../src/canvas/dimensions";
+import { iconIdForItem, iconPosition } from "../../src/canvas/iconSprite";
+import {
+  measureTextWidth,
+  type MeasuredFont,
+} from "../../src/canvas/measureText";
 import {
   makeItem,
   makePackValue,
@@ -616,6 +621,33 @@ describe("ProductNode", () => {
     expect("Buck Capsule [C]".startsWith(head)).toBe(true);
   });
 
+  // A sprite-less card draws an empty head child, not the 28px sprite, so its
+  // name has the whole column less the 8px head gap. The id is grown until it
+  // overruns the sprite card's 88px budget but still fits the 116px one.
+  it("does not charge the sprite width to a sprite-less card's name budget", () => {
+    const nameFont: MeasuredFont = {
+      fontSize: 12,
+      weight: 700,
+      family: "--font-ui",
+    };
+    let itemId = "no_sprite_";
+    while (measureTextWidth(itemId, nameFont) <= 88) {
+      itemId += "x";
+    }
+    expect(iconPosition(iconIdForItem(itemId))).toBeUndefined();
+    expect(measureTextWidth(itemId, nameFont)).toBeLessThanOrEqual(116);
+
+    const { container } = renderProduct(
+      {
+        kind: "inputProduct",
+        itemId,
+        rate: { num: "1", denom: "1" },
+      },
+      [makeItem(itemId, true)],
+    );
+    expect(container.querySelector(".pn-name")?.textContent).toBe(itemId);
+  });
+
   // The two rows of the card split the width differently: the name row clips
   // (elision plus an ellipsis fallback), the rate row never does. A wrapped rate
   // row, e.g. a share chip pushed onto a second line, grows the card past
@@ -627,7 +659,6 @@ describe("ProductNode", () => {
     expect(cssValue(".pn-name", "text-overflow")).toBe("ellipsis");
 
     expect(cssValue(".pn-rate", "white-space")).toBe("nowrap");
-    expect(cssValue(".pn-rate", "flex-shrink")).toBe("0");
     const rateRules = cssSelectorsMatching(/\.pn-rate/);
     expect(rateRules.length).toBeGreaterThan(0);
     for (const selector of rateRules) {

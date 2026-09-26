@@ -141,9 +141,9 @@ function buildPnNameTitle(data: ProductNodeData, i18n: I18nIndex): string {
 // Name-row budget of a boundary card, pinned to canvas.css: .product-node is a
 // 124px content column (the PRODUCT_WIDTH box less its 10px of side padding,
 // the 1px border and the 3px accent tab), the head row spends 28px on the item
-// sprite and 8px of gap, and on a catalyst card the CATALYST badge rides the
-// name's own line box with a 6px margin and 10px of chrome (2x4px padding +
-// 2x1px border) around its measured text. The visible name elides against
+// sprite when the card draws one and 8px of gap, and on a catalyst card the
+// CATALYST badge rides the name's own line box with a 6px margin and 10px of
+// chrome (2x4px padding + 2x1px border) around its measured text. The visible name elides against
 // whatever is left, so the row stays one line the way every other elided
 // surface does; the width estimates err high, so the elision errs early --
 // the safe direction for a line that must not overflow.
@@ -196,6 +196,7 @@ export default function ProductNode({
   // Sprite key: the item's own icon id, falling back to the item id itself for
   // pack entries that declare none.
   const iconId = iconIdForItem(data.itemId);
+  const hasSprite = iconPosition(iconId) !== undefined;
 
   // Direction and classification, spoken rather than drawn.
   const ariaLabel = buildPnAriaLabel(data, item, i18n);
@@ -217,7 +218,10 @@ export default function ProductNode({
         PN_BADGE_CHROME_PX;
   const visibleName = elideName(
     displayName,
-    PN_NAME_COLUMN_PX - PN_HEAD_SPRITE_PX - PN_HEAD_GAP_PX - badgePx,
+    PN_NAME_COLUMN_PX -
+      (hasSprite ? PN_HEAD_SPRITE_PX : 0) -
+      PN_HEAD_GAP_PX -
+      badgePx,
     widthFnFor(PN_NAME_FONT),
     "pn-name-12",
   );
@@ -287,11 +291,7 @@ export default function ProductNode({
         {/* An item with no sprite still contributes an empty child, so the
             head keeps its two flex items and the gap between them; dropping
             the element would slide the name column left by that gap. */}
-        {iconPosition(iconId) !== undefined ? (
-          <Sprite iconId={iconId} size={28} />
-        ) : (
-          <div />
-        )}
+        {hasSprite ? <Sprite iconId={iconId} size={28} /> : <div />}
         <div className="pn-name" title={nameTitle}>
           {visibleName}
           {badgeText !== null ? (

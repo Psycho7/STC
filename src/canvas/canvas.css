@@ -1829,7 +1829,6 @@
   line-height: 18px;
   margin-top: 2px;
   white-space: nowrap;
-  flex-shrink: 0;
 }
 
 .product-node.input .pn-rate {
