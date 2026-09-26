@@ -103,6 +103,9 @@ export type ColumnCandidate = {
   // Edges that can still jog when this column's constraints form a cycle:
   // item edges after routing (bends, late drops, far trunk members).
   jogEdges: ReadonlyArray<string>;
+  // The one edge a bend or descent column draws; its routing index breaks
+  // ties. Arrival rows and trunks, shared by several edges, carry none.
+  edgeId?: string;
   // Arrival candidates: the target card and the port row they drop onto.
   targetId?: string;
   rowY?: number;
@@ -113,7 +116,6 @@ export type ColumnCandidate = {
 };
 
 export type GapOrder = {
-  gapKey: string;
   // Left to right.
   ordered: ReadonlyArray<ColumnCandidate>;
 };
@@ -380,6 +382,7 @@ export function buildGapColumnOrder(
       if (drawn === "fanOut" && willJog(edge, ports)) {
         add({
           id: descentIdOf(edge.id),
+          edgeId: edge.id,
           kind: "arrival",
           gapKey: arriveGap,
           leftRows: [],
@@ -424,6 +427,7 @@ export function buildGapColumnOrder(
       arrivalRows.set(rowId, row);
       add({
         id: bendIdOf(edge.id),
+        edgeId: edge.id,
         kind: "bend",
         gapKey: departGap,
         leftRows: [],
@@ -439,6 +443,7 @@ export function buildGapColumnOrder(
     const bends = sy !== ty;
     add({
       id: bendIdOf(edge.id),
+      edgeId: edge.id,
       kind: "bend",
       gapKey: departGap,
       leftRows: bends ? [{ y: sy, edgeId: edge.id, portX: sx }] : [],
@@ -448,6 +453,7 @@ export function buildGapColumnOrder(
     if (jogs) {
       add({
         id: descentIdOf(edge.id),
+        edgeId: edge.id,
         kind: "arrival",
         gapKey: arriveGap,
         leftRows: [],
@@ -489,22 +495,36 @@ function fromAbove(c: ColumnCandidate): boolean {
 }
 
 const byText = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
+// Rank of a candidate's edge; one without an edge ranks after all, and two of
+// those (Infinity - Infinity is NaN, which is falsy) fall through to text.
+const rankOfEdge = (c: ColumnCandidate): number =>
+  c.edgeId === undefined ? Infinity : routeIndex(c.edgeId);
+const byCandidateEdge = (a: ColumnCandidate, b: ColumnCandidate): number =>
+  rankOfEdge(a) - rankOfEdge(b) || byText(a.id, b.id);
 const byEdgeOrder = (a: string, b: string): number =>
   routeIndex(a) - routeIndex(b) || byText(a, b);
 
-// Sort a list by port row, then reverse the from-above members among their
-// own positions: the #151 entry-column sense, stated once for bends and
-// arrivals alike.
-function senseOrder(list: ColumnCandidate[]): ColumnCandidate[] {
-  const sorted = [...list].sort(
-    (a, b) => portYOf(a) - portYOf(b) || byEdgeOrder(a.id, b.id),
-  );
-  const above = sorted.flatMap((c, i) => (fromAbove(c) ? [i] : []));
+// Reverse the from-above members of a port-row-sorted list among their own
+// positions: the #151 entry-column sense.
+export function reverseFromAbove<T>(
+  sorted: ReadonlyArray<T>,
+  isAbove: (item: T) => boolean,
+): T[] {
+  const above = sorted.flatMap((item, i) => (isAbove(item) ? [i] : []));
   const out = [...sorted];
   above.forEach((pos, j) => {
     out[pos] = sorted[above[above.length - 1 - j]!]!;
   });
   return out;
+}
+
+// Sort a list by port row, then apply the from-above reversal: the sense,
+// stated once for bends and arrivals alike.
+function senseOrder(list: ColumnCandidate[]): ColumnCandidate[] {
+  const sorted = [...list].sort(
+    (a, b) => portYOf(a) - portYOf(b) || byCandidateEdge(a, b),
+  );
+  return reverseFromAbove(sorted, fromAbove);
 }
 
 function tieOrder(list: ReadonlyArray<ColumnCandidate>): ColumnCandidate[] {
@@ -761,7 +781,7 @@ function orderCandidates(
         rightOf.set(b, (rightOf.get(b) ?? new Set()).add(a));
       }
     }
-    gapOrders.set(gapKey, { gapKey, ordered });
+    gapOrders.set(gapKey, { ordered });
 
     // The lanes: where rank beats a kind's anchor. A fan-out column stands at
     // the zone's left and a fan-in column at its right, so a column that must

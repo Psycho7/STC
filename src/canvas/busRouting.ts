@@ -89,6 +89,7 @@ import type { ItemEdgeData } from "./ItemEdge";
 import {
   buildGapColumnOrder,
   placedColumns,
+  reverseFromAbove,
   type GapColumnOrder,
 } from "./gapColumnOrder";
 
@@ -1082,11 +1083,7 @@ function arrivalSlots(
   // them, taking the first row in sense order at every step.
   const cardSequence = (list: ReadonlyArray<ArrivalRow>): ArrivalRow[] => {
     const byY = [...list].sort((a, b) => a.y - b.y);
-    const above = byY.flatMap((row, i) => (row.fromAbove ? [i] : []));
-    const sense = [...byY];
-    above.forEach((pos, j) => {
-      sense[pos] = byY[above[above.length - 1 - j]!]!;
-    });
+    const sense = reverseFromAbove(byY, (row) => row.fromAbove);
     const out: ArrivalRow[] = [];
     const left = new Set(sense);
     while (left.size > 0) {
