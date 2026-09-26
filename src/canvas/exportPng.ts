@@ -171,6 +171,10 @@ let fontEmbedCSS: { signature: string; css: Promise<string> } | null = null;
 // One entry per embedded face, so a rebuild fetches only the new faces.
 const faceCSSByKey = new Map<string, Promise<string>>();
 
+// One entry per font file. Google Fonts serves one file for every weight of a
+// family, so faces that differ only in weight fetch and encode it once.
+const dataUrlByUrl = new Map<string, Promise<string>>();
+
 // A face declared without a unicode-range covers every code point, and
 // FontFace reports it that way.
 const ALL_CODE_POINTS = "U+0-10FFFF";
@@ -229,11 +233,28 @@ async function fetchDataUrl(url: string): Promise<string> {
   return `data:${type};base64,${bytesToBase64(bytes)}`;
 }
 
-async function inlineUrls(cssText: string, baseUrl: string): Promise<string> {
-  const urls = Array.from(cssText.matchAll(CSS_URL), (match) =>
-    fetchDataUrl(new URL(match[2]!, baseUrl).href),
+function sourceUrls(cssText: string, baseUrl: string): string[] {
+  return Array.from(
+    cssText.matchAll(CSS_URL),
+    (match) => new URL(match[2]!, baseUrl).href,
   );
-  const dataUrls = await Promise.all(urls);
+}
+
+// A failed fetch is not cached, so the next export tries the file again.
+function cachedDataUrl(url: string): Promise<string> {
+  let dataUrl = dataUrlByUrl.get(url);
+  if (dataUrl === undefined) {
+    dataUrl = fetchDataUrl(url);
+    dataUrlByUrl.set(url, dataUrl);
+    dataUrl.catch(() => dataUrlByUrl.delete(url));
+  }
+  return dataUrl;
+}
+
+async function inlineUrls(cssText: string, baseUrl: string): Promise<string> {
+  const dataUrls = await Promise.all(
+    sourceUrls(cssText, baseUrl).map(cachedDataUrl),
+  );
   let next = 0;
   return cssText.replace(CSS_URL, () => `url("${dataUrls[next++]}")`);
 }
@@ -259,6 +280,7 @@ async function buildFontEmbedCSS(used: ReadonlySet<string>): Promise<string> {
   }
 
   const faces: Promise<string>[] = [];
+  const urls = new Set<string>();
   for (const sheet of Array.from(document.styleSheets)) {
     for (const rule of readableRules(sheet)) {
       if (rule.type !== CSSRule.FONT_FACE_RULE) {
@@ -274,7 +296,17 @@ async function buildFontEmbedCSS(used: ReadonlySet<string>): Promise<string> {
       if (!used.has(key)) {
         continue;
       }
-      faces.push(faceCSS(key, rule.cssText, sheet.href ?? document.baseURI));
+      const baseUrl = sheet.href ?? document.baseURI;
+      faces.push(faceCSS(key, rule.cssText, baseUrl));
+      for (const url of sourceUrls(rule.cssText, baseUrl)) {
+        urls.add(url);
+      }
+    }
+  }
+  // Files are evicted like faces: only the latest build's files stay.
+  for (const url of dataUrlByUrl.keys()) {
+    if (!urls.has(url)) {
+      dataUrlByUrl.delete(url);
     }
   }
   return (await Promise.all(faces)).join("\n");
