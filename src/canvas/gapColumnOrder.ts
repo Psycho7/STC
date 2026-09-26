@@ -103,7 +103,6 @@ export type ColumnCandidate = {
   // Edges that can still jog when this column's constraints form a cycle:
   // item edges after routing (bends, late drops, far trunk members).
   jogEdges: ReadonlyArray<string>;
-  trunkKey?: string;
   // Arrival candidates: the target card and the port row they drop onto.
   targetId?: string;
   rowY?: number;
@@ -117,7 +116,6 @@ export type GapOrder = {
   gapKey: string;
   // Left to right.
   ordered: ReadonlyArray<ColumnCandidate>;
-  rank: ReadonlyMap<string, number>;
 };
 
 export type UnavoidablePair = { gapKey: string; a: string; b: string };
@@ -312,7 +310,6 @@ export function buildGapColumnOrder(
       rightRows,
       // Its rows are near members', drawn as bus: none of them can jog.
       jogEdges: [],
-      trunkKey: trunk.key,
     });
   }
 
@@ -764,11 +761,7 @@ function orderCandidates(
         rightOf.set(b, (rightOf.get(b) ?? new Set()).add(a));
       }
     }
-    gapOrders.set(gapKey, {
-      gapKey,
-      ordered,
-      rank: new Map(ordered.map((c, i) => [c.id, i])),
-    });
+    gapOrders.set(gapKey, { gapKey, ordered });
 
     // The lanes: where rank beats a kind's anchor. A fan-out column stands at
     // the zone's left and a fan-in column at its right, so a column that must
