@@ -8,9 +8,15 @@ import { ItemPackProvider } from "../../src/canvas/itemPackContext";
 import {
   cssBlock,
   cssPx,
+  cssSelectorsMatching,
   cssValue,
 } from "../../src/canvas/cssContract.testkit";
 import { PRODUCT_HEIGHT } from "../../src/canvas/dimensions";
+import { iconIdForItem, iconPosition } from "../../src/canvas/iconSprite";
+import {
+  measureTextWidth,
+  type MeasuredFont,
+} from "../../src/canvas/measureText";
 import {
   makeItem,
   makePackValue,
@@ -36,6 +42,17 @@ function renderProduct(
   );
 }
 
+// The card shows `fullName`: whole on the hover title, and as the visible text
+// or its elided head. jsdom has no canvas metrics, so elision runs on the
+// char-class upper bound there and cuts names that fit in a browser.
+function expectNameShown(container: HTMLElement, fullName: string): void {
+  const name = container.querySelector(".pn-name");
+  expect(name?.getAttribute("title")).toBe(fullName);
+  const head = (name?.textContent ?? "").replace(/\u2026$/, "");
+  expect(head.length).toBeGreaterThan(0);
+  expect(fullName.startsWith(head)).toBe(true);
+}
+
 describe("ProductNode", () => {
   it("renders input flavor with locale-aware display name, rate badge, and a source handle", () => {
     const { container } = renderProduct(
@@ -49,7 +66,7 @@ describe("ProductNode", () => {
     );
     // i18n.displayName under the pinned en locale maps copper_ore -> Cuprium Ore.
     expect(screen.queryByText("copper_ore")).toBeNull();
-    expect(screen.getByText("Cuprium Ore")).toBeInTheDocument();
+    expectNameShown(container, "Cuprium Ore");
     // Rate badge. (1/2) /s * 60 = 30/min
     expect(screen.getByText("30")).toBeInTheDocument();
     // Flavor marker.
@@ -558,6 +575,49 @@ describe("ProductNode", () => {
       expect(zhBadge?.textContent).toBe("催化");
     });
 
+    // The badge rides the name's line box, so its margin, chrome and measured
+    // text come out of the name budget. The card is sprite-less on purpose: in
+    // jsdom a sprite card's badged budget is under the ellipsis's own width,
+    // so elideName hands the whole name back and nothing visibly elides. The
+    // id is grown until it overruns the badged budget but still fits the
+    // unbadged one, so the cut only happens if the badge is charged.
+    it("elides a badged card's name against the column less the badge", () => {
+      const nameFont: MeasuredFont = {
+        fontSize: 12,
+        weight: 700,
+        family: "--font-ui",
+      };
+      const badgeFont: MeasuredFont = {
+        fontSize: 9,
+        weight: 500,
+        family: "--font-mono",
+        letterSpacingEm: 0.05,
+      };
+      const unbadgedBudget = 124 - 8;
+      const badgedBudget =
+        unbadgedBudget - (6 + measureTextWidth("CATALYST", badgeFont) + 10);
+      let itemId = "no_sprite_";
+      while (measureTextWidth(itemId, nameFont) <= badgedBudget) {
+        itemId += "x";
+      }
+      expect(iconPosition(iconIdForItem(itemId))).toBeUndefined();
+      expect(measureTextWidth(itemId, nameFont)).toBeLessThanOrEqual(
+        unbadgedBudget,
+      );
+
+      const { container } = renderProduct(catalystData({ itemId }), [
+        makeItem(itemId, true),
+      ]);
+      const name = container.querySelector(".pn-name");
+      expect(name?.querySelector(".pn-badge")?.textContent).toBe("CATALYST");
+      expect(name?.getAttribute("title")).toBe(itemId);
+      const visible = name?.firstChild?.textContent ?? "";
+      expect(visible.endsWith("…")).toBe(true);
+      const head = visible.slice(0, -1);
+      expect(head.length).toBeGreaterThan(0);
+      expect(itemId.startsWith(head)).toBe(true);
+    });
+
     it("leaves an ordinary input card without the badge", () => {
       const { container } = renderProduct(
         {
@@ -580,8 +640,78 @@ describe("ProductNode", () => {
     });
   });
 
+  // One elision rule on every name surface: a plain card whose name overruns
+  // the name column keeps its head plus an ellipsis, like the badged card, and
+  // the hover title keeps the whole name. "Buck Capsule [C]" is the en name
+  // that wrapped onto two lines on rot-bottled_rec_hp_1's output card.
+  it("elides a plain card's long name to its head and keeps the full name on the title", () => {
+    const { container } = renderProduct(
+      {
+        kind: "outputProduct",
+        itemId: "bottled_rec_hp_1",
+        rate: { num: "1", denom: "1" },
+        flavor: "target",
+      },
+      [makeItem("bottled_rec_hp_1", false)],
+    );
+    const name = container.querySelector(".pn-name");
+    expect(name?.getAttribute("title")).toBe("Buck Capsule [C]");
+    const visible = name?.textContent ?? "";
+    expect(visible.endsWith("\u2026")).toBe(true);
+    const head = visible.slice(0, -1);
+    expect(head.length).toBeGreaterThan(0);
+    expect(head.length).toBeLessThan("Buck Capsule [C]".length);
+    expect("Buck Capsule [C]".startsWith(head)).toBe(true);
+  });
+
+  // A sprite-less card draws an empty head child, not the 28px sprite, so its
+  // name has the whole column less the 8px head gap. The id is grown until it
+  // overruns the sprite card's 88px budget but still fits the 116px one.
+  it("does not charge the sprite width to a sprite-less card's name budget", () => {
+    const nameFont: MeasuredFont = {
+      fontSize: 12,
+      weight: 700,
+      family: "--font-ui",
+    };
+    let itemId = "no_sprite_";
+    while (measureTextWidth(itemId, nameFont) <= 88) {
+      itemId += "x";
+    }
+    expect(iconPosition(iconIdForItem(itemId))).toBeUndefined();
+    expect(measureTextWidth(itemId, nameFont)).toBeLessThanOrEqual(116);
+
+    const { container } = renderProduct(
+      {
+        kind: "inputProduct",
+        itemId,
+        rate: { num: "1", denom: "1" },
+      },
+      [makeItem(itemId, true)],
+    );
+    expect(container.querySelector(".pn-name")?.textContent).toBe(itemId);
+  });
+
+  // The two rows of the card split the width differently: the name row clips
+  // (elision plus an ellipsis fallback), the rate row never does. A wrapped rate
+  // row, e.g. a share chip pushed onto a second line, grows the card past
+  // PRODUCT_HEIGHT, and a clipped one hides a number the reader needs.
+  it("keeps the name row clipping and the rate row on one unclipped line", () => {
+    expect(cssValue(".pn-name", "min-width")).toBe("0");
+    expect(cssValue(".pn-name", "white-space")).toBe("nowrap");
+    expect(cssValue(".pn-name", "overflow")).toBe("hidden");
+    expect(cssValue(".pn-name", "text-overflow")).toBe("ellipsis");
+
+    expect(cssValue(".pn-rate", "white-space")).toBe("nowrap");
+    const rateRules = cssSelectorsMatching(/\.pn-rate/);
+    expect(rateRules.length).toBeGreaterThan(0);
+    for (const selector of rateRules) {
+      expect(cssBlock(selector), selector).not.toMatch(/[;{]\s*overflow/);
+      expect(cssBlock(selector), selector).not.toMatch(/text-overflow/);
+    }
+  });
+
   it("falls back to the raw id when i18n has no translation for the item", () => {
-    renderProduct(
+    const { container } = renderProduct(
       {
         kind: "inputProduct",
         itemId: "no-such-item",
@@ -589,6 +719,6 @@ describe("ProductNode", () => {
       },
       [makeItem("no-such-item", true)],
     );
-    expect(screen.getByText("no-such-item")).toBeInTheDocument();
+    expectNameShown(container, "no-such-item");
   });
 });
