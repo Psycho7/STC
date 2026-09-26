@@ -14,6 +14,10 @@ SLOTS=2
 LOCK_PREFIX=/tmp/stc-heavy
 POLL_SECONDS=2
 
+[[ $# -gt 0 ]] || { echo "usage: tools/heavy.sh <command> [args...]" >&2; exit 64; }
+# Without flock every slot would read as busy and the loop would wait forever.
+command -v flock >/dev/null || { echo "tools/heavy.sh: needs flock" >&2; exit 127; }
+
 while :; do
   for ((slot = 0; slot < SLOTS; slot++)); do
     exec {fd}>"$LOCK_PREFIX.$slot.lock"
