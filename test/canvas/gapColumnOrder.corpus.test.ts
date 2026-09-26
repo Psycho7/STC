@@ -35,9 +35,31 @@ const PLANS = [
 
 const EXPECTED: ReadonlyArray<string> = [];
 
+// Constraint cycles per plan (GapColumnOrder.cycles), before any is broken.
+// None on the corpus; gapColumnOrder.test.ts builds one synthetically.
+const EXPECTED_CYCLES: Readonly<Record<string, number>> = {
+  default: 0,
+  battery5: 0,
+  "battery5-xiranite": 0,
+  crystal: 0,
+  equip4: 0,
+  multi6: 0,
+  tundra: 0,
+  script43: 0,
+  "coupon-web": 0,
+  "gas-web": 0,
+  "rot-bottled_food_3": 0,
+  "rot-bottled_food_4": 0,
+  transmuters: 0,
+  "copper-script43": 0,
+  "script43-xiranite": 0,
+  "rot-jinlong_coupon": 0,
+};
+
 describe("the gap column order is honoured", () => {
   it("breaks only the listed constraints on the corpus", async () => {
     const found: string[] = [];
+    const cycles: Record<string, number> = {};
     let constraints = 0;
     for (const plan of PLANS) {
       const targets: ItemTarget[] = plan.targets.map((t) => ({
@@ -48,6 +70,7 @@ describe("the gap column order is honoured", () => {
         solveForRender({ targets, pack }),
       );
       const order = buildGapColumnOrder(nodes, baseEdges, gaps);
+      cycles[plan.id] = order.cycles;
       for (const c of order.byId.values()) {
         constraints += order.rightNeighbours(c.id).length;
       }
@@ -59,5 +82,6 @@ describe("the gap column order is honoured", () => {
     // Premise: the corpus has constraints to break, so the list is a verdict.
     expect(constraints).toBeGreaterThan(0);
     expect(found.sort()).toEqual([...EXPECTED].sort());
+    expect(cycles).toEqual(EXPECTED_CYCLES);
   }, 600_000);
 });

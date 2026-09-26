@@ -5,8 +5,10 @@
 // y + h / 2. Layer 0 stands at x 0..100, layer 1 at 400..500, layer 2 at
 // 800..900, and gap 0 (x 100..400) is where every column under test stands.
 
+import type { Edge } from "@xyflow/react";
 import { describe, it, expect } from "vitest";
 
+import { jogForwardLegs } from "../../src/canvas/busRouting";
 import { buildGapColumnOrder } from "../../src/canvas/gapColumnOrder";
 import type { GapRecord } from "../../src/canvas/layerModel";
 import { mkEdge, productNode } from "./busRouting.testkit";
@@ -160,6 +162,63 @@ describe("gap column order", () => {
       [b, 124],
     ]);
     expect(order.sameSideOwed((id) => near.get(id)).size).toBe(0);
+  });
+
+  it("jogs the later-routed of two same-side rows because it owes the jog", () => {
+    // The fixture above, routed: bend columns stamped 100 and 116 units out of
+    // the ports. No card blocks either edge and each target run is far from
+    // the other's, so the owed jog is the only trigger jogForwardLegs has.
+    const nodes = [
+      card("sa", 0, 0, 20),
+      card("sb", 0, 22, 10),
+      card("fa", 2, -320, 40),
+      card("fb", 2, 600, 40),
+      FILLER,
+    ];
+    const bendAt = (edge: Edge, bendX: number): Edge => ({
+      ...edge,
+      data: { ...edge.data, bendX },
+    });
+    const later = "e:9:sa->fa:x";
+    const earlier = "e:4:sb->fb:y";
+    const edges = [
+      bendAt(mkEdge(later, "sa", "fa", "x"), 200),
+      bendAt(mkEdge(earlier, "sb", "fb", "y"), 216),
+    ];
+
+    const jogged = jogForwardLegs(nodes, edges, { gaps: GAPS });
+    const dataOf = (id: string) =>
+      (jogged.find((e) => e.id === id)!.data ?? {}) as Record<string, unknown>;
+    expect(dataOf(later)["legY"]).toBeDefined();
+    expect(dataOf(earlier)["legY"]).toBeUndefined();
+  });
+
+  it("counts a constraint cycle and breaks it at its later-routed member", () => {
+    // Three bends, each leaving on the row another arrives on: B arrives on
+    // A's source row 0, C on B's 100, A on C's 200. Each pair has one order
+    // with a floor break, so A < B, B < C and C < A: a cycle no order keeps.
+    const nodes = [
+      card("sa", 0, -10, 20),
+      card("sb", 0, 90, 20),
+      card("sc", 0, 190, 20),
+      card("fa", 2, 190, 20),
+      card("fb", 2, -10, 20),
+      card("fc", 2, 90, 20),
+      FILLER,
+    ];
+    const edges = [
+      mkEdge("e:1:sa->fa:x", "sa", "fa", "x"),
+      mkEdge("e:2:sb->fb:y", "sb", "fb", "y"),
+      mkEdge("e:3:sc->fc:z", "sc", "fc", "z"),
+    ];
+    const order = buildGapColumnOrder(nodes, edges, GAPS);
+
+    expect(order.cycles).toBe(1);
+    expect([...order.cycleOwed]).toEqual(["e:3:sc->fc:z"]);
+    // The rest stay ordered once C drops its constraints.
+    const a = order.bendId("e:1:sa->fa:x");
+    const b = order.bendId("e:2:sb->fb:y");
+    expect(order.mustStandLeft(a, b)).toBe(true);
   });
 
   // The relation compares both orders of a pair from their rows: the order in
