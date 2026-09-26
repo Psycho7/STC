@@ -49,6 +49,7 @@ import type { GapRecord } from "./layerModel";
 import { ExportModeProvider } from "./exportMode";
 import { capturePlanPng, exportFrame, withInlinedSprites } from "./exportPng";
 import { useI18n } from "../data/i18n-context";
+import type { I18nIndex } from "../data/i18n";
 import { pack } from "../data/load";
 import { pushInto } from "../util/multimap";
 import type { CSSProperties } from "react";
@@ -222,6 +223,41 @@ export function focusNodes(
       className: withDimmed(n.className),
     }));
   });
+}
+
+// Name each edge by its rate chip's "Name x rate/min" string instead of React
+// Flow's "Edge from u:... to u:..." default. An edge with no item or no nonzero
+// rate has no such string and keeps the default. The wrapper also carries its
+// endpoints as data attributes, the render-exam probe's adjacency source.
+//
+// Cached per locale index (loadI18n hands out one per locale) and per edge
+// object, so an unchanged edge keeps one labelled clone and React Flow's
+// memoized edge wrapper can skip it. Both keys are weak.
+const labelledEdgeCache = new WeakMap<I18nIndex, WeakMap<Edge, Edge>>();
+
+function labelEdge(edge: Edge, i18n: I18nIndex): Edge {
+  let byEdge = labelledEdgeCache.get(i18n);
+  if (!byEdge) {
+    byEdge = new WeakMap();
+    labelledEdgeCache.set(i18n, byEdge);
+  }
+  const cached = byEdge.get(edge);
+  if (cached) {
+    return cached;
+  }
+
+  const ariaLabel = edgeRateLabel(edge, i18n);
+  const labelled: Edge = {
+    ...edge,
+    ...(ariaLabel === "" ? {} : { ariaLabel }),
+    // React's SVG attribute types declare no data-* keys.
+    domAttributes: {
+      "data-source": edge.source,
+      "data-target": edge.target,
+    } as NonNullable<Edge["domAttributes"]>,
+  };
+  byEdge.set(edge, labelled);
+  return labelled;
 }
 
 // Stamp the hover focus onto the edges React Flow renders. Idle (`focus` null)
@@ -722,15 +758,8 @@ function CanvasInner({
     [nodes, focus],
   );
 
-  // Name each edge by its rate chip's "Name x rate/min" string instead of React
-  // Flow's "Edge from u:... to u:..." default. An edge with no item or no
-  // nonzero rate has no such string and keeps the default.
   const labelledEdges = useMemo<Edge[]>(
-    () =>
-      edges.map((edge) => {
-        const ariaLabel = edgeRateLabel(edge, i18n);
-        return ariaLabel === "" ? edge : { ...edge, ariaLabel };
-      }),
+    () => edges.map((edge) => labelEdge(edge, i18n)),
     [edges, i18n],
   );
 

@@ -16,7 +16,7 @@ import { contentBounds } from "./chipSeating";
 import type { RFAnyNode } from "./layout";
 import { exportFrame } from "./exportPng";
 import { ItemPackProvider, type ItemPackContextValue } from "./itemPackContext";
-import { LocaleProvider } from "../data/i18n-context";
+import { LocaleProvider, useLocale } from "../data/i18n-context";
 import { cssBlock } from "./cssContract.testkit";
 
 // The camera-refit effect drives fitView imperatively off the React Flow
@@ -745,6 +745,46 @@ test("edge aria-labels read the localized item name and rate", () => {
     </LocaleProvider>,
   );
   expect(lastEdges()[0]!.ariaLabel).toBe("蓝铁粉末 x 30/分");
+});
+
+// React Flow memoizes each edge wrapper on the edge object, so labelling must
+// not hand it a fresh clone of an unchanged edge on every edges update (a
+// selection click, say). A locale switch still relabels.
+test("an unchanged edge keeps its labelled object until the locale changes", () => {
+  let switchLocale: (next: "en" | "zh") => void = () => {};
+  function LocaleSwitch() {
+    switchLocale = useLocale().setLocale;
+    return null;
+  }
+  const tree = (edges: Edge[]) => (
+    <LocaleProvider locale="en">
+      <LocaleSwitch />
+      <ItemPackProvider value={PACK}>
+        <Canvas nodes={HOVER_NODES} edges={edges} />
+      </ItemPackProvider>
+    </LocaleProvider>
+  );
+  const { rerender } = render(tree([LABELLED_EDGE]));
+  const first = lastEdges()[0]!;
+  expect(first.ariaLabel).toBe("Ferrium Powder x 30/min");
+
+  rerender(tree([LABELLED_EDGE]));
+  expect(lastEdges()[0]).toBe(first);
+
+  act(() => switchLocale("zh"));
+  expect(lastEdges()[0]).not.toBe(first);
+  expect(lastEdges()[0]!.ariaLabel).toBe("蓝铁粉末 x 30/分");
+});
+
+// The render-exam probe reads each edge's endpoints off its wrapper, so the
+// adjacency it checks hover against never depends on accessibility text.
+test("every edge wrapper carries its endpoints as data attributes", () => {
+  const bare = { id: "e2", source: "u2", target: "u1" } as Edge;
+  renderCanvas(HOVER_NODES, [LABELLED_EDGE, bare]);
+  expect(lastEdges().map((e) => e.domAttributes)).toEqual([
+    { "data-source": "u1", "data-target": "u2" },
+    { "data-source": "u2", "data-target": "u1" },
+  ]);
 });
 
 // The screen-reader hints React Flow ships describe deleting and arrow-key

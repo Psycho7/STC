@@ -73,16 +73,17 @@ import {
   evalPayload,
   expectedDimmed,
   hoverDecision,
+  hoverGraphFromDom,
   judgeHoverSample,
   measureContrast,
   paintSide,
   parseArgs,
   parseCssColor,
-  resolveEndpoints,
   srgbToLab,
   usableSamples,
   type ColorRead,
   type EvalPayload,
+  type GraphDom,
   type HoverDecision,
   type HoverGraph,
   type HoverSampleRead,
@@ -160,11 +161,6 @@ export type ProbeResult = {
 // Type-only references are erased and are safe.
 // ---------------------------------------------------------------------------
 
-type GraphDom = {
-  nodes: Array<{ id: string; type: string }>;
-  edges: Array<{ id: string; ariaLabel: string }>;
-};
-
 function readGraphDom(): GraphDom {
   const nodes = Array.from(
     document.querySelectorAll<HTMLElement>(".react-flow__node"),
@@ -175,7 +171,8 @@ function readGraphDom(): GraphDom {
   const edges = Array.from(document.querySelectorAll(".react-flow__edge")).map(
     (el) => ({
       id: el.getAttribute("data-id") ?? "",
-      ariaLabel: el.getAttribute("aria-label") ?? "",
+      source: el.getAttribute("data-source"),
+      target: el.getAttribute("data-target"),
     }),
   );
   return { nodes, edges };
@@ -630,22 +627,7 @@ type HoverResult = {
 };
 
 async function buildGraph(page: Page): Promise<HoverGraph> {
-  const dom = await page.evaluate(readGraphDom);
-  const nodeIds = new Set(dom.nodes.map((n) => n.id));
-  const edges = dom.edges.map((e) => {
-    const endpoints = resolveEndpoints(e.ariaLabel, nodeIds);
-    if (endpoints === null) {
-      // Failing loudly rather than dropping the edge: an unattributable edge
-      // would quietly shrink the expected dim set, and a refuter that
-      // under-states what must dim is how a real defect gets waved through.
-      throw new Error(
-        `cannot read endpoints for edge "${e.id}" from its aria-label ${JSON.stringify(e.ariaLabel)}; ` +
-          `the probe derives adjacency from React Flow's default edge label`,
-      );
-    }
-    return { id: e.id, source: endpoints[0], target: endpoints[1] };
-  });
-  return { nodes: dom.nodes, edges };
+  return hoverGraphFromDom(await page.evaluate(readGraphDom));
 }
 
 async function runHover(
