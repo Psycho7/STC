@@ -130,14 +130,14 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
   zh: {
     "targets.title": "目标",
     "targets.add": "添加目标",
-    "targets.rate.unit": "件 / 分钟",
+    "targets.rate.unit": "/分",
     // Row controls name their item: a rail of identically named fields and X
     // buttons tells a screen-reader user nothing about which row they are on.
     "targets.rate.forItem": "{name} 的速率",
     "item.selected": "物品：{name}",
     "targets.remove.forItem": "删除目标 {name}",
     "targets.duplicate": "物品 ID 重复: {itemId}",
-    "targets.head.sub": "// 声明产出速率 · 件 / 分钟",
+    "targets.head.sub": "// 声明产出速率 · /分",
     "targets.empty": "未声明任何目标产物 — 点击下方按钮添加",
     "targets.picker.listed": "灰显的物品已是目标 — 请直接编辑对应行",
     "picker.title": "选择物品",
@@ -272,12 +272,12 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
   en: {
     "targets.title": "Targets",
     "targets.add": "Add target",
-    "targets.rate.unit": "items / minute",
+    "targets.rate.unit": "/min",
     "targets.rate.forItem": "Rate for {name}",
     "item.selected": "Item: {name}",
     "targets.remove.forItem": "Remove target {name}",
     "targets.duplicate": "Duplicate item id: {itemId}",
-    "targets.head.sub": "// declared output rates · items per minute",
+    "targets.head.sub": "// declared output rates · /min",
     "targets.empty": "No declared outputs yet — use the action below",
     "targets.picker.listed":
       "Dimmed items are already targets — edit that row instead",
