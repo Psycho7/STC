@@ -32,6 +32,7 @@ import {
   forwardDropX,
   forwardStepGeometry,
   routingHintsFromData,
+  type DrawnPorts,
   type ObstacleRect,
 } from "./edgePath";
 import {
@@ -176,12 +177,13 @@ export type BusEdgeData = FanoutBusEdgeData | FaninBusEdgeData;
 // item resolves to. Null when either endpoint is missing from the node index --
 // the guard every caller used to write by hand.
 //
-// This is the MODEL frame, the coordinate the layout places by and every
-// routing pass reasons in. Its sibling drawnPortsOf in nodeGeometry.ts answers
-// the same four names in the DRAWN frame (model plus PORT_DRIFT). The two are
-// never merged: the gap between them is 1-2 units, exactly where the ratcheted
-// occlusion and crossing counts turn, so comparing a model value against drawn
-// geometry is a real error, not a rounding one.
+// This is the MODEL frame, the coordinate the layout places by. The routing
+// passes key rows and stamp defaults off it; every OBSTACLE test reads its
+// sibling drawnPortsOf in nodeGeometry.ts instead, which answers the same four
+// names in the DRAWN frame (model plus PORT_DRIFT), because the card rects are
+// drawn. The two are never merged: the gap between them is up to 5 units,
+// exactly where the ratcheted occlusion and crossing counts turn, so comparing
+// a model value against drawn geometry is a real error, not a rounding one.
 export function edgePortsModel(
   edge: Edge,
   byId: ReadonlyMap<string, RFAnyNode>,
@@ -266,11 +268,12 @@ function legBlockedIn(
 // (ownExempt). The gap column order asks the same question
 // before routing, with the drop column at the edge of its gap, to know which
 // edges will jog and so descend in front of their target: one function, so the
-// prediction is the trigger.
+// prediction is the trigger. The cards are drawn boxes, so the ports are the
+// DRAWN ones (drawnPortsOf) and `dropX` is the column as drawn off them.
 export function forwardLegsBlocked(
   obstacles: ReadonlyArray<PaddedObstacle>,
   exempt: ReadonlySet<string>,
-  ports: { sx: number; sy: number; tx: number; ty: number },
+  ends: DrawnPorts,
   dropX: number,
 ): { srcBlocked: boolean; tgtBlocked: boolean } {
   const isForeignCard = (o: PaddedObstacle): boolean =>
@@ -278,16 +281,16 @@ export function forwardLegsBlocked(
   return {
     srcBlocked: legBlockedIn(
       obstacles,
-      ports.sy,
-      ports.sx,
+      ends.sourceY,
+      ends.sourceX,
       dropX,
       isForeignCard,
     ),
     tgtBlocked: legBlockedIn(
       obstacles,
-      ports.ty,
+      ends.targetY,
       dropX,
-      ports.tx,
+      ends.targetX,
       isForeignCard,
     ),
   };
@@ -504,11 +507,13 @@ export function routeTrunkEdges(
   const trunkRunsClear = (edge: Edge, junctionX: number): boolean => {
     const source = byId.get(edge.source);
     const target = byId.get(edge.target);
-    const ports = edgePortsModel(edge, byId);
-    if (source === undefined || target === undefined || ports === null) {
+    // Drawn ports: the raw cards are drawn boxes, and BusEdge draws the runs
+    // (and places the junction) off the drawn ports.
+    const ends = drawnPortsOf(edge, byId);
+    if (source === undefined || target === undefined || ends === null) {
       return true;
     }
-    const { sx, sy, tx, ty } = ports;
+    const { sourceX: sx, sourceY: sy, targetX: tx, targetY: ty } = ends;
     const exempt = ownExempt([source, target]);
     const foreign = rawCards.filter((o) => !exempt.has(o.nodeId));
     // A shared-y member draws one straight run from port to port; every other
@@ -732,11 +737,11 @@ function forwardCorridorClear(
 ): boolean {
   const source = byId.get(edge.source);
   const target = byId.get(edge.target);
-  const ports = edgePortsModel(edge, byId);
-  if (source === undefined || target === undefined || ports === null) {
+  const ends = drawnPortsOf(edge, byId);
+  if (source === undefined || target === undefined || ends === null) {
     return false;
   }
-  const { sx, tx, ty } = ports;
+  const { sourceX: sx, targetX: tx, targetY: ty } = ends;
   const exempt = ownExempt([source, target]);
   const foreign = obstacles.filter(
     (o) => o.kind === "card" && !exempt.has(o.nodeId),
@@ -1998,8 +2003,7 @@ const CLEAR_COLUMN_RADIUS = RECIPE_WIDTH + BETWEEN_LAYERS_SPACING;
 // the column that won.
 // Another edge's drawn verticals (drawnColumnBands) as a column search sees
 // them. They are built in the DRAWN frame, so they are tested over the run's
-// DRAWN y-span and at the column as the drawer will place it (`xOf`), never at
-// the model values the rest of the search reads.
+// DRAWN y-span and at the column as the drawer will place it (`xOf`).
 type DrawnColumnBands = {
   bands: ReadonlyArray<ObstacleRect>;
   yLo: number;
@@ -2472,8 +2476,10 @@ export function clampBackwardRails(
     foreignColumnBands.push(...drawnColumnBands(edge, byId));
   }
   // The rail-level field: every card / gutter obstacle, plus the level each
-  // rail resolved before this one occupies.
-  const levelObstacles: ObstacleRect[] = [...obstacles];
+  // rail resolved before this one occupies (no nodeId).
+  const levelObstacles: Array<ObstacleRect & { nodeId?: string }> = [
+    ...obstacles,
+  ];
   // The forward runs this pass yields to. Every forward level is final by now
   // (the jog pass settled its legY), and the rail is the family resolved last,
   // so the priority is one-directional: a rail moves off a run's floor and a
@@ -2497,9 +2503,13 @@ export function clampBackwardRails(
     const target = byId.get(edge.target);
     if (source === undefined || target === undefined) return;
     if (nodeGap(source, target) > 0) return; // forward edges keep the step
-    const ports = edgePortsModel(edge, byId);
-    if (ports === null) return;
-    const { sx, sy, tx, ty } = ports;
+    // The DRAWN ports. Every rect this pass tests against is drawn -- the card
+    // rects, the other edges' columns, the earlier rails' levels and the
+    // forward runs -- and the drawer derives an unstamped rail value off the
+    // drawn ports, so the defaults the stamps below compare against are drawn.
+    const ends = drawnPortsOf(edge, byId);
+    if (ends === null) return;
+    const { sourceX: sx, sourceY: sy, targetX: tx, targetY: ty } = ends;
     // Columns routeTrunkEdges already pinned: a backward member of a trunk
     // shares that trunk's junction column instead of taking a default one, so
     // its rail leaves (or arrives at) the line its forward siblings draw. A
@@ -2523,31 +2533,14 @@ export function clampBackwardRails(
     const preferredY = defaults.railY;
     const xrDesired = pinnedRight ?? clampToZone(defaults.xr, sourceGap);
     const xlDesired = pinnedLeft ?? clampToZone(defaults.xl, targetGap);
-    // Where the drawer puts a rail value, for every question asked of the
-    // DRAWN bands below (the forward runs and the drawn columns). A value the
-    // stamps below would write draws as is; one equal to its model default is
-    // not stamped, so it draws where an existing hint puts it or else at the
-    // default the drawer derives from the drawn ports.
-    const drawnEnds = drawnPortsOf(edge, byId);
-    if (drawnEnds === null) return;
-    const drawnDefaults = backwardRailDefaults({
-      sx: drawnEnds.sourceX,
-      sy: drawnEnds.sourceY,
-      tx: drawnEnds.targetX,
-      ty: drawnEnds.targetY,
-      entryX: railHints.entryX,
-    });
+    // Where the drawer puts a rail level, for the questions asked of the run
+    // bands and the drawn columns below. A level equal to its default is not
+    // stamped, so it draws where an existing hint puts it, else at the default.
     const drawnRailY = (y: number): number =>
-      y !== defaults.railY ? y : (railHints.railY ?? drawnDefaults.railY);
-    const drawnXr = (x: number): number =>
-      x !== defaults.xr ? x : (pinnedRight ?? drawnDefaults.xr);
-    const drawnXl = (x: number): number =>
-      x !== defaults.xl ? x : (pinnedLeft ?? drawnDefaults.xl);
-    // The rail's drawn x-span. The level field it is tested against is drawn
-    // (the card rects, and every earlier rail's band), so the span that picks
-    // what the rail passes over is drawn too.
-    const drawnLo = Math.min(drawnXl(xlDesired), drawnXr(xrDesired));
-    const drawnHi = Math.max(drawnXl(xlDesired), drawnXr(xrDesired));
+      y !== preferredY ? y : (railHints.railY ?? preferredY);
+    // The rail's x-span, the one the level field is filtered by.
+    const drawnLo = Math.min(xlDesired, xrDesired);
+    const drawnHi = Math.max(xlDesired, xrDesired);
     let railY = clearRailY(
       preferredY,
       drawnLo,
@@ -2569,12 +2562,16 @@ export function clampBackwardRails(
     const self: LevelPorts = {
       source: edge.source,
       target: edge.target,
-      sy: drawnEnds.sourceY,
-      ty: drawnEnds.targetY,
+      sy,
+      ty,
     };
     const nearBands = runBands.filter(
       (b) => b.right > drawnLo && b.left < drawnHi,
     );
+    // The rail's own endpoint cards (and their gutters) still bound the level
+    // -- clearRailY keeps the run off them -- but offer no level of their own:
+    // the rail leaves and enters them, so their escapes are no place to stand.
+    const own = ownExempt([source, target]);
     if (runFloorHit(nearBands, self, drawnRailY(railY), drawnLo, drawnHi)) {
       railY = chooseLevel(
         railY,
@@ -2583,7 +2580,9 @@ export function clampBackwardRails(
           drawnX0: drawnLo,
           drawnX1: drawnHi,
           bands: nearBands,
-          cards: levelObstacles,
+          cards: levelObstacles.filter(
+            (o) => o.nodeId === undefined || !own.has(o.nodeId),
+          ),
           pad: CHAMFER,
         }),
         (y) =>
@@ -2617,9 +2616,9 @@ export function clampBackwardRails(
           foreignRawCards: rawCards.filter((o) => !xrExempt.has(o.nodeId)),
           drawnColumns: {
             bands: foreignColumnBands,
-            yLo: drawnEnds.sourceY,
+            yLo: sy,
             yHi: drawnRailY(railY),
-            xOf: drawnXr,
+            xOf: (x) => x,
           },
           drawnVerticalGap: DRAWN_VERTICAL_GAP,
           columnAccept: zoneAccept(sourceGap),
@@ -2647,8 +2646,8 @@ export function clampBackwardRails(
           drawnColumns: {
             bands: foreignColumnBands,
             yLo: drawnRailY(railY),
-            yHi: drawnEnds.targetY,
-            xOf: drawnXl,
+            yHi: ty,
+            xOf: (x) => x,
           },
           drawnVerticalGap: DRAWN_VERTICAL_GAP,
           columnAccept: zoneAccept(targetGap),
@@ -2677,7 +2676,7 @@ export function clampBackwardRails(
         byId,
       ),
     );
-    levelObstacles.push(railLevelBand(drawnXl(xl), drawnXr(xr), railY));
+    levelObstacles.push(railLevelBand(xl, xr, railY));
   });
 
   if (
@@ -2900,19 +2899,17 @@ export function jogForwardLegs(
     const target = byId.get(edge.target);
     if (source === undefined || target === undefined) return;
     if (nodeGap(source, target) <= 0) return; // backward / zero-gap edge
-    const ports = edgePortsModel(edge, byId);
-    if (ports === null) return;
-    const { sx, sy, tx, ty } = ports;
-    // The same ports in the DRAWN frame. The level bands are read off the
-    // drawn polylines (runBandsOfEdge), so every floor question this edge asks
-    // about its own runs is asked in that frame: the model ports sit the port
-    // drift off the bands, which lands exactly on the floor's thresholds.
-    const drawnEnds = drawnPortsOf(edge, byId);
-    if (drawnEnds === null) return;
-    const drawnSx = drawnEnds.sourceX;
-    const drawnSy = drawnEnds.sourceY;
-    const drawnTx = drawnEnds.targetX;
-    const drawnTy = drawnEnds.targetY;
+    // The DRAWN ports. Everything this pass tests a run or a column against
+    // is drawn -- the card rects (nodeRectOf) and the other edges' level bands
+    // (runBandsOfEdge) -- so the runs and columns are asked at the drawn port
+    // rows and columns: the model ports sit the port drift off both, which
+    // lands exactly on the thresholds. The model ports test nothing: they
+    // anchor the level ranking, give the no-record source column its start and
+    // name the descent column the arrival model hands out unstamped.
+    const ends = drawnPortsOf(edge, byId);
+    const model = edgePortsModel(edge, byId);
+    if (ends === null || model === null) return;
+    const { sourceX: sx, sourceY: sy, targetX: tx, targetY: ty } = ends;
     // A same-y edge is drawn as a straight line and a small-dy edge as a single
     // diagonal, but neither shape can dodge a card: a member the trunk router
     // demoted BECAUSE its straight run crosses a card arrives here at its
@@ -2928,12 +2925,6 @@ export function jogForwardLegs(
     // late drop, so the long horizontal at sy runs out to HERE and the run at the
     // target row is only the approach band.
     const dropX = forwardDropX(geom, hints);
-    // The same two columns as the drawer places them off the drawn ports, for
-    // the floor questions. A stamped column draws where it is stamped, but the
-    // unstamped bend column is derived from the ports and moves with them.
-    const drawnGeom = forwardStepGeometry(drawnSx, drawnTx, hints.bendX);
-    const drawnBx = drawnGeom.bx;
-    const drawnDropX = forwardDropX(drawnGeom, hints);
 
     // Exempt from the obstacle scan: both endpoints' own cards / gutters (the leg
     // leaves the source and ends inside the target). Horizontal legs may cross a foreign entry gutter (every
@@ -2958,7 +2949,7 @@ export function jogForwardLegs(
     const { srcBlocked, tgtBlocked } = forwardLegsBlocked(
       obstacles,
       exempt,
-      { sx, sy, tx, ty },
+      ends,
       dropX,
     );
     const cardBlocked = tgtBlocked || srcBlocked;
@@ -3046,24 +3037,22 @@ export function jogForwardLegs(
     const self: LevelPorts = {
       source: edge.source,
       target: edge.target,
-      sy: drawnSy,
-      ty: drawnTy,
+      sy,
+      ty,
     };
     const foreignBands: RunBand[] = [];
     for (const [otherId, bands] of levelBands) {
       if (otherId === edge.id) continue;
       for (const band of bands) {
-        if (band.right > drawnSx && band.left < drawnTx) {
+        if (band.right > sx && band.left < tx) {
           foreignBands.push(band);
         }
       }
     }
     const srcNear =
-      srcStretch &&
-      runFloorHit(foreignBands, self, drawnSy, drawnBx, drawnDropX);
+      srcStretch && runFloorHit(foreignBands, self, sy, bx, dropX);
     const tgtNear =
-      tgtStretch &&
-      runFloorHit(foreignBands, self, drawnTy, drawnDropX, descentX0);
+      tgtStretch && runFloorHit(foreignBands, self, ty, dropX, descentX0);
     if (!cardBlocked && !srcNear && !tgtNear && !owed) return;
 
     // The gap the descent stands in, when there is a record for it: every
@@ -3089,7 +3078,7 @@ export function jogForwardLegs(
     // braid one of them; without a record there is no gap to walk inside.
     const desiredSrcColX =
       sourceGap === undefined
-        ? sx + PORT_STUB + CHAMFER
+        ? model.sx + PORT_STUB + CHAMFER
         : columnClearOfPinned(
             sourceGap.columnZone.left +
               ENTRY_SLOT_PITCH / 2 +
@@ -3119,8 +3108,10 @@ export function jogForwardLegs(
     // with every piece clear in this tier's card / obstacle sets. R candidates:
     // ty itself (single-column shape, only useful when the source leg is the
     // blocked piece) plus each spanned card's padded top / bottom gap, nearest
-    // to ty first so the jog takes the smallest vertical excursion.
-    type Jog = { C: number; R: number; D: number };
+    // to ty first so the jog takes the smallest vertical excursion. `single`
+    // marks the single-column shape by position, not by value: a card or band
+    // level can equal the drawn target row, and that one is a detour level.
+    type Jog = { C: number; R: number; D: number; single: boolean };
     // `relaxed` is the last-resort mode (see the tier chain below): the column
     // searches drop the zone confinement and the escape radius, so a column may
     // stand inside a layer's OWN x-band and as far from its desired slot as the
@@ -3133,8 +3124,6 @@ export function jogForwardLegs(
     //          to the floor here only vetoes jogs that could never fix them.
     //   "off"  none of it, the shape this pass chose before the floor existed.
     type BandMode = "all" | "rail" | "off";
-    // One horizontal run in the drawn frame, for the floor half of a test.
-    type DrawnRun = { y: number; x0: number; x1: number };
     // The candidate levels, from the level-occupancy module: the cards this
     // edge's corridor spans and, where the bands have a say, their runs. The
     // list depends only on
@@ -3155,9 +3144,9 @@ export function jogForwardLegs(
       const cached = bySet.get(key);
       if (cached !== undefined) return cached;
       const rails = levelCandidates({
-        anchorY: ty,
-        drawnX0: drawnSx,
-        drawnX1: drawnTx,
+        anchorY: model.ty,
+        drawnX0: sx,
+        drawnX1: tx,
         bands: withBands ? foreignBands : [],
         cards: cardSet,
         pad,
@@ -3175,27 +3164,14 @@ export function jogForwardLegs(
     ): Jog | null => {
       const radius = relaxed ? Infinity : CLEAR_COLUMN_RADIUS;
       // Is a horizontal run dirty? The run at R answers for the bands in every
-      // mode but "off"; the residual stubs answer for them only in "all".
-      // `floor` is the same run in the bands' drawn frame: drawn port rows and
-      // port columns, while a stamped level or column draws as is.
-      const railBlocked = (
-        y: number,
-        x0: number,
-        x1: number,
-        floor: DrawnRun,
-      ): boolean =>
+      // mode but "off"; the residual stubs answer for them only in "all". One
+      // run, one frame: the cards and the bands are both drawn.
+      const railBlocked = (y: number, x0: number, x1: number): boolean =>
         legBlockedIn(cardSet, y, x0, x1) ||
-        (bands !== "off" &&
-          runFloorHit(foreignBands, self, floor.y, floor.x0, floor.x1));
-      const stubBlocked = (
-        y: number,
-        x0: number,
-        x1: number,
-        floor: DrawnRun,
-      ): boolean =>
+        (bands !== "off" && runFloorHit(foreignBands, self, y, x0, x1));
+      const stubBlocked = (y: number, x0: number, x1: number): boolean =>
         legBlockedIn(cardSet, y, x0, x1) ||
-        (bands === "all" &&
-          runFloorHit(foreignBands, self, floor.y, floor.x0, floor.x1));
+        (bands === "all" && runFloorHit(foreignBands, self, y, x0, x1));
       // The columns the stubs need when the bands have a say over them, offered
       // to the searches below: stubClearColumns' header says why the searches
       // cannot derive them for themselves.
@@ -3206,19 +3182,21 @@ export function jogForwardLegs(
       const rails = railsFor(cardSet, pad, bands !== "off");
       // A fan-in member never takes the target row as its level: riding ty
       // would merge it into its siblings wherever it lands, left of the dot.
+      const withSingle = faninPinX === undefined && srcBlocked;
       const candidates =
         faninPinX !== undefined
           ? rails.filter((y) => y !== ty)
-          : srcBlocked
+          : withSingle
             ? [ty, ...rails]
             : rails;
       // Everything below that does not depend on R, taken once per tier.
-      const srcStubColumns = stubColumns(drawnSy, drawnSx, "right");
-      const tgtStubColumns = stubColumns(drawnTy, drawnTx, "left");
+      const srcStubColumns = stubColumns(sy, sx, "right");
+      const tgtStubColumns = stubColumns(ty, tx, "left");
       const descentColumnSet = columnSet.filter(
         (o) => o.nodeId !== edge.target,
       );
-      for (const R of candidates) {
+      for (const [i, R] of candidates.entries()) {
+        const single = withSingle && i === 0;
         // A detour level inside the floor of the row it left has cleared
         // nothing: the stub at ty is still drawn, so the edge reads as two
         // lines a few units apart instead of one. Only the band-blind mode
@@ -3226,8 +3204,8 @@ export function jogForwardLegs(
         // before the floor existed.
         if (
           bands !== "off" &&
-          R !== ty &&
-          Math.abs(R - drawnTy) < FORWARD_LEVEL_FLOOR
+          !single &&
+          Math.abs(R - ty) < FORWARD_LEVEL_FLOOR
         ) {
           continue;
         }
@@ -3250,28 +3228,22 @@ export function jogForwardLegs(
                 x > sx &&
                 x < tx &&
                 (relaxed || inSourceZone(x)) &&
-                !stubBlocked(sy, sx, x, { y: drawnSy, x0: drawnSx, x1: x }),
+                !stubBlocked(sy, sx, x),
             },
           );
-          if (
-            vRunBlockedIn(columnSet, C, sy, R) ||
-            stubBlocked(sy, sx, C, { y: drawnSy, x0: drawnSx, x1: C })
-          ) {
+          if (vRunBlockedIn(columnSet, C, sy, R) || stubBlocked(sy, sx, C)) {
             continue;
           }
         } else if (vRunBlockedIn(columnSet, bx, sy, R)) {
           continue;
         }
-        // The entry column as drawn: a cleared source column is stamped, the
-        // bend column is derived from the ports.
-        const drawnC = srcBlocked ? C : drawnBx;
-        if (R === ty) {
+        if (single) {
           // Single-column shape: C from sy straight to ty, then the long
           // horizontal at ty into the target.
-          if (railBlocked(ty, C, tx, { y: drawnTy, x0: drawnC, x1: drawnTx })) {
+          if (railBlocked(ty, C, tx)) {
             continue;
           }
-          return { C, R, D: descentX0 };
+          return { C, R, D: descentX0, single };
         }
         // The descent must stay left of the target port (final approach runs
         // rightward into the Left handle; a column at or past tx would reverse
@@ -3292,16 +3264,16 @@ export function jogForwardLegs(
                 x <= tx - CHAMFER &&
                 inSpan(x, allowedDescent) &&
                 (relaxed || inDescentZone(x)) &&
-                !stubBlocked(ty, x, tx, { y: drawnTy, x0: x, x1: drawnTx }),
+                !stubBlocked(ty, x, tx),
             },
           );
         if (D > tx - CHAMFER) continue;
-        if (railBlocked(R, C, D, { y: R, x0: drawnC, x1: D })) continue;
+        if (railBlocked(R, C, D)) continue;
         if (vRunBlockedIn(columnSet, D, R, ty)) continue;
-        if (stubBlocked(ty, D, tx, { y: drawnTy, x0: D, x1: drawnTx })) {
+        if (stubBlocked(ty, D, tx)) {
           continue;
         }
-        return { C, R, D };
+        return { C, R, D, single };
       }
       return null;
     };
@@ -3370,12 +3342,12 @@ export function jogForwardLegs(
       return settled(back) ? back : pulled;
     };
 
-    if (jog.R !== ty && faninPinX !== undefined) {
+    if (!jog.single && faninPinX !== undefined) {
       // The pin is already a pinned trunk column of the gap, so the descent
       // neither walks off it nor takes an arrival slot in front of the card.
       legYByIndex.set(index, jog.R);
       descentXByIndex.set(index, faninPinX);
-    } else if (jog.R !== ty) {
+    } else if (!jog.single) {
       legYByIndex.set(index, jog.R);
       const descentX = settle(
         jog.D,
@@ -3388,9 +3360,11 @@ export function jogForwardLegs(
           !legBlockedIn(foreignCards, jog.R, jog.C, x) &&
           // The floor on the approach stub the search just cleared: a walk that
           // puts the column back inside another line's band undoes the jog.
-          !runFloorHit(foreignBands, self, drawnTy, x, drawnTx),
+          !runFloorHit(foreignBands, self, ty, x, tx),
       );
-      if (descentX !== tx - PORT_STUB) descentXByIndex.set(index, descentX);
+      if (descentX !== model.tx - PORT_STUB) {
+        descentXByIndex.set(index, descentX);
+      }
       stakeColumn(descentGap, descentX, edge.id);
       if (order.byId.has(descentId)) placed.set(descentId, descentX);
       jogsByTarget.set(edge.target, (jogsByTarget.get(edge.target) ?? 0) + 1);

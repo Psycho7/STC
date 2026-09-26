@@ -28,11 +28,13 @@ import {
 import { ENV_ROW_HEIGHT } from "../../src/canvas/envBanner";
 import { cardRectsFor } from "../../src/canvas/chipSeating";
 import { widenLayerGaps } from "../../src/canvas/layerModel";
-import { nodeIndexOf } from "../../src/canvas/nodeGeometry";
+import { drawnPortsOf, nodeIndexOf } from "../../src/canvas/nodeGeometry";
+import { FORWARD_LEVEL_FLOOR } from "../../src/canvas/levelOccupancy";
 import {
   PORT_STUB,
   CHAMFER,
   chamferStepPath,
+  drawnEdge,
   routingHintsFromData,
   type ObstacleRect,
 } from "../../src/canvas/edgePath";
@@ -1444,5 +1446,99 @@ describe("column families keep the pitch floor off each other", () => {
     const levelA = railOf(out, "e0").railY ?? preferredOf(edges[0]!);
     const levelB = railOf(out, "e1").railY ?? preferredOf(edges[1]!);
     expect(Math.abs(levelA - levelB)).toBeGreaterThanOrEqual(CHAMFER);
+  });
+});
+
+// Every obstacle test compares port-derived geometry and card rects in ONE
+// frame, the drawn one: the card rects are the drawn boxes (nodeRectOf), so
+// the port rows and columns they are tested against are the drawn ports too.
+describe("obstacle tests read the drawn frame", () => {
+  // s -> t skips a layer; F is a foreign card of the middle layer whose padded
+  // top sits half a unit ABOVE the drawn source row and half a unit BELOW the
+  // model one (a recipe's resolved row draws CARD_BORDER lower). The long
+  // source run at the drawn row therefore enters F's padded rect.
+  const driftFixture = (): { nodes: RFAnyNode[]; edges: Edge[] } => {
+    const s = recipeNode("s", 0, 0, mkRecipe("rs", [], ["ore"]));
+    const t = inputProductNode("t", "ore", 1200, 400);
+    const edge: Edge = {
+      ...mkEdge("e0", "s", "t", "ore"),
+      data: { item: "ore", rate: new Fraction(1), bendX: 1000 },
+    };
+    const drawnSy = drawnPortsOf(edge, nodeIndexOf([s, t]))!.sourceY;
+    const f = inputProductNode("F", "ore", 600, drawnSy - 0.5 + OBSTACLE_PAD_Y);
+    return { nodes: [s, f, t], edges: [edge] };
+  };
+
+  it("jogs a source run whose drawn row enters a foreign padded card", () => {
+    const { nodes, edges } = driftFixture();
+    const byId = nodeIndexOf(nodes);
+    const fPadded = paddedObstacles(nodes, edges).find(
+      (o) => o.kind === "card" && o.nodeId === "F",
+    )!;
+    // Premise: the two frames disagree on this row.
+    expect(edgePortsModel(edges[0]!, byId)!.sy).toBeLessThan(fPadded.top);
+    expect(drawnPortsOf(edges[0]!, byId)!.sourceY).toBeGreaterThan(fPadded.top);
+
+    const out = jogForwardLegs(nodes, edges);
+    const laid = out[0]!;
+    const { pts } = drawnEdge(drawnPortsOf(laid, byId)!, laid.type, laid.data);
+    for (let i = 1; i < pts.length; i++) {
+      const [ax, ay] = pts[i - 1]!;
+      const [bx, by] = pts[i]!;
+      expect(segCrossesRect({ x: ax, y: ay }, { x: bx, y: by }, fPadded)).toBe(
+        false,
+      );
+    }
+  });
+
+  it("offers a backward rail no level of its own endpoint cards", () => {
+    // Rail s -> t, preferred level 200, card-clear. A forward run at 200 from
+    // a (left of the rail span) to b (right of it) puts the rail inside its
+    // floor, so the rail pass rescans the candidate levels. F1 and F2 cover
+    // the band's edges and their padded escapes, so the nearest acceptable
+    // foreign levels are F1's top escape and F2's bottom escape. The source
+    // card's bottom escape and the target card's top escape sit nearer, 4
+    // inside those: an own endpoint card must not offer them.
+    const RAIL = 200;
+    const reach = FORWARD_LEVEL_FLOOR + CHAMFER + 20;
+    const f1Top = RAIL - reach; // F1 padded [f1Top, RAIL - 8]
+    const f2Bottom = RAIL + reach; // F2 padded [RAIL + 8, f2Bottom]
+    const ownGap = 4;
+    // Source padded bottom + CHAMFER = f1Top - CHAMFER + ownGap.
+    const sBottom = f1Top - 2 * CHAMFER + ownGap - OBSTACLE_PAD_Y;
+    const sTop = sBottom - 78;
+    const sy = sTop + 39;
+    const ty = 2 * RAIL - sy;
+    const tTop = ty - 39;
+    const nodes: RFAnyNode[] = [
+      productNode("t", 0, tTop, 148, 78),
+      productNode("s", 1000, sTop, 148, 78),
+      productNode(
+        "F1",
+        500,
+        f1Top + OBSTACLE_PAD_Y,
+        148,
+        RAIL - CHAMFER - OBSTACLE_PAD_Y - (f1Top + OBSTACLE_PAD_Y),
+      ),
+      productNode(
+        "F2",
+        500,
+        RAIL + CHAMFER + OBSTACLE_PAD_Y,
+        148,
+        f2Bottom - OBSTACLE_PAD_Y - (RAIL + CHAMFER + OBSTACLE_PAD_Y),
+      ),
+      productNode("a", -600, RAIL - 39, 148, 78),
+      productNode("b", 1600, RAIL - 39, 148, 78),
+    ];
+    const edges = [mkEdge("e0", "s", "t", "w"), mkEdge("e1", "a", "b", "w")];
+    const out = clampBackwardRails(nodes, edges);
+    const railY = (out[0]!.data as { railY?: number }).railY;
+    const ownLevels = [
+      sBottom + OBSTACLE_PAD_Y + CHAMFER,
+      tTop - OBSTACLE_PAD_Y - CHAMFER,
+    ];
+    expect(ownLevels).not.toContain(railY);
+    // The nearest foreign escape, the lower value of an equidistant pair.
+    expect(railY).toBe(f1Top - CHAMFER);
   });
 });
