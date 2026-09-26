@@ -337,6 +337,45 @@ describe("ProductNode", () => {
     expect(rate?.textContent).toBe("120/min");
     const node = container.querySelector("[data-testid='product-node']");
     expect(node?.getAttribute("data-flavor")).toBe("outputProduct");
+    // Fed in full: no delivered figure, so no share chip and no rate title.
+    expect(container.querySelector(".pn-rate__of")).toBeNull();
+    expect(rate?.hasAttribute("title")).toBe(false);
+  });
+
+  it("leads an under-delivered target with the delivered rate, of the declared one", () => {
+    // delivered 7/12 per sec = 35/min; declared 2/s = 120/min.
+    const { container } = renderProduct(
+      {
+        kind: "outputProduct",
+        itemId: "copper_nugget",
+        rate: { num: "2", denom: "1" },
+        delivered: { num: "7", denom: "12" },
+        flavor: "target",
+      },
+      [makeItem("copper_nugget", false)],
+    );
+    const rate = container.querySelector(".pn-rate");
+    expect(rate?.textContent).toBe("35/minof 120/min");
+    expect(rate?.querySelector(".pn-rate__of")?.textContent).toBe("of 120/min");
+    expect(rate?.getAttribute("title")).toBe(
+      "35/min delivered of 120/min declared",
+    );
+  });
+
+  it("leads an unfed target with zero, of the declared rate", () => {
+    const { container } = renderProduct(
+      {
+        kind: "outputProduct",
+        itemId: "copper_nugget",
+        rate: { num: "2", denom: "1" },
+        delivered: { num: "0", denom: "1" },
+        flavor: "target",
+      },
+      [makeItem("copper_nugget", false)],
+    );
+    expect(container.querySelector(".pn-rate")?.textContent).toBe(
+      "0/minof 120/min",
+    );
   });
 
   // The catalyst pool has boundary cards of its own (u:cat:*). They draw the

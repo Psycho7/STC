@@ -117,3 +117,25 @@ test("zh product cards render no Latin min anywhere", () => {
   const out = wrap(<ProductNode {...outputProps()} />, "zh");
   expect(out.container.textContent).not.toMatch(/min/i);
 });
+
+// An under-delivered target leads with what arrives and states the declared
+// rate as its share chip, in the zh unit on both figures and on the title.
+test("an under-delivered target reads delivered of declared in zh", () => {
+  const { container } = wrap(
+    <ProductNode
+      {...makeProductNodeProps({
+        kind: "outputProduct",
+        itemId: "ore",
+        rate: { num: "2", denom: "1" },
+        delivered: { num: "7", denom: "12" },
+        flavor: "target",
+      })}
+    />,
+    "zh",
+  );
+  const rate = container.querySelector(".pn-rate");
+  expect(rate?.textContent).toBe("35/分共 120/分");
+  expect(rate?.querySelector(".pn-rate__of")?.textContent).toBe("共 120/分");
+  expect(rate?.getAttribute("title")).toBe("实际 35/分，共需 120/分");
+  expect(container.textContent).not.toMatch(/min/i);
+});

@@ -85,6 +85,7 @@ export type UiKey =
   | "product.catalyst.fromGeneral"
   | "product.catalyst.short"
   | "product.tap.share"
+  | "product.target.delivered"
   | "product.flavor.target"
   | "product.flavor.surplus"
   | "canvas.controls.panel"
@@ -242,6 +243,7 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "product.catalyst.fromGeneral": "来自普通供给 {rate}/分",
     "product.catalyst.short": "催化不足 {rate}/分",
     "product.tap.share": "共 {rate}/分",
+    "product.target.delivered": "实际 {delivered}/分，共需 {declared}/分",
     "product.flavor.target": "目标",
     "product.flavor.surplus": "过剩",
     "canvas.controls.panel": "控制面板",
@@ -392,6 +394,8 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "product.catalyst.fromGeneral": "from general supply {rate}/min",
     "product.catalyst.short": "catalyst short by {rate}/min",
     "product.tap.share": "of {rate}/min",
+    "product.target.delivered":
+      "{delivered}/min delivered of {declared}/min declared",
     "product.flavor.target": "target",
     "product.flavor.surplus": "surplus",
     "canvas.controls.panel": "Control panel",

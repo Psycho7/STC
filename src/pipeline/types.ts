@@ -180,6 +180,10 @@ export type RenderUnitOutputProduct = {
   // nothing downstream consumes (or doesn't fully consume); its rate is the
   // per-item overproduction.
   flavor: "target" | "surplus";
+  // The rate the plan actually feeds a "target" card, set only when that is
+  // below the declared `rate` (the targetOutputShortfalls predicate the
+  // shortfall strip reads). Absent on a fed target and on every surplus card.
+  delivered?: RationalString;
 };
 
 export type RenderUnit =
