@@ -87,6 +87,20 @@ export function formatRationalPerMin(rps: {
   return formatFractionPerMin(rationalFromString(rps));
 }
 
+// Thousands separators for rate text the reader only reads: panel readouts,
+// prompt text and error messages ("1000000" -> "1,000,000"). Both locales use
+// the same Western grouping, so it takes no locale. Only integer digit runs
+// are grouped ("1234.5678" -> "1,234.5678"; "1000001/3" -> "1,000,001/3").
+// Editable input values never go through it, so typed text reparses as is,
+// and the canvas keeps its own ungrouped formatter.
+export function groupRateDigits(text: string): string {
+  return text.replace(
+    /(^|[^.\d])(\d{4,})/g,
+    (_, lead: string, digits: string) =>
+      lead + digits.replace(/\B(?=(\d{3})+$)/g, ","),
+  );
+}
+
 // Items-per-minute input text (per-second rational x60) for editable rate
 // inputs, exact so a reloaded rate reads back as typed. A per-minute value
 // whose reduced denominator is 2^a*5^b terminates, so it prints as its full
@@ -204,7 +218,7 @@ export function rateErrorText(
   reason: RateTextError,
 ): string {
   return i18n.t(RATE_ERROR_KEY[reason], {
-    max: MAX_RATE_PER_MIN.toLocaleString("en-US"),
+    max: groupRateDigits(String(MAX_RATE_PER_MIN)),
   });
 }
 
