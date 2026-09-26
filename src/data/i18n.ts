@@ -90,6 +90,8 @@ export type UiKey =
   | "canvas.controls.zoom_out"
   | "canvas.controls.fit_view"
   | "canvas.controls.interactive"
+  | "canvas.a11y.node"
+  | "canvas.a11y.edge"
   | "canvas.empty.hint"
   | "rate.invalid"
   | "rate.zero"
@@ -245,6 +247,8 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "canvas.controls.zoom_out": "缩小",
     "canvas.controls.fit_view": "适应视图",
     "canvas.controls.interactive": "切换交互",
+    "canvas.a11y.node": "规划中的一张卡片。按 Tab 键在卡片之间切换。",
+    "canvas.a11y.edge": "两张卡片之间的一条物料流。",
     // {action} is the targets.add button label, so the hint names the button
     // exactly as the side rail draws it.
     "canvas.empty.hint": "尚无目标 · 在左侧点击「{action}」开始规划",
@@ -393,6 +397,8 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "canvas.controls.zoom_out": "Zoom out",
     "canvas.controls.fit_view": "Fit view",
     "canvas.controls.interactive": "Toggle interactivity",
+    "canvas.a11y.node": "A card in the plan. Tab moves between cards.",
+    "canvas.a11y.edge": "One item flow between two cards.",
     "canvas.empty.hint":
       "No targets yet · click {action} on the left to start a plan",
     "rate.invalid": "Enter a number, e.g. 30 or 1/3",

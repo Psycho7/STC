@@ -28,7 +28,12 @@ import RecipeNode from "./RecipeNode";
 import GroupNode from "./GroupNode";
 import LoopNode from "./LoopNode";
 import ProductNode from "./ProductNode";
-import ItemEdge, { edgeStrokeWidth, withFocusFlags } from "./ItemEdge";
+import ItemEdge, {
+  edgeRateLabel,
+  edgeStrokeWidth,
+  withFocusFlags,
+} from "./ItemEdge";
+import FitViewButton from "./FitViewButton";
 import BusEdge from "./BusEdge";
 import { contentBounds } from "./chipSeating";
 import { examChipReservations } from "./chipMetrics";
@@ -589,6 +594,12 @@ function CanvasInner({
       "controls.zoomOut.ariaLabel": i18n.t("canvas.controls.zoom_out"),
       "controls.fitView.ariaLabel": i18n.t("canvas.controls.fit_view"),
       "controls.interactive.ariaLabel": i18n.t("canvas.controls.interactive"),
+      // Both node keys: the vendor reads "default" when disableKeyboardA11y is
+      // set, the reverse of what the names say. The vendor text offers delete,
+      // which deleteKeyCode={null} unbinds.
+      "node.a11yDescription.default": i18n.t("canvas.a11y.node"),
+      "node.a11yDescription.keyboardDisabled": i18n.t("canvas.a11y.node"),
+      "edge.a11yDescription.default": i18n.t("canvas.a11y.edge"),
     }),
     [i18n],
   );
@@ -711,9 +722,21 @@ function CanvasInner({
     [nodes, focus],
   );
 
+  // Name each edge by its rate chip's "Name x rate/min" string instead of React
+  // Flow's "Edge from u:... to u:..." default. An edge with no item or no
+  // nonzero rate has no such string and keeps the default.
+  const labelledEdges = useMemo<Edge[]>(
+    () =>
+      edges.map((edge) => {
+        const ariaLabel = edgeRateLabel(edge, i18n);
+        return ariaLabel === "" ? edge : { ...edge, ariaLabel };
+      }),
+    [edges, i18n],
+  );
+
   const displayEdges = useMemo<Edge[]>(
-    () => focusEdges(edges, focus),
-    [edges, focus],
+    () => focusEdges(labelledEdges, focus),
+    [labelledEdges, focus],
   );
 
   // Memoized on nodes: the annotation re-renders every zoom tick (this
@@ -771,8 +794,19 @@ function CanvasInner({
             // layout. React Flow gates the arrow-key move handler on this flag; it
             // leaves keyboard focus traversal intact.
             disableKeyboardA11y
+            // Edges carry no keyboard behavior and their rates are on the chips,
+            // so they stay out of the Tab order (hundreds of stops on big plans).
+            edgesFocusable={false}
           >
-            <Controls aria-label={i18n.t("canvas.controls.panel")} />
+            <Controls
+              aria-label={i18n.t("canvas.controls.panel")}
+              showFitView={false}
+            >
+              <FitViewButton
+                label={i18n.t("canvas.controls.fit_view")}
+                onFit={fitContent}
+              />
+            </Controls>
           </ReactFlow>
         </SegmentHoverContext.Provider>
       </ExportModeProvider>
