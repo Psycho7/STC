@@ -30,8 +30,10 @@ import { seatedChipBoxes } from "./chipSeating";
 import type { RFAnyNode } from "./layout";
 import { nodeIndexOf, nodeRectOf, type Rect } from "./nodeGeometry";
 
-// Air between a member card and the paint edge. Below half NODE_NODE_SPACING
-// (30), so a member's pad never reaches a neighbouring card.
+// Air between a member card and the paint edge. It must stay at or below half
+// NODE_NODE_SPACING (30 / 2 = 15), or the paints of two neighbouring loops can
+// merge. 16 currently exceeds that bound, pending a look review; the closest
+// loop-to-loop gap in the corpus is 16 (rot-bottled_food_3).
 export const LOOP_PAINT_PAD = 16;
 
 // The caption band's height: the old loop box's caption strip.
