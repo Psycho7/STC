@@ -458,8 +458,10 @@ const CROSSING_BASELINE: Record<string, number> = {
   // #192 pair cost relation: 23 -> 21, the gap order weighs both orders of
   // every column pair and entry rows take slots one at a time across cards.
   //
-  // ELK GREEDY SWITCH: 16 -> 13, hierarchical greedy switch on.
-  "gas-web": 21, // REPIN-GASWEB
+  // ELK GREEDY SWITCH: 21 -> 21, hierarchical greedy switch on. On this base
+  // the switch moves no gas-web card or edge; the twin chains already read
+  // side by side.
+  "gas-web": 21,
 
   "rot-bottled_food_3": 2,
   "rot-bottled_food_4": 3,
