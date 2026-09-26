@@ -73,7 +73,7 @@ import {
   paddedObstacles,
   parseElkEdgeIndex,
 } from "./busRouting";
-import { PORT_STUB } from "./edgePath";
+import { BOX_EPS, PORT_STUB } from "./edgePath";
 import { FORWARD_LEVEL_FLOOR } from "./levelOccupancy";
 import {
   COLUMN_PITCH,
@@ -836,7 +836,8 @@ function orderCandidates(
       const inLaneIds = inLane(fanInLane).reverse();
       const lanes = outLane.length + inLaneIds.length;
       const room = zone.right - zone.left;
-      const pitch = lanes * COLUMN_PITCH <= room ? COLUMN_PITCH : room / lanes;
+      const pitch =
+        lanes * COLUMN_PITCH <= room + BOX_EPS ? COLUMN_PITCH : room / lanes;
       walk(outLane, zone.left + pitch / 2, pitch);
       walk(inLaneIds, zone.right - pitch / 2, -pitch);
     }

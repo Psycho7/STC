@@ -34,7 +34,7 @@ import Fraction from "fraction.js";
 import type { Edge } from "@xyflow/react";
 
 import { DOT_KEEPOFF } from "./dimensions";
-import { CHAMFER, FORWARD_STEP_BUDGET, PORT_STUB } from "./edgePath";
+import { BOX_EPS, CHAMFER, FORWARD_STEP_BUDGET, PORT_STUB } from "./edgePath";
 import {
   aggregateChipText,
   chipNaturalWidth,
@@ -802,7 +802,7 @@ function gapRecordOf(span: GapSpan, requirement: GapRequirement): GapRecord {
   const width = span.right - span.left;
   const chips = requirement.sourceZone + requirement.targetZone;
   const chipRoom = width - Math.min(requirement.columnZone, width);
-  const scale = chips <= chipRoom ? 1 : chipRoom / chips;
+  const scale = chips <= chipRoom + BOX_EPS ? 1 : chipRoom / chips;
   const sourceRight = span.left + requirement.sourceZone * scale;
   const targetLeft = Math.max(
     sourceRight,

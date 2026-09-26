@@ -173,6 +173,33 @@ describe("a drop re-measures the gap records on the live placement", () => {
     expect(drop.edges).toEqual(rerouteEdges(nodes, edges, { gaps }));
   });
 
+  // A widened gap holds exactly its requirement, so float noise from a drop
+  // can leave it a hair short. That is not a squeeze: the chip rooms keep
+  // their full width and no member demotes.
+  it("treats a gap a sub-epsilon short of its requirement as fitting", () => {
+    const { nodes, edges } = laidOut();
+    const atRest = rerouteAfterDrop(nodes, edges);
+    const moved = moveTo(nodes, "d", -1e-9);
+
+    const drop = rerouteAfterDrop(moved, edges);
+    const shape = (e: Edge) => {
+      const data = e.data as
+        | { fanoutColumn?: boolean; faninColumn?: boolean }
+        | undefined;
+      return [e.id, e.type, data?.fanoutColumn, data?.faninColumn];
+    };
+    expect(drop.edges.map(shape)).toEqual(atRest.edges.map(shape));
+
+    const rest = atRest.gaps[0]!;
+    const gap = drop.gaps[0]!;
+    expect(gap.right).toBeLessThan(rest.right);
+    expect(gap.columns).toBe(rest.columns);
+    expect(gap.sourceZone).toEqual(rest.sourceZone);
+    expect(gap.targetZone.right - gap.targetZone.left).toBe(
+      rest.targetZone.right - rest.targetZone.left,
+    );
+  });
+
   // The fan-in side (d dragged left) and the fan-out side (p dragged right)
   // both squeeze gap 0 from 397 to 247, below its requirement and above the
   // 128 its two columns owe.

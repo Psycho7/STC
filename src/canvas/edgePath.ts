@@ -568,10 +568,12 @@ function rectsOverlap(
   );
 }
 
-// Tolerance for the card-clear box tests. The anchors and the card rects are
-// sums of the same fractional layout coordinates, so a seat computed to stand
-// exactly flush against a card edge must not read back as intersecting it.
-const BOX_EPS = 1e-6;
+// Tolerance for the card-clear box tests and the chip and gap fit tests. The
+// anchors, the card rects and the gap spans are sums of the same fractional
+// layout coordinates, so a seat computed to stand exactly flush against a card
+// edge must not read back as intersecting it, nor a run or gap that exactly
+// fits as a hair short.
+export const BOX_EPS = 1e-6;
 
 // Clearance a seated chip box keeps from every card: a box flush against a
 // foreign card's border reads as that card's own label at reading zoom, so the
@@ -990,7 +992,9 @@ export function seatsOffPort(
   const away = awayFromPort(portX, runLo, runHi);
   const fromPort = portX + away * (PORT_STUB + halfW);
   const dotSeat = dotSeatX(inwardX, halfW, away);
-  return away > 0 ? fromPort <= dotSeat : fromPort >= dotSeat;
+  return away > 0
+    ? fromPort <= dotSeat + BOX_EPS
+    : fromPort >= dotSeat - BOX_EPS;
 }
 
 // The seat whose box clears the junction dot at inwardX by DOT_KEEPOFF.
