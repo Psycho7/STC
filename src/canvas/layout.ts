@@ -24,8 +24,12 @@
 // layoutRenderPlan ever runs.
 
 import type { Item, Recipe } from "@aef/schema";
-import type { ElkNode, ElkExtendedEdge, ElkPort } from "elkjs/lib/elk-api";
-import ELK from "elkjs/lib/elk.bundled.js";
+import ElkApi, {
+  type ELK,
+  type ElkNode,
+  type ElkExtendedEdge,
+  type ElkPort,
+} from "elkjs/lib/elk-api";
 import {
   MarkerType,
   type Node as RFNode,
@@ -1015,7 +1019,59 @@ export function rerouteEdges(
 
 // layoutRenderPlan: one elk.layout() call per cycle.
 
-const elk = new ELK();
+// In the browser ELK runs in a Web Worker, so its seconds of node placement
+// never block the main thread and the ELK bundle stays out of the main chunk.
+// Without Worker (vitest) the bundled ELK runs in-process, loaded on first use.
+// Both run the same ELK release, so the layout is the same. The worker URL is
+// imported only where a Worker exists: vite refuses a ?url load from a
+// node_modules outside the project root, as in a worktree that links it.
+const workerUrl: Promise<string> | null =
+  typeof Worker !== "undefined"
+    ? import("elkjs/lib/elk-worker.min.js?url").then((m) => m.default)
+    : null;
+const bundledElk: Promise<ELK> | null =
+  workerUrl === null
+    ? import("elkjs/lib/elk.bundled.js").then((m) => new m.default())
+    : null;
+
+// Started at load so the worker boots while the first plan solves.
+let workerElk: ELK | null = null;
+void workerUrl?.then((url) => {
+  workerElk ??= new ElkApi({ workerUrl: url });
+});
+
+// Every layout call supersedes the one still running: App keeps only its newest
+// generation's result. A worker runs one layout at a time, so the stale one is
+// cut short by terminating its worker, which a fresh one replaces.
+let abandonRunning: (() => void) | null = null;
+
+async function runElk(graph: ElkGraph): Promise<ElkGraph> {
+  if (workerUrl === null) {
+    return (await bundledElk!).layout(graph) as Promise<ElkGraph>;
+  }
+  abandonRunning?.();
+  return new Promise<ElkGraph>((resolve, reject) => {
+    let elk: ELK | null = null;
+    let abandoned = false;
+    const abandon = () => {
+      abandoned = true;
+      elk?.terminateWorker();
+      if (elk !== null && workerElk === elk) workerElk = null;
+      reject(new Error("ELK layout superseded by a newer one"));
+    };
+    abandonRunning = abandon;
+    workerUrl
+      .then(async (url) => {
+        if (abandoned) return;
+        elk = workerElk ??= new ElkApi({ workerUrl: url });
+        resolve((await elk.layout(graph)) as ElkGraph);
+      })
+      .catch(reject)
+      .finally(() => {
+        if (abandonRunning === abandon) abandonRunning = null;
+      });
+  });
+}
 
 export async function layoutRenderPlan(input: LayoutInput): Promise<{
   nodes: RFAnyNode[];
@@ -1027,7 +1083,7 @@ export async function layoutRenderPlan(input: LayoutInput): Promise<{
   baseEdges: RFEdge[];
 }> {
   const elkGraph = renderPlanToElkGraph(input);
-  const laid = (await elk.layout(elkGraph)) as ElkGraph;
+  const laid = await runElk(elkGraph);
   const placed = fromElkRenderLayout(laid, input);
   // Gap widening first, so the passes below see the final positions. With the
   // pre-pass switched off the nodes stay exactly where ELK put them and there
