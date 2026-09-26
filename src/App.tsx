@@ -1282,6 +1282,18 @@ function AppInner() {
               onEdgesChange={onEdgesChange}
               onNodeDragStop={handleNodeDragStop}
             />
+            {/* A sibling of the canvas, not part of it: the PNG export
+                captures only the React Flow viewport inside Canvas. */}
+            {targetCount === 0 ? (
+              <div
+                className="canvas-empty-hint"
+                data-testid="canvas-empty-hint"
+              >
+                {i18n.t("canvas.empty.hint", {
+                  action: i18n.t("targets.add"),
+                })}
+              </div>
+            ) : null}
           </div>
         </div>
       </ItemPackProvider>

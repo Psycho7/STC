@@ -12,6 +12,7 @@ export type UiKey =
   | "targets.duplicate"
   | "targets.head.sub"
   | "targets.empty"
+  | "targets.picker.listed"
   | "picker.title"
   | "picker.search.label"
   | "picker.search.placeholder"
@@ -82,6 +83,7 @@ export type UiKey =
   | "canvas.controls.zoom_out"
   | "canvas.controls.fit_view"
   | "canvas.controls.interactive"
+  | "canvas.empty.hint"
   | "rate.invalid"
   | "rate.zero"
   | "rate.negative"
@@ -136,6 +138,7 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "targets.duplicate": "物品 ID 重复: {itemId}",
     "targets.head.sub": "// 声明产出速率 · 件 / 分钟",
     "targets.empty": "未声明任何目标产物 — 点击下方按钮添加",
+    "targets.picker.listed": "灰显的物品已是目标 — 请直接编辑对应行",
     "picker.title": "选择物品",
     "picker.search.label": "搜索物品",
     "picker.search.placeholder": "按名称或 ID 搜索…",
@@ -224,6 +227,9 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "canvas.controls.zoom_out": "缩小",
     "canvas.controls.fit_view": "适应视图",
     "canvas.controls.interactive": "切换交互",
+    // {action} is the targets.add button label, so the hint names the button
+    // exactly as the side rail draws it.
+    "canvas.empty.hint": "尚无目标 · 在左侧点击「{action}」开始规划",
     "rate.invalid": "请输入数字，例如 30 或 1/3",
     "rate.zero": "请输入大于 0 的速率",
     "rate.negative": "速率不能为负数",
@@ -269,6 +275,8 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "targets.duplicate": "Duplicate item id: {itemId}",
     "targets.head.sub": "// declared output rates · items per minute",
     "targets.empty": "No declared outputs yet — use the action below",
+    "targets.picker.listed":
+      "Dimmed items are already targets — edit that row instead",
     "picker.title": "Select item",
     "picker.search.label": "Search items",
     "picker.search.placeholder": "Search by name or id...",
@@ -360,6 +368,8 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "canvas.controls.zoom_out": "Zoom out",
     "canvas.controls.fit_view": "Fit view",
     "canvas.controls.interactive": "Toggle interactivity",
+    "canvas.empty.hint":
+      "No targets yet · click {action} on the left to start a plan",
     "rate.invalid": "Enter a number, e.g. 30 or 1/3",
     "rate.zero": "Enter a rate above 0",
     "rate.negative": "A rate cannot be negative",

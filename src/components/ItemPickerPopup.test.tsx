@@ -518,3 +518,56 @@ test("a tile whose icon id is not its item id draws its sprite, not the placehol
   expect(t!.querySelector(".ico")).not.toBeNull();
   expect(t!.querySelector(".recipe-picker-tile-empty")).toBeNull();
 });
+
+// "r" keeps bravo (tier 1) and charlie (tier 2), in that order.
+function searchFor(text: string): HTMLInputElement {
+  const search = screen.getByLabelText<HTMLInputElement>(/search/i);
+  fireEvent.change(search, { target: { value: text } });
+  return search;
+}
+
+test("Enter in the search box picks the first enabled tile in filtered order", () => {
+  const props = renderPopup({ disabledIds: new Set(["bravo"]) });
+  const search = searchFor("r");
+  fireEvent.keyDown(search, { key: "Enter" });
+  expect(props.onPick).toHaveBeenCalledTimes(1);
+  expect(props.onPick).toHaveBeenCalledWith("charlie");
+});
+
+test("Enter in the search box does nothing when no enabled tile matches", () => {
+  const props = renderPopup({ disabledIds: new Set(["bravo", "charlie"]) });
+  fireEvent.keyDown(searchFor("r"), { key: "Enter" });
+  fireEvent.keyDown(searchFor("zzz-no-match"), { key: "Enter" });
+  expect(props.onPick).not.toHaveBeenCalled();
+  expect(props.onClose).not.toHaveBeenCalled();
+});
+
+test("Enter that confirms an IME composition does not pick", () => {
+  const props = renderPopup();
+  fireEvent.keyDown(searchFor("r"), { key: "Enter", isComposing: true });
+  expect(props.onPick).not.toHaveBeenCalled();
+});
+
+// Safari fires the committing Enter after compositionend, with isComposing
+// false; keyCode 229 is the only mark that the IME owns it.
+test("Enter with keyCode 229 after an IME composition does not pick", () => {
+  const props = renderPopup();
+  fireEvent.keyDown(searchFor("r"), { key: "Enter", keyCode: 229 });
+  expect(props.onPick).not.toHaveBeenCalled();
+});
+
+test("ArrowDown in the search box focuses the first enabled tile and moves the tab stop", () => {
+  renderPopup({ disabledIds: new Set(["bravo"]) });
+  const search = searchFor("r");
+  fireEvent.keyDown(search, { key: "ArrowDown" });
+  expect(document.activeElement).toBe(tile("charlie"));
+  expect(tabStopIds()).toEqual(["charlie"]);
+});
+
+test("ArrowDown in the search box stays put when no enabled tile matches", () => {
+  renderPopup({ disabledIds: new Set(["bravo", "charlie"]) });
+  const search = searchFor("r");
+  search.focus();
+  fireEvent.keyDown(search, { key: "ArrowDown" });
+  expect(document.activeElement).toBe(search);
+});

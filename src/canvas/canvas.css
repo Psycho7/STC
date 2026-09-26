@@ -1023,7 +1023,7 @@
   right: 6px;
   background: transparent;
   border: 1px solid transparent;
-  color: var(--ak-text-decoration);
+  color: var(--ak-text-primary);
   font-size: 15px;
   width: 24px;
   height: 24px;
@@ -3015,4 +3015,22 @@
 }
 .settings-recipe-meta {
   color: var(--ak-text-secondary);
+}
+
+/* Empty-plan hint over the canvas: centred in App's canvas wrapper and
+   transparent to the pointer so pan and zoom still reach the pane below. */
+.ak-app-shell .canvas-empty-hint {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  pointer-events: none;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  letter-spacing: 0.12em;
+  color: var(--ak-text-secondary);
+  text-align: center;
 }
