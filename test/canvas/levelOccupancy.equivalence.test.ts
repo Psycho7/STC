@@ -31,9 +31,10 @@
 //
 // One exception to "written from the base commit": gas-web.json was rewritten
 // when a free-supply target's export stopped drawing from a card of its own
-// and joined its item's input card. That change removes a node and renumbers
-// the plan's edges, so no per-edge table could name it; gas-web carries no
-// entries in the tables below because its fixture already holds their moves.
+// and joined its item's input card. That change removes the node
+// u:in:gas_inert:target, so e:20's source id becomes u:in:gas_inert; the edge
+// ids e:0..e:25 are unchanged. gas-web carries no entries in the tables below
+// because its rewritten fixture already holds their moves.
 
 import { describe, it, expect } from "vitest";
 import { readFileSync, writeFileSync } from "node:fs";
