@@ -44,6 +44,12 @@ export type UiKey =
   | "app.shortfall.cause.manual"
   | "app.shortfall.cause.cap"
   | "app.locale.label"
+  | "app.status.ready"
+  | "app.status.shortfall"
+  | "app.status.error"
+  | "app.status.solving"
+  | "app.settings.event.on"
+  | "app.settings.event.off"
   | "inputs.title"
   | "inputs.rate.label"
   | "inputs.rate.forItem"
@@ -189,6 +195,14 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "app.shortfall.cause.manual": "{items} 的配方均已在设置中关闭。",
     "app.shortfall.cause.cap": "{items} 的供给已用满所设上限。",
     "app.locale.label": "语言",
+    "app.status.ready": "就绪",
+    "app.status.shortfall": "产量不足",
+    "app.status.error": "错误",
+    "app.status.solving": "求解中",
+    // The header's non-default settings indicator: one part per event cohort
+    // whose effective state departs from its default rule.
+    "app.settings.event.on": "{cohort} 活动已开启",
+    "app.settings.event.off": "{cohort} 活动已关闭",
     "inputs.title": "输入",
     "inputs.rate.label": "速率",
     // An item can hold a row in both supply pools, so an input row's controls
@@ -207,7 +221,7 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "inputs.duplicate": "该物品已声明",
     "inputs.unlimited": "无限",
     "inputs.needed": "需求 {rate}/分",
-    "inputs.empty": "未配置任何输入 — 全部按 raw 自动求解",
+    "inputs.empty": "未配置任何输入 — 全部按原料自动求解",
     "inputs.catalyst.role": "催化",
     "inputs.catalyst.role.forItem": "{name} 的{pool}输入行：催化",
     "inputs.catalyst.badge": "催化",
@@ -332,6 +346,12 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "app.shortfall.cause.cap":
       "The supply of {items} is drawn to its declared cap.",
     "app.locale.label": "Language",
+    "app.status.ready": "READY",
+    "app.status.shortfall": "SHORTFALL",
+    "app.status.error": "ERROR",
+    "app.status.solving": "SOLVING",
+    "app.settings.event.on": "{cohort} on",
+    "app.settings.event.off": "{cohort} off",
     "inputs.title": "Inputs",
     "inputs.rate.label": "Rate",
     "inputs.rate.forItem": "{pool} rate for {name}",

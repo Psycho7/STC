@@ -63,6 +63,7 @@ import {
   EVENT_COHORT_OVERRIDES_STORAGE_KEY,
 } from "./data/storage-keys";
 import { SettingsPanel } from "./components/SettingsPanel";
+import { SettingsIndicator } from "./components/SettingsIndicator";
 import type { LogicalGraph } from "./canvas/layout";
 import { LpInfeasibleError } from "./solver";
 import type Fraction from "fraction.js";
@@ -71,7 +72,7 @@ import { solveFromPlan } from "./pipeline/solveForRender";
 import { deficitItemsBeyondTolerance } from "./pipeline/render/invariants";
 import type { RationalString } from "./pipeline/types";
 import { LocaleProvider, useI18n } from "./data/i18n-context";
-import type { I18nIndex } from "./data/i18n";
+import type { I18nIndex, UiKey } from "./data/i18n";
 import { joinSentences } from "./data/i18n-join";
 import { ItemPackProvider } from "./canvas/itemPackContext";
 import StatsStrip from "./canvas/StatsStrip";
@@ -345,6 +346,15 @@ export default function App() {
     </LocaleProvider>
   );
 }
+
+// The header chip's words. The enum stays English: the canvas annotation and
+// the exam tooling read it.
+const STATUS_LABEL: Record<CanvasStatus, UiKey> = {
+  SOLVING: "app.status.solving",
+  ERROR: "app.status.error",
+  SHORTFALL: "app.status.shortfall",
+  READY: "app.status.ready",
+};
 
 function AppInner() {
   const [plan, setPlan] = useState<Plan | null>(null);
@@ -1167,7 +1177,14 @@ function AppInner() {
             <span className="stat-chip">
               RECIPES <span className="v">{recipeCount}</span>
             </span>
+            <SettingsIndicator
+              pack={pack}
+              area={area}
+              packCohort={packCohort}
+              overrides={eventOverrides}
+            />
             <span
+              data-testid="status-chip"
               className={
                 status === "ERROR"
                   ? "stat-chip err"
@@ -1176,7 +1193,7 @@ function AppInner() {
                     : "stat-chip"
               }
             >
-              {status}
+              {i18n.t(STATUS_LABEL[status])}
             </span>
             <button
               type="button"

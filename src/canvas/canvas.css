@@ -3050,6 +3050,7 @@
 :lang(zh) .settings-pill,
 :lang(zh) .settings-default,
 :lang(zh) .settings-disclosure,
+:lang(zh) .topbar .stat-chip,
 :lang(zh) .ak-app-shell .canvas-empty-hint {
   letter-spacing: normal;
 }
