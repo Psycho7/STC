@@ -93,7 +93,7 @@ export type ProducerUnavailableCause =
 // Order the causes are reported in when an item's producers are off for
 // different reasons: the outermost setting first. Kept next to the union so a
 // new kind has to pick its rank here. Exported because the shortfall strip
-// orders its restriction clauses by the same precedence, so the validation
+// orders its restriction clauses by the same precedence, so the blocked-target
 // banner and the strip cannot name the same switches in different orders.
 export const CAUSE_PRECEDENCE: ProducerUnavailableCause["kind"][] = [
   "area",
@@ -103,7 +103,7 @@ export const CAUSE_PRECEDENCE: ProducerUnavailableCause["kind"][] = [
 
 // The outermost of the causes an item's producers carry, or undefined when the
 // list is empty. Shared with the item-level derivation in availability.ts so
-// the validation banner and the picker hint cannot name different switches for
+// the blocked-target banner and the picker hint cannot name different switches for
 // the same item.
 export function outermostCause(
   causes: readonly ProducerUnavailableCause[],
