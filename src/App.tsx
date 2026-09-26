@@ -76,7 +76,6 @@ import type { I18nIndex, UiKey } from "./data/i18n";
 import { joinList, joinSentences } from "./data/i18n-join";
 import { ItemPackProvider } from "./canvas/itemPackContext";
 import StatsStrip from "./canvas/StatsStrip";
-import { displayedInputCount } from "./components/InputsPanel";
 import { iconSheetUrl } from "./canvas/iconSprite";
 
 // Distinct recipes in the plan. logical.nodes mixes kind:"group" containers
@@ -226,13 +225,6 @@ function describeSolveError(e: unknown, i18n: I18nIndex): string {
   });
 }
 
-type SideSection = "targets" | "inputs";
-
-// Document order of the side-rail sections. Ties in visibility resolve toward
-// the earlier section, so a fully-visible later section never steals the
-// highlight from an equally-visible earlier one.
-const SIDE_SECTION_ORDER: SideSection[] = ["targets", "inputs"];
-
 const EMPTY_CATALYST_ACCOUNT: CatalystAccount = new Map();
 const EMPTY_DEFICITS: ReadonlyMap<string, Fraction> = new Map();
 const NO_ITEMS: ReadonlyArray<string> = [];
@@ -258,30 +250,6 @@ function buildSupplyRateByItem(nodes: readonly Node[]): SupplyRateByItem {
     }
   }
   return byRowKey;
-}
-
-function toSideSection(elementId: string): SideSection | null {
-  if (elementId === "side-inputs") return "inputs";
-  if (elementId === "side-targets") return "targets";
-  return null;
-}
-
-// Pick the section to highlight from a batch of IntersectionObserver readings.
-// Highest intersection ratio wins; equal ratios resolve by document order.
-// Returns null when nothing is intersecting so the caller keeps the last pick.
-export function pickActiveSection(
-  entries: ReadonlyArray<{ id: string; ratio: number }>,
-): SideSection | null {
-  let best: SideSection | null = null;
-  let bestRatio = 0;
-  for (const section of SIDE_SECTION_ORDER) {
-    const entry = entries.find((e) => toSideSection(e.id) === section);
-    if (entry && entry.ratio > bestRatio) {
-      bestRatio = entry.ratio;
-      best = section;
-    }
-  }
-  return best;
 }
 
 // Recovery screen for a render-phase throw. Sits inside LocaleProvider so it
@@ -373,36 +341,6 @@ function AppInner() {
   // touching any node's data, and the panels keep this map for the whole drag.
   const [supplyRateByItem, setSupplyRateByItem] =
     useState<SupplyRateByItem>(EMPTY_SUPPLY_RATES);
-  // Which section anchor is in view inside the side rail. Drives the skewed-tab
-  // highlight so it reads as a "you-are-here" pill, not a toggle. Computed by an
-  // IntersectionObserver watching the two section anchors.
-  const [activeSection, setActiveSection] = useState<SideSection>("targets");
-  useEffect(() => {
-    // jsdom (the vitest environment) lacks IntersectionObserver. Bail quietly:
-    // the highlight is decorative, so the rest of the side rail still renders.
-    if (typeof IntersectionObserver === "undefined") return;
-    const targetsEl = document.getElementById("side-targets");
-    const inputsEl = document.getElementById("side-inputs");
-    if (!targetsEl || !inputsEl) return;
-    const io = new IntersectionObserver(
-      (entries) => {
-        // Pick whichever section overlaps the rail viewport more. Ignoring
-        // non-intersecting entries keeps the highlight steady when one section
-        // has scrolled fully out of view; ties resolve by document order.
-        const pick = pickActiveSection(
-          entries.map((e) => ({
-            id: e.target.id,
-            ratio: e.intersectionRatio,
-          })),
-        );
-        if (pick) setActiveSection(pick);
-      },
-      { threshold: [0, 0.25, 0.5, 0.75, 1] },
-    );
-    io.observe(targetsEl);
-    io.observe(inputsEl);
-    return () => io.disconnect();
-  }, [plan]);
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
   // The layout's inter-layer gap reserves. The canvas reads them for the exam
@@ -1003,8 +941,9 @@ function AppInner() {
   // and it keeps it when the charge is its only general number. InputsPanel
   // surfaces these as auto-rows when the user has declared no explicit general
   // override, so the "unlimited by default" assumption is visible. General
-  // side only, item ids: the catalyst pool has no auto-row. Sorted by id for
-  // stable row order across re-renders.
+  // side only, item ids: the catalyst pool has no auto-row. Sorted by id so
+  // the list is stable across re-renders; the panel orders its rows by the
+  // localized name.
   const assumedRawItemIds = useMemo<ReadonlyArray<string>>(() => {
     const ids: string[] = [];
     for (const item of pack.items) {
@@ -1138,14 +1077,6 @@ function AppInner() {
   };
 
   const targetCount = plan.targets.length;
-  // Label and count of each side-rail section tab, in SIDE_SECTION_ORDER.
-  const sideTabs: Record<SideSection, { label: string; count: number }> = {
-    targets: { label: i18n.t("targets.title"), count: targetCount },
-    inputs: {
-      label: i18n.t("inputs.title"),
-      count: displayedInputCount(plan.itemOverrides ?? [], assumedRawItemIds),
-    },
-  };
 
   return (
     <div
@@ -1279,66 +1210,28 @@ function AppInner() {
               flexDirection: "column",
             }}
           >
+            {/* One scroll body, no nav: each panel contributes its section
+                head and its rows as siblings here, so both sticky heads keep
+                their counts on screen whatever the rail is scrolled to. */}
             <div className="side-panel-scroll">
-              {/* Section-jump nav, not a tablist. Targets and Inputs are both
-                    always rendered in the scroll body, so these controls are
-                    anchor links into the rail, with aria-current pinned to the
-                    section in view (set by the IntersectionObserver above).
-                    role=tab/tablist would mislead assistive-tech users, since
-                    the controls toggle nothing's visibility. */}
-              <nav
-                className="side-panel-tabs"
-                aria-label={i18n.t("side.nav.label")}
-              >
-                {SIDE_SECTION_ORDER.map((section) => (
-                  <a
-                    key={section}
-                    data-testid={`side-panel-tab-${section}`}
-                    href={`#side-${section}`}
-                    aria-current={
-                      activeSection === section ? "location" : undefined
-                    }
-                    className={
-                      "side-panel-tab" +
-                      (activeSection === section ? " active" : "")
-                    }
-                    onClick={(e) => {
-                      e.preventDefault();
-                      document
-                        .getElementById(`side-${section}`)
-                        ?.scrollIntoView({
-                          block: "start",
-                          behavior: "smooth",
-                        });
-                    }}
-                  >
-                    <span>{sideTabs[section].label}</span>
-                    <span className="count">{sideTabs[section].count}</span>
-                  </a>
-                ))}
-              </nav>
-              <div id="side-targets">
-                <TargetsPanel
-                  key={planEpoch}
-                  targets={plan.targets}
-                  pack={pack}
-                  onChange={handleTargetsChange}
-                  unavailableItems={unavailableItemCauses}
-                />
-              </div>
-              <div id="side-inputs">
-                <InputsPanel
-                  key={planEpoch}
-                  itemOverrides={plan.itemOverrides ?? []}
-                  onChange={handleItemOverridesChange}
-                  pack={pack}
-                  unavailableItems={unavailableInputCauses}
-                  targetItemIds={targetItemIds}
-                  supplyRateByItem={supplyRateByItem}
-                  catalystAccount={catalystAccount}
-                  assumedRawItemIds={assumedRawItemIds}
-                />
-              </div>
+              <TargetsPanel
+                key={`targets:${planEpoch}`}
+                targets={plan.targets}
+                pack={pack}
+                onChange={handleTargetsChange}
+                unavailableItems={unavailableItemCauses}
+              />
+              <InputsPanel
+                key={`inputs:${planEpoch}`}
+                itemOverrides={plan.itemOverrides ?? []}
+                onChange={handleItemOverridesChange}
+                pack={pack}
+                unavailableItems={unavailableInputCauses}
+                targetItemIds={targetItemIds}
+                supplyRateByItem={supplyRateByItem}
+                catalystAccount={catalystAccount}
+                assumedRawItemIds={assumedRawItemIds}
+              />
               <div className="side-rail-footer" aria-hidden="true">
                 <div>
                   <span className="key">PACK · </span>

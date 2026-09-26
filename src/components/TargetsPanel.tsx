@@ -153,8 +153,15 @@ export function TargetsPanel({
   }
 
   return (
-    <div className="boundary-section" data-testid="targets-section">
-      <div className="side-section-head">
+    <>
+      {/* Sibling of the inputs head inside the one scroll body, not a child of
+          this section: a head nested in its own section unsticks the moment
+          that section scrolls past, and both counts have to stay on screen at
+          every scroll offset. */}
+      <div
+        className="side-section-head side-section-head-targets"
+        data-testid="targets-head"
+      >
         <span className="num">SET · 01</span>
         <span className="label">TARGETS BOUNDARY</span>
         <span className="count">
@@ -163,116 +170,129 @@ export function TargetsPanel({
           {pickableItems.length}
         </span>
       </div>
-      <div className="side-section-sub">{i18n.t("targets.head.sub")}</div>
-      {targets.length === 0 ? (
-        <div className="b-empty">{i18n.t("targets.empty")}</div>
-      ) : null}
-      {targets.map((t) => {
-        const iconId = iconIdForItem(t.itemId);
-        const iconPos = iconPosition(iconId);
-        const rate = rateEdit.field(t.itemId, ratePerSecToPerMin(t.ratePerSec));
-        return (
-          <div key={t.itemId} className="b-row" data-testid="target-row">
-            <span className={"slot" + (iconPos === undefined ? " empty" : "")}>
-              <Sprite iconId={iconId} size={40} />
-            </span>
-            <div className="info">
-              <span className="b-pick">
-                <button
-                  type="button"
-                  className="b-pick-trigger"
-                  // The name goes in the accessible NAME, not just the visible
-                  // text: aria-label overrides the button's content, so a bare
-                  // "item" would make every row's trigger announce identically.
-                  aria-label={i18n.t("item.selected", {
+      <div className="boundary-section" data-testid="targets-section">
+        <div className="side-section-sub">{i18n.t("targets.head.sub")}</div>
+        {targets.length === 0 ? (
+          <div className="b-empty">{i18n.t("targets.empty")}</div>
+        ) : null}
+        {targets.map((t) => {
+          const iconId = iconIdForItem(t.itemId);
+          const iconPos = iconPosition(iconId);
+          const rate = rateEdit.field(
+            t.itemId,
+            ratePerSecToPerMin(t.ratePerSec),
+          );
+          return (
+            <div key={t.itemId} className="b-row" data-testid="target-row">
+              <span
+                className={"slot" + (iconPos === undefined ? " empty" : "")}
+              >
+                <Sprite iconId={iconId} size={40} />
+              </span>
+              <div className="info">
+                <span className="b-pick">
+                  <button
+                    type="button"
+                    className="b-pick-trigger"
+                    // The name goes in the accessible NAME, not just the visible
+                    // text: aria-label overrides the button's content, so a bare
+                    // "item" would make every row's trigger announce identically.
+                    aria-label={i18n.t("item.selected", {
+                      name: i18n.displayName(t.itemId),
+                    })}
+                    aria-haspopup="dialog"
+                    // title shows the full localised item name on hover, for
+                    // when the trigger truncates long names at narrow widths.
+                    title={i18n.displayName(t.itemId)}
+                    ref={(el) => focusOnMount(el, t.itemId, "trigger")}
+                    onClick={(e) =>
+                      flow.openPicker(e.currentTarget, {
+                        kind: "row",
+                        itemId: t.itemId,
+                      })
+                    }
+                  >
+                    {i18n.displayName(t.itemId)}
+                  </button>
+                </span>
+                <div className="item-id">
+                  {t.itemId}
+                  <span className="mid">ITEM</span>
+                </div>
+                {duplicateError?.rowId === t.itemId && (
+                  <span role="alert">
+                    {i18n.t("targets.duplicate", {
+                      itemId: duplicateError.itemId,
+                    })}
+                  </span>
+                )}
+              </div>
+              <div className="b-rate">
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  // The row's item goes in the accessible NAME: a column of
+                  // fields all announcing "rate" leaves a screen-reader user
+                  // unable to tell which target they are editing.
+                  aria-label={i18n.t("targets.rate.forItem", {
                     name: i18n.displayName(t.itemId),
                   })}
-                  aria-haspopup="dialog"
-                  // title shows the full localised item name on hover, for
-                  // when the trigger truncates long names at narrow widths.
-                  title={i18n.displayName(t.itemId)}
-                  ref={(el) => focusOnMount(el, t.itemId, "trigger")}
-                  onClick={(e) =>
-                    flow.openPicker(e.currentTarget, {
-                      kind: "row",
-                      itemId: t.itemId,
-                    })
+                  aria-describedby={
+                    rate.invalid ? `t-rate-err-${t.itemId}` : undefined
                   }
-                >
-                  {i18n.displayName(t.itemId)}
-                </button>
-              </span>
-              <div className="item-id">
-                {t.itemId}
-                <span className="mid">ITEM</span>
+                  ref={(el) => focusOnMount(el, t.itemId, "rate")}
+                  {...rate.inputProps}
+                />
+                <span className="unit">{i18n.t("targets.rate.unit")}</span>
+                {rate.error !== undefined ? (
+                  <span
+                    className="b-rate-err"
+                    id={`t-rate-err-${t.itemId}`}
+                    data-testid="rate-invalid"
+                  >
+                    {rateErrorText(i18n, rate.error)}
+                  </span>
+                ) : rate.reverted !== undefined ? (
+                  // A status, not an error: the field holds a valid rate again,
+                  // so it carries no aria-invalid and nothing describes it -
+                  // role="status" announces the line on its own.
+                  <span
+                    className="b-rate-err"
+                    role="status"
+                    data-testid="rate-reverted"
+                  >
+                    {rateRevertedText(i18n, rate.reverted)}
+                  </span>
+                ) : null}
               </div>
-              {duplicateError?.rowId === t.itemId && (
-                <span role="alert">
-                  {i18n.t("targets.duplicate", {
-                    itemId: duplicateError.itemId,
-                  })}
-                </span>
-              )}
-            </div>
-            <div className="b-rate">
-              <input
-                type="text"
-                inputMode="decimal"
-                aria-label={i18n.t("targets.rate.forItem", {
+              <button
+                className="b-remove"
+                data-testid="remove-target"
+                onClick={() => handleRemove(t.itemId)}
+                aria-label={i18n.t("targets.remove.forItem", {
                   name: i18n.displayName(t.itemId),
                 })}
-                aria-describedby={
-                  rate.invalid ? `t-rate-err-${t.itemId}` : undefined
-                }
-                ref={(el) => focusOnMount(el, t.itemId, "rate")}
-                {...rate.inputProps}
-              />
-              <span className="unit">{i18n.t("targets.rate.unit")}</span>
-              {rate.error !== undefined ? (
-                <span
-                  className="b-rate-err"
-                  id={`t-rate-err-${t.itemId}`}
-                  data-testid="rate-invalid"
-                >
-                  {rateErrorText(i18n, rate.error)}
-                </span>
-              ) : rate.reverted !== undefined ? (
-                <span
-                  className="b-rate-err"
-                  role="status"
-                  data-testid="rate-reverted"
-                >
-                  {rateRevertedText(i18n, rate.reverted)}
-                </span>
-              ) : null}
+              >
+                ×
+              </button>
             </div>
-            <button
-              className="b-remove"
-              data-testid="remove-target"
-              onClick={() => handleRemove(t.itemId)}
-              aria-label={i18n.t("targets.remove.forItem", {
-                name: i18n.displayName(t.itemId),
-              })}
-            >
-              ×
-            </button>
-          </div>
-        );
-      })}
-      <button className="b-add" onClick={handleAdd}>
-        {i18n.t("targets.add")}
-      </button>
-      {pickerFor !== null ? renderPicker() : null}
-      {prompt !== null ? (
-        <RatePromptPopup
-          item={{ id: prompt.itemId, name: i18n.displayName(prompt.itemId) }}
-          emptyMeans="invalid"
-          iconSheetUrl={iconSheetUrl}
-          onConfirm={confirmPromptRate}
-          onCancel={flow.cancelPrompt}
-        />
-      ) : null}
-    </div>
+          );
+        })}
+        <button className="b-add" onClick={handleAdd}>
+          {i18n.t("targets.add")}
+        </button>
+        {pickerFor !== null ? renderPicker() : null}
+        {prompt !== null ? (
+          <RatePromptPopup
+            item={{ id: prompt.itemId, name: i18n.displayName(prompt.itemId) }}
+            emptyMeans="invalid"
+            iconSheetUrl={iconSheetUrl}
+            onConfirm={confirmPromptRate}
+            onCancel={flow.cancelPrompt}
+          />
+        ) : null}
+      </div>
+    </>
   );
 
   // The "already a target" sentence applies only when such a tile is in the

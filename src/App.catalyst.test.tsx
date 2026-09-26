@@ -133,7 +133,7 @@ test("a non-raw catalyst item gets a supply row carrying its cycled charge", asy
     screen
       .getAllByTestId("input-auto-row")
       .map((r) => r.getAttribute("data-item-id")),
-  ).toEqual(["gas_xiranite", "liquid_xiranite"]);
+  ).toEqual(["liquid_xiranite", "gas_xiranite"]);
   expect(strip.querySelectorAll(".strip-stat .val")[1]?.textContent).toContain(
     "2",
   );
