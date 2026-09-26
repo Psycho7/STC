@@ -234,3 +234,28 @@ test("zh strings render", () => {
     "留空 = 无限",
   );
 });
+
+test("an over-bound rate shows the too-large message in either mode", () => {
+  for (const emptyMeans of ["invalid", "uncap"] as const) {
+    const props = renderPrompt({ emptyMeans });
+    fireEvent.change(input(), { target: { value: "1000000.1" } });
+    fireEvent.keyDown(input(), { key: "Enter" });
+    expect(props.onConfirm).not.toHaveBeenCalled();
+    expect(screen.getByRole("alert").textContent).toBe(
+      "A rate cannot exceed 1,000,000/min",
+    );
+    cleanup();
+  }
+});
+
+test("full-width and exponent text confirm as the rate they spell", () => {
+  const props = renderPrompt();
+  fireEvent.change(input(), { target: { value: "１２０" } });
+  fireEvent.keyDown(input(), { key: "Enter" });
+  expect(props.onConfirm).toHaveBeenLastCalledWith({ num: "2", denom: "1" });
+  cleanup();
+  const again = renderPrompt();
+  fireEvent.change(input(), { target: { value: "2.5E3" } });
+  fireEvent.keyDown(input(), { key: "Enter" });
+  expect(again.onConfirm).toHaveBeenLastCalledWith({ num: "125", denom: "3" });
+});

@@ -271,3 +271,114 @@ test("each rate error has its own message in en and zh", () => {
     expect(new Set(messages).size).toBe(3);
   }
 });
+
+test("parseRateText reads full-width digits through NFKC", () => {
+  // U+FF11 U+FF12 U+FF10 is a full-width "120": 120/min = 2/s.
+  expect(parseRateText("１２０", "invalid")).toEqual({
+    kind: "rate",
+    rate: { num: "2", denom: "1" },
+  });
+  // Full-width solidus and minus fold too, so the reasons still apply.
+  expect(parseRateText("１／３", "invalid")).toEqual({
+    kind: "rate",
+    rate: { num: "1", denom: "180" },
+  });
+  expect(parseRateText("－５", "uncap")).toEqual({
+    kind: "error",
+    error: "negative",
+  });
+});
+
+test("parseRateText accepts exponent notation", () => {
+  // 1e6/min = 50000/3 per sec; 2.5E3/min = 125/3 per sec.
+  expect(parseRateText("1e6", "invalid")).toEqual({
+    kind: "rate",
+    rate: { num: "50000", denom: "3" },
+  });
+  expect(parseRateText("2.5E3", "invalid")).toEqual({
+    kind: "rate",
+    rate: { num: "125", denom: "3" },
+  });
+  // 6e-1/min = 1/100 per sec, 1.2e+2 is 120.
+  expect(parseRateText("6e-1", "uncap")).toEqual({
+    kind: "rate",
+    rate: { num: "1", denom: "100" },
+  });
+  expect(parseRateText("1.2e+2", "uncap")).toEqual({
+    kind: "rate",
+    rate: { num: "2", denom: "1" },
+  });
+  // A zero mantissa is zero whatever the exponent.
+  expect(parseRateText("0e999999999999", "invalid")).toEqual({
+    kind: "error",
+    error: "zero",
+  });
+  expect(parseRateText("-1e999999999999", "uncap")).toEqual({
+    kind: "error",
+    error: "negative",
+  });
+  // Half an exponent is not a number.
+  for (const text of ["1e", "e5", "1e2.5", "1/3e2"]) {
+    expect(parseRateText(text, "uncap")).toEqual({
+      kind: "error",
+      error: "notNumber",
+    });
+  }
+});
+
+test("exponent text still goes through the digit caps", () => {
+  // 1e-500 needs a 500-digit denominator, past the 400-digit cap.
+  expect(parseRateText("1e-500", "uncap")).toEqual({
+    kind: "error",
+    error: "notNumber",
+  });
+  // An exponent too long for a Number is refused without hanging.
+  expect(parseRateText(`1e-${"9".repeat(40)}`, "uncap")).toEqual({
+    kind: "error",
+    error: "notNumber",
+  });
+  // A long decimal written as plain text is refused as before.
+  expect(parseRateText(`0.${"1".repeat(500)}`, "uncap")).toEqual({
+    kind: "error",
+    error: "notNumber",
+  });
+});
+
+test("parseRateText bounds a rate at 1,000,000 per minute", () => {
+  for (const mode of ["invalid", "uncap"] as const) {
+    // At and just under the bound.
+    expect(parseRateText("1000000", mode)).toEqual({
+      kind: "rate",
+      rate: { num: "50000", denom: "3" },
+    });
+    expect(parseRateText("999999.9", mode).kind).toBe("rate");
+    // Just over it, in every spelling.
+    for (const text of ["1000000.1", "1000001", "10000001/10", "1.0000001e6"]) {
+      expect(parseRateText(text, mode)).toEqual({
+        kind: "error",
+        error: "tooLarge",
+      });
+    }
+    // Far over it reads as too large, not as a digit-cap refusal.
+    expect(parseRateText("1e400", mode)).toEqual({
+      kind: "error",
+      error: "tooLarge",
+    });
+    expect(parseRateText(`1e${"9".repeat(40)}`, mode)).toEqual({
+      kind: "error",
+      error: "tooLarge",
+    });
+  }
+});
+
+test("the too-large reason has its own message in en and zh", () => {
+  for (const locale of ["en", "zh"] as const) {
+    const i18n = loadI18n(locale);
+    const tooLarge = i18n.t(RATE_ERROR_KEY.tooLarge);
+    const others = (["notNumber", "zero", "negative"] as const).map((error) =>
+      i18n.t(RATE_ERROR_KEY[error]),
+    );
+    expect(tooLarge).not.toBe(RATE_ERROR_KEY.tooLarge);
+    expect(others).not.toContain(tooLarge);
+  }
+});

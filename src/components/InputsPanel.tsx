@@ -18,6 +18,7 @@ import {
   formatRatePerMin,
   RATE_ERROR_KEY,
   ratePerSecToPerMin,
+  rateRevertedText,
 } from "../data/rate-format";
 import {
   iconIdForItem,
@@ -575,13 +576,13 @@ export function InputsPanel({
                 >
                   {i18n.t(RATE_ERROR_KEY[rate.error])}
                 </span>
-              ) : rate.reverted ? (
+              ) : rate.reverted !== undefined ? (
                 <span
                   className="b-rate-err"
                   role="status"
                   data-testid="rate-reverted"
                 >
-                  {i18n.t("rate.reverted")}
+                  {rateRevertedText(i18n, rate.reverted)}
                 </span>
               ) : null}
               {shortage !== undefined ? (
@@ -736,13 +737,13 @@ export function InputsPanel({
                 >
                   {i18n.t(RATE_ERROR_KEY[rate.error])}
                 </span>
-              ) : rate.reverted ? (
+              ) : rate.reverted !== undefined ? (
                 <span
                   className="b-rate-err"
                   role="status"
                   data-testid="rate-reverted"
                 >
-                  {i18n.t("rate.reverted")}
+                  {rateRevertedText(i18n, rate.reverted)}
                 </span>
               ) : null}
               {shortage !== undefined ? (

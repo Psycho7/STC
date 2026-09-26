@@ -926,3 +926,59 @@ test("the row-swap picker also disables off-cohort event items", () => {
   expect(pickerTile("copper_bottle")!.disabled).toBe(false);
   expect(pickerHintText()).toContain("v1.5");
 });
+
+// A blur revert names why the text was refused: calling a 0 or a -5 "not a
+// number" sends the user looking for a typo that is not there.
+test("a blur revert of 0, a negative or an over-bound rate names that reason", () => {
+  render(
+    <LocaleProvider locale="en">
+      <TargetsPanel
+        targets={[{ itemId: "widget", ratePerSec: { num: "2", denom: "1" } }]}
+        onChange={() => {}}
+        pack={PACK}
+      />
+    </LocaleProvider>,
+  );
+  const input = rateInputs()[0]!;
+  const seen: string[] = [];
+  for (const text of ["0", "-5", "2000000"]) {
+    fireEvent.change(input, { target: { value: text } });
+    fireEvent.blur(input);
+    expect(input.value).toBe("120");
+    seen.push(screen.getByTestId("rate-reverted").textContent!);
+  }
+  expect(seen).toEqual([
+    "Enter a rate above 0; the edit was discarded",
+    "A rate cannot be negative; the edit was discarded",
+    "A rate cannot exceed 1,000,000/min; the edit was discarded",
+  ]);
+  expect(seen).not.toContain(loadI18n("en").t("rate.reverted"));
+});
+
+test("Enter on an over-bound rate shows the too-large message", () => {
+  const onChange = vi.fn();
+  render(
+    <LocaleProvider locale="en">
+      <TargetsPanel
+        targets={[{ itemId: "widget", ratePerSec: { num: "2", denom: "1" } }]}
+        onChange={onChange}
+        pack={PACK}
+      />
+    </LocaleProvider>,
+  );
+  const input = rateInputs()[0]!;
+  fireEvent.change(input, { target: { value: "1000000.1" } });
+  fireEvent.keyDown(input, { key: "Enter" });
+  expect(screen.getByTestId("rate-invalid").textContent).toBe(
+    "A rate cannot exceed 1,000,000/min",
+  );
+  expect(onChange).not.toHaveBeenCalled();
+  // The bound itself commits.
+  fireEvent.change(input, { target: { value: "1e6" } });
+  fireEvent.keyDown(input, { key: "Enter" });
+  expect(onChange).toHaveBeenCalledTimes(1);
+  const update = onChange.mock.calls[0]![0] as (t: Target[]) => Target[];
+  expect(
+    update([{ itemId: "widget", ratePerSec: { num: "2", denom: "1" } }]),
+  ).toEqual([{ itemId: "widget", ratePerSec: { num: "50000", denom: "3" } }]);
+});

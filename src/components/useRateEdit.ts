@@ -11,10 +11,11 @@ export type RateField = {
   invalid: boolean;
   // Why the last commit attempt was refused; set exactly when invalid is.
   error: RateTextError | undefined;
-  // The field silently dropped unparseable text on blur and is showing its
-  // last-good value again. Not an error state: the value on screen is valid, so
-  // the row reports it as a status rather than marking the field invalid.
-  reverted: boolean;
+  // Why the field dropped refused text on blur and is showing its last-good
+  // value again; undefined when it did not. Not an error state: the value on
+  // screen is valid, so the row reports it as a status rather than marking the
+  // field invalid.
+  reverted: RateTextError | undefined;
   inputProps: {
     value: string;
     onChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
@@ -98,10 +99,12 @@ export function useRateEdit(config: RateEditConfig): RateEdit {
     new Map(),
   );
   // Row keys whose last blur threw the typed text away and restored the
-  // last-good value. Drives the status line that makes that revert visible;
+  // last-good value, with the reason. Drives the status line that makes that revert visible;
   // short-lived on purpose, since the state it reports is already gone from the
   // field: typing, refocusing, a later commit or the row leaving all clear it.
-  const [revertedIds, setRevertedIds] = useState<Set<string>>(new Set());
+  const [revertedIds, setRevertedIds] = useState<Map<string, RateTextError>>(
+    new Map(),
+  );
 
   function markInvalid(rowKey: string, error: RateTextError | undefined) {
     setInvalidIds((prev) => {
@@ -113,11 +116,11 @@ export function useRateEdit(config: RateEditConfig): RateEdit {
     });
   }
 
-  function markReverted(rowKey: string, on: boolean) {
+  function markReverted(rowKey: string, reason: RateTextError | undefined) {
     setRevertedIds((prev) => {
-      if (on === prev.has(rowKey)) return prev;
-      const next = new Set(prev);
-      if (on) next.add(rowKey);
+      if (reason === prev.get(rowKey)) return prev;
+      const next = new Map(prev);
+      if (reason !== undefined) next.set(rowKey, reason);
       else next.delete(rowKey);
       return next;
     });
@@ -136,7 +139,7 @@ export function useRateEdit(config: RateEditConfig): RateEdit {
     dirty.current.add(rowKey);
     // Typing clears any prior invalid cue; the value is re-checked on commit.
     markInvalid(rowKey, undefined);
-    markReverted(rowKey, false);
+    markReverted(rowKey, undefined);
     setTexts((prev) => new Map(prev).set(rowKey, value));
   }
 
@@ -152,7 +155,7 @@ export function useRateEdit(config: RateEditConfig): RateEdit {
     function finishCommit(): void {
       dirty.current.delete(rowKey);
       markInvalid(rowKey, undefined);
-      markReverted(rowKey, false);
+      markReverted(rowKey, undefined);
       if (!config.keepTextAfterCommit) dropText(rowKey);
     }
     // parseRateText owns what empty text and zero mean per emptyMeans; it
@@ -165,11 +168,11 @@ export function useRateEdit(config: RateEditConfig): RateEdit {
         // The field is valid again, so the row says what happened instead of
         // marking it wrong: a revert the user never sees reads as the panel
         // eating the edit.
-        markReverted(rowKey, true);
+        markReverted(rowKey, result.error);
         dropText(rowKey);
       } else {
         markInvalid(rowKey, result.error);
-        markReverted(rowKey, false);
+        markReverted(rowKey, undefined);
       }
       return;
     }
@@ -188,14 +191,14 @@ export function useRateEdit(config: RateEditConfig): RateEdit {
       return {
         invalid,
         error,
-        reverted: revertedIds.has(rowKey),
+        reverted: revertedIds.get(rowKey),
         inputProps: {
           value: texts.get(rowKey) ?? fallbackText,
           onChange: (e) => handleChange(rowKey, e.target.value),
           onBlur: () => commitFromLocal(rowKey, true),
           // Coming back to the field retires the revert notice: the user is
           // about to type over the restored value anyway.
-          onFocus: () => markReverted(rowKey, false),
+          onFocus: () => markReverted(rowKey, undefined),
           onKeyDown: (e) => {
             if (e.key === "Enter") commitFromLocal(rowKey, false);
           },
@@ -210,7 +213,7 @@ export function useRateEdit(config: RateEditConfig): RateEdit {
     clearPendingEdit(rowKey) {
       dirty.current.delete(rowKey);
       markInvalid(rowKey, undefined);
-      markReverted(rowKey, false);
+      markReverted(rowKey, undefined);
       dropText(rowKey);
     },
     // An uncommitted edit follows the row to its new key, dirty flag and all, so
@@ -242,10 +245,10 @@ export function useRateEdit(config: RateEditConfig): RateEdit {
       for (const id of [...dirty.current]) {
         if (!liveRowKeys.has(id)) dirty.current.delete(id);
       }
-      function pruneSet(prev: Set<string>): Set<string> {
-        const stale = [...prev].filter((id) => !liveRowKeys.has(id));
+      function pruneMap<V>(prev: Map<string, V>): Map<string, V> {
+        const stale = [...prev.keys()].filter((id) => !liveRowKeys.has(id));
         if (stale.length === 0) return prev;
-        const next = new Set(prev);
+        const next = new Map(prev);
         for (const id of stale) next.delete(id);
         return next;
       }
@@ -256,7 +259,7 @@ export function useRateEdit(config: RateEditConfig): RateEdit {
         for (const id of stale) next.delete(id);
         return next;
       });
-      setRevertedIds(pruneSet);
+      setRevertedIds(pruneMap);
       setTexts((prev) => {
         const stale = [...prev.keys()].filter((id) => !liveRowKeys.has(id));
         if (stale.length === 0) return prev;

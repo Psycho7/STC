@@ -1413,3 +1413,29 @@ test("counters count a split item once", () => {
     container.querySelector(".side-section-head .count .v")?.textContent,
   ).toBe("2");
 });
+
+// Input caps share the rule, so their blur revert names the reason too; the
+// wording stays a neutral discard since an uncapped row reverts to empty.
+test("a cap's blur revert names a negative or over-bound reason", () => {
+  render(
+    <LocaleProvider locale="en">
+      <InputsPanel
+        itemOverrides={[{ itemId: "widget" }]}
+        onChange={() => {}}
+        pack={PACK}
+      />
+    </LocaleProvider>,
+  );
+  const input = rateInputs()[0]!;
+  const seen: string[] = [];
+  for (const text of ["-5", "1e7"]) {
+    fireEvent.change(input, { target: { value: text } });
+    fireEvent.blur(input);
+    expect(input.value).toBe("");
+    seen.push(screen.getByTestId("rate-reverted").textContent!);
+  }
+  expect(seen).toEqual([
+    "A rate cannot be negative; the edit was discarded",
+    "A rate cannot exceed 1,000,000/min; the edit was discarded",
+  ]);
+});
