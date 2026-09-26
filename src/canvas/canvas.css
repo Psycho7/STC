@@ -3073,7 +3073,8 @@
   color: var(--ak-accent-red);
 }
 /* The stranded-target line. It stays mounted so the live region can announce,
-   so an empty one must take no space. */
+   so an empty one must take no space. It collapses to zero size rather than
+   display: none, which would drop it from the accessibility tree. */
 .settings-recipe-notice {
   margin: 8px 0 0;
   color: var(--ak-accent-red);
@@ -3081,7 +3082,9 @@
   font-size: 11.5px;
 }
 .settings-recipe-notice:empty {
-  display: none;
+  margin: 0;
+  font-size: 0;
+  line-height: 0;
 }
 .settings-recipe-empty {
   margin: 8px 0 0;
