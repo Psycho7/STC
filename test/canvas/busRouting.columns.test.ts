@@ -1491,6 +1491,50 @@ describe("obstacle tests read the drawn frame", () => {
     }
   });
 
+  it("draws a jog descent at the column the pass cleared on a drifted target", () => {
+    // s -> t with mid blocking the straight leg, so the edge jogs over mid and
+    // descends in front of t. t is a product card: its drawn in-port sits
+    // HANDLE_HALF left of the model one. The descent's slot is model
+    // tx - PORT_STUB (736); w's padded right edge stands 8.5 left of it, so
+    // that column keeps the CHAMFER clearance the search asks for, while the
+    // drawn tx - PORT_STUB (732) would stand 4.5 off w.
+    const nodes: RFAnyNode[] = [
+      inputProductNode("s", "ore", 0, 0, 148, 78), // port y 39
+      inputProductNode("t", "ore", 760, 100, 148, 78), // port y 139
+      inputProductNode("mid", "ore", 400, 100, 148, 78),
+      inputProductNode("w", "ore", 663.5, 100, 40, 60), // padded right 727.5
+    ];
+    const edges: Edge[] = [
+      {
+        ...mkEdge("e0", "s", "t", "ore"),
+        data: { item: "ore", rate: new Fraction(1), bendX: 200 },
+      },
+    ];
+    const byId = nodeIndexOf(nodes);
+    // Premise: the two frames put the target port at different columns.
+    expect(drawnPortsOf(edges[0]!, byId)!.targetX).toBeLessThan(
+      edgePortsModel(edges[0]!, byId)!.tx,
+    );
+    const wall = paddedObstacles(nodes, edges).find(
+      (o) => o.kind === "card" && o.nodeId === "w",
+    )!;
+
+    const out = jogForwardLegs(nodes, edges);
+    const laid = out[0]!;
+    expect(legYOf(out, "e0")).toBeDefined();
+    const { pts } = drawnEdge(drawnPortsOf(laid, byId)!, laid.type, laid.data);
+    // The descent is the last vertical run before the approach into t.
+    const verticals = pts
+      .slice(1)
+      .map((p, i) => [pts[i]!, p] as const)
+      .filter(([a, b]) => a[0] === b[0] && a[1] !== b[1]);
+    const [[descentX, y0], [, y1]] = verticals.at(-1)!;
+    // Premise: the descent runs beside w, so w's clearance applies to it.
+    expect(Math.min(y0, y1)).toBeLessThan(wall.bottom);
+    expect(Math.max(y0, y1)).toBeGreaterThan(wall.top);
+    expect(descentX - wall.right).toBeGreaterThanOrEqual(CHAMFER);
+  });
+
   it("offers a backward rail no level of its own endpoint cards", () => {
     // Rail s -> t, preferred level 200, card-clear. A forward run at 200 from
     // a (left of the rail span) to b (right of it) puts the rail inside its

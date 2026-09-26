@@ -3362,7 +3362,10 @@ export function jogForwardLegs(
           // puts the column back inside another line's band undoes the jog.
           !runFloorHit(foreignBands, self, ty, x, tx),
       );
-      if (descentX !== model.tx - PORT_STUB) {
+      // Unstamped, the drawer descends at entryX, else at the DRAWN
+      // tx - PORT_STUB, the port drift left of the model slot; the stamp is
+      // skipped only where that fallback is the column cleared here.
+      if (hints.entryX !== undefined || descentX !== tx - PORT_STUB) {
         descentXByIndex.set(index, descentX);
       }
       stakeColumn(descentGap, descentX, edge.id);
