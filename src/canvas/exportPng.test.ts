@@ -1,7 +1,7 @@
 // The framing math behind the PNG export. The image is the content rect plus a
 // fixed margin at unit scale, so these numbers are the whole contract between
 // contentBounds and what the rasterizer is handed.
-import { afterEach, beforeEach, expect, test, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import {
   EXPORT_MARGIN,
   EXPORT_MAX_AREA,
@@ -11,6 +11,11 @@ import {
   exportFrame,
   withInlinedSprites,
 } from "./exportPng";
+
+const toBlobSpy = vi.hoisted(() =>
+  vi.fn(async () => new Blob(["png"], { type: "image/png" })),
+);
+vi.mock("html-to-image", () => ({ toBlob: toBlobSpy }));
 
 test("the frame is the bounds plus a margin on every side", () => {
   const frame = exportFrame({ x: 100, y: 40, width: 800, height: 600 });
@@ -181,4 +186,258 @@ test("two sprites sharing a cell rasterize it once", async () => {
   const root = spriteRoot("-192px -256px", "-192px -256px");
   await withInlinedSprites(root, SHEET_URL, () => Promise.resolve());
   expect(toDataURL).toHaveBeenCalledTimes(1);
+});
+
+// Web-font embedding. Left to itself, html-to-image re-reads every stylesheet
+// on each capture and embeds every @font-face of every family in use: all the
+// CJK subsets of Noto Sans SC, hundreds of files. The export hands it a
+// prebuilt string instead, holding only the faces the browser actually loaded
+// for the families the canvas draws with.
+const FONT_SHEET_URL = "https://fonts.googleapis.com/css2?family=x";
+const LATIN_URL = "https://fonts.gstatic.com/latin.woff2";
+const CJK_URL = "https://fonts.gstatic.com/cjk-unused.woff2";
+const CINZEL_URL = "https://fonts.gstatic.com/cinzel.woff2";
+const LATIN_RANGE = "U+0-FF, U+131";
+const CJK_RANGE = "U+4E00-4E09";
+
+interface FakeFace {
+  family: string;
+  weight: string;
+  style: string;
+  unicodeRange: string;
+  status: string;
+}
+
+function fontFaceRule(face: FakeFace, url: string) {
+  const props: Record<string, string> = {
+    "font-family": `"${face.family}"`,
+    "font-weight": face.weight,
+    "font-style": face.style,
+    "unicode-range": face.unicodeRange,
+    src: `url("${url}") format("woff2")`,
+  };
+  const body = Object.entries(props)
+    .map(([k, v]) => `${k}: ${v};`)
+    .join(" ");
+  return {
+    cssText: `@font-face { ${body} }`,
+    style: { getPropertyValue: (name: string) => props[name] ?? "" },
+  };
+}
+
+const LATIN: FakeFace = {
+  family: "Noto Sans SC",
+  weight: "400",
+  style: "normal",
+  unicodeRange: LATIN_RANGE,
+  status: "loaded",
+};
+// Declared but never needed by any text on the page, so never downloaded.
+const CJK_UNUSED: FakeFace = {
+  ...LATIN,
+  unicodeRange: CJK_RANGE,
+  status: "unloaded",
+};
+// Loaded by the page chrome, but no canvas element draws with it.
+const CINZEL: FakeFace = { ...LATIN, family: "Cinzel", weight: "700" };
+// Another page-chrome face, loaded only when a test says so.
+const CINZEL_BLACK: FakeFace = {
+  ...CINZEL,
+  weight: "900",
+  status: "unloaded",
+};
+const CINZEL_BLACK_URL = "https://fonts.gstatic.com/cinzel-black.woff2";
+
+// Each build walks document.styleSheets exactly once, so the read count is the
+// build count.
+let styleSheetReads = 0;
+
+const fontFetch = vi.fn<(url: string) => Promise<Response>>(
+  async () =>
+    new Response("woff2", { headers: { "Content-Type": "font/woff2" } }),
+);
+
+// Returns the live face list, so a test can load a face between exports.
+function stubDocumentFonts(): FakeFace[] {
+  const faces = [
+    { ...LATIN },
+    { ...CJK_UNUSED },
+    { ...CINZEL },
+    { ...CINZEL_BLACK },
+  ];
+  const sheets = [
+    {
+      href: FONT_SHEET_URL,
+      cssRules: [
+        fontFaceRule(LATIN, LATIN_URL),
+        fontFaceRule(CJK_UNUSED, CJK_URL),
+        fontFaceRule(CINZEL, CINZEL_URL),
+        fontFaceRule(CINZEL_BLACK, CINZEL_BLACK_URL),
+      ],
+    },
+  ];
+  Object.defineProperty(document, "fonts", {
+    configurable: true,
+    value: {
+      ready: Promise.resolve(),
+      [Symbol.iterator]: () => faces.values(),
+    },
+  });
+  Object.defineProperty(document, "styleSheets", {
+    configurable: true,
+    get: () => {
+      styleSheetReads++;
+      return sheets;
+    },
+  });
+  vi.stubGlobal("fetch", fontFetch);
+  return faces;
+}
+
+function canvasViewport(): HTMLElement {
+  const viewport = document.createElement("div");
+  const label = document.createElement("span");
+  label.style.fontFamily = '"Noto Sans SC", sans-serif';
+  viewport.appendChild(label);
+  document.body.appendChild(viewport);
+  return viewport;
+}
+
+// A fresh module per test: the font CSS is cached at module scope.
+async function freshCapture() {
+  vi.resetModules();
+  const mod = await import("./exportPng");
+  return mod.capturePlanPng;
+}
+
+const FRAME = exportFrame({ x: 0, y: 0, width: 100, height: 100 });
+
+function fontEmbedCSSPassed(call: number): unknown {
+  const options = toBlobSpy.mock.calls[call] as unknown as [
+    HTMLElement,
+    { fontEmbedCSS?: string },
+  ];
+  return options[1].fontEmbedCSS;
+}
+
+describe("font embedding", () => {
+  beforeEach(() => {
+    toBlobSpy.mockClear();
+    fontFetch.mockClear();
+    styleSheetReads = 0;
+  });
+
+  afterEach(() => {
+    Reflect.deleteProperty(document, "fonts");
+    Reflect.deleteProperty(document, "styleSheets");
+    vi.unstubAllGlobals();
+  });
+
+  test("the font CSS is built once and handed to every capture", async () => {
+    stubDocumentFonts();
+    const capturePlanPng = await freshCapture();
+    const viewport = canvasViewport();
+
+    await capturePlanPng(viewport, FRAME, "#000");
+    await capturePlanPng(viewport, FRAME, "#000");
+    await capturePlanPng(viewport, FRAME, "#000");
+
+    expect(fontFetch).toHaveBeenCalledTimes(1);
+    const css = fontEmbedCSSPassed(0);
+    expect(typeof css).toBe("string");
+    expect(css).toContain("data:font/woff2;base64,");
+    expect(fontEmbedCSSPassed(1)).toBe(css);
+    expect(fontEmbedCSSPassed(2)).toBe(css);
+  });
+
+  test("only loaded faces of the canvas's own families are embedded", async () => {
+    stubDocumentFonts();
+    const capturePlanPng = await freshCapture();
+
+    await capturePlanPng(canvasViewport(), FRAME, "#000");
+
+    expect(fontFetch.mock.calls.map(([url]) => url)).toEqual([LATIN_URL]);
+    const css = fontEmbedCSSPassed(0) as string;
+    expect(css).toContain(LATIN_RANGE);
+    expect(css).not.toContain(CJK_RANGE);
+    expect(css).not.toContain("Cinzel");
+    expect(css).not.toContain(LATIN_URL);
+  });
+
+  // Switching the locale to zh, or a plan whose text needs another CJK subset,
+  // makes the browser load faces that were not there at the first export.
+  test("a face loaded after an export is embedded by the next one", async () => {
+    const faces = stubDocumentFonts();
+    const capturePlanPng = await freshCapture();
+    const viewport = canvasViewport();
+
+    await capturePlanPng(viewport, FRAME, "#000");
+    faces[1]!.status = "loaded";
+    await capturePlanPng(viewport, FRAME, "#000");
+    await capturePlanPng(viewport, FRAME, "#000");
+
+    expect(fontEmbedCSSPassed(0)).not.toContain(CJK_RANGE);
+    const rebuilt = fontEmbedCSSPassed(1) as string;
+    expect(rebuilt).toContain(CJK_RANGE);
+    expect(rebuilt).toContain(LATIN_RANGE);
+    expect(fontEmbedCSSPassed(2)).toBe(rebuilt);
+    // The rebuild fetches only the new face.
+    expect(fontFetch.mock.calls.map(([url]) => url)).toEqual([
+      LATIN_URL,
+      CJK_URL,
+    ]);
+  });
+
+  test("an export with no new face reuses the built CSS", async () => {
+    stubDocumentFonts();
+    const capturePlanPng = await freshCapture();
+    const viewport = canvasViewport();
+
+    await capturePlanPng(viewport, FRAME, "#000");
+    await capturePlanPng(viewport, FRAME, "#000");
+
+    expect(styleSheetReads).toBe(1);
+  });
+
+  test("a face loaded only for the page chrome does not rebuild", async () => {
+    const faces = stubDocumentFonts();
+    const capturePlanPng = await freshCapture();
+    const viewport = canvasViewport();
+
+    await capturePlanPng(viewport, FRAME, "#000");
+    faces[3]!.status = "loaded";
+    await capturePlanPng(viewport, FRAME, "#000");
+
+    expect(styleSheetReads).toBe(1);
+    expect(fontEmbedCSSPassed(1)).toBe(fontEmbedCSSPassed(0));
+  });
+
+  // Same loaded faces, but the canvas now draws with a family whose face was
+  // loaded all along for the page chrome.
+  test("a family the canvas starts drawing with rebuilds", async () => {
+    stubDocumentFonts();
+    const capturePlanPng = await freshCapture();
+    const viewport = canvasViewport();
+
+    await capturePlanPng(viewport, FRAME, "#000");
+    const title = document.createElement("span");
+    title.style.fontFamily = "Cinzel, serif";
+    viewport.appendChild(title);
+    await capturePlanPng(viewport, FRAME, "#000");
+
+    expect(styleSheetReads).toBe(2);
+    expect(fontEmbedCSSPassed(0)).not.toContain("Cinzel");
+    expect(fontEmbedCSSPassed(1)).toContain("Cinzel");
+  });
+
+  // An empty string, not undefined: html-to-image only falls back to its own
+  // stylesheet walk when the option is missing.
+  test("a document without a font set embeds nothing and skips the fallback", async () => {
+    const capturePlanPng = await freshCapture();
+
+    await capturePlanPng(canvasViewport(), FRAME, "#000");
+
+    expect(fontEmbedCSSPassed(0)).toBe("");
+    expect(fontFetch).not.toHaveBeenCalled();
+  });
 });

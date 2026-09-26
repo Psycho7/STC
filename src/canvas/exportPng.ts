@@ -158,6 +158,154 @@ export async function withInlinedSprites<T>(
   }
 }
 
+// The @font-face CSS the export embeds, reused while the canvas's set of loaded
+// faces stays the same. Left to itself, html-to-image rebuilds it on every capture
+// from every face declared for a family in use: all of Noto Sans SC's CJK
+// subsets, hundreds of font files, where a plan draws with a dozen. Only faces
+// the browser has loaded, in families the canvas draws with, are kept. A face
+// that loads later (a switch to zh, a plan needing another CJK subset) changes
+// the signature and the next export rebuilds.
+let fontEmbedCSS: { signature: string; css: Promise<string> } | null = null;
+
+// One entry per embedded face, so a rebuild fetches only the new faces.
+const faceCSSByKey = new Map<string, Promise<string>>();
+
+// A face declared without a unicode-range covers every code point, and
+// FontFace reports it that way.
+const ALL_CODE_POINTS = "U+0-10FFFF";
+
+const CSS_URL = /url\(\s*(["']?)([^"')]+)\1\s*\)/g;
+
+function unquote(family: string): string {
+  return family.trim().replace(/["']/g, "");
+}
+
+// Identity of a face, comparable between a FontFace and its @font-face rule.
+function faceKey(
+  family: string,
+  weight: string,
+  style: string,
+  unicodeRange: string,
+): string {
+  const range = (unicodeRange || ALL_CODE_POINTS).replace(/\s+/g, "");
+  return [
+    unquote(family),
+    weight || "normal",
+    style || "normal",
+    range.toUpperCase(),
+  ].join("|");
+}
+
+function canvasFamilies(root: HTMLElement): Set<string> {
+  const families = new Set<string>();
+  for (const el of [root, ...root.querySelectorAll("*")]) {
+    for (const family of getComputedStyle(el).fontFamily.split(",")) {
+      families.add(unquote(family));
+    }
+  }
+  return families;
+}
+
+// A cross-origin sheet without CORS (say, one a browser extension injects)
+// refuses to list its rules. It declares none of the app's fonts, so skip it.
+function readableRules(sheet: CSSStyleSheet): CSSRule[] {
+  try {
+    return Array.from(sheet.cssRules);
+  } catch {
+    return [];
+  }
+}
+
+async function fetchDataUrl(url: string): Promise<string> {
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`PNG export could not fetch the font ${url}`);
+  }
+  const blob = await response.blob();
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = () => reject(reader.error ?? new Error("unreadable font"));
+    reader.readAsDataURL(blob);
+  });
+}
+
+async function inlineUrls(cssText: string, baseUrl: string): Promise<string> {
+  const urls = Array.from(cssText.matchAll(CSS_URL), (match) =>
+    fetchDataUrl(new URL(match[2]!, baseUrl).href),
+  );
+  const dataUrls = await Promise.all(urls);
+  let next = 0;
+  return cssText.replace(CSS_URL, () => `url("${dataUrls[next++]}")`);
+}
+
+// A failed fetch is not cached, so the next export tries the face again.
+function faceCSS(key: string, cssText: string, baseUrl: string) {
+  let css = faceCSSByKey.get(key);
+  if (css === undefined) {
+    css = inlineUrls(cssText, baseUrl);
+    faceCSSByKey.set(key, css);
+    css.catch(() => faceCSSByKey.delete(key));
+  }
+  return css;
+}
+
+// `used` holds the face keys to embed: loaded, and in a canvas family.
+async function buildFontEmbedCSS(used: ReadonlySet<string>): Promise<string> {
+  const faces: Promise<string>[] = [];
+  for (const sheet of Array.from(document.styleSheets)) {
+    for (const rule of readableRules(sheet)) {
+      if (!rule.cssText.startsWith("@font-face")) {
+        continue;
+      }
+      const style = (rule as CSSFontFaceRule).style;
+      const key = faceKey(
+        style.getPropertyValue("font-family"),
+        style.getPropertyValue("font-weight"),
+        style.getPropertyValue("font-style"),
+        style.getPropertyValue("unicode-range"),
+      );
+      if (!used.has(key)) {
+        continue;
+      }
+      faces.push(faceCSS(key, rule.cssText, sheet.href ?? document.baseURI));
+    }
+  }
+  return (await Promise.all(faces)).join("\n");
+}
+
+// The signature is the canvas's loaded faces, so a face the page chrome loads
+// does not rebuild, and a family the canvas starts drawing with does.
+async function planFontEmbedCSS(viewport: HTMLElement): Promise<string> {
+  // jsdom has no font set, so there is nothing to embed there.
+  if (!("fonts" in document)) {
+    return "";
+  }
+  await document.fonts.ready;
+
+  const families = canvasFamilies(viewport);
+  const used: string[] = [];
+  for (const face of document.fonts) {
+    if (face.status === "loaded" && families.has(unquote(face.family))) {
+      used.push(
+        faceKey(face.family, face.weight, face.style, face.unicodeRange),
+      );
+    }
+  }
+  const signature = used.sort().join("\n");
+
+  if (fontEmbedCSS?.signature !== signature) {
+    const css = buildFontEmbedCSS(new Set(used));
+    fontEmbedCSS = { signature, css };
+    css.catch(() => {
+      if (fontEmbedCSS?.css === css) {
+        fontEmbedCSS = null;
+      }
+    });
+  }
+  return fontEmbedCSS.css;
+}
+
 // Rasterize the framed viewport. `backgroundColor` is the canvas theme's own
 // computed colour: the viewport element itself is transparent, so without it
 // the PNG comes out with a see-through background that reads as white wherever
@@ -175,6 +323,7 @@ export async function capturePlanPng(
     // The ratio is already clamped to what a canvas accepts; without this the
     // library rescales behind the clamp and the image stops matching the frame.
     skipAutoScale: true,
+    fontEmbedCSS: await planFontEmbedCSS(viewport),
     style: {
       width: `${frame.width}px`,
       height: `${frame.height}px`,
