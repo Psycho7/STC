@@ -10,6 +10,7 @@ import {
   isExcludedProducer,
   isExtractionRecipe,
 } from "../data/recipe-category";
+import { devAsserts } from "../util/dev-asserts";
 
 export type LpInput = {
   targets: ReadonlyArray<ItemTarget>;
@@ -221,6 +222,86 @@ function capSlack(cap: number): number {
     CAP_SLACK_MAX,
   );
 }
+
+// The slice of javascript-lp-solver's full Solution the primal read needs. The
+// library types Solve's return as unknown, and a library upgrade could move any
+// of these, so readTableauPrimals checks each one at runtime.
+type EngineTableau = {
+  matrix: ArrayLike<number>;
+  width: number;
+  height: number;
+  rhsColumn: number;
+  varIndexByRow: ArrayLike<number>;
+  variablesPerIndex: ArrayLike<{ id: string; isSlack?: boolean } | undefined>;
+};
+type EngineSolution = {
+  feasible: boolean;
+  bounded: boolean;
+  evaluation: number;
+  _tableau?: Partial<EngineTableau>;
+};
+const TABLEAU_FIELDS = [
+  "matrix",
+  "width",
+  "height",
+  "rhsColumn",
+  "varIndexByRow",
+  "variablesPerIndex",
+] as const;
+
+export type TableauRead = {
+  feasible: boolean;
+  bounded: boolean;
+  result: number;
+  // Every basic non-slack variable at its unrounded value, zero and negative
+  // values included. Variables missing here are non-basic, so 0.
+  primals: Map<string, number>;
+};
+
+// Solve a model and read its primals straight from the final tableau. Solve's
+// plain result rounds every primal to the engine precision (1e-8), and a
+// __domain_transfer column moves hundreds of units per execution, so rounded
+// primals left balance rows several 1e-6 off. The read mirrors the library's
+// generateSolutionSet without the rounding: each tableau row past the cost row
+// names its basic variable, and the row's RHS is that variable's value. That
+// holds for these models: no integer, unrestricted or bounded-simplex variables.
+export function readTableauPrimals(model: LpModel): TableauRead {
+  const solution = solver.Solve(model, undefined, true) as EngineSolution;
+  const tableau = solution._tableau;
+  if (tableau === undefined) {
+    throw new Error(
+      "javascript-lp-solver returned no _tableau; the exact primal read needs it",
+    );
+  }
+  for (const field of TABLEAU_FIELDS) {
+    if (tableau[field] === undefined) {
+      throw new Error(
+        `javascript-lp-solver _tableau has no ${field}; the exact primal read needs it`,
+      );
+    }
+  }
+
+  const { matrix, width, height, rhsColumn, varIndexByRow, variablesPerIndex } =
+    tableau as EngineTableau;
+  const primals = new Map<string, number>();
+  for (let row = 1; row < height; row++) {
+    const variable = variablesPerIndex[varIndexByRow[row]!];
+    if (variable === undefined || variable.isSlack === true) continue;
+    primals.set(variable.id, matrix[row * width + rhsColumn]!);
+  }
+  return {
+    feasible: solution.feasible,
+    bounded: solution.bounded,
+    result: solution.evaluation,
+    primals,
+  };
+}
+
+// A basic variable the engine leaves negative is within its 1e-8 absolute row
+// tolerance (the tie-break passes leave deficit_ columns near -8e-9). Anything
+// below -NEGATIVE_PRIMAL_REL * plan scale is not tolerance noise, and clamping
+// it to 0 would hide a real defect.
+const NEGATIVE_PRIMAL_REL = 1e-6;
 
 export function solveLp(input: LpInput): LpResult {
   const t0 = performance.now();
@@ -457,7 +538,37 @@ export function solveLp(input: LpInput): LpResult {
   const mbTol = (itemId: ItemId): number =>
     relSlack(scaleFloor, Math.abs(demand.get(itemId) ?? 0));
 
-  const pass1 = solver.Solve(buildModel("primary")) as LpRaw;
+  // Plan scale: the magnitude this plan operates at. Sizes the negative-primal
+  // assert below and the extraction's noise ceiling.
+  let planScale = 1;
+  for (const d of demand.values()) planScale = Math.max(planScale, Math.abs(d));
+
+  // One pass: exact tableau primals, negatives clamped to 0 (a variable is
+  // non-negative; a slightly negative basic value is the engine's row
+  // tolerance), zeros omitted as the engine's plain result omits them.
+  const solvePass = (model: LpModel): LpRaw => {
+    const read = readTableauPrimals(model);
+    const raw = {
+      feasible: read.feasible,
+      bounded: read.bounded,
+      result: read.result,
+    } as LpRaw;
+    const assertFloor =
+      read.feasible && devAsserts()
+        ? -NEGATIVE_PRIMAL_REL * planScale
+        : -Infinity;
+    for (const [name, value] of read.primals) {
+      if (value < assertFloor) {
+        throw new Error(
+          `solveLp: tableau primal ${name} = ${value} is below ${assertFloor}, more negative than engine tolerance`,
+        );
+      }
+      if (value > 0) raw[name] = value;
+    }
+    return raw;
+  };
+
+  const pass1 = solvePass(buildModel("primary"));
   let lpResult: LpRaw;
   if (pass1.feasible === false || pass1.bounded === false) {
     // Infeasible or unbounded: skip the lex pass. A non-finite pass-1 objective
@@ -515,7 +626,7 @@ export function solveLp(input: LpInput): LpResult {
     let boundaryPass: LpRaw | undefined;
     let boundaryBest: number | undefined;
     if (hasBoundaryConsumption) {
-      const pass = solver.Solve(buildModel("boundary", costCap)) as LpRaw;
+      const pass = solvePass(buildModel("boundary", costCap));
       if (costValid(pass)) {
         boundaryPass = pass;
         boundaryBest = boundaryObjective(pass, recipes, boundaryCoefById);
@@ -536,9 +647,7 @@ export function solveLp(input: LpInput): LpResult {
         ? boundaryBest
         : undefined;
 
-    const lexPass = solver.Solve(
-      buildModel("lex", costCap, boundaryCap),
-    ) as LpRaw;
+    const lexPass = solvePass(buildModel("lex", costCap, boundaryCap));
     let lexValid = costValid(lexPass);
     if (lexValid && boundaryBest !== undefined) {
       const lexBoundary = boundaryObjective(lexPass, recipes, boundaryCoefById);
@@ -576,6 +685,7 @@ export function solveLp(input: LpInput): LpResult {
     supplyTable,
     costById,
     demand,
+    planScale,
     mbTol,
     targets,
     t0,
@@ -768,6 +878,7 @@ type ExtractArgs = {
   supplyTable: SupplyTable;
   costById: Map<RecipeId, number>;
   demand: Map<ItemId, number>;
+  planScale: number;
   mbTol: (itemId: ItemId) => number;
   targets: ReadonlyArray<ItemTarget>;
   t0: number;
@@ -791,6 +902,7 @@ function extractResult(args: ExtractArgs): LpResult {
     supplyTable,
     costById,
     demand,
+    planScale,
     mbTol,
     targets,
     t0,
@@ -807,10 +919,6 @@ function extractResult(args: ExtractArgs): LpResult {
       (demandExact.get(t.itemId) ?? FRAC_ZERO).add(rate),
     );
   }
-
-  // Plan scale: the magnitude this plan operates at; sizes the noise ceiling.
-  let planScale = 1;
-  for (const d of demand.values()) planScale = Math.max(planScale, Math.abs(d));
 
   // Rate extraction. On pass-2 results, big-M recipes that pass 1 kept at zero
   // are dropped: the lex cost_cap row magnitude grows with target scale and
