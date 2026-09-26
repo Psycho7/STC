@@ -270,7 +270,7 @@ describe("solveFromPlan: the caps the drawn plan exhausts", () => {
 });
 
 // The C1 regression, exactly as the review probe measured it on the shipped
-// pack: the deficits land on the three default targets, every one of their
+// pack: the deficits land on two of the default targets, every one of their
 // direct producers is available, and the item the settlement actually blocks
 // carries no deficit at all. Attribution therefore has nothing to name.
 describe("the default plan under tundra", () => {
@@ -295,16 +295,13 @@ describe("the default plan under tundra", () => {
         new Map([
           ["copper_bottle", "2"],
           ["copper_powder", "1/2"],
-          // Solver float noise, not a restriction: see the investigation in the
-          // T6 report. The snapped iron_powder rate lands 1/666660 per second
-          // under its 1/4 demand, which the LP extraction reports honestly.
-          ["iron_powder", "1/666660"],
+          // iron_powder is met exactly: its 1/666660 deficit was a tie-break
+          // pass breaking the balance row, which the LP now rejects.
         ]),
       );
       expect(out.underDelivered.sort()).toEqual([
         "copper_bottle",
         "copper_powder",
-        "iron_powder",
       ]);
       // No declared cap anywhere in the default plan.
       expect(out.cappedAtLimit).toEqual([]);

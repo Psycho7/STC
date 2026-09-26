@@ -125,10 +125,12 @@ test("a satisfiable plan raises no status strip", async () => {
   expect(screen.queryByRole("status")).toBeNull();
 });
 
-// The C1 regression, as the review probe found it: under tundra the default
-// plan's three targets all come up short, every one of their direct producers
+// The C1 regression, as the review probe found it: under tundra two of the
+// default plan's targets come up short, every one of their direct producers
 // is available, and no cap is declared at all. There is no evidence for any
-// explanation, so the strip may only state what is unmet.
+// explanation, so the strip may only state what is unmet. (iron_powder, the
+// third target, is met exactly now that the LP rejects a tie-break pass that
+// breaks its balance row.)
 test("an area-caused shortfall with available direct producers stays neutral", async () => {
   window.localStorage.setItem(AREA_STORAGE_KEY, "tundra");
   window.location.hash = "#" + (await encodePlan(defaultPlan(pack)));
@@ -141,14 +143,14 @@ test("an area-caused shortfall with available direct producers stays neutral", a
   expect(strip.textContent).not.toContain(OLD_CAP_WORDING);
   expect(strip.textContent).toBe(
     en.t("app.shortfall.unmet", {
-      items: ["copper_bottle", "copper_powder", "iron_powder"]
+      items: ["copper_bottle", "copper_powder"]
         .map((id) => en.displayName(id))
         .join(", "),
     }),
   );
   // Neither the settlement nor the item it actually blocks (copper_nugget,
   // which carries no deficit) may be named: the one-hop lookup cannot tie
-  // either to these three targets.
+  // either to these two targets.
   expect(strip.textContent).not.toContain(en.displayName("tundra"));
   expect(strip.textContent).not.toContain(
     en.t("app.shortfall.cause.area", {
