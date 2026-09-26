@@ -82,6 +82,8 @@ export type UiKey =
   | "canvas.controls.fit_view"
   | "canvas.controls.interactive"
   | "rate.invalid"
+  | "rate.zero"
+  | "rate.negative"
   | "rate.reverted"
   | "ratePrompt.title"
   | "ratePrompt.confirm"
@@ -218,6 +220,8 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "canvas.controls.fit_view": "适应视图",
     "canvas.controls.interactive": "切换交互",
     "rate.invalid": "请输入数字，例如 30 或 1/3",
+    "rate.zero": "请输入大于 0 的速率",
+    "rate.negative": "速率不能为负数",
     // Neutral discard wording: an uncapped or auto row reverts to an EMPTY
     // field, so copy claiming a rate came back would be false there.
     "rate.reverted": "输入无效，已放弃本次输入",
@@ -348,6 +352,8 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "canvas.controls.fit_view": "Fit view",
     "canvas.controls.interactive": "Toggle interactivity",
     "rate.invalid": "Enter a number, e.g. 30 or 1/3",
+    "rate.zero": "Enter a rate above 0",
+    "rate.negative": "A rate cannot be negative",
     // Neutral discard wording: an uncapped or auto row reverts to an EMPTY
     // field, so copy claiming a rate came back would be false there.
     "rate.reverted": "That was not a number; the edit was discarded",

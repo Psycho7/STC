@@ -87,24 +87,46 @@ export function formatRationalPerMin(rps: {
 }
 
 // Items-per-minute input text (per-second rational x60) for editable rate
-// inputs. The panel parsers (new Fraction(text)) reject exponent notation and
-// non-finite text, so when Number stringification would go exponential (below
-// ~1e-6 or at 1e21 and beyond) or overflow to "Infinity" (at ~1.8e308 and
-// beyond) fall back to the exact fraction form ("1/10000000"), which the
-// parsers accept; otherwise a non-reparseable display silently reverts the
-// next edit. Read-only readouts use formatRationalPerMin instead so they stay
-// exact and match the canvas.
+// inputs, exact so a reloaded rate reads back as typed. A per-minute value
+// whose reduced denominator is 2^a*5^b terminates, so it prints as its full
+// decimal ("0.0009765625"); anything else prints as the reduced fraction
+// ("1/3", "7/3") rather than a rounded float. Both forms reparse through the
+// panel parsers (new Fraction(text)), which reject exponent notation, so the
+// decimal is built from the BigInt parts and never goes through Number.
+// Read-only readouts use formatRationalPerMin instead so they match the canvas.
 export function ratePerSecToPerMin(rps: {
   num: string;
   denom: string;
 }): string {
   const perMin = perMinFromRational(rps);
-  const value = perMin.valueOf();
-  const text = String(value);
-  if (Number.isFinite(value) && !text.includes("e") && !text.includes("E")) {
-    return text;
+  const decimal = exactDecimal(perMin);
+  return decimal ?? perMin.toFraction(false);
+}
+
+// The exact decimal text of a terminating fraction, or undefined when the
+// reduced denominator has a prime factor other than 2 or 5.
+function exactDecimal(f: Fraction): string | undefined {
+  let rest = f.d;
+  let twos = 0;
+  let fives = 0;
+  while (rest % 2n === 0n) {
+    rest /= 2n;
+    twos++;
   }
-  return perMin.toFraction(false);
+  while (rest % 5n === 0n) {
+    rest /= 5n;
+    fives++;
+  }
+  if (rest !== 1n) return undefined;
+
+  // n/d = n * (10^k / d) / 10^k with k = max(twos, fives).
+  const places = Math.max(twos, fives);
+  const scaled = (f.n * 10n ** BigInt(places)) / f.d;
+  const sign = f.s < 0n ? "-" : "";
+  if (places === 0) return sign + scaled.toString();
+  const digits = scaled.toString().padStart(places + 1, "0");
+  const cut = digits.length - places;
+  return `${sign}${digits.slice(0, cut)}.${digits.slice(cut)}`;
 }
 
 // The inverse of ratePerSecToPerMin: an items-per-minute value typed into a
@@ -131,4 +153,56 @@ export function parsePerMinToRatePerSec(
     return undefined;
   }
   return { num: n!, denom: d! };
+}
+
+// Why rate text was refused. Each reason has its own message.
+export type RateTextError = "notNumber" | "zero" | "negative";
+
+export const RATE_ERROR_KEY = {
+  notNumber: "rate.invalid",
+  zero: "rate.zero",
+  negative: "rate.negative",
+} as const satisfies Record<RateTextError, string>;
+
+// What the text in a rate field means once committed. "empty" is only ever
+// returned under emptyMeans "uncap" (the no-limit commit).
+export type RateTextResult =
+  | { kind: "empty" }
+  | { kind: "rate"; rate: RationalString }
+  | { kind: "error"; error: RateTextError };
+
+// The one rule every rate field (panel rows and the add prompt) commits
+// through. The text is trimmed first, so " 45 " is 45. emptyMeans picks the
+// field family:
+//  - "invalid" (targets): a target needs a positive rate, so empty text and
+//    zero are refused.
+//  - "uncap" (inputs): empty means no limit and 0 is a real zero cap.
+// Negative and non-numeric text are refused in both.
+export function parseRateText(
+  text: string,
+  emptyMeans: "invalid" | "uncap",
+): RateTextResult {
+  const trimmed = text.trim();
+  if (trimmed === "") {
+    return emptyMeans === "uncap"
+      ? { kind: "empty" }
+      : { kind: "error", error: "notNumber" };
+  }
+
+  let perMin: Fraction;
+  try {
+    perMin = new Fraction(trimmed);
+  } catch {
+    return { kind: "error", error: "notNumber" };
+  }
+  if (perMin.compare(0) < 0) return { kind: "error", error: "negative" };
+  if (emptyMeans === "invalid" && perMin.compare(0) === 0) {
+    return { kind: "error", error: "zero" };
+  }
+
+  // Past the checks above, the parser only refuses a value too long to store.
+  const rate = parsePerMinToRatePerSec(trimmed);
+  return rate === undefined
+    ? { kind: "error", error: "notNumber" }
+    : { kind: "rate", rate };
 }

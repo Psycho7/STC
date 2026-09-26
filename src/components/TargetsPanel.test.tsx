@@ -571,6 +571,74 @@ test("the prompt refuses empty, zero and unparseable rates with the cue", () => 
   expect(owner.emissions.length).toBe(0);
 });
 
+// A target needs a positive rate: a row refuses 0 the way the prompt does, so
+// no orphan 0/min card can reach the plan.
+test("a target row refuses 0 with the zero message", () => {
+  const owner = controlledOwner<Target[]>([
+    { itemId: "widget", ratePerSec: { num: "2", denom: "1" } },
+  ]);
+  render(
+    owner.element((targets, onChange) => (
+      <LocaleProvider locale="en">
+        <TargetsPanel targets={targets} onChange={onChange} pack={PACK} />
+      </LocaleProvider>
+    )),
+  );
+  const input = rateInputs()[0]!;
+  fireEvent.change(input, { target: { value: "0" } });
+  fireEvent.keyDown(input, { key: "Enter" });
+  expect(owner.emissions.length).toBe(0);
+  expect(input.getAttribute("aria-invalid")).toBe("true");
+  expect(screen.getByTestId("rate-invalid").textContent).toBe(
+    "Enter a rate above 0",
+  );
+});
+
+test("a target row shows distinct messages for non-numeric and negative text", () => {
+  const owner = controlledOwner<Target[]>([
+    { itemId: "widget", ratePerSec: { num: "2", denom: "1" } },
+  ]);
+  render(
+    owner.element((targets, onChange) => (
+      <LocaleProvider locale="en">
+        <TargetsPanel targets={targets} onChange={onChange} pack={PACK} />
+      </LocaleProvider>
+    )),
+  );
+  const input = rateInputs()[0]!;
+  fireEvent.change(input, { target: { value: "abc" } });
+  fireEvent.keyDown(input, { key: "Enter" });
+  expect(screen.getByTestId("rate-invalid").textContent).toBe(
+    "Enter a number, e.g. 30 or 1/3",
+  );
+  fireEvent.change(input, { target: { value: "-5" } });
+  fireEvent.keyDown(input, { key: "Enter" });
+  expect(screen.getByTestId("rate-invalid").textContent).toBe(
+    "A rate cannot be negative",
+  );
+  expect(owner.emissions.length).toBe(0);
+});
+
+test("a target row commits padded text as the trimmed rate", () => {
+  const owner = controlledOwner<Target[]>([
+    { itemId: "widget", ratePerSec: { num: "2", denom: "1" } },
+  ]);
+  render(
+    owner.element((targets, onChange) => (
+      <LocaleProvider locale="en">
+        <TargetsPanel targets={targets} onChange={onChange} pack={PACK} />
+      </LocaleProvider>
+    )),
+  );
+  const input = rateInputs()[0]!;
+  fireEvent.change(input, { target: { value: " 45 " } });
+  fireEvent.keyDown(input, { key: "Enter" });
+  // 45/min = 3/4 per sec.
+  expect(owner.latest).toEqual([
+    { itemId: "widget", ratePerSec: { num: "3", denom: "4" } },
+  ]);
+});
+
 // R7: Escape at the prompt cancels the whole add - nothing committed, and
 // focus returns to the Add button that opened the picker.
 test("Escape at the prompt commits nothing and refocuses the Add button", () => {

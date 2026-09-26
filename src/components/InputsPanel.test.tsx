@@ -234,6 +234,77 @@ test("typing a cap does not commit; blur commits it", () => {
   ]);
 });
 
+// An input's 0 is a real zero cap ("import none of this"), unlike a target's.
+test("an input row accepts 0 as a zero cap", () => {
+  const owner = controlledOwner<ItemOverride[]>([{ itemId: "widget" }]);
+  render(
+    owner.element((overrides, onChange) => (
+      <LocaleProvider locale="en">
+        <InputsPanel
+          itemOverrides={overrides}
+          onChange={onChange}
+          pack={PACK}
+        />
+      </LocaleProvider>
+    )),
+  );
+  const input = rateInputs()[0]!;
+  fireEvent.change(input, { target: { value: "0" } });
+  fireEvent.blur(input);
+  expect(owner.latest).toEqual([
+    { itemId: "widget", ratePerSec: { num: "0", denom: "1" } },
+  ]);
+  expect(screen.queryByTestId("rate-invalid")).toBeNull();
+});
+
+test("an input row commits padded text as the trimmed cap", () => {
+  const owner = controlledOwner<ItemOverride[]>([{ itemId: "widget" }]);
+  render(
+    owner.element((overrides, onChange) => (
+      <LocaleProvider locale="en">
+        <InputsPanel
+          itemOverrides={overrides}
+          onChange={onChange}
+          pack={PACK}
+        />
+      </LocaleProvider>
+    )),
+  );
+  const input = rateInputs()[0]!;
+  fireEvent.change(input, { target: { value: " 45 " } });
+  fireEvent.keyDown(input, { key: "Enter" });
+  expect(owner.latest).toEqual([
+    { itemId: "widget", ratePerSec: { num: "3", denom: "4" } },
+  ]);
+});
+
+test("an input row shows distinct messages for non-numeric and negative text", () => {
+  const owner = controlledOwner<ItemOverride[]>([{ itemId: "widget" }]);
+  render(
+    owner.element((overrides, onChange) => (
+      <LocaleProvider locale="en">
+        <InputsPanel
+          itemOverrides={overrides}
+          onChange={onChange}
+          pack={PACK}
+        />
+      </LocaleProvider>
+    )),
+  );
+  const input = rateInputs()[0]!;
+  fireEvent.change(input, { target: { value: "abc" } });
+  fireEvent.keyDown(input, { key: "Enter" });
+  expect(screen.getByTestId("rate-invalid").textContent).toBe(
+    "Enter a number, e.g. 30 or 1/3",
+  );
+  fireEvent.change(input, { target: { value: "-5" } });
+  fireEvent.keyDown(input, { key: "Enter" });
+  expect(screen.getByTestId("rate-invalid").textContent).toBe(
+    "A rate cannot be negative",
+  );
+  expect(owner.emissions.length).toBe(0);
+});
+
 // Blur with an empty cap uncaps a RAW override (empty means Unlimited here).
 // A raw item with no cap is unlimited boundary supply either way, so the
 // field-less override survives; the non-raw case below is the one that differs.

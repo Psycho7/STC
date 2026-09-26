@@ -6,8 +6,11 @@ import {
   formatRatePerMin,
   formatRationalPerMin,
   parsePerMinToRatePerSec,
+  parseRateText,
+  RATE_ERROR_KEY,
   ratePerSecToPerMin,
 } from "./rate-format";
+import { loadI18n } from "./i18n";
 
 test("formatRateExactPerMin reveals the un-rounded value the display rounds", () => {
   // 1/7 per sec * 60 = 60/7 = 8.571428..., which formatRatePerMin rounds to
@@ -192,4 +195,79 @@ test("formatFractionPerMin matches formatRationalPerMin, zero rule included", ()
     );
   }
   expect(formatFractionPerMin(new Fraction(0))).toBe("0");
+});
+
+// A reloaded rate must show what the user typed: a non-terminating per-minute
+// value prints as its exact fraction, a terminating one as its exact decimal.
+test("ratePerSecToPerMin prints a non-terminating per-minute rate as a fraction", () => {
+  // 1/3 per min = 1/180 per sec.
+  expect(ratePerSecToPerMin({ num: "1", denom: "180" })).toBe("1/3");
+  // 7/3 per min = 7/180 per sec: a mixed value stays an improper fraction.
+  expect(ratePerSecToPerMin({ num: "7", denom: "180" })).toBe("7/3");
+});
+
+test("ratePerSecToPerMin prints a terminating per-minute rate as its exact decimal", () => {
+  // 1/1024 per min = 1/61440 per sec.
+  expect(ratePerSecToPerMin({ num: "1", denom: "61440" })).toBe("0.0009765625");
+  // 1/2^30 per min: every digit, no float rounding, no exponent.
+  expect(ratePerSecToPerMin({ num: "1", denom: String(60n * 2n ** 30n) })).toBe(
+    "0.000000000931322574615478515625",
+  );
+});
+
+test("parseRateText trims before parsing", () => {
+  expect(parseRateText(" 45 ", "invalid")).toEqual({
+    kind: "rate",
+    rate: { num: "3", denom: "4" },
+  });
+  expect(parseRateText(" 45 ", "uncap")).toEqual({
+    kind: "rate",
+    rate: { num: "3", denom: "4" },
+  });
+});
+
+test("parseRateText refuses zero only in invalid mode", () => {
+  expect(parseRateText("0", "invalid")).toEqual({
+    kind: "error",
+    error: "zero",
+  });
+  expect(parseRateText("0/5", "invalid")).toEqual({
+    kind: "error",
+    error: "zero",
+  });
+  expect(parseRateText("0", "uncap")).toEqual({
+    kind: "rate",
+    rate: { num: "0", denom: "1" },
+  });
+});
+
+test("parseRateText gives empty text its mode's meaning", () => {
+  expect(parseRateText("  ", "uncap")).toEqual({ kind: "empty" });
+  expect(parseRateText("  ", "invalid")).toEqual({
+    kind: "error",
+    error: "notNumber",
+  });
+});
+
+test("parseRateText tells non-numeric and negative text apart", () => {
+  for (const mode of ["invalid", "uncap"] as const) {
+    expect(parseRateText("abc", mode)).toEqual({
+      kind: "error",
+      error: "notNumber",
+    });
+    expect(parseRateText("-5", mode)).toEqual({
+      kind: "error",
+      error: "negative",
+    });
+  }
+});
+
+test("each rate error has its own message in en and zh", () => {
+  for (const locale of ["en", "zh"] as const) {
+    const i18n = loadI18n(locale);
+    const messages = (["notNumber", "zero", "negative"] as const).map((error) =>
+      i18n.t(RATE_ERROR_KEY[error]),
+    );
+    expect(new Set(messages).size).toBe(3);
+  }
 });
