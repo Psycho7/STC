@@ -261,10 +261,14 @@ export function InputsPanel({
         // to fall back to, so dropping the override would turn a free import
         // into a forced internal build. Scoped to the general side too: a
         // catalyst row has no auto-row to fall back to and stays a row.
+        // A plan: true override is a forced internal build, not an import:
+        // deleting it would flip the item to unlimited import, so it keeps
+        // the row and loses only the cap below.
         if (
           parsed === undefined &&
           key.role === undefined &&
-          autoRowIds.has(key.itemId)
+          autoRowIds.has(key.itemId) &&
+          current[idx]!.plan === undefined
         ) {
           return current.filter((o) => !isRow(o, key));
         }

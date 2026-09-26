@@ -973,6 +973,36 @@ test("clearing a cap on a raw row returns it to Assumed unlimited", () => {
   expect(screen.queryAllByTestId("input-row").length).toBe(0);
 });
 
+// A raw override carrying plan: true is a forced internal build, not an
+// uncapped import. Deleting it on a cleared cap would flip the item to
+// unlimited import, so only the cap goes and the plan flag stays.
+test("clearing a cap on a raw row with plan: true keeps the plan flag", () => {
+  const owner = controlledOwner<ItemOverride[]>([
+    {
+      itemId: "gas_xiranite",
+      plan: true,
+      ratePerSec: { num: "2", denom: "1" },
+    },
+  ]);
+  render(
+    owner.element((overrides, onChange) => (
+      <LocaleProvider locale="en">
+        <InputsPanel
+          itemOverrides={overrides}
+          onChange={onChange}
+          pack={CATALYST_PACK}
+          assumedRawItemIds={["gas_xiranite"]}
+          supplyRateByItem={new Map()}
+        />
+      </LocaleProvider>
+    )),
+  );
+  const input = rateInputs()[0]!;
+  fireEvent.change(input, { target: { value: "" } });
+  fireEvent.blur(input);
+  expect(owner.latest).toEqual([{ itemId: "gas_xiranite", plan: true }]);
+});
+
 // Navigation remounts the panel via a plan-identity key, discarding an
 // uncommitted cap edit.
 test("uncommitted cap edit is discarded when the plan changes", () => {
