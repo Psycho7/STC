@@ -479,14 +479,14 @@ const CROSSING_BASELINE: Record<string, number> = {
 
   // FLAT LOOPS: 2 -> 1, the loop boxes left the layout (members are root
   // cards, the loop is painted) and the per-loop boundary tap cards went.
-  "rot-bottled_food_3": 2, // REPIN-rot-bottled_food_3
+  "rot-bottled_food_3": 1,
   // FLAT LOOPS (R5, one boundary card per pool): 3 -> 8. The loop's water tap
   // card went, so the tail Planting Unit's supply e:16 is a far fan-out member
   // of the FIRST-layer u:in:liquid_water card and takes the nearest clear
   // level to its target row, y 209.5, which runs under the cycle: it crosses
   // the return rail's two verticals, e:9's dip twice and e:3. UP move, ruled by
   // stc-13.
-  "rot-bottled_food_4": 3, // REPIN-rot-bottled_food_4
+  "rot-bottled_food_4": 8,
   // CATALYST NODE 2026-09-14 (PR B of the catalyst supply pools plan): every
   // catalyst charge now leaves the item's own u:cat:* boundary card instead of
   // its ordinary u:in:* one, so each transmuter plan gained a card and a set of
