@@ -39,13 +39,6 @@ export type ProductNodeData =
       role?: "catalyst";
       // Which supply pool the item's whole charge was billed to.
       catalystBreakdown?: CatalystBreakdown;
-      // Per-container fanout slices have an inbound edge from the item's
-      // aggregate node, so they render an extra left target handle to receive
-      // it.
-      isFanout?: boolean;
-      // Total realized rate of the aggregate this slice taps, shown as an
-      // "of <total>/min" share chip. Fanout slices only.
-      parentRate?: RationalString;
       portTransportKinds?: PortTransportKinds;
     }
   | {
@@ -68,17 +61,15 @@ const LABEL_SEP = ", ";
 //
 // The card draws none of these words any more. Direction reads from the side
 // the accent tab sits on and from the column the card stands in, and the
-// classification from the tab's own treatment (solid for a plain input, dashed
-// for a tap, ticked for the catalyst pool). None of that reaches a screen
+// classification from the tab's own treatment (solid for a plain input, ticked
+// for the catalyst pool). None of that reaches a screen
 // reader, so the same words ride the card root's aria-label.
 //
 // Direction is "In" for an inputProduct and "Out" for an outputProduct. For an
 // inputProduct, a card of the item's catalyst pool states the pool rather than
 // the item's provenance: the same item can carry an ordinary card beside it.
-// Any other card reads "tap" when it is a fanout slice of an aggregate,
-// otherwise "raw" when item.raw is true and "import" when it is not. A fanout
-// slice OF a catalyst card keeps both words, since a slice of the pool is
-// still catalyst supply. For an outputProduct, the classification is
+// Any other card reads "raw" when item.raw is true and "import" when it is
+// not. For an outputProduct, the classification is
 // data.flavor ("target" or "surplus"). An item missing from the pack
 // contributes no provenance word rather than a guessed one.
 function buildPnAriaLabel(
@@ -99,9 +90,7 @@ function buildPnAriaLabel(
   if (data.role === "catalyst") {
     words.push(i18n.t("product.class.catalyst"));
   }
-  if (data.isFanout) {
-    words.push(i18n.t("product.class.tap"));
-  } else if (data.role !== "catalyst" && item !== undefined) {
+  if (data.role !== "catalyst" && item !== undefined) {
     words.push(i18n.t(item.raw ? "product.class.raw" : "product.class.import"));
   }
   return words.join(LABEL_SEP);
@@ -110,15 +99,14 @@ function buildPnAriaLabel(
 // Name tooltip of a product card: the display name, plus the catalyst pool
 // breakdown on the card that owns the item's whole charge.
 //
-// The breakdown is item-level accounting (which pool the charge was billed to),
-// so a per-container fanout slice gets the plain name: its own share of the
-// split has no meaning. The shortage line only appears when a charge went
-// unmet, so a plan that covers its catalysts says nothing about shortage.
+// The breakdown is item-level accounting (which pool the charge was billed
+// to). The shortage line only appears when a charge went unmet, so a plan that
+// covers its catalysts says nothing about shortage.
 function buildPnNameTitle(data: ProductNodeData, i18n: I18nIndex): string {
   const name = i18n.displayName(data.itemId);
   if (data.kind !== "inputProduct") return name;
   const breakdown = data.catalystBreakdown;
-  if (breakdown === undefined || data.isFanout) return name;
+  if (breakdown === undefined) return name;
 
   const lines = [
     i18n.t("product.catalyst.fromCatalyst", {
@@ -166,9 +154,7 @@ const PN_BADGE_CHROME_PX = 10;
 
 function chromeClasses(data: ProductNodeData): string {
   if (data.kind === "inputProduct") {
-    // A fanout slice is a derived view of the item's aggregate card, not an
-    // independent source; the tap class mutes it (issue 40).
-    return data.isFanout ? "product-node input tap" : "product-node input";
+    return "product-node input";
   }
   return `product-node output ${data.flavor}`;
 }
@@ -226,12 +212,6 @@ export default function ProductNode({
   // Primary rate. For inputs this is realized demand; for outputs the target or
   // surplus rate.
   const rateValue = formatRationalPerMin(data.rate);
-  // Share of the parent aggregate, fanout slices only: "of <total>/min" points
-  // the reader back at the source card this tap draws from.
-  const shareOf =
-    isInput && data.isFanout && data.parentRate !== undefined
-      ? formatRationalPerMin(data.parentRate)
-      : null;
 
   return (
     <div
@@ -248,19 +228,6 @@ export default function ProductNode({
     >
       {isInput ? (
         <>
-          {data.isFanout ? (
-            <>
-              <Handle
-                id={portId("in", data.itemId)}
-                type="target"
-                position={Position.Left}
-              />
-              <PortGlyph
-                kind={data.portTransportKinds?.get(portId("in", data.itemId))}
-                side="left"
-              />
-            </>
-          ) : null}
           <Handle
             id={portId("out", data.itemId)}
             type="source"
@@ -309,11 +276,6 @@ export default function ProductNode({
       <div className="pn-rate">
         {rateValue}
         <span className="unit">{i18n.t("canvas.rate.unit")}</span>
-        {shareOf !== null ? (
-          <span className="pn-rate__of">
-            {i18n.t("product.tap.share", { rate: shareOf })}
-          </span>
-        ) : null}
       </div>
     </div>
   );

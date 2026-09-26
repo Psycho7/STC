@@ -30,8 +30,8 @@ const RECIPE = {
   out: [{ item: "widget", qty: 1 }],
 } as unknown as Recipe;
 
-// Two standalone recipes plus a container box, matching the fixture shape the
-// hover tests in Canvas.test.tsx use.
+// Two standalone recipes, matching the fixture shape the hover tests in
+// Canvas.test.tsx use.
 const HOVER_NODES: Node[] = [
   {
     id: "u1",
@@ -44,16 +44,6 @@ const HOVER_NODES: Node[] = [
     type: "recipe",
     position: { x: 0, y: 0 },
     data: { recipe: RECIPE, kind: "recipe" },
-  },
-  {
-    id: "g1",
-    type: "group",
-    position: { x: 0, y: 0 },
-    data: {
-      containerKind: "loop-box",
-      containerId: "loop:scc-1",
-      memberCount: 1,
-    },
   },
 ];
 

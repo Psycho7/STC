@@ -1,6 +1,6 @@
-// Edge-span census: computeEdgeSpans on a synthetic 3-node fixture (one
-// container child), pinning the absolute-position resolution, the floor-at-0 and
-// the long-edge threshold every span fixture is written against.
+// Edge-span census: computeEdgeSpans on a synthetic 2-node fixture, pinning the
+// absolute-position span, the floor-at-0 and the long-edge threshold every span
+// fixture is written against.
 
 import { describe, it, expect } from "vitest";
 import {
@@ -23,14 +23,12 @@ describe("computeEdgeSpans", () => {
     expect(SPAN_THRESHOLD).toBe(700);
   });
 
-  it("resolves one level of parentId for absolute positions and floors at 0", () => {
-    // a: top-level, right edge at x = 0 + 100 = 100.
-    // grp: container at x = 500.
-    // b: child of grp, parent-relative x = 50, so absolute left = 550.
+  it("measures the gap between absolute positions and floors at 0", () => {
+    // a: right edge at x = 0 + 100 = 100.
+    // b: left edge at x = 550.
     const nodes: SpanNode[] = [
       { id: "a", position: { x: 0 }, width: 100 },
-      { id: "grp", position: { x: 500 }, width: 200 },
-      { id: "b", parentId: "grp", position: { x: 50 }, width: 100 },
+      { id: "b", position: { x: 550 }, width: 100 },
     ];
     // Forward edge a -> b: 550 (target abs left) - 100 (source right) = 450.
     // Backward edge b -> a: 0 - (550 + 100) is negative, floored to 0.

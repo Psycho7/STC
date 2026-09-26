@@ -968,15 +968,9 @@ export function checkProductUnitRates(
         );
       }
       const inbound = (inboundByUnit.get(unit.id) ?? FRAC_ZERO).valueOf();
-      if (unit.isFanout) {
-        if (Math.abs(chip - inbound) > slackFor(chip)) {
-          violations.push(
-            `inputProduct fanout "${unit.id}": rate chip ${chip} != aggregate inbound ${inbound}`,
-          );
-        }
-      } else if (inbound > slackFor(inbound)) {
+      if (inbound > slackFor(inbound)) {
         violations.push(
-          `inputProduct "${unit.id}": unexpected inbound edge flow ${inbound} (only fanout slices are fed)`,
+          `inputProduct "${unit.id}": unexpected inbound edge flow ${inbound}`,
         );
       }
     } else if (isOutputProductUnit(unit)) {
@@ -1033,16 +1027,14 @@ export function checkProductUnitRates(
 
 /**
  * The one cross-layer tie between the drawn catalyst nodes and the solve: per
- * item, the rate on the aggregate or single-bucket catalyst node must equal the
- * account's `need`, and every item the account bills a positive need for must
+ * item, the rate on the catalyst node must equal the account's `need`, and every item the account bills a positive need for must
  * have such a node.
  *
  * Every other clause about a catalyst node is internal to the render plan (the
  * node's chip against its own edges, the edges against the recipe rows they
  * land on), so a charge computed from the wrong machine count, or a node
  * emitted for an item the solve cycles nothing of, would be invisible without
- * this. Fanout slices are skipped: they hold a per-container share, and their
- * sum is already tied to the aggregate by checkProductUnitRates.
+ * this.
  */
 export function checkCatalystNodesMatchAccount(
   args: RenderInvariantArgs,
@@ -1054,7 +1046,7 @@ export function checkCatalystNodesMatchAccount(
   const nodeByItem = new Map<ItemId, RenderUnitInputProduct>();
   for (const unit of plan.units) {
     if (!isInputProductUnit(unit)) continue;
-    if (unit.role !== "catalyst" || unit.isFanout) continue;
+    if (unit.role !== "catalyst") continue;
     nodeByItem.set(unit.itemId, unit);
   }
 

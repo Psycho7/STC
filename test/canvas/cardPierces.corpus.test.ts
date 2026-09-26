@@ -24,12 +24,7 @@ import { pack } from "../../src/data/load";
 import { solveForRender } from "../../src/pipeline/solveForRender";
 import type { ItemTarget } from "../../src/data/targets";
 import { SCENARIOS } from "../e2e/scenarios";
-import {
-  containersAt,
-  segmentEntersRect,
-  segmentsOf,
-  type NodeRect,
-} from "../e2e/geometry";
+import { segmentEntersRect, segmentsOf, type NodeRect } from "../e2e/geometry";
 
 // Boundary slack, the audit's own: a leg that lands exactly on a card's port
 // side touches the border and does not enter the body.
@@ -51,7 +46,7 @@ describe("no drawn segment enters a foreign card", () => {
         solveForRender({ targets, pack }),
       );
       const byId = nodeIndexOf(nodes);
-      const rects: NodeRect[] = cardRectsFor(nodes, byId).map((c) => ({
+      const rects: NodeRect[] = cardRectsFor(nodes).map((c) => ({
         nodeId: c.id,
         type: byId.get(c.id)?.type ?? "",
         left: c.left,
@@ -68,11 +63,6 @@ describe("no drawn segment enters a foreign card", () => {
         if (pts.length === 0) continue;
 
         const exempt = new Set<string>([edge.source, edge.target]);
-        for (const end of [pts[0]!, pts[pts.length - 1]!]) {
-          for (const c of containersAt([end[0], end[1]], rects)) {
-            exempt.add(c);
-          }
-        }
 
         for (const [p0, p1] of segmentsOf(
           pts.map(([x, y]) => [x, y] as const),

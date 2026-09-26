@@ -362,14 +362,9 @@ describe("no seated 1-to-1 chip box holds a foreign vertical", () => {
   }, 600_000);
 });
 
-// The rects a chip box must not stand on: the RAW drawn card boxes, container
-// slabs excluded (a slab is a tint behind a whole group, not a label surface).
+// The rects a chip box must not stand on: the RAW drawn card boxes.
 function cardRectsOf(nodes: ReadonlyArray<RFAnyNode>): ReadonlyArray<CardRect> {
-  const byId = nodeIndexOf(nodes);
-  return cardRectsFor(
-    nodes.filter((node) => node.type !== "group"),
-    byId,
-  );
+  return cardRectsFor(nodes);
 }
 
 // Each card's PORT FURNITURE: the keep-out band straddling its port edge, which

@@ -112,8 +112,7 @@ export type SolveFromPlanOutput = SolveForRenderOutput & {
 /**
  * The items of `itemOverrides` whose cap the drawn plan draws in full, read off
  * the boundary input units the render pipeline emitted (their `rate` is what the
- * solve pulled, their `rateCap` the declared limit). Fan-out slices are skipped:
- * only the whole node carries the item's total draw.
+ * solve pulled, their `rateCap` the declared limit).
  *
  * Only the role-less pool's overrides can bind here: a catalyst pool's charge
  * is drawn whole by design and the LP never charges it against a cap
@@ -138,7 +137,6 @@ export function boundaryCapsAtLimit(
   const drawn = new Set<string>();
   for (const unit of plan.units) {
     if (!isInputProductUnit(unit)) continue;
-    if (unit.isFanout) continue;
     if (unit.role === "catalyst") continue;
     if (!capByItem.has(unit.itemId)) continue;
     drawn.add(unit.itemId);

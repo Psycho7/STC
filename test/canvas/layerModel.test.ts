@@ -30,8 +30,6 @@ import { FORWARD_STEP_BUDGET } from "../../src/canvas/edgePath";
 import { PRODUCT_WIDTH, RECIPE_WIDTH } from "../../src/canvas/dimensions";
 import type { RFAnyNode } from "../../src/canvas/layout";
 import {
-  containerNode,
-  inContainer,
   inputProductNode,
   mkEdge,
   mkRecipe,
@@ -58,34 +56,24 @@ const producer = (id: string, y: number, item: string): RFAnyNode =>
   recipeNode(id, 0, y, mkRecipe(id, [], [item]));
 
 describe("buildLayerModel", () => {
-  it("layers a container's interior in its own scope and the box in the root's", () => {
-    // The container's own box sits one child inset left of its members, so the
-    // ROOT scope sees one interval starting at LAYER_PITCH - 20 (the box) while
-    // the container's own scope sees its two children at 20.
-    const group = containerNode("g", LAYER_PITCH - 20, 0, 340, 400);
+  it("layers every node in the root scope and spans an edge by its endpoints' layers", () => {
     const nodes: RFAnyNode[] = [
       producer("p", 0, "s"),
-      group,
-      inContainer(orderedRecipeNode("c1", 20, 0, ["s"]), "g"),
-      inContainer(orderedRecipeNode("c2", 20, 200, ["s"]), "g"),
+      orderedRecipeNode("c1", LAYER_PITCH, 0, ["s"]),
+      orderedRecipeNode("c2", LAYER_PITCH, 200, ["s"]),
     ];
 
     const model = buildLayerModel(nodes);
     const root = model.scopes.get(ROOT_SCOPE)!;
-    const interior = model.scopes.get("g")!;
 
+    expect([...model.scopes.keys()]).toEqual([ROOT_SCOPE]);
     expect(root.layers.map((l) => [l.left, l.right])).toEqual([
       [0, RECIPE_WIDTH],
-      [LAYER_PITCH - 20, LAYER_PITCH - 20 + 340],
+      [LAYER_PITCH, LAYER_PITCH + RECIPE_WIDTH],
     ]);
     expect(root.layerByNodeId.get("p")).toBe(0);
-    expect(root.layerByNodeId.get("g")).toBe(1);
-    expect(root.layerByNodeId.has("c1")).toBe(false);
-    // The children share one interior layer, and each resolves to its
-    // container's layer when asked for in the root scope.
-    expect(interior.layers).toHaveLength(1);
-    expect(interior.layerByNodeId.get("c1")).toBe(0);
-    expect(interior.layerByNodeId.get("c2")).toBe(0);
+    expect(root.layerByNodeId.get("c1")).toBe(1);
+    expect(root.layerByNodeId.get("c2")).toBe(1);
     expect(layerIndexIn(model, ROOT_SCOPE, "c1")).toBe(1);
     expect(layerSpanOf(model, "p", "c1")).toEqual({
       scope: ROOT_SCOPE,
@@ -268,41 +256,11 @@ describe("gap widening on three layers", () => {
   });
 });
 
-describe("gap widening with containers", () => {
-  it("shifts a container fully right of the gap as a unit", () => {
-    // The container is ONE interval of the root scope, so the gap is measured to
-    // its box (one child inset left of its members), not to the members: ELK's
-    // own gap here is ELK_GAP minus that inset.
-    const INSET = 20;
+describe("gap widening on a 1-to-1 edge", () => {
+  it("charges the bend column one pitch floor and moves only the right layer", () => {
     const nodes: RFAnyNode[] = [
-      producer("p", 0, "s"),
-      containerNode("g", LAYER_PITCH - INSET, 0, 340, 400),
-      inContainer(orderedRecipeNode("c1", INSET, 0, ["s"]), "g"),
-      inContainer(orderedRecipeNode("c2", INSET, 200, ["s"]), "g"),
-    ];
-    const edges = [
-      mkEdge("e:0", "p", "c1", "s"),
-      mkEdge("e:1", "p", "c2", "s"),
-    ];
-    const delta =
-      gapRequirements(nodes, edges)[0]!.required - (ELK_GAP - INSET);
-    expect(delta).toBeGreaterThan(0);
-
-    const widened = widenLayerGaps(nodes, edges);
-    const byId = new Map(widened.nodes.map((n) => [n.id, n]));
-
-    expect(byId.get("g")!.position.x).toBe(LAYER_PITCH - INSET + delta);
-    expect(byId.get("g")!.width).toBe(340);
-    // Children are parent-relative, so they follow the container untouched.
-    expect(byId.get("c1")!.position.x).toBe(20);
-    expect(byId.get("c2")!.position.x).toBe(20);
-  });
-
-  it("moves only the right-side children of a straddling container and grows it", () => {
-    const nodes: RFAnyNode[] = [
-      containerNode("g", 0, 0, 1000, 400),
-      inContainer(recipeNode("l", 0, 0, mkRecipe("l", [], ["s"])), "g"),
-      inContainer(orderedRecipeNode("r", LAYER_PITCH, 0, ["s"]), "g"),
+      recipeNode("l", 0, 0, mkRecipe("l", [], ["s"])),
+      orderedRecipeNode("r", LAYER_PITCH, 0, ["s"]),
     ];
     const edges = [mkEdge("e:0", "l", "r", "s")];
     const required = gapRequirements(nodes, edges)[0]!.required;
@@ -316,122 +274,10 @@ describe("gap widening with containers", () => {
     const widened = widenLayerGaps(nodes, edges);
     const byId = new Map(widened.nodes.map((n) => [n.id, n]));
 
-    expect(byId.get("g")!.position.x).toBe(0);
-    expect(byId.get("g")!.width).toBe(1000 + delta);
-    expect(byId.get("g")!.style?.width).toBe(1000 + delta);
     expect(byId.get("l")!.position.x).toBe(0);
     expect(byId.get("r")!.position.x).toBe(LAYER_PITCH + delta);
-  });
-
-  it("shifts a leaf two containers deep through its ancestor chain", () => {
-    // The same straddling fixture with one more level of nesting. The leaves
-    // belong to layers; the containers do not, so the inner box has to carry
-    // its right-hand child's shift and both ancestors have to grow with it.
-    // fromElkRenderLayout emits only one level today (a container's children
-    // are units), so this is the model staying correct if nesting arrives.
-    const nodes: RFAnyNode[] = [
-      containerNode("outer", 0, 0, 1000, 400),
-      inContainer(containerNode("inner", 0, 0, 1000, 400), "outer"),
-      inContainer(recipeNode("l", 0, 0, mkRecipe("l", [], ["s"])), "inner"),
-      inContainer(orderedRecipeNode("r", LAYER_PITCH, 0, ["s"]), "inner"),
-    ];
-    const edges = [mkEdge("e:0", "l", "r", "s")];
-    const delta = gapRequirements(nodes, edges)[0]!.required - ELK_GAP;
-    expect(delta).toBeGreaterThan(0);
-
-    const widened = widenLayerGaps(nodes, edges);
-    const byId = new Map(widened.nodes.map((n) => [n.id, n]));
-
-    expect(byId.get("l")!.position.x).toBe(0);
-    expect(byId.get("r")!.position.x).toBe(LAYER_PITCH + delta);
-    expect(byId.get("inner")!.position.x).toBe(0);
-    expect(byId.get("inner")!.width).toBe(1000 + delta);
-    expect(byId.get("outer")!.position.x).toBe(0);
-    expect(byId.get("outer")!.width).toBe(1000 + delta);
-    expect(byId.get("outer")!.style?.width).toBe(1000 + delta);
-    // The gap record and the moved target agree: the target's left edge is the
-    // right end of the widened gap.
     const gap = widened.gaps[0]!;
     expect(gap.right).toBe(LAYER_PITCH + delta);
-  });
-});
-
-describe("a container interior bridged by a root card", () => {
-  // The shape that a single global layering cannot describe, and the one the
-  // corpus really draws (a loop's seed feeding its planters, with unrelated root
-  // cards standing across the box):
-  //
-  //   root:        [ p ]        [ ------- g ------- ]
-  //                                 [ bridge ]
-  //   g interior:          [ l ] gap [ r ]
-  //
-  // `bridge` overlaps l AND r in x, so clustering every leaf together merges the
-  // three into one layer and the interior corridor disappears.
-  const INSET = 20;
-  const fixture = (): { nodes: RFAnyNode[]; edges: Edge[] } => {
-    const width = 2 * INSET + 2 * RECIPE_WIDTH + ELK_GAP;
-    const nodes: RFAnyNode[] = [
-      producer("p", 0, "s"),
-      containerNode("g", 300, 0, width, 400),
-      inContainer(recipeNode("l", INSET, 0, mkRecipe("l", [], ["t"])), "g"),
-      inContainer(
-        orderedRecipeNode("r", INSET + RECIPE_WIDTH + ELK_GAP, 0, ["t"]),
-        "g",
-      ),
-      orderedRecipeNode("bridge", 500, 260, ["s"]),
-    ];
-    return {
-      nodes,
-      edges: [mkEdge("e:0", "l", "r", "t"), mkEdge("e:1", "p", "bridge", "s")],
-    };
-  };
-
-  it("keeps the interior corridor a gap of its own scope", () => {
-    const { nodes } = fixture();
-    const model = buildLayerModel(nodes);
-
-    // The bridge really does span the corridor: it shares the root layer with
-    // the container, and l and r are still two interior layers.
-    expect(layerIndexIn(model, ROOT_SCOPE, "bridge")).toBe(
-      layerIndexIn(model, ROOT_SCOPE, "l"),
-    );
-    expect(model.scopes.get("g")!.layers).toHaveLength(2);
-    expect(layerSpanOf(model, "l", "r")).toEqual({
-      scope: "g",
-      from: 0,
-      to: 1,
-    });
-    // One gap per scope, and the two do not collide: the interior gap covers an
-    // x band the root layer covers too.
-    const spans = gapSpansOf(model);
-    const interior = spans.find((span) => span.scope === "g")!;
-    const root = spans.find((span) => span.scope === ROOT_SCOPE)!;
-    expect(interior.right - interior.left).toBe(ELK_GAP);
-    expect(root.right).toBeLessThan(interior.left);
-  });
-
-  it("widens the interior corridor and grows the container by it", () => {
-    const { nodes, edges } = fixture();
-    const required = gapRequirements(nodes, edges).find(
-      (gap) => gap.scope === "g",
-    )!.required;
-    expect(required).toBeGreaterThan(ELK_GAP);
-
-    const widened = widenLayerGaps(nodes, edges);
-    const byId = new Map(widened.nodes.map((n) => [n.id, n]));
-    const delta = required - ELK_GAP;
-
-    expect(byId.get("l")!.position.x).toBe(INSET);
-    expect(byId.get("r")!.position.x).toBe(INSET + RECIPE_WIDTH + required);
-    expect(byId.get("g")!.width).toBe(
-      2 * INSET + 2 * RECIPE_WIDTH + ELK_GAP + delta,
-    );
-    // The grown box does not swallow the root card it now reaches past: the
-    // layering of the widened nodes still reads two interior layers.
-    const after = buildLayerModel(widened.nodes);
-    expect(after.scopes.get("g")!.layers).toHaveLength(2);
-    const gap = widened.gaps.find((g) => g.scope === "g")!;
-    expect(gap.right - gap.left).toBe(required);
   });
 });
 

@@ -332,10 +332,10 @@ test.describe("DOM geometry audit", () => {
 // counts and two padding grazes, each noted at its cell below. They are one
 // family. T6 gives forward horizontal runs of different edges a y floor of a
 // chip box (I2), so a run that used to hide inside a neighbour's stroke now
-// steps off it and crosses whatever that neighbour's corridor holds; T7 layers
-// each container interior in its own scope, which moves the cards a step apart
-// on the plans that have containers; and T2 / T3 change what a card is tall,
-// which moves every row a stroke lands on. A separation the reader can see,
+// steps off it and crosses whatever that neighbour's corridor holds; T7 laid
+// out each container interior in its own scope, which moved the cards a step
+// apart on the plans that had containers; and T2 / T3 change what a card is
+// tall, which moves every row a stroke lands on. A separation the reader can see,
 // bought with crossings the cue mask already marks. Nothing else in either
 // table moved, and no counter in the 0.6 census or the reading-zoom census
 // moved at all. Both directions are harvested in one run (every ratchet here is
@@ -408,7 +408,7 @@ const CROSSING_BASELINE: Record<string, number> = {
   // ROUTING FINDINGS 2026-09-14: 90 -> 88, re-measured on this branch.
   //
   // CATALYST EXAM FIXES 2026-09-15 (T7 with T6): 88 -> 90. The plan's loop
-  // containers are laid out in their own scopes now, which spreads the cards
+  // containers were laid out in their own scopes then, which spread the cards
   // the supply runs cross, and the forward floor lifts two of those runs off
   // their neighbours. UP move, listed for ruling.
   //
@@ -653,18 +653,17 @@ const OWN_PIERCE_BASELINE: Record<string, number> = {
   "script43-xiranite": 0,
 };
 
-// Frame-ride ratchet: edge segments running ALONG a container slab's border,
-// so the stroke and the border read as one line. A backward rail counts on
-// both axes within FRAME_RIDE_TOL; a forward edge counts on its HORIZONTALS
-// within the wider FORWARD_FRAME_RIDE_TOL, with its own containers and a
-// port-row straight run exempt (auditFrameRides states why for each). Blind by
-// design to a stroke that crosses or corners near a frame: only a RUN along it
-// counts.
+// Frame-ride ratchet: edge segments running ALONG a loop card's border, so the
+// stroke and the border read as one line. A backward rail counts on both axes
+// within FRAME_RIDE_TOL; a forward edge counts on its HORIZONTALS within the
+// wider FORWARD_FRAME_RIDE_TOL, with its own endpoint cards and a port-row
+// straight run exempt (auditFrameRides states why for each). Blind by design to
+// a stroke that crosses or corners near a border: only a RUN along it counts.
 //
 // CANVAS DEFECT CASEBOOK 2026-09-19: forward horizontals joined the scope, so
 // every cell below is a FIRST PIN of the widened counter at its harvested
 // count, not a raise of the backward-only counter (which stays where it was).
-// The casebook re-reports a forward jog hugging a slab border (family F) with
+// The casebook re-reported a forward jog hugging a slab border (family F) with
 // no measurement behind it; this is that measurement.
 const FRAME_RIDE_BASELINE: Record<string, number> = {
   // Structural zero with no bands drawn.
@@ -677,16 +676,16 @@ const FRAME_RIDE_BASELINE: Record<string, number> = {
   crystal: 0,
   equip4: 0,
   // CANVAS DEFECT CASEBOOK 2026-09-19 (T4, family F): 3 -> 0. The three supply
-  // runs that lay 12, 16 and 16 off the two plant_grass loop boxes' borders now
-  // keep CONTAINER_JOG_GAP off them (e:67 1054 -> 1038, e:69 1393 -> 1018,
+  // runs that lay 12, 16 and 16 off the two plant_grass loop boxes' borders
+  // moved clear of them (e:67 1054 -> 1038, e:69 1393 -> 1018,
   // e:81 1673 -> 1657).
   multi6: 0,
   tundra: 0,
   script43: 0,
   "coupon-web": 0,
   "gas-web": 0,
-  // ROUTING FINDINGS 2026-09-14: 1 -> 0. No stroke runs along a slab or band
-  // border on this plan any more.
+  // ROUTING FINDINGS 2026-09-14: 1 -> 0. From then on no stroke ran along a
+  // slab or band border on this plan.
   "rot-bottled_food_3": 0,
   // CANVAS DEFECT CASEBOOK 2026-09-19 (T4, family F): 2 -> 1. The jogged run
   // moved (e:14, 57 -> 41); the survivor is e:12, an unjogged port-to-port run 23 off the
@@ -1047,12 +1046,11 @@ test.describe("segment placement audit", () => {
           .toBeLessThanOrEqual(ownPierceBaseline);
       }
 
-      // Frame-ride ratchet: segments running along a container slab's border --
-      // a backward rail on either axis, a forward edge on its horizontals
-      // (forward tap descents may share a border line by convention and are
-      // still not counted). Stroke-on-frame braids are the loop-return family
-      // this counter was built for, and the forward jog hugging a frame is the
-      // family it was widened for; see FRAME_RIDE_BASELINE above.
+      // Frame-ride ratchet: segments running along a loop card's border -- a
+      // backward rail on either axis, a forward edge on its horizontals only.
+      // Stroke-on-border braids are the loop-return family this counter was
+      // built for, and the forward jog hugging a border is the family it was
+      // widened for; see FRAME_RIDE_BASELINE above.
       const frameRides = auditFrameRides(rawEdges, nodes);
       const frameRideInventory = frameRides.map(
         (v) =>
@@ -1273,7 +1271,7 @@ test.describe("segment placement audit", () => {
 // failure shows the same region every run.
 
 // Card intrusion: chips whose box reaches more than CARD_INTRUSION_BUDGET deep
-// past a node card's border, OWN cards included, container slabs excluded. A
+// past a node card's border, OWN cards included. A
 // depth rule, sharing its budget with the seating pass's own-card port-strip
 // exemption, so a chip lying across the port strip on its own line -- the normal
 // on-line state -- never counts however wide it is. Distinct from the hard

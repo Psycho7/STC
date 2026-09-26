@@ -161,10 +161,10 @@ export function backwardRailDefaults(args: {
 // An axis-aligned card rectangle in absolute graph coordinates, for rail
 // obstacle avoidance.
 export type ObstacleRect = Rect & {
-  // A container slab (group / loop box), not a plain card. clearRailY keeps a
-  // detour rail a wider gap off these so the rail no longer hugs the slab border
-  // in a near-identical gray (#29). Absent / false on cards and gutters.
-  container?: boolean;
+  // Takes the wider `drawnVerticalGap` in a column search (clearColumnX)
+  // instead of the plain gap. Only another edge's drawn vertical carries it (see
+  // drawnColumnBands in busRouting.ts); absent on cards and gutters.
+  drawnVertical?: boolean;
 };
 
 // Optional per-edge routing hints. The routing passes (busRouting) merge these
@@ -312,11 +312,10 @@ export function routingHintsFromData(data: unknown): RoutingHints {
 // Choose a backward-detour rail y clear of every obstacle the rail horizontally
 // spans -- but only the CONNECTED BAND of them around preferredY. The rail runs
 // at `preferredY` between xLo and xHi; an obstacle whose x-range overlaps
-// [xLo, xHi] and whose strike band contains preferredY would be sliced (or, for
-// a container slab, hugged). The escaping rail then clears the band: the strike
-// intervals of the obstacles transitively touching the one that contains
-// preferredY (overlapping intervals merge, so a chain of cards and slab moats
-// moves as one block), taken as a unit -- just above the band (min top - its
+// [xLo, xHi] and whose y-range contains preferredY would be sliced. The
+// escaping rail then clears the band: the y-ranges of the obstacles
+// transitively touching the one that contains preferredY (overlapping ranges
+// merge, so a chain of cards moves as one block), taken as a unit -- just above the band (min top - its
 // gap) or just below it (max bottom + its gap), whichever is the smaller move.
 // Obstacles in OTHER bands -- an x-overlapping card rows away, above or below --
 // do not drag the rail: escaping over EVERY x-overlapping rect at once hoisted a
@@ -326,53 +325,31 @@ export function routingHintsFromData(data: unknown): RoutingHints {
 // graphTop - 8. Should the nearer escape land within gap clearance of an
 // obstacle the band did not cover, that obstacle's own band joins and the
 // escapes recompute, so the returned y clears every spanned rect by its own
-// gap, as the old whole-graph rule did. Plain obstacles use `gap` for both
-// the strike test and the clearance; container slabs (o.container) use the
-// wider `containerGap` for both, so a rail preferred anywhere inside the
-// container's clearance band -- including the moat between the padded border
-// and the band edge -- is pushed out to the full band (#29). Obstacles
-// outside the x-span are ignored because the horizontal rail never reaches
-// them. Pure.
+// gap, as the old whole-graph rule did. Obstacles outside the x-span are
+// ignored because the horizontal rail never reaches them. Pure.
 export function clearRailY(
   preferredY: number,
   xLo: number,
   xHi: number,
   obstacles: ReadonlyArray<ObstacleRect>,
   gap = CHAMFER,
-  // Wider gap applied to container-slab obstacles (o.container). Defaults to the
-  // plain gap, so a non-container-aware caller is byte-identical to before.
-  containerGap = gap,
 ): number {
   const lo = Math.min(xLo, xHi);
   const hi = Math.max(xLo, xHi);
   const spanned = obstacles.filter((o) => o.right > lo && o.left < hi);
   if (spanned.length === 0) return preferredY;
-  // Strike band: the rect itself for plain obstacles; widened by the extra
-  // container clearance for slabs, so a rail preferred in the moat between the
-  // padded border and the full band still counts as a strike and gets pushed
-  // out, instead of being left hugging the border.
-  const reach = (o: ObstacleRect): number =>
-    o.container ? containerGap - gap : 0;
-  const strikeLo = (o: ObstacleRect): number => o.top - reach(o);
-  const strikeHi = (o: ObstacleRect): number => o.bottom + reach(o);
-  const hits = spanned.some(
-    (o) => preferredY >= strikeLo(o) && preferredY <= strikeHi(o),
-  );
-  if (!hits) return preferredY;
-  const gapOf = (o: ObstacleRect): number => (o.container ? containerGap : gap);
-  // Seed the band with every obstacle whose strike interval contains
-  // preferredY, then escape over it (growing transitively) in the loop helper.
+  // Seed the band with every obstacle whose y-range contains preferredY, then
+  // escape over it (growing transitively) in the loop helper.
   const band = new Set(
-    spanned.filter(
-      (o) => preferredY >= strikeLo(o) && preferredY <= strikeHi(o),
-    ),
+    spanned.filter((o) => preferredY >= o.top && preferredY <= o.bottom),
   );
-  return clearRailYBand(preferredY, spanned, band, strikeLo, strikeHi, gapOf);
+  if (band.size === 0) return preferredY;
+  return clearRailYBand(preferredY, spanned, band, gap);
 }
 
 // The escape loop over the connected band around preferredY: grow the band
-// transitively (overlapping strike intervals merge, so a chain of cards and
-// slab moats moves as one block), take the nearer of just-above / just-below
+// transitively (overlapping y-ranges merge, so a chain of cards moves as one
+// block), take the nearer of just-above / just-below
 // the whole band, and -- should that escape land within gap clearance of a
 // spanned obstacle the band did not cover, the same padding the escapes
 // themselves apply, so a landing 1..gap off a card re-merges instead of
@@ -383,28 +360,25 @@ function clearRailYBand(
   preferredY: number,
   spanned: ReadonlyArray<ObstacleRect>,
   band: Set<ObstacleRect>,
-  strikeLo: (o: ObstacleRect) => number,
-  strikeHi: (o: ObstacleRect) => number,
-  gapOf: (o: ObstacleRect) => number,
+  gap: number,
 ): number {
   for (;;) {
     let bandLo = Infinity;
     let bandHi = -Infinity;
     for (const o of band) {
-      bandLo = Math.min(bandLo, strikeLo(o));
-      bandHi = Math.max(bandHi, strikeHi(o));
+      bandLo = Math.min(bandLo, o.top);
+      bandHi = Math.max(bandHi, o.bottom);
     }
     for (const o of spanned) {
       if (band.has(o)) continue;
-      if (strikeLo(o) <= bandHi && strikeHi(o) >= bandLo) band.add(o);
+      if (o.top <= bandHi && o.bottom >= bandLo) band.add(o);
     }
     const members = [...band];
-    const aboveY = Math.min(...members.map((o) => o.top - gapOf(o)));
-    const belowY = Math.max(...members.map((o) => o.bottom + gapOf(o)));
+    const aboveY = Math.min(...members.map((o) => o.top - gap));
+    const belowY = Math.max(...members.map((o) => o.bottom + gap));
     const pick = preferredY - aboveY <= belowY - preferredY ? aboveY : belowY;
     const struckOutside = spanned.filter(
-      (o) =>
-        !band.has(o) && pick >= o.top - gapOf(o) && pick <= o.bottom + gapOf(o),
+      (o) => !band.has(o) && pick >= o.top - gap && pick <= o.bottom + gap,
     );
     if (struckOutside.length === 0) return pick;
     for (const o of struckOutside) band.add(o);
@@ -633,8 +607,8 @@ function runsByPreference(
 // The anchor stays within the run, so the chip never leaves its own line.
 //
 // `cards` are the RAW drawn card rects (recipe / product / loop boxes, no
-// padding); container slabs are not cards. The caller supplies them because
-// this module sees one edge at a time and never the node list.
+// padding). The caller supplies them because this module sees one edge at a
+// time and never the node list.
 // Does a chip box at (x, y) enter any of these cards? The seating pass asks it
 // of a RULE seat before deciding to slide, and the slide below asks it of every
 // candidate, so both read the same definition of "on a card".

@@ -1,10 +1,4 @@
-import type {
-  ContainerId,
-  ItemId,
-  RenderUnitId,
-  ReplicaId,
-  SccId,
-} from "../types";
+import type { ItemId, RenderUnitId, ReplicaId, SccId } from "../types";
 
 // One home for the `u:`-prefixed render unit-id grammar. Every emitter that
 // mints a render unit id and every checker that reconstructs one calls these
@@ -24,12 +18,9 @@ import type {
 //
 // The grammar is `u:`-prefixed and `:`-separated, and the families below are
 // distinguished by the word after `u:` (`scc`, `class`, `in`, `cat`, `out`,
-// `surplus`). Injectivity across the families rests on one clause about the
-// ids fed in: an item id contains no `:`. Otherwise `u:in:a:b` is ambiguous
-// between the aggregate for item "a:b" and the container "b" of item "a", and
-// `u:cat:a:b` the same way for the catalyst family. No container slot under
-// `u:in:<item>:` is reserved: a free-supply target's export draws from the
-// item's ordinary input card, not from a card of its own. The pack census in
+// `surplus`). An item id contains no `:`, so an id reads back to one family and
+// one item. A free-supply target's export draws from the item's ordinary input
+// card, not from a card of its own. The pack census in
 // src/solver/pack-shape.test.ts pins the clause on the shipped pack.
 
 // Every SCC vertex with the same sccId collapses to one loop unit so all
@@ -42,22 +33,12 @@ export const unitIdForClass = (replicaId: ReplicaId): RenderUnitId =>
 export const unitIdForInputAggregate = (item: ItemId): RenderUnitId =>
   `u:in:${item}`;
 
-export const unitIdForInputContainer = (
-  item: ItemId,
-  containerId: ContainerId,
-): RenderUnitId => `u:in:${item}:${containerId}`;
-
 // The catalyst pool of an item: a boundary node feeding `cat:` ports only.
 // It is a family of its own rather than another `u:in:` node because an item
 // can be drawn as an ordinary reagent and cycled as a catalyst at once, and
 // the two draws are accounted separately.
 export const unitIdForCatalystAggregate = (item: ItemId): RenderUnitId =>
   `u:cat:${item}`;
-
-export const unitIdForCatalystContainer = (
-  item: ItemId,
-  containerId: ContainerId,
-): RenderUnitId => `u:cat:${item}:${containerId}`;
 
 export const unitIdForOutputProduct = (item: ItemId): RenderUnitId =>
   `u:out:${item}`;

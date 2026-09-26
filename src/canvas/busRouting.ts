@@ -69,13 +69,10 @@ import { CHIP_HALF_H } from "./chipMetrics";
 import {
   FORWARD_LEVEL_FLOOR,
   chooseLevel,
-  containerFrameLines,
-  frameFloorHit,
   levelCandidates,
   runBandsOfEdge,
   runFloorHit,
   sharesPortRow,
-  type FrameLine,
   type LevelPorts,
   type RunBand,
 } from "./levelOccupancy";
@@ -195,12 +192,10 @@ export function edgePortsModel(
   if (source === undefined || target === undefined) return null;
   const item = edgeItem(edge);
   return {
-    sx: absoluteLeft(source, byId) + nodeWidth(source),
-    sy: absoluteTop(source, byId) + portOffsetY(source, item, "out"),
-    tx: absoluteLeft(target, byId),
-    ty:
-      absoluteTop(target, byId) +
-      portOffsetY(target, item, edgeTargetSide(edge)),
+    sx: absoluteLeft(source) + nodeWidth(source),
+    sy: absoluteTop(source) + portOffsetY(source, item, "out"),
+    tx: absoluteLeft(target),
+    ty: absoluteTop(target) + portOffsetY(target, item, edgeTargetSide(edge)),
   };
 }
 
@@ -235,17 +230,12 @@ function byRoutingOrder(
   return ai !== bi ? ai - bi : a.index - b.index;
 }
 
-// Exemption set for an edge's own geometry: each given endpoint node plus one
-// parentId level (its container box -- a grouped endpoint's runs legitimately
-// start / end inside their own group). Every obstacle filter in this module's
-// routing passes shares this rule, so what counts as "own" geometry is decided
-// once.
+// Exemption set for an edge's own geometry: each given endpoint node. Every
+// obstacle filter in this module's routing passes shares this rule, so what
+// counts as "own" geometry is decided once.
 export function ownExempt(nodes: ReadonlyArray<RFAnyNode>): Set<string> {
   const exempt = new Set<string>();
-  for (const n of nodes) {
-    exempt.add(n.id);
-    if (n.parentId !== undefined) exempt.add(n.parentId);
-  }
+  for (const n of nodes) exempt.add(n.id);
   return exempt;
 }
 
@@ -274,7 +264,7 @@ function legBlockedIn(
 // The jog pass's card trigger: does a forward step's source run (sy, from the
 // port out to its drop column) or its target run (ty, from the drop column into
 // the port) cross a foreign padded card? `exempt` is the edge's own endpoints
-// and their containers (ownExempt). The gap column order asks the same question
+// (ownExempt). The gap column order asks the same question
 // before routing, with the drop column at the edge of its gap, to know which
 // edges will jog and so descend in front of their target: one function, so the
 // prediction is the trigger.
@@ -402,11 +392,7 @@ export function routeTrunkEdges(
   // How far the member reaches from its trunk's own layer, which is what
   // decides whether it is drawn as part of the trunk (next layer over), merely
   // pinned to its column (further away) or left to its detour rail (backward).
-  // The distance is read in the trunk's own SCOPE -- the innermost frame the
-  // unit and every counterpart share -- so a fan-out inside a loop container
-  // measures against the container's interior layers, not against a root
-  // layering in which a card standing beside the box merges the two into one.
-  // A member whose endpoints have no layer there -- only an unplaced node can do
+  // A member whose endpoints have no layer -- only an unplaced node can do
   // that, and classifyTrunks already dropped those -- reads as backward.
   type Reach = "near" | "far" | "backward";
 
@@ -511,8 +497,7 @@ export function routeTrunkEdges(
   // through it.
   //
   // So a member is near only if both runs are clear of the raw cards foreign to
-  // it (its own endpoints and their containers exempt, as everywhere else in
-  // this module). One that is not is DEMOTED to the far treatment below: it
+  // it (its own endpoints exempt, as everywhere else in this module). One that is not is DEMOTED to the far treatment below: it
   // keeps the shared column as its bend and goes back to the item-edge passes,
   // where jogForwardLegs can move its legs clear. The column itself does not
   // move -- it is the slot the gap record handed the trunk.
@@ -739,9 +724,8 @@ function corridorMidColumn(sx: number, nearestTx: number): number {
 // since the real bend column sits somewhere inside it. Only CARD obstacles
 // block: gutters guard foreign VERTICAL runs, while this test is about a
 // horizontal final leg, which legitimately crosses gutter x-bands (every
-// entering leg does). Own source / target cards, plus each endpoint's
-// container, are exempt (same semantics as jogForwardLegs): the run
-// legitimately starts / ends inside them.
+// entering leg does). Own source / target cards are exempt (same semantics as
+// jogForwardLegs): the run legitimately starts / ends inside them.
 function forwardCorridorClear(
   edge: Edge,
   byId: ReadonlyMap<string, RFAnyNode>,
@@ -776,7 +760,7 @@ export function directCorridorClear(
   const source = byId.get(edge.source);
   const target = byId.get(edge.target);
   if (source === undefined || target === undefined) return false;
-  if (nodeGap(source, target, byId) <= 0) return false;
+  if (nodeGap(source, target) <= 0) return false;
   const obstacles = paddedObstacles(nodes, edges);
   return forwardCorridorClear(edge, byId, obstacles);
 }
@@ -824,13 +808,9 @@ export type GutterRect = Rect;
 // at or left of the source (a backward edge under ELK's cycle reversal). The
 // drawers' own gap (tx - sx, port to port) equals this because sources are
 // Right-handles and targets Left-handles.
-function nodeGap(
-  source: RFAnyNode,
-  target: RFAnyNode,
-  byId: ReadonlyMap<string, RFAnyNode>,
-): number {
-  const sourceRight = absoluteLeft(source, byId) + nodeWidth(source);
-  return absoluteLeft(target, byId) - sourceRight;
+function nodeGap(source: RFAnyNode, target: RFAnyNode): number {
+  const sourceRight = absoluteLeft(source) + nodeWidth(source);
+  return absoluteLeft(target) - sourceRight;
 }
 
 // Does an edge occupy a vertical column inside its target's entry gutter? A
@@ -844,9 +824,8 @@ function occupiesGutterColumn(
   edge: Edge,
   source: RFAnyNode,
   target: RFAnyNode,
-  byId: ReadonlyMap<string, RFAnyNode>,
 ): boolean {
-  const gap = nodeGap(source, target, byId);
+  const gap = nodeGap(source, target);
   if (edge.type === "bus") {
     const busData = edge.data as BusEdgeData | undefined;
     // A fan-out member approaches its target horizontally off the shared
@@ -887,9 +866,9 @@ function takesArrivalColumn(
   model: LayerModel,
 ): boolean {
   if (edge.type !== "item") {
-    return occupiesGutterColumn(edge, source, target, byId);
+    return occupiesGutterColumn(edge, source, target);
   }
-  if (nodeGap(source, target, byId) <= 0) return true; // backward rail
+  if (nodeGap(source, target) <= 0) return true; // backward rail
   const span = layerSpanOf(model, edge.source, edge.target);
   if (span === undefined) return false;
   const { from, to } = span;
@@ -953,7 +932,7 @@ function arrivalRowOf(
   // settles two passes later and may push clear across the graph, so its extent
   // is unknown here and taken as unbounded: the row then shares a slot with
   // nothing and no rail braids a drop.
-  const backward = nodeGap(source, target, byId) <= 0;
+  const backward = nodeGap(source, target) <= 0;
   // A fan-in member draws down its trunk's shared merge column and never reads
   // the row's entry column, so the sense cannot move it -- and it must not vote
   // on it either, or it would flip the rows it shares the card with.
@@ -1026,10 +1005,8 @@ function arrivalSlots(
   }
 
   // Rows of one card, cards of one layer: the two nesting levels the colouring
-  // walks. The layer is the card's HOME one -- its index in the scope it is a
-  // direct child of -- because that is the set of cards whose arrival columns
-  // really share an x band; a card in a container interior fans against its
-  // siblings, not against the root cards its box happens to stand beside.
+  // walks. The layer is the card's HOME one, because that is the set of cards
+  // whose arrival columns really share an x band.
   const byLayer = new Map<string, Map<string, ArrivalRow[]>>();
   for (const row of rows.values()) {
     const home = homeLayerOf(model, row.targetId);
@@ -1195,7 +1172,7 @@ function gutterColumnCounts(
     const source = byId.get(edge.source);
     const target = byId.get(edge.target);
     if (source === undefined || target === undefined) continue;
-    if (!occupiesGutterColumn(edge, source, target, byId)) continue;
+    if (!occupiesGutterColumn(edge, source, target)) continue;
     counts.set(edge.target, (counts.get(edge.target) ?? 0) + 1);
   }
   return counts;
@@ -1212,7 +1189,7 @@ export function entryGutterRects(
   const counts = gutterColumnCounts(edges, byId);
   const rects = new Map<string, GutterRect>();
   for (const node of nodes) {
-    const r = nodeRectOf(node, byId);
+    const r = nodeRectOf(node);
     const g = gutterWidth(counts.get(node.id) ?? 0);
     rects.set(node.id, {
       left: r.left - g,
@@ -1480,9 +1457,7 @@ function nearestAllowedColumn(
 // fixture, or a caller re-running the passes on its own) the pre-zone rule
 // stands: the first slot one stub before the port.
 //
-// Both lookups are keyed by the EDGE, not by its target: the gap an arriving run
-// stands in is a gap of the scope the edge's two endpoints share, and a root gap
-// and a container-interior gap can cover the same x band.
+// Both lookups are keyed by the EDGE, not by its target.
 type ArrivalModel = {
   // The k-th arrival column in front of one edge's target, k counting from 0.
   columnOf: (edge: Edge, k: number) => number;
@@ -1507,7 +1482,7 @@ function arrivalModelOf(
   const stubColumn = (edge: Edge, k: number): number => {
     const target = byId.get(edge.target);
     if (target === undefined) return 0;
-    return absoluteLeft(target, byId) - PORT_STUB - k * ENTRY_SLOT_PITCH;
+    return absoluteLeft(target) - PORT_STUB - k * ENTRY_SLOT_PITCH;
   };
   if (gaps.length === 0) {
     return { columnOf: stubColumn, zoneOf: () => undefined };
@@ -1535,8 +1510,7 @@ function arrivalModelOf(
   };
 }
 
-// The first of a node's candidate gaps that has a record: the innermost scope
-// whose layering actually has a gap on that side of the node (gapKeysFor).
+// The first of a node's candidate gaps that has a record (gapKeysFor).
 function firstGap(
   gapByKey: ReadonlyMap<string, GapRecord>,
   keys: ReadonlyArray<string>,
@@ -1719,7 +1693,7 @@ export function assignBendColumns(
   const gutterCounts = gutterColumnCounts(edges, byId);
   type NodeGeom = { left: number; top: number; bottom: number; gutter: number };
   const geom: NodeGeom[] = nodes.map((n) => {
-    const r = nodeRectOf(n, byId);
+    const r = nodeRectOf(n);
     return {
       left: r.left,
       top: r.top,
@@ -1730,9 +1704,9 @@ export function assignBendColumns(
 
   // All node left edges, sorted and de-duplicated once, so each band can find
   // the next node column right of its source layer in one scan.
-  const nodeLeftEdges = [
-    ...new Set(nodes.map((n) => absoluteLeft(n, byId))),
-  ].sort((a, b) => a - b);
+  const nodeLeftEdges = [...new Set(nodes.map((n) => absoluteLeft(n)))].sort(
+    (a, b) => a - b,
+  );
 
   // Group candidate edges by their source layer (the source's absolute left
   // edge, quantized to the pixel). Edges leaving the same layer share a corridor
@@ -1769,7 +1743,7 @@ export function assignBendColumns(
     if (pinnedData?.fanoutColumn === true && pinnedData.bendX !== undefined) {
       const source = byId.get(edge.source);
       if (source !== undefined) {
-        const band = Math.round(absoluteLeft(source, byId));
+        const band = Math.round(absoluteLeft(source));
         pushInto(pinnedColumnsByBand, band, {
           x: pinnedData.bendX,
           trunk: true,
@@ -1788,12 +1762,12 @@ export function assignBendColumns(
     const source = byId.get(edge.source);
     const target = byId.get(edge.target);
     if (source === undefined || target === undefined) continue;
-    const sourceLeft = absoluteLeft(source, byId);
+    const sourceLeft = absoluteLeft(source);
     const sourceRight = sourceLeft + nodeWidth(source);
-    const targetLeft = absoluteLeft(target, byId);
+    const targetLeft = absoluteLeft(target);
     if (targetLeft - sourceRight <= 0) continue; // backward / zero-gap edge
-    const sourceTop = absoluteTop(source, byId);
-    const targetTop = absoluteTop(target, byId);
+    const sourceTop = absoluteTop(source);
+    const targetTop = absoluteTop(target);
     const yLo = Math.min(sourceTop, targetTop);
     const yHi = Math.max(
       sourceTop + nodeHeight(source),
@@ -1946,36 +1920,11 @@ const OBSTACLE_PAD_RIGHT = PORT_STUB;
 export const OBSTACLE_PAD_LEFT = Math.max(PORT_STUB, ENTRY_GUTTER_OVERHANG);
 export const OBSTACLE_PAD_Y = CHAMFER;
 
-// Extra vertical clearance a backward detour rail keeps off a container slab
-// (group / loop box), on top of the OBSTACLE_PAD_Y already baked into its padded
-// rect. At the plain CHAMFER gap the rail hugs the slab border ~16 graph units
-// off it, so a gray return edge and the gray border read as one line at fit zoom
-// (#29). This pushes the rail ~56 units (OBSTACLE_PAD_Y + this) off the raw
-// border -- ~3.5x the plain net gap -- so the two separate visibly. Picked by
-// visual check on the battery5-xiranite / crystal evidence plans.
-export const CONTAINER_RAIL_GAP = 48;
-
-// Vertical clearance a forward jog's RELOCATED run keeps off a FOREIGN
-// container's raw border, on top of the OBSTACLE_PAD_Y already baked into the
-// padded rect: the run lands 32 units off the border where the rail lands ~56.
-// The two numbers are two policies, not one policy two passes disagree about
-// (ADR STC-0009): the jog scan takes the nearest clear level to the target row,
-// and a 48 moat on a 311-tall loop box pushes that level past the box or into
-// the next layer, while 24 clears every site with no cascade. Left at the
-// padded gap the jog treats a frame as a plain card and rides it ~16 units off,
-// which at reading zoom draws as a second border.
-export const CONTAINER_JOG_GAP = 24;
-
-// Horizontal clearance a loop return's two VERTICALS keep off a container
-// slab's side borders, the column analog of CONTAINER_RAIL_GAP. A loop member
-// sits 10-36 units off its container's border (the ELK child inset), so the
-// default rail columns (one stub out of the source / before the target) land
-// a few units off the border and the return's verticals braid the frame -- the
-// stroke and the border merge into one line, or wrap non-members when the rail
-// hoists (the loop-backedge-braids-container family, #29 follow-on). This
-// pushes each column at least this far off the RAW slab border, into the
-// interior corridor. Picked by visual check like CONTAINER_RAIL_GAP.
-export const CONTAINER_COLUMN_GAP = 16;
+// Horizontal clearance a rail column keeps off an obstacle flagged
+// `drawnVertical`, in place of the plain gap. Only another edge's drawn vertical
+// carries the flag (drawnColumnBands), so this is the pitch a rail column keeps
+// off every vertical already on the canvas.
+export const DRAWN_VERTICAL_GAP = 16;
 
 // nodeId identifies the node an obstacle belongs to, so a consumer can exempt an
 // edge's OWN target card / gutter (the default rise and backward entry columns
@@ -2002,10 +1951,9 @@ export function paddedObstacles(
   nodes: ReadonlyArray<RFAnyNode>,
   edges: ReadonlyArray<Edge>,
 ): PaddedObstacle[] {
-  const byId = nodeIndexOf(nodes);
   const out: PaddedObstacle[] = [];
   for (const node of nodes) {
-    const r = nodeRectOf(node, byId);
+    const r = nodeRectOf(node);
     out.push({
       left: r.left - OBSTACLE_PAD_LEFT,
       right: r.right + OBSTACLE_PAD_RIGHT,
@@ -2013,7 +1961,6 @@ export function paddedObstacles(
       bottom: r.bottom + OBSTACLE_PAD_Y,
       kind: "card",
       nodeId: node.id,
-      container: node.type === "group" || node.type === "loop",
     });
   }
   for (const [nodeId, g] of entryGutterRects(nodes, edges)) {
@@ -2031,14 +1978,12 @@ export function paddedObstacles(
 // x-span). Each blocking obstacle is padded by `gap` so the returned column keeps
 // clear air off the card edge, and two obstacles closer than 2*gap merge into one
 // no-go band (a candidate that would land between them fails the clear test and
-// is skipped, pushing the column to the outer edge). Container slabs
-// (o.container) take the wider `containerGap` for BOTH the strike test and the
-// candidate edges, the column analog of clearRailY's container clearance; it
-// defaults to the plain gap, so a caller that passes none is byte-identical to
-// before. A zero-width obstacle (left === right) is the caller's BORDER BAND: it
-// blocks exactly (x - gap, x + gap) around that line and offers the two
-// candidates x - gap / x + gap, which is how a slab's frame is kept clear while
-// its interior stays routable.
+// is skipped, pushing the column to the outer edge). Obstacles flagged
+// `drawnVertical` take the wider `drawnVerticalGap` for BOTH the strike test and
+// the candidate edges; it defaults to the plain gap, so a caller that passes
+// none is byte-identical to before. A zero-width obstacle (left === right) is a
+// BORDER BAND: it blocks exactly (x - gap, x + gap) around that line and offers
+// the two candidates x - gap / x + gap.
 //
 // Nearest clear column to `desiredX`; ties break toward the target side
 // (towardTarget: +1 target to the right, -1 to the left). An `accept` predicate
@@ -2075,7 +2020,7 @@ export function clearColumnX(
     towardTarget?: number;
     radius?: number;
     gap?: number;
-    containerGap?: number | undefined;
+    drawnVerticalGap?: number | undefined;
     accept?: (x: number) => boolean;
     // Candidate columns the caller derives from a constraint the obstacle list
     // cannot express -- the x where a HORIZONTAL neighbour of the run's own
@@ -2088,11 +2033,12 @@ export function clearColumnX(
   },
 ): number {
   const gap = opts?.gap ?? CHAMFER;
-  const containerGap = opts?.containerGap ?? gap;
+  const drawnVerticalGap = opts?.drawnVerticalGap ?? gap;
   const radius = opts?.radius ?? CLEAR_COLUMN_RADIUS;
   const toward = opts?.towardTarget ?? 0;
   const accept = opts?.accept ?? (() => true);
-  const gapOf = (o: ObstacleRect): number => (o.container ? containerGap : gap);
+  const gapOf = (o: ObstacleRect): number =>
+    o.drawnVertical ? drawnVerticalGap : gap;
   const ymin = Math.min(yLo, yHi);
   const ymax = Math.max(yLo, yHi);
   // Only obstacles whose vertical extent the run overlaps can block it.
@@ -2159,9 +2105,8 @@ export function clearColumnX(
 export function rawCardRects(
   nodes: ReadonlyArray<RFAnyNode>,
 ): PaddedObstacle[] {
-  const byId = nodeIndexOf(nodes);
   return nodes.map((node) => {
-    const r = nodeRectOf(node, byId);
+    const r = nodeRectOf(node);
     return {
       left: r.left,
       right: r.right,
@@ -2169,10 +2114,6 @@ export function rawCardRects(
       bottom: r.bottom,
       kind: "card" as const,
       nodeId: node.id,
-      // Same container tag paddedObstacles stamps: the raw-fallback tiers read
-      // it to keep a raw column off a slab's FRAME (CONTAINER_COLUMN_GAP), not
-      // the RAW_GAP a plain card gets.
-      container: node.type === "group" || node.type === "loop",
     };
   });
 }
@@ -2235,19 +2176,14 @@ function clearColumnKeepingLeg(args: {
   toward: number;
   foreignPadded: ReadonlyArray<PaddedObstacle>;
   foreignRawCards: ReadonlyArray<PaddedObstacle>;
-  // The caller's container BORDER BANDS: zero-width frame lines (see
-  // clearColumnX) that gate the COLUMN only -- never the connecting legs, which
-  // legitimately cross a frame to reach a column on the other side of it.
-  // Today only clampBackwardRails passes them, for the return's own shared
-  // container; absent means no band treatment and byte-identical resolution.
-  containerBands?: ReadonlyArray<PaddedObstacle>;
-  // Other edges' drawn verticals, gating the COLUMN only like the border bands
-  // but tested in the drawn frame (DrawnColumnBands). Absent means none.
+  // Other edges' drawn verticals, gating the COLUMN only -- never the
+  // connecting legs -- and tested in the drawn frame (DrawnColumnBands).
+  // Absent means none.
   drawnColumns?: DrawnColumnBands | undefined;
-  // Wider column gap for container-slab obstacles (the CONTAINER_COLUMN_GAP
-  // analog of clearRailY's containerGap). Defaults to the tier's plain gap, so
-  // an omitting caller resolves exactly as before.
-  containerGap?: number | undefined;
+  // Wider column gap for obstacles flagged `drawnVertical` (DRAWN_VERTICAL_GAP).
+  // Defaults to the tier's plain gap, so an omitting caller resolves exactly as
+  // before.
+  drawnVerticalGap?: number | undefined;
   // Own-side guard for a port-anchored column. Both are optional and default to
   // a no-op, so the clampBackwardRails callers (which omit them) are unchanged.
   //   sideClamp -- reject any candidate on the wrong side of the port (target
@@ -2281,14 +2217,12 @@ function clearColumnKeepingLeg(args: {
     toward,
     foreignPadded,
     foreignRawCards,
-    containerBands,
     drawnColumns,
-    containerGap,
+    drawnVerticalGap,
     ownLegRect,
     sideClamp,
     columnAccept,
   } = args;
-  const bands = containerBands ?? [];
   const paddedCards = foreignPadded.filter((o) => o.kind === "card");
   const legExtra = ownLegRect ? [ownLegRect] : [];
   const paddedLegCards = [...paddedCards, ...legExtra];
@@ -2304,25 +2238,29 @@ function clearColumnKeepingLeg(args: {
     x: number,
     set: ReadonlyArray<PaddedObstacle>,
     gap: number,
-    cGap: number,
+    verticalGap: number,
   ): boolean =>
     !set.some(
       (o) =>
         o.bottom > ymin &&
         o.top < ymax &&
-        x > o.left - (o.container ? cGap : gap) &&
-        x < o.right + (o.container ? cGap : gap),
+        x > o.left - (o.drawnVertical ? verticalGap : gap) &&
+        x < o.right + (o.drawnVertical ? verticalGap : gap),
     );
 
   // The same predicate for the drawn verticals, in their own frame.
-  const drawnColumnClear = (x: number, gap: number, cGap: number): boolean =>
+  const drawnColumnClear = (
+    x: number,
+    gap: number,
+    verticalGap: number,
+  ): boolean =>
     drawnColumns === undefined ||
     !drawnColumns.bands.some(
       (o) =>
         o.bottom > Math.min(drawnColumns.yLo, drawnColumns.yHi) &&
         o.top < Math.max(drawnColumns.yLo, drawnColumns.yHi) &&
-        drawnColumns.xOf(x) > o.left - (o.container ? cGap : gap) &&
-        drawnColumns.xOf(x) < o.right + (o.container ? cGap : gap),
+        drawnColumns.xOf(x) > o.left - (o.drawnVertical ? verticalGap : gap) &&
+        drawnColumns.xOf(x) < o.right + (o.drawnVertical ? verticalGap : gap),
     );
 
   // One resolve-then-verify step, shared by every tier below. clearColumnX hands
@@ -2339,21 +2277,20 @@ function clearColumnKeepingLeg(args: {
     const x = clearColumnX(desired, yLo, yHi, set, {
       towardTarget: toward,
       gap,
-      containerGap,
+      drawnVerticalGap,
       radius,
       accept,
       drawnColumns,
     });
-    return columnClear(x, set, gap, containerGap ?? gap) &&
-      drawnColumnClear(x, gap, containerGap ?? gap) &&
+    return columnClear(x, set, gap, drawnVerticalGap ?? gap) &&
+      drawnColumnClear(x, gap, drawnVerticalGap ?? gap) &&
       accept(x)
       ? x
       : null;
   };
 
-  // Tier 1: padded set, padded-card leg acceptance. Bands join the column set;
-  // the container gap widens every container obstacle's blocked interval.
-  const tier1Set = [...foreignPadded, ...bands];
+  // Tier 1: padded set, padded-card leg acceptance.
+  const tier1Set = foreignPadded;
   const paddedAccept = (x: number): boolean =>
     onSide(x) &&
     inZone(x) &&
@@ -2361,11 +2298,10 @@ function clearColumnKeepingLeg(args: {
   const padded = resolve(tier1Set, CHAMFER, CLEAR_COLUMN_RADIUS, paddedAccept);
   if (padded !== null) return padded;
 
-  // Tier 2: raw fallback. The slim RAW_GAP keeps a hair of air off the raw box
-  // (the container gap for slabs: a raw-fallback column parked RAW_GAP off a
-  // slab border braided the frame, the loop-return family's raw variant); the
-  // doubled radius lets a fully packed near corridor escape to the next gap.
-  const tier2Set = [...foreignRawCards, ...bands];
+  // Tier 2: raw fallback. The slim RAW_GAP keeps a hair of air off the raw box;
+  // the doubled radius lets a fully packed near corridor escape to the next
+  // gap.
+  const tier2Set = foreignRawCards;
   const rawAccept = (x: number): boolean =>
     onSide(x) &&
     inZone(x) &&
@@ -2443,9 +2379,9 @@ function clearColumnKeepingLeg(args: {
 // another edge's vertical is a plain crossing, which the crossing-cue pass
 // already draws.
 //
-// `container: true` puts them on the wider containerGap arm, which the rail
-// callers already set to CONTAINER_COLUMN_GAP -- the same 16 units as the
-// column pitch floor (ENTRY_SLOT_PITCH), so one gap value serves both.
+// `drawnVertical: true` puts them on the wider drawnVerticalGap arm, which the
+// rail callers set to DRAWN_VERTICAL_GAP -- the same 16 units as the column
+// pitch floor (ENTRY_SLOT_PITCH), so one gap value serves both.
 function drawnColumnBands(
   edge: Edge,
   byId: ReadonlyMap<string, RFAnyNode>,
@@ -2465,7 +2401,7 @@ function drawnColumnBands(
       bottom: Math.max(y0, y1),
       kind: "card",
       nodeId: `column:${edge.id}`,
-      container: true,
+      drawnVertical: true,
     });
   }
   return out;
@@ -2521,10 +2457,6 @@ export function clampBackwardRails(
 
   const obstacles = paddedObstacles(nodes, edges);
   const rawCards = rawCardRects(nodes);
-  // Raw rect lookup by node id, for building the shared container's border
-  // bands at its RAW edges (the frame the reader sees), not its padded band.
-  const rawById = new Map<string, PaddedObstacle>();
-  for (const o of rawCards) rawById.set(o.nodeId, o);
 
   // Is this edge a backward rail, the one family this pass resolves? Every
   // other edge's verticals are final by now and become bands below.
@@ -2533,7 +2465,7 @@ export function clampBackwardRails(
     const source = byId.get(edge.source);
     const target = byId.get(edge.target);
     if (source === undefined || target === undefined) return false;
-    return nodeGap(source, target, byId) <= 0;
+    return nodeGap(source, target) <= 0;
   };
   // The columns already on the canvas. Rails append their own as they resolve,
   // in index order, so a rail never bands itself, the result is deterministic
@@ -2559,11 +2491,6 @@ export function clampBackwardRails(
   // no-chaining rule of ADR STC-0009.
   const runBands: RunBand[] = [];
   for (const edge of edges) runBands.push(...runBandsOfEdge(edge, byId));
-  // Container borders, as candidate sources at the rail's own container gap:
-  // CONTAINER_RAIL_GAP off the padded rect is the level clearRailY escapes a
-  // container to, so a candidate anywhere else near a frame is not a fixed
-  // point and the rescan would have nowhere to land beside a loop box.
-  const frameLines = containerFrameLines(nodes);
 
   const railYByIndex = new Map<number, number>();
   const railXRightByIndex = new Map<number, number>();
@@ -2573,7 +2500,7 @@ export function clampBackwardRails(
     const source = byId.get(edge.source);
     const target = byId.get(edge.target);
     if (source === undefined || target === undefined) return;
-    if (nodeGap(source, target, byId) > 0) return; // forward edges keep the step
+    if (nodeGap(source, target) > 0) return; // forward edges keep the step
     const ports = edgePortsModel(edge, byId);
     if (ports === null) return;
     const { sx, sy, tx, ty } = ports;
@@ -2626,7 +2553,6 @@ export function clampBackwardRails(
       xrDesired,
       levelObstacles,
       CHAMFER,
-      CONTAINER_RAIL_GAP,
     );
     // Family D: a card-clear level is not final while it sits inside a forward
     // run's floor. All seven such rails on the corpus were ones clearRailY had
@@ -2662,20 +2588,11 @@ export function clampBackwardRails(
           drawnX0: drawnLo,
           drawnX1: drawnHi,
           bands: nearBands,
-          frames: frameLines,
-          frameGap: CONTAINER_RAIL_GAP + OBSTACLE_PAD_Y,
           cards: levelObstacles,
           pad: CHAMFER,
         }),
         (y) =>
-          clearRailY(
-            y,
-            xlDesired,
-            xrDesired,
-            levelObstacles,
-            CHAMFER,
-            CONTAINER_RAIL_GAP,
-          ) === y &&
+          clearRailY(y, xlDesired, xrDesired, levelObstacles, CHAMFER) === y &&
           !runFloorHit(nearBands, self, drawnRailY(y), drawnLo, drawnHi),
       );
     }
@@ -2684,42 +2601,12 @@ export function clampBackwardRails(
     // Clamp the two verticals out of any foreign card / gutter they pierce. The
     // right column runs from the source port down/up to the rail; the left column
     // from the rail to the target port. Each column's own node is exempt (the
-    // default columns sit inside their own node's padded band), as is that
-    // endpoint's own container BOX (a grouped endpoint's column legitimately
-    // runs inside its container) -- but each endpoint's own container FRAME is
-    // not: a loop return lands its default columns (one stub each side) a few
-    // units off the side borders of any container a member sits in, because
-    // members sit one ELK inset (10-36) off them, and the return's verticals
-    // then braid the frame (#29 follow-on, loop-backedge family). That held
-    // the both-endpoint shared slab first; a return with only ONE endpoint
-    // inside a container braids that container just the same, so the band
-    // treatment is PER SIDE: each endpoint's own container joins that side's
-    // column scan as two BORDER BANDS (zero-width frame lines at its raw
-    // edges, blocked and escaped with CONTAINER_COLUMN_GAP), so each resolved
-    // column sits at least that far off its endpoint's container frame --
-    // inside, in the interior corridor, or just outside -- while its
-    // connecting leg may still cross the frame to reach it. An endpoint with
-    // no container contributes no bands, and the shared-container case feeds
-    // both sides the same slab it always did. The rail y is taken as fixed
-    // (computed from the default columns above), so the columns only dodge
-    // along x.
+    // default columns sit inside their own node's padded band). The rail y is
+    // taken as fixed (computed from the default columns above), so the columns
+    // only dodge along x.
     // Side-keeping: a moved column is accepted only when the connecting
     // horizontal from its port also stays clear (raw-gap fallback where
     // paddings overlap); the segment audit quantifies any residual.
-    const sharedContainerId =
-      source.parentId !== undefined && source.parentId === target.parentId
-        ? source.parentId
-        : undefined;
-    const bandsOf = (endpoint: RFAnyNode): PaddedObstacle[] => {
-      const containerId = sharedContainerId ?? endpoint.parentId;
-      if (containerId === undefined) return [];
-      const slab = rawById.get(containerId);
-      if (slab === undefined) return [];
-      return [
-        { ...slab, right: slab.left, container: true },
-        { ...slab, left: slab.right, container: true },
-      ];
-    };
     const xrExempt = ownExempt([source]);
     const xr =
       pinnedRight ??
@@ -2731,20 +2618,15 @@ export function clampBackwardRails(
           yLo: sy,
           yHi: railY,
           toward: -1,
-          foreignPadded: obstacles.filter(
-            (o) => !xrExempt.has(o.nodeId) && o.nodeId !== sharedContainerId,
-          ),
-          foreignRawCards: rawCards.filter(
-            (o) => !xrExempt.has(o.nodeId) && o.nodeId !== sharedContainerId,
-          ),
-          containerBands: bandsOf(source),
+          foreignPadded: obstacles.filter((o) => !xrExempt.has(o.nodeId)),
+          foreignRawCards: rawCards.filter((o) => !xrExempt.has(o.nodeId)),
           drawnColumns: {
             bands: foreignColumnBands,
             yLo: drawnEnds.sourceY,
             yHi: drawnRailY(railY),
             xOf: drawnXr,
           },
-          containerGap: CONTAINER_COLUMN_GAP,
+          drawnVerticalGap: DRAWN_VERTICAL_GAP,
           columnAccept: zoneAccept(sourceGap),
         }),
         sourceGap,
@@ -2765,20 +2647,15 @@ export function clampBackwardRails(
           yLo: railY,
           yHi: ty,
           toward: -1,
-          foreignPadded: obstacles.filter(
-            (o) => !xlExempt.has(o.nodeId) && o.nodeId !== sharedContainerId,
-          ),
-          foreignRawCards: rawCards.filter(
-            (o) => !xlExempt.has(o.nodeId) && o.nodeId !== sharedContainerId,
-          ),
-          containerBands: bandsOf(target),
+          foreignPadded: obstacles.filter((o) => !xlExempt.has(o.nodeId)),
+          foreignRawCards: rawCards.filter((o) => !xlExempt.has(o.nodeId)),
           drawnColumns: {
             bands: foreignColumnBands,
             yLo: drawnRailY(railY),
             yHi: drawnEnds.targetY,
             xOf: drawnXl,
           },
-          containerGap: CONTAINER_COLUMN_GAP,
+          drawnVerticalGap: DRAWN_VERTICAL_GAP,
           columnAccept: zoneAccept(targetGap),
         }),
         targetGap,
@@ -2877,10 +2754,8 @@ function stubClearColumns(
 // in its own entry gutter. The bend column already sits in a node-free corridor
 // (assignBendColumns), so its vertical stays clear at any legY; only the long
 // horizontal needs the clearance, which clearRailY supplies exactly as it does
-// for the backward detour rail. Exempt from the obstacle scan: the target's own
-// card / gutter (the leg ends inside it) and each endpoint's own container box (a
-// group background the edge legitimately enters, not an obstacle to route
-// around). A foreign container in an intermediate layer still blocks.
+// for the backward detour rail. Exempt from the obstacle scan: the endpoints'
+// own cards / gutters (the leg ends inside the target's).
 //
 // The detour level is chosen by a per-obstacle candidate scan (the y-axis analog
 // of clearColumnX): each card the straight step's span crosses offers its padded
@@ -3014,12 +2889,6 @@ export function jogForwardLegs(
   for (const edge of edges) {
     levelBands.set(edge.id, runBandsOfEdge(edge, byId));
   }
-  // Every container's raw top / bottom border. A frame is not an obstacle -- a
-  // forward run crosses one whenever it enters or leaves a group -- but a run
-  // drawn ALONG one reads as a second border, so a relocated run owes a foreign
-  // frame CONTAINER_JOG_GAP and takes its candidate levels from the frames the
-  // same way it takes them from the cards.
-  const frameLines = containerFrameLines(nodes);
 
   const legYByIndex = new Map<number, number>();
   const descentXByIndex = new Map<number, number>();
@@ -3035,7 +2904,7 @@ export function jogForwardLegs(
     const source = byId.get(edge.source);
     const target = byId.get(edge.target);
     if (source === undefined || target === undefined) return;
-    if (nodeGap(source, target, byId) <= 0) return; // backward / zero-gap edge
+    if (nodeGap(source, target) <= 0) return; // backward / zero-gap edge
     const ports = edgePortsModel(edge, byId);
     if (ports === null) return;
     const { sx, sy, tx, ty } = ports;
@@ -3072,10 +2941,7 @@ export function jogForwardLegs(
     const drawnDropX = forwardDropX(drawnGeom, hints);
 
     // Exempt from the obstacle scan: both endpoints' own cards / gutters (the leg
-    // leaves the source and ends inside the target) and each endpoint's own
-    // container box (a group background the edge legitimately enters, not an
-    // obstacle to route around). A foreign container in an intermediate layer
-    // stays an obstacle. Horizontal legs may cross a foreign entry gutter (every
+    // leaves the source and ends inside the target). Horizontal legs may cross a foreign entry gutter (every
     // entering leg does), so the leg tests only foreign CARDS; vertical runs
     // (bend, descent, source column) must also stay out of foreign gutters, so
     // they test the full card + gutter set. Each obstacle tier (padded first,
@@ -3197,12 +3063,6 @@ export function jogForwardLegs(
         }
       }
     }
-    // The frames this edge's corridor spans, minus its own containers (a group
-    // background the edge legitimately runs inside, the same waiver `exempt`
-    // applies to the cards).
-    const foreignFrames: FrameLine[] = frameLines.filter(
-      (f) => !exempt.has(f.nodeId) && f.right > sx && f.left < tx,
-    );
     const srcNear =
       srcStretch &&
       runFloorHit(foreignBands, self, drawnSy, drawnBx, drawnDropX);
@@ -3281,8 +3141,8 @@ export function jogForwardLegs(
     // One horizontal run in the drawn frame, for the floor half of a test.
     type DrawnRun = { y: number; x0: number; x1: number };
     // The candidate levels, from the level-occupancy module: the cards this
-    // edge's corridor spans and, where the bands have a say, their runs and the
-    // foreign frames at the jog's own container gap. The list depends only on
+    // edge's corridor spans and, where the bands have a say, their runs. The
+    // list depends only on
     // the obstacle tier and on whether the bands are admitted, so the tier
     // chain below builds each one once per edge.
     const railsByTier = new Map<
@@ -3306,10 +3166,6 @@ export function jogForwardLegs(
         drawnX0: drawnSx,
         drawnX1: drawnTx,
         bands: withBands ? foreignBands : [],
-        frames: withBands ? foreignFrames : [],
-        // Measured from the RAW border the reader sees, so the run lands
-        // CONTAINER_JOG_GAP clear of the padded rect the card scan works in.
-        frameGap: CONTAINER_JOG_GAP + OBSTACLE_PAD_Y,
         cards: cardSet,
         pad,
       });
@@ -3326,10 +3182,7 @@ export function jogForwardLegs(
     ): Jog | null => {
       const radius = relaxed ? Infinity : CLEAR_COLUMN_RADIUS;
       // Is a horizontal run dirty? The run at R answers for the bands in every
-      // mode but "off"; the residual stubs answer for them only in "all". The
-      // frame floor rides with the bands and applies to the RELOCATED run
-      // alone: the stubs at sy and ty are where they were whatever level comes
-      // out, so holding them to it would only veto jogs that cannot fix them.
+      // mode but "off"; the residual stubs answer for them only in "all".
       // `floor` is the same run in the bands' drawn frame: drawn port rows and
       // port columns, while a stamped level or column draws as is.
       const railBlocked = (
@@ -3340,8 +3193,7 @@ export function jogForwardLegs(
       ): boolean =>
         legBlockedIn(cardSet, y, x0, x1) ||
         (bands !== "off" &&
-          (runFloorHit(foreignBands, self, floor.y, floor.x0, floor.x1) ||
-            frameFloorHit(foreignFrames, y, x0, x1, CONTAINER_JOG_GAP)));
+          runFloorHit(foreignBands, self, floor.y, floor.x0, floor.x1));
       const stubBlocked = (
         y: number,
         x0: number,
@@ -3481,10 +3333,9 @@ export function jogForwardLegs(
     // A column is normally confined to its gap's column zone and to one card
     // plus one layer spacing of escape, which is the right rule while the
     // blocking card stands in a layer of its own. It is not reachable at all
-    // when the card shares a LAYER with the endpoint -- a container slab merges
-    // every column it spans into one layer, so the zone can sit hundreds of
-    // units the wrong side of the card and no candidate inside it, or inside
-    // the radius, is clear. A column standing in that layer's own band beats a
+    // when the card shares a LAYER with the endpoint: the zone can sit hundreds
+    // of units the wrong side of the card and no candidate inside it, or
+    // inside the radius, is clear. A column standing in that layer's own band beats a
     // leg drawn through the card; it stands in no gap, so it takes no room
     // reserved for chips or for another gap's columns.
     const jog = confined ?? chain(true);

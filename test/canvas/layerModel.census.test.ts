@@ -35,7 +35,6 @@ import { layoutSolved } from "../../src/canvas/layoutSolved";
 import {
   absoluteLeft,
   edgeTargetSide,
-  nodeIndexOf,
   nodeWidth,
 } from "../../src/canvas/nodeGeometry";
 import type { RFAnyNode } from "../../src/canvas/layout";
@@ -53,15 +52,12 @@ const SPAN_TOLERANCE = 1e-6;
 const OUT =
   "/tmp/claude-1000/-home-rins-workspace-STC-workspace-STC/a0f99249-1eb8-4705-b511-edeea31a8f21/scratchpad/layer-width-census.json";
 
-// Laid-out width of a plan: the leaf nodes' bounding span in x. Containers are
-// skipped because they only wrap their children.
+// Laid-out width of a plan: the leaf nodes' bounding span in x.
 function plannedWidth(nodes: ReadonlyArray<RFAnyNode>): number {
-  const byId = nodeIndexOf(nodes);
   let left = Infinity;
   let right = -Infinity;
   for (const node of nodes) {
-    if (node.type === "group") continue;
-    const l = absoluteLeft(node, byId);
+    const l = absoluteLeft(node);
     left = Math.min(left, l);
     right = Math.max(right, l + nodeWidth(node));
   }

@@ -14,15 +14,13 @@ import {
 // A "long" edge reaches past two full layers (2 * (column gap + recipe width)).
 export const SPAN_THRESHOLD = 2 * (BETWEEN_LAYERS_SPACING + RECIPE_WIDTH);
 
-// Minimal structural shape of a laid-out React Flow node. Container children
-// carry a parent-relative position plus a `parentId`; top-level nodes have
-// neither. Recipe and loop unit nodes omit `width` (a recipe is a fixed
-// RECIPE_WIDTH, a loop is sized from its interior); product and container
-// nodes carry it directly.
+// Minimal structural shape of a laid-out React Flow node. Every node sits at
+// the root, so its position is absolute. Recipe and loop unit nodes omit
+// `width` (a recipe is a fixed RECIPE_WIDTH, a loop is sized from its
+// interior); product nodes carry it directly.
 export type SpanNode = {
   id: string;
   position?: { x?: number; y?: number };
-  parentId?: string;
   width?: number;
   type?: string;
   data?: Record<string, unknown> & {
@@ -35,21 +33,14 @@ export type SpanEdge = {
   target: string;
 };
 
-// Absolute left-edge x for a node. Container children store a parent-relative
-// position, so resolve one level of `parentId` and add the parent's own x.
-function absoluteLeft(
-  node: SpanNode,
-  byId: ReadonlyMap<string, SpanNode>,
-): number {
-  const localX = node.position?.x ?? 0;
-  if (node.parentId === undefined) return localX;
-  const parent = byId.get(node.parentId);
-  return localX + (parent?.position?.x ?? 0);
+// Absolute left-edge x for a node.
+function absoluteLeft(node: SpanNode): number {
+  return node.position?.x ?? 0;
 }
 
 // Recipe and loop unit nodes omit an explicit width: a recipe node is a fixed
 // RECIPE_WIDTH, a loop node is sized from its interior by the same helper the
-// layout uses. Product and container nodes carry width on the node. Mirrors
+// layout uses. Product nodes carry width on the node. Mirrors
 // src/canvas/nodeGeometry.ts.
 function nodeWidth(node: SpanNode): number {
   const interior = node.type === "loop" ? node.data?.interior : undefined;
@@ -73,8 +64,8 @@ export function computeEdgeSpans(
     const source = byId.get(edge.source);
     const target = byId.get(edge.target);
     if (source === undefined || target === undefined) continue;
-    const sourceRight = absoluteLeft(source, byId) + nodeWidth(source);
-    const targetLeft = absoluteLeft(target, byId);
+    const sourceRight = absoluteLeft(source) + nodeWidth(source);
+    const targetLeft = absoluteLeft(target);
     spans.push(Math.max(0, targetLeft - sourceRight));
   }
   return spans;

@@ -227,10 +227,7 @@ describe("a fan-out with no near member still draws its total", () => {
       const byId = nodeIndexOf(nodes);
       const model = buildLayerModel(nodes);
       const edgeById = new Map(edges.map((edge) => [edge.id, edge]));
-      const cards = cardRectsFor(
-        nodes.filter((node) => node.type !== "group"),
-        byId,
-      );
+      const cards = cardRectsFor(nodes);
       const surface = [
         ...cards,
         ...cards.flatMap((card) => [
