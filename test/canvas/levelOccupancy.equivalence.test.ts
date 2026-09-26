@@ -211,9 +211,9 @@ function flatten(snapshot: Snapshot): Map<string, unknown> {
 //      e:22, e:25, e:33; coupon-web e:11, e:13, e:17, e:20; equip4 e:0,
 //      e:13; multi6 e:3, e:4, e:5, e:7, e:8, e:9, e:10, e:15, e:18, e:20,
 //      e:24, e:26, e:30, e:38, e:39, e:40, e:41, e:56, e:60, e:61, e:62,
-//      e:63, e:64, e:71, e:91; script43 e:0, e:6, e:7, e:14, e:15, e:16,
-//      e:17, e:20, e:22, e:29; script43-xiranite e:0, e:6, e:7, e:14,
-//      e:17, e:18, e:21, e:23, e:30; transmuters e:0, e:1, e:11.
+//      e:63, e:64, e:71, e:91; script43 e:0, e:6, e:7, e:14, e:15, e:20,
+//      e:22, e:29; script43-xiranite e:0, e:6, e:7, e:14, e:21, e:23,
+//      e:30; transmuters e:0, e:1, e:11.
 //   P  the gap order weighs both orders of every column pair, merges first
 //      and crossings second, and entry columns take their slots one row at a
 //      time across cards: battery5-xiranite e:0, e:5, e:11, e:20, e:21,
@@ -222,6 +222,15 @@ function flatten(snapshot: Snapshot): Map<string, unknown> {
 //      e:5, e:11, e:12; multi6 e:1, e:32, e:85, e:86, e:89, e:90; script43
 //      e:8, e:9, e:10, e:11; script43-xiranite e:2, e:8, e:9, e:10, e:11,
 //      e:20, e:22, e:29; transmuters e:13, e:14.
+//   N  bends and descents that tie on port row rank by numeric ELK index
+//      (e:2 before e:10), not by candidate id text. Only multi6 e:13 draws
+//      differently (its bend one slot right); the rest restamp the bendX of a
+//      column they do not draw: gas-web e:9, e:10; multi6 e:13, e:35;
+//      rot-bottled_food_3 e:5, e:15; rot-bottled_food_4 e:5, e:6, e:11;
+//      script43 e:12; script43-xiranite e:12; transmuters e:4, e:7, e:10.
+//      It also returns script43 e:16, e:17 and script43-xiranite e:17, e:18
+//      to their base geometry (they left G), and draws script43 and
+//      script43-xiranite e:6, still G, three slots further left.
 // An edge key is the short `e:NN` head of the routed edge id.
 const MOVED: Readonly<Record<string, ReadonlyArray<string>>> = {
   battery5: [
@@ -306,6 +315,7 @@ const MOVED: Readonly<Record<string, ReadonlyArray<string>>> = {
     "e:9",
     "e:10",
     "e:12",
+    "e:13",
     "e:15",
     "e:18",
     "e:20",
@@ -316,6 +326,7 @@ const MOVED: Readonly<Record<string, ReadonlyArray<string>>> = {
     "e:30",
     "e:31",
     "e:32",
+    "e:35",
     "e:38",
     "e:39",
     "e:40",
@@ -340,7 +351,8 @@ const MOVED: Readonly<Record<string, ReadonlyArray<string>>> = {
     "e:90",
     "e:91",
   ],
-  "rot-bottled_food_4": ["e:9", "e:14"],
+  "rot-bottled_food_3": ["e:5", "e:15"],
+  "rot-bottled_food_4": ["e:5", "e:6", "e:9", "e:11", "e:14"],
   script43: [
     "e:0",
     "e:6",
@@ -349,10 +361,9 @@ const MOVED: Readonly<Record<string, ReadonlyArray<string>>> = {
     "e:9",
     "e:10",
     "e:11",
+    "e:12",
     "e:14",
     "e:15",
-    "e:16",
-    "e:17",
     "e:20",
     "e:22",
     "e:27",
@@ -367,9 +378,8 @@ const MOVED: Readonly<Record<string, ReadonlyArray<string>>> = {
     "e:9",
     "e:10",
     "e:11",
+    "e:12",
     "e:14",
-    "e:17",
-    "e:18",
     "e:20",
     "e:21",
     "e:22",
@@ -378,8 +388,18 @@ const MOVED: Readonly<Record<string, ReadonlyArray<string>>> = {
     "e:29",
     "e:30",
   ],
-  transmuters: ["e:0", "e:1", "e:11", "e:13", "e:14", "e:15"],
-  "gas-web": ["e:3", "e:4", "e:5", "e:11", "e:12"],
+  transmuters: [
+    "e:0",
+    "e:1",
+    "e:4",
+    "e:7",
+    "e:10",
+    "e:11",
+    "e:13",
+    "e:14",
+    "e:15",
+  ],
+  "gas-web": ["e:3", "e:4", "e:5", "e:9", "e:10", "e:11", "e:12"],
 };
 
 // `edge:e:43:u:class:q:51->...plant_grass_1.railY` -> `e:43`.

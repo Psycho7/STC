@@ -268,6 +268,28 @@ describe("gap column order", () => {
     expect(order.unavoidable).toEqual([]);
   });
 
+  it("breaks a tie between row-less bends by numeric ELK index", () => {
+    // Two straight edges (no rows, so no constraint and the same port row
+    // 0): the earlier-routed e:2 stands left of e:10, not in text order.
+    const nodes = [
+      card("sa", 0, 90, 20),
+      card("sb", 0, 290, 20),
+      card("fa", 2, 90, 20),
+      card("fb", 2, 290, 20),
+      FILLER,
+    ];
+    const edges = [
+      mkEdge("e:10:sa->fa:x", "sa", "fa", "x"),
+      mkEdge("e:2:sb->fb:y", "sb", "fb", "y"),
+    ];
+    const order = buildGapColumnOrder(nodes, edges, GAPS);
+    const early = order.bendId("e:2:sb->fb:y");
+    const late = order.bendId("e:10:sa->fa:x");
+    expect(order.mustStandLeft(early, late)).toBe(false);
+    expect(order.mustStandLeft(late, early)).toBe(false);
+    expect(order.rankOf(early)).toBeLessThan(order.rankOf(late)!);
+  });
+
   it("leaves a pair that crosses once in either order unconstrained and counts it", () => {
     // Outer: row 100 down to 400. Inner: row 200 down to 300, inside it.
     // Outer left: the inner's source run crosses the outer's vertical. Inner
