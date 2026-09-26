@@ -83,6 +83,7 @@ export type UiKey =
   | "canvas.controls.zoom_out"
   | "canvas.controls.fit_view"
   | "canvas.controls.interactive"
+  | "canvas.empty.hint"
   | "rate.invalid"
   | "rate.zero"
   | "rate.negative"
@@ -226,6 +227,9 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "canvas.controls.zoom_out": "缩小",
     "canvas.controls.fit_view": "适应视图",
     "canvas.controls.interactive": "切换交互",
+    // {action} is the targets.add button label, so the hint names the button
+    // exactly as the side rail draws it.
+    "canvas.empty.hint": "尚无目标 · 在左侧点击「{action}」开始规划",
     "rate.invalid": "请输入数字，例如 30 或 1/3",
     "rate.zero": "请输入大于 0 的速率",
     "rate.negative": "速率不能为负数",
@@ -364,6 +368,8 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "canvas.controls.zoom_out": "Zoom out",
     "canvas.controls.fit_view": "Fit view",
     "canvas.controls.interactive": "Toggle interactivity",
+    "canvas.empty.hint":
+      "No targets yet · click {action} on the left to start a plan",
     "rate.invalid": "Enter a number, e.g. 30 or 1/3",
     "rate.zero": "Enter a rate above 0",
     "rate.negative": "A rate cannot be negative",
