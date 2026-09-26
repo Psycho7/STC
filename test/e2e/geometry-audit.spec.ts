@@ -451,9 +451,9 @@ const CROSSING_BASELINE: Record<string, number> = {
   // Inergen target no longer draws its own :target card at the top; the export
   // now leaves the item's one pool card and its straight run to the output
   // card crosses the band five times at right angles. UP move, ruled by stc-13.
-  // #192 pair cost relation: the gap order weighs both orders of every column
-  // pair and entry rows take slots one at a time across cards.
-  "gas-web": 23, // REPIN-GASWEB
+  // #192 pair cost relation: 23 -> 21, the gap order weighs both orders of
+  // every column pair and entry rows take slots one at a time across cards.
+  "gas-web": 21,
 
   "rot-bottled_food_3": 2,
   "rot-bottled_food_4": 3,

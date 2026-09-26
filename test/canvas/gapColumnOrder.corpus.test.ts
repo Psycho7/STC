@@ -3,11 +3,17 @@
 // check, not each column pass's own logic, is the proof that the passes read
 // one order.
 //
-// The list below is what no pass can keep, and it is empty. coupon-web's
-// sewage bend e:8 once stood right of the descent of e:29 that it must precede;
-// under the pairwise cost relation the bend is ordered in its gap as well (it
-// now stands at 1034, left of the copper_nugget trunk's walk) and the descent
-// keeps right of it.
+// The list below is what no pass can keep. coupon-web's sewage bend e:8 once
+// stood right of the descent of e:29 that it must precede; under the pairwise
+// cost relation the bend is ordered in its gap as well (it now stands at 1034,
+// left of the copper_nugget trunk's walk) and the descent keeps right of it.
+//
+// gas-web gap #2: e:12's arrival row on q:6 (left row 328, right row 449) must
+// stand left of e:5's bend (left row 470, right row 343), since the other order
+// runs 328 and 343 within the floor. The arrival stands at 1713, inside the
+// entry gutter of q:5 and q:6, and the bend corridor ends at that gutter's
+// wall, so the bend keeps its fan column 1685. Both lines draw exactly as on
+// the base; the pair is inverted there too.
 
 import { describe, it, expect } from "vitest";
 
@@ -33,7 +39,9 @@ const PLANS = [
   },
 ];
 
-const EXPECTED: ReadonlyArray<string> = [];
+const EXPECTED: ReadonlyArray<string> = [
+  "gas-web: a:u:class:q:6@44900 -> b:e:5:u:class:q:16->u:class:q:2:gas_copper",
+];
 
 // Constraint cycles per plan (GapColumnOrder.cycles), before any is broken.
 // None on the corpus; gapColumnOrder.test.ts builds one synthetically.
