@@ -20,11 +20,10 @@ import {
 import { ENV_ROW_HEIGHT } from "../../src/canvas/envBanner";
 import { RESERVE_COLUMN_PAD } from "../../src/canvas/layerModel";
 import {
-  CARD_BORDER,
   PORT_ZONE_DEPTH,
-  cardGrowth,
   chipEntersOwnCardBody,
 } from "../../src/canvas/chipSeating";
+import { CARD_BORDER, cardGrowth } from "../../src/canvas/nodeGeometry";
 // properCross / properCrossPoint and the point-distance helpers live in
 // src/canvas/crossings.ts since the exam-surfaced Task 9 crossing-cue work:
 // the render layer's cue stamp pass, its liveness filter, and this audit's
@@ -1595,9 +1594,10 @@ export type CardFrameMismatch = {
   seatingHeight: number;
 };
 
-// Every RECIPE card whose drawn border box differs from the box chipSeating
-// builds for it. The seating pass's obstacle rects are the model box (card
-// origin, RECIPE_WIDTH, recipeHeight) grown by `cardGrowth`, which is IMPORTED
+// Every RECIPE card whose drawn border box differs from the card rect
+// nodeRectOf builds for it, the one the router and the seating pass both read:
+// the model box (card origin, RECIPE_WIDTH, recipeHeight) grown by
+// `cardGrowth`, which is IMPORTED
 // from src here rather than mirrored: a chip cleared against a card two units
 // narrower than the painted one is a chip the browser shows overlapping the
 // card's border, so the two frames have to be the same box, and this states it

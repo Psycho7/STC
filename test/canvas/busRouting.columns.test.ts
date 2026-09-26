@@ -608,6 +608,25 @@ describe("paddedObstacles", () => {
     expect(card!.nodeId).toBe("n");
   });
 
+  it("pads a recipe card's DRAWN box, the one chip seating reads", () => {
+    const node = recipeNode("r", 100, 50, mkRecipe("r", ["a"], ["b"]));
+    const drawn = cardRectsFor([node])[0]!;
+    const raw = rawCardRects([node])[0]!;
+    expect([raw.left, raw.right, raw.top, raw.bottom]).toEqual([
+      drawn.left,
+      drawn.right,
+      drawn.top,
+      drawn.bottom,
+    ]);
+    const card = paddedObstacles([node], []).find((r) => r.kind === "card")!;
+    expect(drawn.left - card.left).toBe(
+      Math.max(PORT_STUB, ENTRY_GUTTER_OVERHANG),
+    );
+    expect(card.right - drawn.right).toBe(PORT_STUB);
+    expect(drawn.top - card.top).toBe(CHAMFER);
+    expect(card.bottom - drawn.bottom).toBe(CHAMFER);
+  });
+
   it("adds no frame term to an environment recipe's card obstacle: the plate is a row of the card", () => {
     // An environment recipe draws its plate as the card's first row (ruling
     // I9), so the obstacle is the plain card box, one ENV_ROW_HEIGHT taller

@@ -142,8 +142,9 @@ export function runFloorHit(
 //
 // The span is given in BOTH frames, because the inputs are built in two: the
 // bands are read off the drawn polylines (runBandsOfEdge), while the cards are
-// the routing passes' model rects. Each input is filtered by the span in its
-// own frame, so the drift between the two never decides what the run spans.
+// the routing passes' card rects (nodeRectOf), matched against the model span.
+// Each input is filtered by the span in its own frame, so the drift between the
+// two never decides what the run spans.
 //
 // Sorted nearest to `anchorY` first -- the smallest vertical excursion wins --
 // with the row value as the tie-break, so the order never depends on the order

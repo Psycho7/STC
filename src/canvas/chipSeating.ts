@@ -58,6 +58,8 @@ import {
 import {
   absoluteLeft,
   absoluteTop,
+  CARD_BORDER,
+  cardBorder,
   drawnPortsOf,
   edgeItem,
   flowKeyOf as busFlowKey,
@@ -82,7 +84,7 @@ import {
 
 // A raw card rect a chip's box must stay clear of (the P3 hard invariant), in
 // the DRAWN frame: the rendered border box, which is what the browser paints and
-// what the e2e audit measures (see CARD_GROWTH). `border` is the card's frame
+// what the e2e audit measures (see nodeRectOf). `border` is the card's frame
 // width (cardBorder): the port furniture anchors on the row edge, one border
 // inside the drawn edge.
 export type CardRect = Rect & { id: string; border: number };
@@ -152,7 +154,7 @@ type PortZoneRect = Rect;
 // it; it is stated here, beside the card rects it is measured against.
 //
 // Callers pass DRAWN card rects -- the audit reads them off the DOM, cardRectsFor
-// grows the model box by CARD_GROWTH -- so the strip starts one CARD_BORDER
+// takes nodeRectOf's drawn box -- so the strip starts one CARD_BORDER
 // inside the rect, where the row the depth is derived from begins.
 export function chipEntersOwnCardBody(
   chip: PortZoneRect,
@@ -163,87 +165,24 @@ export function chipEntersOwnCardBody(
   const oy = Math.min(chip.bottom, card.bottom) - Math.max(chip.top, card.top);
   if (oy <= eps) return false; // not even level with the card: never on its body
   const cx = (chip.left + chip.right) / 2;
-  // CARD_BORDER is declared further down this file, next to the CARD_GROWTH
-  // table it is derived with (the port-side counterpart, PORT_DRIFT, lives with
-  // drawnPortsOf in nodeGeometry.ts); hoisting makes it readable here.
   const depth = CARD_BORDER + PORT_ZONE_DEPTH;
   return side === "target" ? cx > card.left + depth : cx < card.right - depth;
 }
 
-// The card border, in graph units per side: the 1px frame a rendered card draws
-// around its content box (canvas.css .recipe-node / .product-node). It is the
-// same discrepancy nodeGeometry's PORT_DRIFT.recipe derives its handle offsets
-// from, seen from the box side instead of the port side, so the two must be
-// re-derived together, in their two homes.
-export const CARD_BORDER = 1;
-
-// How much WIDER and TALLER a node's DRAWN border box is than the model box the
-// layout positions it by, per node kind. Its origin never moves: the wrapper
-// sits at the model position and the border grows the box on the right and the
-// bottom only.
-//   recipe: the card is content-box RECIPE_WIDTH (240) with a CARD_BORDER frame
-//     per side, so the drawn box is 242 wide and two units taller than
-//     recipeHeight -- exactly the offset nodeGeometry's PORT_DRIFT.recipe
-//     derivation records.
-//   product: the model width ALREADY counts the card's borders (124 content +
-//     20 padding + 1 border + a 3 accent border = the 148 layout assigns), so
-//     the drawn box is the model box.
-//   loop / container: sized by inline width / height in model units, so the
-//     border stays inside the box and likewise adds no growth.
-// Measured in-browser across the seven corpus scenarios (recipe 242 x
-// recipeHeight+2 everywhere, product 148x78, group == its model size, no loop
-// node in any corpus plan). Re-derive alongside nodeGeometry's PORT_DRIFT
-// whenever a card's border or box-sizing changes.
-const CARD_GROWTH: Record<"recipe" | "product" | "other", number> = {
-  recipe: 2 * CARD_BORDER,
-  product: 0,
-  other: 0,
-};
-
-// The drawn-vs-model box growth for one node kind, keyed by the `type` string
-// React Flow carries on the node (and the e2e audit reads off the DOM), so the
-// audit can state the same contract against the rendered card.
-export function cardGrowth(type: string | undefined): number {
-  if (type === "recipe") return CARD_GROWTH.recipe;
-  if (type === "product") return CARD_GROWTH.product;
-  return CARD_GROWTH.other;
-}
-
-// The frame width one node kind draws per side (half its growth).
-function cardBorder(type: string | undefined): number {
-  return type === "recipe" ? CARD_BORDER : 0;
-}
-
-// The raw card rects the chip/card audit scores against, one per node: recipe /
-// product / loop cards and group slabs alike.
-//
-// These are DRAWN border boxes, the same frame drawnPortsOf reconstructs the
-// polylines in: the model box grown by CARD_GROWTH, which is zero for every
-// kind but the recipe card, whose 1px border makes it 242 wide against the
-// model's 240 (see CARD_BORDER). The audit collects the rendered card rect
-// straight off the DOM, so measuring the model box here would leave the two
-// frames two units apart on every recipe.
+// The raw card rects the chip/card audit scores against, one per node: the
+// card rect nodeRectOf defines (the DRAWN border box, the frame drawnPortsOf
+// reconstructs the polylines in), tagged with the node id and the frame width
+// the port furniture anchors inside.
 //
 // An environment recipe needs no extra term: its plate is a row of the card
 // (ruling I9), so measureRecipe's height already covers it and the box here is
 // the box the DOM paints, same as every other card's.
-//
-// Exported so a unit test can observe the growth actually being applied: the
-// e2e card-frame criterion rebuilds the same constants and so cannot see this
-// call site at all.
 export function cardRectsFor(nodes: ReadonlyArray<RFAnyNode>): CardRect[] {
-  return nodes.map((n) => {
-    const r = nodeRectOf(n);
-    const growth = cardGrowth(n.type);
-    return {
-      id: n.id,
-      left: r.left,
-      top: r.top,
-      right: r.right + growth,
-      bottom: r.bottom + growth,
-      border: cardBorder(n.type),
-    };
-  });
+  return nodes.map((n) => ({
+    id: n.id,
+    ...nodeRectOf(n),
+    border: cardBorder(n.type),
+  }));
 }
 
 // A reconstructed edge polyline, as the crossing-cue pass reads it: the owning

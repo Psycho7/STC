@@ -9,13 +9,13 @@
     "stampCount": 4,
     "stampSha": "098e73eab6704cc395a0bb45ead66a67bdbacfc1c4e406e8ef488193dad7d0db",
     "chipCount": 29,
-    "chipSha": "1d7733ef6e87624cabddd4a7db8b8f95fd6259f25b0ed014b531a73cf4163c23"
+    "chipSha": "79a420293b5254603cb71a48fcd396c2d6a34bf89e47ecbe9aad699905f1e26b"
   },
   "battery5-xiranite": {
     "stampCount": 6,
     "stampSha": "058aab9e210485191926d16846a65ef1f50ee4f5e240253327607bd3d7cc4d04",
     "chipCount": 42,
-    "chipSha": "28aacfca3fd25f6e7128588f0335ccbebcf907b576eb508446c39d82734805f7"
+    "chipSha": "2617410b8f6765d180ad62ff4635086c646309c2dd127e03bf71aa7e8b27436e"
   },
   "crystal": {
     "stampCount": 1,
@@ -33,7 +33,7 @@
     "stampCount": 23,
     "stampSha": "61a2c942099bf7b11ce9c550c4fd04882d4ea9a191f19f3fc66d8d36244fa729",
     "chipCount": 99,
-    "chipSha": "e02cf969231f70c78663062f60ad34d44589397fd814ef7e94105bbc1a77408a"
+    "chipSha": "38eb8c5e6e788d068acb2a85299348ff2166bb95590b890c5e846e08489a07ec"
   },
   "tundra": {
     "stampCount": 0,
@@ -45,7 +45,7 @@
     "stampCount": 6,
     "stampSha": "17d986ba19eb2ef1decb93a0d509d0569314967b6308392ebc58573f65245f65",
     "chipCount": 35,
-    "chipSha": "eec492b357a88c14dbd4a3fb81d19f10d57bf8f34b19dd60926e5c7d95dc45b6"
+    "chipSha": "bc22b57f1ef51990bac772efd03bf1d4a3142b2dc564836eabf339227d0eead8"
   },
   "coupon-web": {
     "stampCount": 9,
@@ -63,7 +63,7 @@
     "stampCount": 5,
     "stampSha": "1f5e6828fc07910d847e9c21c6987d1bf09163c1d74423a8cfbce61afc88898c",
     "chipCount": 22,
-    "chipSha": "a319ca2bcde77289317b50da24a131721dc0fc3861030481d1735646bacdcec6"
+    "chipSha": "cf275d8f440d02c74fc3af0c69066d032e53e6980e120e8f1044d371871eac5d"
   },
   "rot-bottled_food_4": {
     "stampCount": 3,
@@ -87,7 +87,7 @@
     "stampCount": 7,
     "stampSha": "68c572585b4ba961a85d92904db8270ac49789ccc948e95ff762dc3d0648ef9d",
     "chipCount": 37,
-    "chipSha": "ebb68cb25ed928cfcae1d34727d5b3041da33b038b6f6f9bf0eb13b17e3ddf1c"
+    "chipSha": "d7f0b61049c637c708ce725de264d535217b3f05f0fb86b470c8dbf0c1e4213e"
   },
   "rot-bottled_rec_hp_1": {
     "stampCount": 1,

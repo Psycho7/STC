@@ -12,7 +12,6 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  CARD_BORDER,
   PORT_ZONE_DEPTH,
   cardRectsFor,
   chipEntersOwnCardBody,
@@ -31,7 +30,11 @@ import {
   RECIPE_WIDTH,
 } from "../../src/canvas/dimensions";
 import { CANVAS_BG_HEX } from "../../src/canvas/itemColor";
-import { nodeHeight, portOffsetY } from "../../src/canvas/nodeGeometry";
+import {
+  CARD_BORDER,
+  nodeHeight,
+  portOffsetY,
+} from "../../src/canvas/nodeGeometry";
 import type { RFAnyNode } from "../../src/canvas/layout";
 import { mkRecipe, productNode, recipeNode } from "./busRouting.testkit";
 import {
