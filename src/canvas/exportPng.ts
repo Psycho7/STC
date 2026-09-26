@@ -176,6 +176,10 @@ const ALL_CODE_POINTS = "U+0-10FFFF";
 
 const CSS_URL = /url\(\s*(["']?)([^"')]+)\1\s*\)/g;
 
+// Bytes per String.fromCharCode call; spreading a whole font would overflow
+// the argument limit.
+const BASE64_CHUNK = 0x8000;
+
 function unquote(family: string): string {
   return family.trim().replace(/["']/g, "");
 }
@@ -221,13 +225,15 @@ async function fetchDataUrl(url: string): Promise<string> {
   if (!response.ok) {
     throw new Error(`PNG export could not fetch the font ${url}`);
   }
-  const blob = await response.blob();
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result as string);
-    reader.onerror = () => reject(reader.error ?? new Error("unreadable font"));
-    reader.readAsDataURL(blob);
-  });
+  // Raw bytes work in any realm; a file reader rejects a Blob from another
+  // one, which is what fetch returns under jsdom.
+  const bytes = new Uint8Array(await response.arrayBuffer());
+  let binary = "";
+  for (let i = 0; i < bytes.length; i += BASE64_CHUNK) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + BASE64_CHUNK));
+  }
+  const type = response.headers.get("Content-Type") ?? "";
+  return `data:${type};base64,${btoa(binary)}`;
 }
 
 async function inlineUrls(cssText: string, baseUrl: string): Promise<string> {
