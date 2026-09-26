@@ -3,9 +3,9 @@
 # agents working in separate worktrees never run more than SLOTS builds, test
 # suites or browser captures at once. Usage: tools/heavy.sh <command> [args...]
 #
-# The slot is held by this script, not the command: the lock fd is closed for
-# the command, so a server it leaves running in the background cannot keep the
-# slot after the command exits.
+# The command inherits the slot's lock, so the slot stays taken for as long as
+# anything it started is alive: a killed wrapper or a process left running in
+# the background still holds memory, and still holds the slot.
 set -u
 
 SLOTS=2
@@ -22,7 +22,7 @@ while :; do
   for ((slot = 0; slot < SLOTS; slot++)); do
     exec {fd}>"$LOCK_PREFIX.$slot.lock"
     if flock -n "$fd"; then
-      "$@" {fd}>&-
+      "$@"
       exit $?
     fi
     exec {fd}>&-

@@ -146,8 +146,8 @@ done
 ### 3. Capture every plan in the ledger
 
 One capture per ledger row, each launching its own Chromium. Each one goes through
-`tools/heavy.sh`, which admits at most two heavy commands at once across every agent on the
-machine; memory trouble on this box comes from agents stacking builds, suites and browsers, not
+`tools/heavy.sh`, which runs at most two of the commands routed through it at once, across
+every agent on the machine; memory trouble on this box comes from agents stacking builds, suites and browsers, not
 from any single command:
 
 ```bash
