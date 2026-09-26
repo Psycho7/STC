@@ -20,14 +20,7 @@ import App, { pickActiveSection } from "./App";
 import { layoutRenderPlan } from "./canvas/layout";
 import { defaultPlan, encodePlan, validatePlan } from "./data/plan";
 import { pack } from "./data/load";
-
-function deferred<T>() {
-  let resolve!: (value: T) => void;
-  const promise = new Promise<T>((r) => {
-    resolve = r;
-  });
-  return { promise, resolve };
-}
+import { deferred } from "./App.testkit";
 
 async function encodedDefaultHash(): Promise<string> {
   return "#" + (await encodePlan(defaultPlan(pack)));

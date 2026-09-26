@@ -46,19 +46,22 @@ vi.mock("./canvas/layout", async (importOriginal) => {
   };
 });
 
-const canvasSpy = vi.hoisted(() => ({ status: "" }));
-vi.mock("./canvas/Canvas", () => ({
-  default: (props: { status?: string }) => {
-    canvasSpy.status = props.status ?? "";
-    return null;
-  },
-}));
+vi.mock("./canvas/Canvas", async () => {
+  const { canvasSpy } = await import("./App.testkit");
+  return {
+    default: (props: { status?: string }) => {
+      canvasSpy.status = props.status ?? "";
+      return null;
+    },
+  };
+});
 
 import App from "./App";
 import { defaultPlan, encodePlan } from "./data/plan";
 import { pack } from "./data/load";
 import { loadI18n } from "./data/i18n";
 import { AREA_STORAGE_KEY } from "./data/storage-keys";
+import { canvasSpy } from "./App.testkit";
 
 const en = loadI18n("en");
 

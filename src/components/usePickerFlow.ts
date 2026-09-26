@@ -33,10 +33,11 @@ export function usePickerFlow<PickerFor, Prompt>(
   const tierByItemId = useMemo(() => computeItemDepths(pack), [pack]);
   // The picker hint for dimmed items: one sentence per cause kind present, in
   // the cause precedence order. The event sentence carries the raw cohort
-  // tokens ("v1.2 · v1.5"), the same ones the producer-unavailable validation
-  // error interpolates, so both surfaces name a cohort identically. Gated on at
-  // least one of the items being in the catalogue, so a cause whose every item
-  // the grid never shows explains nothing.
+  // tokens ("v1.2 · v1.5"), the same ones the blocked-target banner sentence
+  // (blockedTargets, describeBlockedTarget) interpolates, so both surfaces name
+  // a cohort identically. Gated on at least one of the items being in the
+  // catalogue, so a cause whose every item the grid never shows explains
+  // nothing.
   const unavailableHint = useMemo(() => {
     if (unavailableItems.size === 0) return undefined;
     if (!catalogue.some((it) => unavailableItems.has(it.id))) return undefined;

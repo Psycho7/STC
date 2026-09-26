@@ -153,9 +153,9 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "picker.group.unranked": "循环 / 未分级",
     "picker.empty": "没有匹配的物品",
     "picker.close.label": "关闭",
-    // {cohorts} is the raw cohort tokens ("v1.2 · v1.5") the validation error
-    // app.error.producer-unavailable.event also interpolates: the two surfaces
-    // must name a cohort identically in every locale.
+    // {cohorts} is the raw cohort tokens ("v1.2 · v1.5") the blocked-target
+    // banner sentence app.error.producer-unavailable.event also interpolates:
+    // the two surfaces must name a cohort identically in every locale.
     "picker.event.off":
       "灰显的物品来自未开启的活动（{cohorts}）— 可在设置中开启",
     // The area and manual sentences carry no parameter: one dimmed tile may
@@ -303,7 +303,7 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "picker.empty": "No items match your search",
     "picker.close.label": "Close",
     // See the zh entry: {cohorts} carries the same raw tokens the
-    // producer-unavailable validation error interpolates.
+    // blocked-target banner sentence interpolates.
     "picker.event.off":
       "Dimmed items belong to a switched-off event ({cohorts}) — switch it on in Settings",
     // See the zh entries: neither sentence takes a parameter.

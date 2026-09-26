@@ -46,13 +46,15 @@ vi.mock("./canvas/layout", async (importOriginal) => {
   };
 });
 
-const canvasSpy = vi.hoisted(() => ({ status: "" }));
-vi.mock("./canvas/Canvas", () => ({
-  default: (props: { status?: string }) => {
-    canvasSpy.status = props.status ?? "";
-    return null;
-  },
-}));
+vi.mock("./canvas/Canvas", async () => {
+  const { canvasSpy } = await import("./App.testkit");
+  return {
+    default: (props: { status?: string }) => {
+      canvasSpy.status = props.status ?? "";
+      return null;
+    },
+  };
+});
 
 // Real packs never go infeasible: throw on demand, for every solve while set,
 // so a reload of the written hash fails the same way the edit did.
@@ -73,33 +75,23 @@ vi.mock("./solver", async (importOriginal) => {
 });
 
 import App from "./App";
-import { defaultPlan, encodePlan, loadPlan, type Plan } from "./data/plan";
+import { encodePlan, loadPlan, type Plan } from "./data/plan";
 import { pack } from "./data/load";
 import { loadI18n } from "./data/i18n";
-import { AREA_STORAGE_KEY } from "./data/storage-keys";
-import { LUNG_PLAN, flipStoredOverrides } from "./App.testkit";
+import { AREA_STORAGE_KEY, LOCALE_STORAGE_KEY } from "./data/storage-keys";
+import {
+  LUNG_PLAN,
+  NUGGET_AND_POWDER_PLAN,
+  POWDER_PLAN,
+  VALLEY,
+  canvasSpy,
+  flipStoredOverrides,
+} from "./App.testkit";
 
 const en = loadI18n("en");
 const zh = loadI18n("zh");
-const VALLEY = "tundra";
-
-const ONE = { num: "1", denom: "1" };
 // 600 per minute, as the rate field commits it.
 const TEN = { num: "10", denom: "1" };
-
-const POWDER_PLAN: Plan = {
-  ...defaultPlan(pack),
-  targets: [{ itemId: "iron_powder", ratePerSec: ONE }],
-};
-
-// copper_nugget is Wuling-only, so under Valley IV this plan is blocked.
-const NUGGET_AND_POWDER_PLAN: Plan = {
-  ...defaultPlan(pack),
-  targets: [
-    { itemId: "copper_nugget", ratePerSec: ONE },
-    { itemId: "iron_powder", ratePerSec: ONE },
-  ],
-};
 
 function withRate(
   plan: Plan,
@@ -169,7 +161,7 @@ beforeEach(() => {
   );
   window.location.hash = "";
   window.localStorage.clear();
-  window.localStorage.setItem("aef.locale", "en");
+  window.localStorage.setItem(LOCALE_STORAGE_KEY, "en");
   canvasSpy.status = "";
   solverGate.throwAll = false;
   layoutGate.hold = false;
@@ -346,7 +338,7 @@ test.each([
 ])(
   "the blocked banner joins sentences by locale ($locale)",
   async ({ locale, i18n, gap }) => {
-    window.localStorage.setItem("aef.locale", locale);
+    window.localStorage.setItem(LOCALE_STORAGE_KEY, locale);
     window.localStorage.setItem(AREA_STORAGE_KEY, VALLEY);
     await bootOn(NUGGET_AND_POWDER_PLAN);
 

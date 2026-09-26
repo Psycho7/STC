@@ -51,19 +51,21 @@ vi.mock("./data/availability", async (importOriginal) => {
   };
 });
 
-const canvasSpy = vi.hoisted(() => ({ status: "" }));
-vi.mock("./canvas/Canvas", () => ({
-  default: (props: { status?: string }) => {
-    canvasSpy.status = props.status ?? "";
-    return null;
-  },
-}));
+vi.mock("./canvas/Canvas", async () => {
+  const { canvasSpy } = await import("./App.testkit");
+  return {
+    default: (props: { status?: string }) => {
+      canvasSpy.status = props.status ?? "";
+      return null;
+    },
+  };
+});
 
 import App from "./App";
 import { encodePlan } from "./data/plan";
 import { loadI18n } from "./data/i18n";
 import { EVENT_COHORT_OVERRIDES_STORAGE_KEY } from "./data/storage-keys";
-import { LUNG_PLAN, flipStoredOverrides } from "./App.testkit";
+import { LUNG_PLAN, canvasSpy, flipStoredOverrides } from "./App.testkit";
 import { pickerTile } from "./components/panel.testkit";
 
 // The localized producer-unavailable copy the banner must render: the item's
