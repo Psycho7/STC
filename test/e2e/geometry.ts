@@ -7,7 +7,11 @@
 // import: the padding constants come straight from the routing source so a card
 // rect built here matches paddedObstacles' `card` rect by construction.
 
-import { CHAMFER, PORT_STUB } from "../../src/canvas/edgePath";
+import {
+  CHAMFER,
+  CHIP_CARD_CLEARANCE,
+  PORT_STUB,
+} from "../../src/canvas/edgePath";
 import {
   CATALYST_BLOCK_GAP,
   ENTRY_GUTTER_OVERHANG,
@@ -1810,6 +1814,64 @@ export function auditChipCardIntrusion(
         censusHit(
           chip,
           `intrudes ${worst.depth.toFixed(1)} into card ${worst.card} (budget ${budget})`,
+        ),
+      );
+    }
+  }
+  return out;
+}
+
+// Every chip whose box stands closer than CHIP_CARD_CLEARANCE to a machine
+// card that is not one of its own endpoints'. The clearance is the same
+// constant the seating slide holds (imported, never duplicated), so this
+// counter reads the seated picture against the rule that seated it. A chip's
+// own endpoint cards are exempt -- a trunk chip stands in the reserve beside
+// the port it labels -- and so is every card a trunk-seated aggregate chip's
+// fan feeds (kind "bus-drop" labels a whole fan-out). Container slabs are
+// excluded like everywhere above. GAP, not depth: the rule is symmetric for a
+// box merely clear of the border (a flush seat reads as the card's label) and
+// one buried in it, and the gap of an overlapping pair comes out negative, so
+// both count.
+export function auditChipNearCard(
+  chips: ReadonlyArray<ChipRect>,
+  edges: ReadonlyArray<RawEdge>,
+  nodes: ReadonlyArray<NodeRect>,
+  clearance = CHIP_CARD_CLEARANCE,
+  // The seating slide rounds a seat to the 0.01 grid r() emits, so a seat
+  // cut exactly `clearance` out can read a hair under it; tolerate one grid
+  // step, not the 1e-3 the intrusion audit gets away with.
+  eps = 0.01,
+): ChipCensusHit[] {
+  const cards = nodes.filter((n) => n.type !== "group");
+  const edgeById = new Map(edges.map((e) => [e.id, e] as const));
+  const out: ChipCensusHit[] = [];
+  for (const chip of chips) {
+    const own = edgeById.get(chip.edgeId);
+    if (own === undefined) continue;
+    const ownCards = new Set([own.source, own.target]);
+    if (chip.kind === "bus-drop") {
+      for (const e of edges) {
+        if (e.source === own.source && e.item === own.item)
+          ownCards.add(e.target);
+      }
+    }
+    let nearest: { card: string; gap: number } | null = null;
+    for (const card of cards) {
+      if (ownCards.has(card.nodeId)) continue;
+      const gap = Math.max(
+        card.left - chip.right,
+        chip.left - card.right,
+        card.top - chip.bottom,
+        chip.top - card.bottom,
+      );
+      if (nearest === null || gap < nearest.gap)
+        nearest = { card: card.nodeId, gap };
+    }
+    if (nearest !== null && nearest.gap < clearance - eps) {
+      out.push(
+        censusHit(
+          chip,
+          `stands ${nearest.gap.toFixed(1)} from card ${nearest.card} (clearance ${clearance})`,
         ),
       );
     }

@@ -16,6 +16,7 @@ import {
   pathPointAtPts,
   routingHintsFromData,
   sharedStretches,
+  CHIP_CARD_CLEARANCE,
   PORT_STUB,
   CHAMFER,
   MAX_CHAMFER,
@@ -1025,9 +1026,13 @@ describe("cardClearRunAnchor", () => {
 
   it("slides the box along its run to the nearer clear side", () => {
     // A card under the run centre: the box clears it on the left at 150 - 50
-    // and on the right at 260 + 50, and the left move is the shorter one.
+    // - CHIP_CARD_CLEARANCE and on the right at 260 + 50 +
+    // CHIP_CARD_CLEARANCE, and the left move is the shorter one.
     const card = { left: 150, right: 260, top: -20, bottom: 20 };
-    expect(cardClearRunAnchor(PTS, HALF_W, [card])).toEqual([100, 0]);
+    expect(cardClearRunAnchor(PTS, HALF_W, [card])).toEqual([
+      150 - HALF_W - CHIP_CARD_CLEARANCE,
+      0,
+    ]);
   });
 
   it("falls to the next-longest run when nothing on this one clears", () => {

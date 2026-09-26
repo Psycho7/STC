@@ -554,6 +554,112 @@ describe("jogForwardLegs: a demoted member whose same-row leg crosses a card", (
   });
 });
 
+describe("a slide seat whose ideal position is off the 0.01 grid", () => {
+  it("emits a seat the caller's rounded re-validation still clears", () => {
+    // Card rects come from fractional layout coordinates, while the emitted
+    // seat lands on the 0.01 grid (r()). A card edge off that grid makes the
+    // flush seat off-grid too: `card.right + halfW + clearance` validated
+    // UNROUNDED touches the card exactly, but rounding it can drift up to
+    // 0.005 TOWARD the card -- far past BOX_EPS -- so the caller's boxHits
+    // re-validation of the emitted point rejects the very seat the filter
+    // just accepted. Every tier answers with the same drifted point, the
+    // slide is dropped, and the chip stays on the card it was to escape.
+    const nodes: RFAnyNode[] = [
+      producer("p", 0, 0),
+      consumer("t", 1600, 0),
+      // Right edge at 900.994: the near (right) seat 948.494 rounds DOWN to
+      // 948.49, into the card.
+      productNode("blk", 700.994, -20, 200, 120),
+    ];
+    const seated = deconflictChipAnchors(nodes, [edge("e:1", "p", "t")]);
+    const byId = nodeIndexOf(nodes);
+    const laid = seated.find((e) => e.id === "e:1")!;
+    const ports = drawnPortsOf(laid, byId)!;
+    const drawn = drawnEdge(ports, laid.type, laid.data);
+    expect(drawn.shape).toBe("item");
+    if (drawn.shape !== "item") return;
+
+    const cards = cardRectsFor(
+      nodes.filter((n) => n.type !== "group"),
+      byId,
+    );
+    const halfW = chipSeatHalfW(rateChipText(laid), false);
+    const runs = horizontalRuns(drawn.pts);
+    const blk = cards.find((c) => c.id === "blk")!;
+    const centre = (runs[0]!.lo + runs[0]!.hi) / 2;
+
+    // Premise: the blocker's edge really is off the grid, and the rule seat
+    // (the straight run's centre) stands on that card, so the chip can only
+    // escape through the slide.
+    expect(Math.round(blk.right * 100) / 100).not.toBe(blk.right);
+    expect(chipBoxClearsCards(centre, runs[0]!.y, halfW, cards)).toBe(false);
+
+    const anchor = drawn.labelAnchor;
+    expect(chipBoxClearsCards(anchor.x, anchor.y, halfW, cards)).toBe(true);
+    expect(
+      runs.some(
+        (run) => run.y === anchor.y && anchor.x >= run.lo && anchor.x <= run.hi,
+      ),
+    ).toBe(true);
+  });
+});
+
+describe("a run centre whose ideal position is off the 0.01 grid", () => {
+  it("emits a centre the caller's rounded re-validation still clears", () => {
+    // The other half of the rounding hazard: the run bounds are on the grid,
+    // but their midpoint can land on a half-hundredth, and the early return
+    // validated the UNROUNDED centre while emitting r(centre). A card edge
+    // 4.002 past the unrounded box clears it, yet rounding the centre 0.005
+    // toward that card puts the emitted box 3.997 past it -- past BOX_EPS, so
+    // the caller's boxHits re-validation rejects the very centre the check
+    // just accepted, every tier answers with the same drifted point, and the
+    // slide is dropped leaving the chip inside the card's clearance band.
+    //
+    // The corridor is exactly one box wide between the port furniture: no
+    // furniture-flush candidate fits either, so the centre early-return is
+    // the only branch that can answer and the fixture pins it alone.
+    const nodes: RFAnyNode[] = [
+      producer("p", 0, 0),
+      // Off-grid target port: run [245, 352.01], centre 298.505.
+      consumer("t", 355.01, 0),
+      // Left edge at 346.007: the unrounded box clears it by 4.002, the
+      // rounded centre 298.51 misses by 0.003.
+      productNode("blk", 346.007, -20, 20, 120),
+    ];
+    const seated = deconflictChipAnchors(nodes, [edge("e:1", "p", "t")]);
+    const byId = nodeIndexOf(nodes);
+    const laid = seated.find((e) => e.id === "e:1")!;
+    const ports = drawnPortsOf(laid, byId)!;
+    const drawn = drawnEdge(ports, laid.type, laid.data);
+    expect(drawn.shape).toBe("item");
+    if (drawn.shape !== "item") return;
+
+    const cards = cardRectsFor(
+      nodes.filter((n) => n.type !== "group"),
+      byId,
+    );
+    const halfW = chipSeatHalfW(rateChipText(laid), false);
+    const runs = horizontalRuns(drawn.pts);
+    const centre = (runs[0]!.lo + runs[0]!.hi) / 2;
+    const rounded = Math.round(centre * 100) / 100;
+
+    // Premise: the centre really is off the grid, its unrounded box clears
+    // every card, and the rounded one does not -- the hazard the emitted seat
+    // must not carry.
+    expect(rounded).not.toBe(centre);
+    expect(chipBoxClearsCards(centre, runs[0]!.y, halfW, cards)).toBe(true);
+    expect(chipBoxClearsCards(rounded, runs[0]!.y, halfW, cards)).toBe(false);
+
+    const anchor = drawn.labelAnchor;
+    expect(chipBoxClearsCards(anchor.x, anchor.y, halfW, cards)).toBe(true);
+    expect(
+      runs.some(
+        (run) => run.y === anchor.y && anchor.x >= run.lo && anchor.x <= run.hi,
+      ),
+    ).toBe(true);
+  });
+});
+
 describe("jogForwardLegs: the rail-row candidate order is total", () => {
   it("routes identically when the node array is reversed", () => {
     // Two blockers whose padded rails sit the SAME distance from the target

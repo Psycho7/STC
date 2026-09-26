@@ -11,6 +11,7 @@ import {
   auditCardFrames,
   auditChipCardIntrusion,
   auditChipForeignStrokes,
+  auditChipNearCard,
   auditChipPortCover,
   auditChipBoxOverlaps,
   auditChipsOnOwnPath,
@@ -1267,24 +1268,49 @@ const FOREIGN_STROKE_BASELINE: Record<string, number> = {
   "script43-xiranite": 0,
 };
 
+// Near cards: chips whose box stands closer than CHIP_CARD_CLEARANCE to a
+// card that is not one of their own endpoints'. The clearance constant is the
+// seating rule's own (imported from src/canvas/edgePath via geometry.ts), so
+// this table reads the seated picture against the rule that seated it. A
+// 1-to-1 chip slides to a seat that clears by construction, so the residue is
+// the families the slide does not cover: reserve-placed trunk chips that may
+// not leave their reserve. Target state zero; ratchets down.
+const NEAR_CARD_BASELINE: Record<string, number> = {
+  default: 0,
+  battery5: 0,
+  "battery5-xiranite": 0,
+  crystal: 0,
+  equip4: 0,
+  multi6: 0,
+  tundra: 0,
+  script43: 0,
+  "coupon-web": 0,
+  "gas-web": 0,
+  "rot-bottled_food_3": 0,
+  "rot-bottled_food_4": 0,
+  transmuters: 0,
+  "copper-script43": 0,
+  "script43-xiranite": 0,
+};
+
 // Port cover: chips whose drawn box covers a handle, glyph or row strip of their
 // own endpoint card. The furniture band straddling a port is a keep-out, so a
 // chip anchored a port stub out of it clears it by construction. Target state
 // zero; ratchets down.
 //
-// The five pinned cells are one family, and one the placement rule cannot clear
-// on its own: a 1-to-1 chip slid along its run to the nearest CARD-clear seat
-// stops flush against the target card, where the box still laps the port glyph
-// standing outside the border (battery5 e:7 / e:17, battery5-xiranite e:3 /
-// e:12, multi6 e:54, all the two wide Sandleaf Seed / Inert Xircon Effluent
-// labels). The slide clears cards, and the glyph is not part of the card box.
+// CHIP-CARD CLEARANCE 2026-09-24: every cell re-harvested and re-pinned to the
+// measured count, which is 0 on all fifteen plans. The slide now seats the box
+// CHIP_CARD_CLEARANCE past the furniture tier too, which retired the one family
+// the pinned cells carried: a 1-to-1 chip that used to stop flush against the
+// target card, lapping the port glyph standing outside the border (battery5 2,
+// battery5-xiranite 2, multi6 1).
 const PORT_COVER_BASELINE: Record<string, number> = {
   default: 0,
-  battery5: 2,
-  "battery5-xiranite": 2,
+  battery5: 0,
+  "battery5-xiranite": 0,
   crystal: 0,
   equip4: 0,
-  multi6: 1,
+  multi6: 0,
   tundra: 0,
   script43: 0,
   "coupon-web": 0,
@@ -1305,6 +1331,7 @@ const CENSUS_TOTALS: {
   cardIntrusion: number;
   foreignStroke: number;
   portCover: number;
+  nearCard: number;
 } = {
   cardIntrusion: 0,
   // ROUTING FINDINGS 2026-09-14: 30 -> 18, the sum of FOREIGN_STROKE_BASELINE
@@ -1314,7 +1341,13 @@ const CENSUS_TOTALS: {
   // table above, not a separate ruling.
   // FOREIGN VERTICAL SLIDE 2026-09-19: 30 -> 0, the sum after that harvest.
   foreignStroke: 0,
-  portCover: 5,
+  // CHIP-CARD CLEARANCE 2026-09-24: 5 -> 0, the sum of PORT_COVER_BASELINE
+  // after that harvest (the slide now clears the furniture tier by the
+  // clearance instead of stopping flush).
+  portCover: 0,
+  // CHIP-CARD CLEARANCE 2026-09-24: 0, the sum of NEAR_CARD_BASELINE pinned at
+  // the post-fix counts (the slide now holds CHIP_CARD_CLEARANCE out).
+  nearCard: 0,
 };
 
 function censusInventory(hits: ReadonlyArray<ChipCensusHit>): string {
@@ -1337,6 +1370,9 @@ test.describe("chip seating census", () => {
     );
     expect(sumOf(PORT_COVER_BASELINE), "portCover totals").toBe(
       CENSUS_TOTALS.portCover,
+    );
+    expect(sumOf(NEAR_CARD_BASELINE), "nearCard totals").toBe(
+      CENSUS_TOTALS.nearCard,
     );
   });
 
@@ -1404,6 +1440,24 @@ test.describe("chip seating census", () => {
             `${scenario.id}: ${braided.length} chip(s) with a foreign stroke through the box exceeds baseline ${strokeBaseline} among ${chips.length} chips:\n${censusInventory(braided)}`,
           )
           .toBeLessThanOrEqual(strokeBaseline);
+      }
+
+      // Near-card: a chip box keeps CHIP_CARD_CLEARANCE from every card that
+      // is not one of its own endpoints'. Target state zero, ratchets down.
+      const nearCard = auditChipNearCard(chips, rawEdges, nodes);
+      const nearCardPin = baselineFor(
+        NEAR_CARD_BASELINE,
+        "NEAR_CARD_BASELINE",
+        scenario.id,
+        unpinned,
+      );
+      if (nearCardPin !== null) {
+        expect
+          .soft(
+            nearCard.length,
+            `${scenario.id}: ${nearCard.length} chip(s) closer than the card clearance to a foreign card exceeds baseline ${nearCardPin} among ${chips.length} chips:\n${censusInventory(nearCard)}`,
+          )
+          .toBeLessThanOrEqual(nearCardPin);
       }
 
       // Port-cover: a chip never covers its own endpoint card's port

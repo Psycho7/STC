@@ -8,7 +8,7 @@
 // deliberate behaviour changes, and the question this test now answers is which
 // lines they reach. Every field of every other edge and node must still match
 // the extraction byte for byte, and the keys that do differ must be exactly the
-// ones the four tables below enumerate. The ratchet tables in the e2e geometry
+// ones the five tables below enumerate. The ratchet tables in the e2e geometry
 // audit cannot say that:
 // every cell is an upper bound compared with toBeLessThanOrEqual, so a
 // relocation that lowers a count passes silently. A whole-scene diff cannot say
@@ -214,7 +214,7 @@ const edgeHeadOf = (key: string): string | null =>
 // fields of a listed edge may differ -- because A moves no polyline, column,
 // level or node placement, and the test should keep saying so.
 //
-// All four tables compose: an unlisted key still compares exact, the union of
+// All five tables compose: an unlisted key still compares exact, the union of
 // what they permit is the whole permitted delta, and a listed edge that stops
 // differing fails whichever table lists it, so no list can rot into a blanket
 // waiver.
@@ -240,6 +240,26 @@ const CHIP_SEATS_MOVED: Readonly<Record<string, ReadonlyArray<string>>> = {
   "copper-script43": ["e:26:u:class:q:9->u:class:q:32:gas_xiranite_enr"],
   "rot-bottled_rec_hp_1": ["e:4:u:class:q:4->u:class:q:5:plant_moss_1"],
   "rot-proc_bomb_1": ["e:4:u:class:q:4->u:class:q:5:plant_bbflower_1"],
+};
+
+// The fifth named delta: CHIP_CARD_CLEARANCE (2026-09-24) stands every slide
+// seat the clearance past the card edge it dodges and grows the box the rule
+// seat is tested with, so two kinds of seat moved and nothing else did. The
+// thirteen seats the slide already stamped shifted by exactly the clearance
+// and stay covered by CHIP_SEATS_MOVED above; these are the five RULE seats
+// that landed flush on a foreign card and slid off it (multi6 e:28, script43
+// e:14, script43-xiranite e:14, copper-script43 e:18 and e:34 -- e:34 off a
+// port-furniture strip, the only blocker family the raw card gap cannot see).
+// Same three fields as CHIP_SEATS_MOVED: the clearance moves no polyline,
+// column, level or node placement.
+const CHIP_CLEARANCE_SEATS: Readonly<Record<string, ReadonlyArray<string>>> = {
+  multi6: ["e:28:u:class:q:28->u:class:q:19:copper_nugget"],
+  script43: ["e:14:u:class:q:23->u:class:q:6:gas_copper"],
+  "script43-xiranite": ["e:14:u:class:q:23->u:class:q:6:gas_copper"],
+  "copper-script43": [
+    "e:18:u:class:q:28->u:class:q:7:gas_copper",
+    "e:34:u:in:iron_ore->u:class:q:10:iron_ore",
+  ],
 };
 
 // The third named delta: family H gives a fan-out trunk with no near member a
@@ -334,10 +354,16 @@ describe("the level-occupancy extraction routes the corpus identically", () => {
       const seats = CHIP_SEATS_MOVED[scenario.id] ?? [];
       const seated = FAR_OWNERS_SEATED[scenario.id] ?? [];
       const swapped = COLUMNS_SWAPPED[scenario.id] ?? [];
+      const cleared = CHIP_CLEARANCE_SEATS[scenario.id] ?? [];
       const seatKeys = new Map<string, string>();
       for (const id of seats) {
         for (const field of SEAT_FIELDS)
           seatKeys.set(`edge:${id}.${field}`, id);
+      }
+      const clearanceKeys = new Map<string, string>();
+      for (const id of cleared) {
+        for (const field of SEAT_FIELDS)
+          clearanceKeys.set(`edge:${id}.${field}`, id);
       }
       const totalKeys = new Map<string, string>();
       for (const id of seated) {
@@ -354,6 +380,7 @@ describe("the level-occupancy extraction routes the corpus identically", () => {
       const seatsSeen = new Set<string>();
       const seatedSeen = new Set<string>();
       const swappedSeen = new Set<string>();
+      const clearedSeen = new Set<string>();
       for (const key of new Set([...lhs.keys(), ...rhs.keys()])) {
         if (Object.is(lhs.get(key), rhs.get(key))) continue;
         // A key any table permits is permitted, and credits every table that
@@ -365,12 +392,15 @@ describe("the level-occupancy extraction routes the corpus identically", () => {
         if (owner !== undefined) seatedSeen.add(owner);
         const slot = slotKeys.get(key);
         if (slot !== undefined) swappedSeen.add(slot);
+        const clearance = clearanceKeys.get(key);
+        if (clearance !== undefined) clearedSeen.add(clearance);
         const head = edgeHeadOf(key);
         if (head !== null && moved.includes(head)) movedHeads.add(head);
         else if (
           seat === undefined &&
           owner === undefined &&
-          slot === undefined
+          slot === undefined &&
+          clearance === undefined
         )
           unexpected.push(`${key}: ${lhs.get(key)} -> ${rhs.get(key)}`);
       }
@@ -383,6 +413,7 @@ describe("the level-occupancy extraction routes the corpus identically", () => {
       expect([...seatsSeen].sort()).toEqual([...seats].sort());
       expect([...seatedSeen].sort()).toEqual([...seated].sort());
       expect([...swappedSeen].sort()).toEqual([...swapped].sort());
+      expect([...clearedSeen].sort()).toEqual([...cleared].sort());
     }, 600_000);
   }
 });
