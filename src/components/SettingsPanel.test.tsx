@@ -476,6 +476,37 @@ test("the filter matches an en name under the zh locale", () => {
   ]);
 });
 
+test("a needle naming a machine keeps that machine's group and all its rows in the expansion", () => {
+  renderSettings();
+  openPanel();
+  expandAllRecipes();
+  const rowsUnder = (machine: string) =>
+    [
+      ...document.querySelectorAll(
+        `[data-testid="settings-machine-group"][data-machine="${machine}"] [data-testid="settings-recipe-toggle"]`,
+      ),
+    ].map((r) => r.getAttribute("data-recipe"));
+  const allRows = rowsUnder("mix_pool_1");
+  const allZhRows = rowsUnder("mix_pool_2");
+
+  // Neither machine name appears in any item or recipe name, so only the
+  // group title can keep these rows on screen.
+  filterRecipes("Reactor Crucible");
+  expect([...machineGroups()].map((g) => g.dataset.machine)).toEqual([
+    "mix_pool_1",
+  ]);
+  expect(rowsUnder("mix_pool_1")).toEqual(allRows);
+  expect(emptyMessages()).toHaveLength(0);
+
+  // The zh name of a machine matches under the en locale too.
+  filterRecipes("扩容反应池");
+  expect([...machineGroups()].map((g) => g.dataset.machine)).toEqual([
+    "mix_pool_2",
+  ]);
+  expect(rowsUnder("mix_pool_2")).toEqual(allZhRows);
+  expect(emptyMessages()).toHaveLength(0);
+});
+
 function emptyMessages(): NodeListOf<HTMLElement> {
   return document.querySelectorAll<HTMLElement>(".settings-recipe-empty");
 }

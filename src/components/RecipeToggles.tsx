@@ -139,15 +139,18 @@ export function RecipeToggles({
       : group.recipes.filter((r) => matches(r.id, needle));
     return recipes.length === 0 ? [] : [{ ...group, recipes }];
   });
-  // Same rule one level down: a recipe stays when its own name matches or when
-  // one of the items it makes does. This runs whether or not the catalogue is
+  // Same rule one level down: a machine whose own name matches keeps all its
+  // recipes; otherwise a recipe stays when its own name matches or when one of
+  // the items it makes does. This runs whether or not the catalogue is
   // expanded, because the empty message has to count the matches hiding behind
   // the disclosure as matches.
   const matchedMachines = machineGroups.flatMap((group) => {
-    const recipes = group.recipes.filter(
-      (r) =>
-        matches(r.id, needle) || r.out.some((o) => matches(o.item, needle)),
-    );
+    const recipes = matches(group.machineId, needle)
+      ? group.recipes
+      : group.recipes.filter(
+          (r) =>
+            matches(r.id, needle) || r.out.some((o) => matches(o.item, needle)),
+        );
     return recipes.length === 0 ? [] : [{ ...group, recipes }];
   });
   const shownMachines = showAll ? matchedMachines : [];
