@@ -628,7 +628,6 @@ function CanvasInner({
       "controls.ariaLabel": i18n.t("canvas.controls.panel"),
       "controls.zoomIn.ariaLabel": i18n.t("canvas.controls.zoom_in"),
       "controls.zoomOut.ariaLabel": i18n.t("canvas.controls.zoom_out"),
-      "controls.fitView.ariaLabel": i18n.t("canvas.controls.fit_view"),
       "controls.interactive.ariaLabel": i18n.t("canvas.controls.interactive"),
       // Both node keys: the vendor reads "default" when disableKeyboardA11y is
       // set, the reverse of what the names say. The vendor text offers delete,

@@ -192,9 +192,10 @@ export function checkEdgeEndpointIntegrity(
  *   NOT part of that consumption: it leaves the catalyst node, so an ordinary
  *   node justified by nothing but a catalyst is a violation. Production
  *   claimed by a declared target draw never feeds internal consumers, so it is
- *   subtracted before the comparison. Or, for a free-supply target item, by
- *   its export shortfall: the declared rate beyond what net production covers
- *   arrives as a boundary passthrough into the target output.
+ *   subtracted before the comparison. Or, for a target item with external
+ *   supply (capped or free), by its export shortfall: the declared rate beyond
+ *   what net production covers arrives as a boundary passthrough into the
+ *   target output.
  *
  * - outputProduct "target" for X: justified iff X is a declared target item
  *   (X is a demandByItem key).
