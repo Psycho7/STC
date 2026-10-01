@@ -18,7 +18,7 @@ import Canvas, { type CanvasHandle, type CanvasStatus } from "./canvas/Canvas";
 import { downloadBlob, exportFilename } from "./canvas/exportPng";
 import { TargetsPanel } from "./components/TargetsPanel";
 import { InputsPanel } from "./components/InputsPanel";
-import { rerouteEdges, type RFAnyNode } from "./canvas/layout";
+import { rerouteAfterDrop, type RFAnyNode } from "./canvas/layout";
 import { layoutSolved } from "./canvas/layoutSolved";
 import type { GapRecord } from "./canvas/layerModel";
 import { buildRealizedRateByItem } from "./canvas/realizedRateByItem";
@@ -432,10 +432,9 @@ function AppInner() {
   }, [plan]);
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
-  // The layout's inter-layer gap reserves. The canvas reads them for the exam
-  // hook, and the drag-stop replay below routes against them as the RoutingCtx
-  // (widenLayerGaps is not re-run at drag-stop, so a drag that changes a node's
-  // layer membership routes against slightly stale gap records; accepted).
+  // The inter-layer gap zones the current edges were routed through: the
+  // layout's own, until a drop measures them again on the live positions. The
+  // canvas reads them for the exam hook.
   const [gaps, setGaps] = useState<ReadonlyArray<GapRecord>>([]);
   // The post-ELK, pre-pass edges the current render was routed from. A drop
   // replays the routing passes from this pristine array rather than the routed
@@ -445,12 +444,15 @@ function AppInner() {
   // A drop re-runs the routing passes over the live node positions (ruling R1:
   // replay at drag-stop, no per-frame re-route). The last pass
   // (deconflictChipAnchors) re-seats chips, junction dots and crossing cues on
-  // the fresh route in the same call.
+  // the fresh route in the same call. The gap records are measured again on
+  // the live positions first, so the columns and chip rooms follow the cards.
   const handleNodeDragStop = useCallback(
     (liveNodes: Node[]) => {
-      setEdges(rerouteEdges(liveNodes as RFAnyNode[], baseEdges, { gaps }));
+      const drop = rerouteAfterDrop(liveNodes as RFAnyNode[], baseEdges);
+      setGaps(drop.gaps);
+      setEdges(drop.edges);
     },
-    [setEdges, baseEdges, gaps],
+    [setEdges, baseEdges],
   );
   // `pending` is true while a solve + layout generation is in flight. It drives
   // the header status chip and the canvas status annotation (SOLVING), so both

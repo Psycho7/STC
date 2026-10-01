@@ -41,7 +41,7 @@ import type { Edge } from "@xyflow/react";
 import { pushInto } from "../util/multimap";
 
 import { DOT_KEEPOFF } from "./dimensions";
-import { CHAMFER, FORWARD_STEP_BUDGET, PORT_STUB } from "./edgePath";
+import { BOX_EPS, CHAMFER, FORWARD_STEP_BUDGET, PORT_STUB } from "./edgePath";
 import {
   aggregateChipText,
   chipNaturalWidth,
@@ -951,27 +951,56 @@ export function widenLayerGaps(
   // The records come off the FINAL placement: a within-scope shift is uniform
   // over a layer and an ancestor's shift translates a whole subtree, so the
   // clustering below is the one each scope was widened against.
-  const model = buildLayerModel(working);
+  return { nodes: working, gaps: measureGapRecords(working, edges) };
+}
+
+// Where every gap's zones stand on a placement, in every scope (the root and
+// each container's own), measured without moving a node or resizing a
+// container. widenLayerGaps reads its own records through this, and a drop
+// reads the records of the live placement through it too, so one layout rule
+// serves both.
+export function measureGapRecords(
+  nodes: ReadonlyArray<RFAnyNode>,
+  edges: ReadonlyArray<Edge>,
+): GapRecord[] {
+  const model = buildLayerModel(nodes);
   const spans = new Map(
     gapSpansOf(model).map((span) => [gapKeyOf(span), span]),
   );
-  const gaps: GapRecord[] = requirementsOf(model, working, edges).map(
-    (requirement) => {
-      const span = spans.get(gapKeyOf(requirement))!;
-      const sourceRight = span.left + requirement.sourceZone;
-      const targetLeft = span.right - requirement.targetZone;
-      return {
-        scope: requirement.scope,
-        index: requirement.index,
-        left: span.left,
-        right: span.right,
-        sourceZone: { left: span.left, right: sourceRight },
-        columnZone: { left: sourceRight, right: targetLeft },
-        targetZone: { left: targetLeft, right: span.right },
-        columns: requirement.columns,
-      };
-    },
+  return requirementsOf(model, nodes, edges).map((requirement) =>
+    gapRecordOf(spans.get(gapKeyOf(requirement))!, requirement),
   );
+}
 
-  return { nodes: working, gaps };
+// One gap's zones inside its span. A widened gap holds its whole requirement:
+// the source zone flush left, the target zone flush right, the column zone in
+// between with any slack. Only a drop can hand over a gap narrower than its
+// requirement, and then the columns keep their room first and the two chip
+// zones share what is left in proportion to what they owe:
+//
+//   requirement  | source 134.5 | columns 128 | target 134.5 |
+//   247 span     | 59.5 |     columns 128     | 59.5 |
+//   40 span      |            columns 40            |
+//
+// Every zone keeps left <= right.
+function gapRecordOf(span: GapSpan, requirement: GapRequirement): GapRecord {
+  const width = span.right - span.left;
+  const chips = requirement.sourceZone + requirement.targetZone;
+  const chipRoom = width - Math.min(requirement.columnZone, width);
+  const scale = chips <= chipRoom + BOX_EPS ? 1 : chipRoom / chips;
+  const sourceRight = span.left + requirement.sourceZone * scale;
+  const targetLeft = Math.max(
+    sourceRight,
+    span.right - requirement.targetZone * scale,
+  );
+  return {
+    scope: requirement.scope,
+    index: requirement.index,
+    left: span.left,
+    right: span.right,
+    sourceZone: { left: span.left, right: sourceRight },
+    columnZone: { left: sourceRight, right: targetLeft },
+    targetZone: { left: targetLeft, right: span.right },
+    columns: requirement.columns,
+  };
 }
