@@ -10,12 +10,23 @@ import { describe, it, expect } from "vitest";
 
 import {
   ENTRY_SLOT_PITCH,
+  OBSTACLE_PAD_Y,
   assignEntryColumns,
   jogForwardLegs,
 } from "../../src/canvas/busRouting";
-import { buildGapColumnOrder } from "../../src/canvas/gapColumnOrder";
+import { PORT_STUB, drawnEdge } from "../../src/canvas/edgePath";
+import {
+  buildGapColumnOrder,
+  placedColumns,
+} from "../../src/canvas/gapColumnOrder";
 import type { GapRecord } from "../../src/canvas/layerModel";
-import { mkEdge, productNode } from "./busRouting.testkit";
+import { drawnPortsOf, nodeIndexOf } from "../../src/canvas/nodeGeometry";
+import {
+  mkEdge,
+  mkRecipe,
+  productNode,
+  recipeNode,
+} from "./busRouting.testkit";
 
 const LAYER_X = [0, 400, 800];
 const card = (id: string, layer: number, y: number, h: number) =>
@@ -433,5 +444,58 @@ describe("the potential-descent slot reservation", () => {
 
     expect(entryXOf([drop])).toBe(slotX(0));
     expect(entryXOf([bend, drop])).toBe(slotX(1));
+  });
+});
+
+describe("gap column order jog prediction", () => {
+  it("predicts the jog off the drawn source row, as the jog pass takes it", () => {
+    // A recipe's resolved row draws CARD_BORDER below its model row. F's
+    // padded top sits between the two, so only the drawn source run enters
+    // it: the order must predict the jog the pass then takes.
+    const s = recipeNode("s", 0, 0, mkRecipe("rs", [], ["ore"]));
+    const t = productNode("t", 1200, 400, 148, 78);
+    const edge = mkEdge("e:0:s->t:ore", "s", "t", "ore");
+    const drawnSy = drawnPortsOf(edge, nodeIndexOf([s, t]))!.sourceY;
+    const f = productNode("F", 600, drawnSy - 0.5 + OBSTACLE_PAD_Y, 148, 78);
+    const nodes = [s, f, t];
+
+    const order = buildGapColumnOrder(nodes, [edge], []);
+    expect(order.byId.has(order.descentId(edge.id))).toBe(true);
+    expect(jogForwardLegs(nodes, [edge])[0]).not.toBe(edge);
+  });
+});
+
+describe("placed columns", () => {
+  it("places an unstamped jog descent where the drawer draws it", () => {
+    // A jogged edge (legY) with no descent stamp and no entry column: the
+    // drawer descends at the DRAWN tx - PORT_STUB, HANDLE_HALF left of the
+    // model slot on a product target. The proof must read that column.
+    const s = recipeNode("s", 0, 0, mkRecipe("rs", [], ["ore"]));
+    const t = productNode("t", 1200, 400, 148, 78);
+    const bare = mkEdge("e:0:s->t:ore", "s", "t", "ore");
+    const byId = nodeIndexOf([s, t]);
+    const drawnSy = drawnPortsOf(bare, byId)!.sourceY;
+    const f = productNode("F", 600, drawnSy - 0.5 + OBSTACLE_PAD_Y, 148, 78);
+    const nodes = [s, f, t];
+    const order = buildGapColumnOrder(nodes, [bare], []);
+    const descent = order.descentId(bare.id);
+    // Premise: the order ranks this edge's descent.
+    expect(order.byId.has(descent)).toBe(true);
+
+    const edge: Edge = {
+      ...bare,
+      data: { ...(bare.data as object), legY: 300 },
+    };
+    const { pts } = drawnEdge(drawnPortsOf(edge, byId)!, edge.type, edge.data);
+    const verticals = pts
+      .slice(1)
+      .map((p, i) => [pts[i]!, p] as const)
+      .filter(([a, b]) => a[0] === b[0] && a[1] !== b[1]);
+    const drawnDescentX = verticals.at(-1)![0][0];
+    expect(drawnDescentX).toBe(drawnPortsOf(edge, byId)!.targetX - PORT_STUB);
+
+    expect(placedColumns(order, nodes, [edge]).get(descent)).toBe(
+      drawnDescentX,
+    );
   });
 });
