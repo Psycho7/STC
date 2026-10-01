@@ -20,14 +20,6 @@
 // pitch further left (3233.5). The descents of e:71 and e:82 must stand right
 // of a column at 3249.5, but the zone ends at 3289.5 and 3277.5 is taken, so
 // no pitch is free and both keep their next free slot, 3053.5.
-//
-// UP, awaiting ruling (task B hairpin guard): a jog's descent keeps two
-// chamfers right of its bend column, so the floor-only jogs coupon-web e:13
-// and copper-script43 e:8 no longer walk left onto their bend column but one
-// pitch right of the column they walked off, to 1774 and 2459. Those are the
-// columns the later-scanned descents of coupon-web e:27 and copper-script43
-// e:18 held right of the arrival rows of q:1 and q:7. No pitch right of those
-// rows is left free, so both take the next free slot, 1696.7 and 2381.7.
 
 import { describe, it, expect } from "vitest";
 
@@ -54,8 +46,6 @@ const PLANS = [
 ];
 
 const EXPECTED: ReadonlyArray<string> = [
-  "copper-script43: a:u:class:q:7@44700 -> d:e:18:u:class:q:28->u:class:q:7:gas_copper",
-  "coupon-web: a:u:class:q:1@58300 -> d:e:27:u:in:gas_xiranite->u:class:q:1:gas_xiranite",
   "gas-web: a:u:class:q:6@44900 -> b:e:5:u:class:q:16->u:class:q:2:gas_copper",
   "multi6: a:u:class:q:17@158100 -> d:e:82:u:in:liquid_water->u:class:q:9:liquid_water",
   "multi6: a:u:class:q:49@15000 -> d:e:71:u:in:gas_inert->u:class:q:32:gas_inert",

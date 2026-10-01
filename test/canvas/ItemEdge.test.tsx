@@ -100,6 +100,24 @@ describe("canvas/ItemEdge", () => {
     expect(label!.getAttribute("aria-label")).toBe("Gear x 90/min");
   });
 
+  it("groups the digits of a 1234.5/min chip, its aria-label and its tooltip", async () => {
+    // 823/40 per sec * 60 = 1234.5/min.
+    renderEdge({ item: "Iron Plate", rate: new Fraction(823, 40) });
+    const label = await findLabel();
+    expect(label).not.toBeNull();
+    expect(label!.textContent).toBe("1,234.5/min");
+    expect(label!.getAttribute("aria-label")).toBe("Iron Plate x 1,234.5/min");
+    expect(label!.getAttribute("title")).toBe("Iron Plate x 1,234.5/min");
+  });
+
+  it("leaves a 999/min chip ungrouped", async () => {
+    renderEdge({ item: "Iron Plate", rate: new Fraction(333, 20) });
+    const label = await findLabel();
+    expect(label!.textContent).toBe("999/min");
+    expect(label!.getAttribute("aria-label")).toBe("Iron Plate x 999/min");
+    expect(label!.getAttribute("title")).toBe("Iron Plate x 999/min");
+  });
+
   it("does not render a label when rate is Fraction(0, 1)", async () => {
     renderEdge({ item: "Nothing", rate: new Fraction(0, 1) });
     const label = await findLabel();

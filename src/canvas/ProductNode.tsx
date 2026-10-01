@@ -5,6 +5,7 @@ import type { I18nIndex } from "../data/i18n";
 import {
   formatDeliveredPerMin,
   formatRationalPerMin,
+  groupRateDigits,
 } from "../data/rate-format";
 import type { RationalString } from "../pipeline/types";
 import { portId } from "../pipeline/render/port-ids";
@@ -112,6 +113,11 @@ function buildPnAriaLabel(
   return words.join(LABEL_SEP);
 }
 
+// Every rate the card prints, digit-grouped ("1,200") like the edge chips.
+function cardRateText(rps: RationalString): string {
+  return groupRateDigits(formatRationalPerMin(rps));
+}
+
 // Name tooltip of a product card: the display name, plus the catalyst pool
 // breakdown on the card that owns the item's whole charge.
 //
@@ -127,16 +133,16 @@ function buildPnNameTitle(data: ProductNodeData, i18n: I18nIndex): string {
 
   const lines = [
     i18n.t("product.catalyst.fromCatalyst", {
-      rate: formatRationalPerMin(breakdown.fromCatalyst),
+      rate: cardRateText(breakdown.fromCatalyst),
     }),
     i18n.t("product.catalyst.fromGeneral", {
-      rate: formatRationalPerMin(breakdown.fromGeneral),
+      rate: cardRateText(breakdown.fromGeneral),
     }),
   ];
   if (breakdown.unmet.num !== "0") {
     lines.push(
       i18n.t("product.catalyst.short", {
-        rate: formatRationalPerMin(breakdown.unmet),
+        rate: cardRateText(breakdown.unmet),
       }),
     );
   }
@@ -237,16 +243,16 @@ export default function ProductNode({
   const delivered = isInput ? undefined : data.delivered;
   const rateValue =
     delivered !== undefined
-      ? formatDeliveredPerMin(delivered, data.rate)
-      : formatRationalPerMin(data.rate);
+      ? groupRateDigits(formatDeliveredPerMin(delivered, data.rate))
+      : cardRateText(data.rate);
   // Share of the parent aggregate, fanout slices only: "of <total>/min" points
   // the reader back at the source card this tap draws from. An under-delivered
   // target states its declared rate in the same chip.
   const shareOf =
     isInput && data.isFanout && data.parentRate !== undefined
-      ? formatRationalPerMin(data.parentRate)
+      ? cardRateText(data.parentRate)
       : delivered !== undefined
-        ? formatRationalPerMin(data.rate)
+        ? cardRateText(data.rate)
         : null;
   const rateTitle =
     delivered !== undefined && shareOf !== null

@@ -44,7 +44,6 @@ import {
   chamferStepPath,
   clearRailY,
   drawnEdge,
-  forwardStepGeometry,
   routingHintsFromData,
   type ObstacleRect,
 } from "../../src/canvas/edgePath";
@@ -1435,6 +1434,49 @@ describe("jogForwardLegs", () => {
       expect(out[1]).toBe(edges[1]);
     });
 
+    it("gives back a floor-only jog whose struck run jogs away later", () => {
+      // e0 is scanned first and its approach at ty 139 runs within the floor of
+      // e1's approach at 145, so e0 jogs for the floor alone. e1 is scanned
+      // second: its approach runs straight through t1, so it jogs around that
+      // card and its run at 145 is gone. Nothing is left near e0's own row, so
+      // the revisit drops e0's jog and the edge draws straight into its port.
+      const nodes: RFAnyNode[] = [
+        inputProductNode("s1", "ore", 0, 0, 148, 78), // port y 39
+        inputProductNode("s2", "ore", 0, 300, 148, 78), // port y 339
+        inputProductNode("t1", "ore", 760, 100, 148, 78), // port y 139
+        inputProductNode("t2", "ore", 1100, 106, 148, 78), // port y 145
+      ];
+      const edges: Edge[] = [
+        {
+          ...mkEdge("e0", "s1", "t1", "ore"),
+          data: { item: "ore", rate: new Fraction(1), bendX: 200 },
+        },
+        {
+          ...mkEdge("e1", "s2", "t2", "ore"),
+          data: { item: "ore", rate: new Fraction(1), bendX: 300 },
+        },
+      ];
+      const byId = nodeIndexOf(nodes);
+      // Premise: the two approaches start inside each other's floor.
+      expect(
+        Math.abs(
+          edgePortsModel(edges[0]!, byId)!.ty -
+            edgePortsModel(edges[1]!, byId)!.ty,
+        ),
+      ).toBeLessThan(FORWARD_LEVEL_FLOOR);
+      // Premise: e0 alone is clean, so any jog it takes is the floor's.
+      expect(legYOf(jogForwardLegs(nodes, [edges[0]!]), "e0")).toBeUndefined();
+
+      const out = jogForwardLegs(nodes, edges);
+      const e1LegY = legYOf(out, "e1");
+      expect(typeof e1LegY).toBe("number");
+      expect(Math.abs(e1LegY! - 139)).toBeGreaterThanOrEqual(
+        FORWARD_LEVEL_FLOOR,
+      );
+      expect(legYOf(out, "e0")).toBeUndefined();
+      expect(out[0]).toBe(edges[0]);
+    });
+
     it("exempts two members of one fan-in trunk from each other's level", () => {
       // Both edges land on the same target port, so their final legs share one
       // row for the whole approach -- which is what a trunk IS. Forcing them
@@ -1477,9 +1519,11 @@ describe("jogForwardLegs", () => {
   // y 49 shares [574, 600] with e0's source run at 39, inside the floor, so
   // e0 jogs off it. The descent starts at 600, where e1's bend column at 604
   // stands; walking off it toward the source lands at 588, 14 from the bend.
-  // The floor hit holds against e1's final run, so the jog is not one a
-  // floor-only revert would drop.
-  it("keeps a jog's descent two chamfers right of its bend column", () => {
+  // Only that bound turns the walk toward the target, and the jog is the
+  // floor's alone, so e0 keeps its straight step rather than taking a column
+  // right of 604 that a later edge may need. The floor gives way over the
+  // 26 units of [574, 600], and no hairpin is drawn.
+  it("keeps a floor-only jog's straight step where the two-chamfer bound would push its descent right", () => {
     const nodes: RFAnyNode[] = [
       inputProductNode("s1", "ore", 0, 0, 148, 78), // port y 39
       inputProductNode("s2", "ore", 0, 300, 148, 78), // port y 339
@@ -1503,13 +1547,15 @@ describe("jogForwardLegs", () => {
     const ends = drawnPortsOf(e0, byId)!;
     const hints = routingHintsFromData(e0.data);
 
-    // Premise: the edge is jogged and descends at a column of its own.
-    expect(hints.legY).toBeDefined();
-    expect(hints.jogDescentX).toBeDefined();
+    // Premise: e0 alone is clean, so any jog it takes is the floor's.
+    const alone = jogForwardLegs(widened.nodes, [edges[0]!], {
+      gaps: widened.gaps,
+    });
+    expect(routingHintsFromData(alone[0]!.data).legY).toBeUndefined();
 
-    const geom = forwardStepGeometry(ends.sourceX, ends.targetX, hints.bendX);
-    const bx = hints.srcColX ?? geom.bx;
-    expect(hints.jogDescentX! - bx).toBeGreaterThanOrEqual(2 * geom.chamfer);
+    expect(hints.legY).toBeUndefined();
+    expect(hints.jogDescentX).toBeUndefined();
+    expect(hints.srcColX).toBeUndefined();
 
     // The drawn path never steps back in x.
     const { pts } = drawnEdge(ends, e0.type, e0.data);

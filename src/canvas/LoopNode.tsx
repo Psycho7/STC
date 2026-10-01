@@ -2,7 +2,7 @@ import { Handle, Position, type NodeProps, type Node } from "@xyflow/react";
 import Fraction from "fraction.js";
 import { loopBoxDimensions, LOOP_BOX_PADDING } from "./dimensions";
 import { useI18n } from "../data/i18n-context";
-import { formatRatePerMin } from "../data/rate-format";
+import { formatRatePerMin, groupRateDigits } from "../data/rate-format";
 import { PortGlyph } from "./PortGlyph";
 import { itemColor } from "./itemColor";
 import type { PortTransportKinds } from "./layout";
@@ -129,7 +129,7 @@ export default function LoopNode({ data }: NodeProps<LoopNodeType>) {
           >
             <span className="lbl">{i18n.displayName(p.item)}</span>
             <span className="rate">
-              {formatRatePerMin(p.rate)}
+              {groupRateDigits(formatRatePerMin(p.rate))}
               {rateUnit}
             </span>
           </div>
@@ -145,7 +145,7 @@ export default function LoopNode({ data }: NodeProps<LoopNodeType>) {
           >
             <span className="lbl">{i18n.displayName(p.item)}</span>
             <span className="rate">
-              {formatRatePerMin(p.rate)}
+              {groupRateDigits(formatRatePerMin(p.rate))}
               {rateUnit}
             </span>
           </div>
