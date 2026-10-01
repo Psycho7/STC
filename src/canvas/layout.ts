@@ -207,8 +207,9 @@ export const ROOT_LAYOUT_OPTIONS: Readonly<Record<string, string>> = {
   "elk.layered.cycleBreaking.strategy": "DEPTH_FIRST",
   // Greedy-switch refinement after the layer sweep. Under INCLUDE_CHILDREN ELK
   // reads only the hierarchical variant, which defaults to OFF, so without this
-  // the sweep's local minimum stands. On gas-web that left the twin Solid-Gas
-  // -> Packaging -> Purification chains stacked crosswise (two X crossings).
+  // the sweep's local minimum stands. On the crossing census (CROSSING_BASELINE
+  // in the geometry audit) this drops multi6 95 -> 74 and battery5-xiranite
+  // 23 -> 22.
   "org.eclipse.elk.layered.crossingMinimization.greedySwitchHierarchical.type":
     "TWO_SIDED",
 };

@@ -3,9 +3,10 @@
 //   q:0 (Solid-Gas) -> q:5 (Packaging) -> q:2 (Purification)
 //   q:1 (Solid-Gas) -> q:6 (Packaging) -> q:4 (Purification)
 //
-// With INCLUDE_CHILDREN, ELK reads only the hierarchical greedy switch, which
-// is off by default, so the layer sweep once left the twins stacked crosswise
-// and each chain drew an X over its sibling. The chains must read side by side.
+// An invariant guard: the chains must read side by side, never stacked
+// crosswise so that each draws an X over its sibling. The layout already lays
+// them out that way with or without ELK's hierarchical greedy switch; this
+// test keeps any later layout change from crossing them.
 
 import { describe, it, expect } from "vitest";
 import type { Edge } from "@xyflow/react";

@@ -1339,6 +1339,60 @@ describe("replicatePerConsumer: self-consuming recipe guard", () => {
   });
 });
 
+describe("replicatePerConsumer: target deficit above the declared rate", () => {
+  // A deficit larger than the declared rate clamps the target's draw at 0. An
+  // unclamped negative draw would inflate the SCC member's intra supply past
+  // its LP production and starve the external producer of its share.
+  //
+  // SCC {m, n}: m makes x (the target) and feeds it to n, which eats 2 x per
+  // run; e makes x outside the loop. All rates 1: m's 1 x covers half of n's
+  // demand of 2, and e ships the other 1 x.
+  it("clamps the draw at 0 so the loop supplies only its LP production", () => {
+    const nodes: Recipe[] = [
+      recipe("m", [{ item: "y", qty: 1 }], [{ item: "x", qty: 1 }]),
+      recipe("n", [{ item: "x", qty: 2 }], [{ item: "y", qty: 1 }]),
+      recipe("e", [], [{ item: "x", qty: 1 }]),
+    ];
+    const g = buildGraph(nodes, [
+      { source: "m", item: "x", target: "n" },
+      { source: "n", item: "y", target: "m" },
+      { source: "e", item: "x", target: "n" },
+    ]);
+    const condensation = condensationOf([
+      { id: "scc:mn", recipeIds: ["m", "n"] },
+      { id: "scc:e", recipeIds: ["e"] },
+    ]);
+    const rates = new Map<RecipeId, Fraction>([
+      ["m", new Fraction(1)],
+      ["n", new Fraction(1)],
+      ["e", new Fraction(1)],
+    ]);
+    const { replicas, supplyShares } = replicatePerConsumer({
+      g,
+      articulation: new Set<RecipeId>(),
+      rates,
+      condensation,
+      targets: [{ itemId: "x", ratePerSec: { num: "1", denom: "1" } }],
+      deficit: new Map([["x", new Fraction(3)]]),
+    });
+
+    for (const r of replicas) {
+      expect(r.executionRate.compare(0), r.id).toBeGreaterThanOrEqual(0);
+    }
+    for (const [key, share] of supplyShares) {
+      expect(share.compare(0), key).toBeGreaterThanOrEqual(0);
+    }
+    // Draw 0: m supplies n its whole LP production of x, and no more.
+    expect(
+      supplyShares.get(supplyShareKey("m", "n", "x"))!.equals(new Fraction(1)),
+    ).toBe(true);
+    // e ships the other half of n's demand: 1 x.
+    expect(
+      supplyShares.get(supplyShareKey("e", "n", "x"))?.equals(new Fraction(1)),
+    ).toBe(true);
+  });
+});
+
 describe("logicalNodeIdForReplica", () => {
   it("swaps the replica counter separator for the logical-node one", () => {
     expect(logicalNodeIdForReplica("r:U#0")).toBe("r:U~0");
