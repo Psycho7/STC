@@ -55,17 +55,18 @@ export function formatRatePerMin(itemsPerSec: Fraction): string {
 // 1-decimal display formatter hides. Uses the plain decimal when stringifying it
 // does not go exponential (the common case, a clean single value with no "/min"
 // double-slash), else the exact reduced fraction. Returns "" for zero so the
-// caller can drop the tooltip rate entirely.
+// caller can drop the tooltip rate entirely. Tooltip text is read, never
+// edited, so it comes back digit-grouped like the chip it explains.
 export function formatRateExactPerMin(itemsPerSec: Fraction): string {
   const perMin = itemsPerSec.mul(60);
   const value = perMin.valueOf();
   if (!Number.isFinite(value) || value === 0) {
-    return value === 0 ? "" : perMin.toFraction(false);
+    return value === 0 ? "" : groupRateDigits(perMin.toFraction(false));
   }
   const text = String(value);
-  return text.includes("e") || text.includes("E")
-    ? perMin.toFraction(false)
-    : text;
+  return groupRateDigits(
+    text.includes("e") || text.includes("E") ? perMin.toFraction(false) : text,
+  );
 }
 
 // Per-minute Fraction from a per-second rational. x60 stays exact.
@@ -92,11 +93,11 @@ export function formatRationalPerMin(rps: {
 }
 
 // Thousands separators for rate text the reader only reads: panel readouts,
-// prompt text and error messages ("1000000" -> "1,000,000"). Both locales use
-// the same Western grouping, so it takes no locale. Only integer digit runs
-// are grouped ("1234.5678" -> "1,234.5678"; "1000001/3" -> "1,000,001/3").
-// Editable input values never go through it, so typed text reparses as is,
-// and the canvas keeps its own ungrouped formatter.
+// canvas chips, tooltips and card rows, prompt text and error messages
+// ("1000000" -> "1,000,000"). Both locales use the same Western grouping, so
+// it takes no locale. Only integer digit runs are grouped ("1234.5678" ->
+// "1,234.5678"; "1000001/3" -> "1,000,001/3"). Editable input values never go
+// through it, so typed text reparses as is.
 export function groupRateDigits(text: string): string {
   return text.replace(
     /(^|[^.\d])(\d{4,})/g,

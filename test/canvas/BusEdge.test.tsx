@@ -321,6 +321,34 @@ describe("canvas/BusEdge trunk labels", () => {
     expect(rise!.getAttribute("aria-label")).toBe("Iron Plate x 60/min");
   });
 
+  it("groups the digits of the aggregate and member chips, labels and tooltips", async () => {
+    renderEdge(
+      {
+        item: "Iron Plate",
+        rate: new Fraction(823, 40), // this member: 1234.5/min
+        fanout: true,
+        trunkKey: "Iron Plate|src",
+        busChipOwner: true,
+        busTotalRate: new Fraction(41, 1), // trunk total: 2460/min
+        busMemberCount: 2,
+      },
+      1,
+    );
+    await findEdgePath();
+    const drop = document.querySelector<HTMLElement>(
+      '[data-testid="bus-edge-label-e1-drop"]',
+    );
+    expect(drop!.textContent).toBe("2,460/min");
+    expect(drop!.getAttribute("aria-label")).toBe("Iron Plate x 2,460/min");
+    expect(drop!.getAttribute("title")).toBe("Iron Plate x 2,460/min");
+    const rise = document.querySelector<HTMLElement>(
+      '[data-testid="bus-edge-label-e1-rise"]',
+    );
+    expect(rise!.textContent).toBe("1,234.5/min");
+    expect(rise!.getAttribute("aria-label")).toBe("Iron Plate x 1,234.5/min");
+    expect(rise!.getAttribute("title")).toBe("Iron Plate x 1,234.5/min");
+  });
+
   it("keeps the plain rate on a single-member trunk's chips", async () => {
     // The share form is a multi-member affordance only: on a lone member the
     // rate IS the trunk total, so "60/60" would be noise. Both chips keep the

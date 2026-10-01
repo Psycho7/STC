@@ -93,6 +93,31 @@ describe("LoopNode", () => {
     expect(acidChip?.textContent).toContain("450");
   });
 
+  it("groups the digits of net-port rates at 1000/min or more", () => {
+    const { container } = renderInProvider(
+      <LoopNode
+        {...buildProps({
+          ...TWO_RECIPE_FIXTURE,
+          netIO: [
+            // 41/s * 60 = 2460/min; 823/40 per sec * 60 = 1234.5/min.
+            { item: "water", direction: "in", rate: new Fraction(41) },
+            {
+              item: "sulfuric_acid",
+              direction: "out",
+              rate: new Fraction(823, 40),
+            },
+          ],
+        })}
+      />,
+    );
+    expect(
+      container.querySelector(".net-port.in .rate")?.textContent,
+    ).toContain("2,460");
+    expect(
+      container.querySelector(".net-port.out .rate")?.textContent,
+    ).toContain("1,234.5");
+  });
+
   it("renders the tear-arc as a visible <path> element", () => {
     const { container } = renderInProvider(
       <LoopNode {...buildProps(TWO_RECIPE_FIXTURE)} />,

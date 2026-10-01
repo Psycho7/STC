@@ -6,7 +6,7 @@ import { measureRecipe } from "./recipeGeometry";
 import { envBannerLayers } from "./envBanner";
 import { useI18n } from "../data/i18n-context";
 import { PortGlyph } from "./PortGlyph";
-import { formatFractionPerMin } from "../data/rate-format";
+import { formatFractionPerMin, groupRateDigits } from "../data/rate-format";
 import { catalystChargeOf } from "../solver/catalyst";
 import { executionsPerMachine } from "../solver/multiplier";
 import type { PortTransportKinds } from "./layout";
@@ -184,14 +184,15 @@ const ONE = new Fraction(1);
 // render-pipeline path passes the solved rational multiplicity so rows show
 // the aggregate flow across all machines (matching the edge chips); scale=1
 // yields the per-machine figure. Exact Fraction math keeps non-integer
-// speeds and multiplicities free of float junk.
+// speeds and multiplicities free of float junk. Digit-grouped ("1,200"), like
+// the edge chips the rows sit beside.
 function rowRateText(
   stoich: Stoich,
   executions: Fraction,
   scale: Fraction,
 ): string {
-  return formatFractionPerMin(
-    new Fraction(stoich.qty).mul(executions).mul(scale),
+  return groupRateDigits(
+    formatFractionPerMin(new Fraction(stoich.qty).mul(executions).mul(scale)),
   );
 }
 
@@ -385,8 +386,10 @@ export default function RecipeNode({
             // the row reads it there so the card, the account and the edge
             // chip cannot drift apart.
             const perMachine = rowRateText(p, executions, ONE);
-            const aggregate = formatFractionPerMin(
-              catalystChargeOf(scale, p, recipe, machine ?? { speed: 1 }),
+            const aggregate = groupRateDigits(
+              formatFractionPerMin(
+                catalystChargeOf(scale, p, recipe, machine ?? { speed: 1 }),
+              ),
             );
             const visible = elideRowLabel(
               label,
