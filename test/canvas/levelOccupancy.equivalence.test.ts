@@ -259,6 +259,12 @@ function flatten(snapshot: Snapshot): Map<string, unknown> {
 //      re-levels 23.5 lower: script43 e:1, e:2, e:28; script43-xiranite e:1.
 //   O  every obstacle test reads the DRAWN ports: multi6 e:82's drawn run
 //      enters a foreign padded card its model run cleared, so it jogs.
+//   V  the jog pass revisits every jog the level floor alone fired and drops
+//      the ones whose struck band jogged off that level later in the scan:
+//      copper-script43 e:4; gas-web e:2; script43 e:4; script43-xiranite e:4,
+//      e:17, e:27 draw their straight step again. copper-script43 e:8,
+//      coupon-web e:13, multi6 e:13, script43 e:6 and script43-xiranite e:6
+//      revert the same way and are already listed.
 // An edge key is the short `e:NN` head of the routed edge id.
 const MOVED: Readonly<Record<string, ReadonlyArray<string>>> = {
   battery5: [
@@ -303,6 +309,7 @@ const MOVED: Readonly<Record<string, ReadonlyArray<string>>> = {
     "e:0",
     "e:1",
     "e:2",
+    "e:4",
     "e:6",
     "e:7",
     "e:8",
@@ -415,6 +422,7 @@ const MOVED: Readonly<Record<string, ReadonlyArray<string>>> = {
     "e:0",
     "e:1",
     "e:2",
+    "e:4",
     "e:6",
     "e:7",
     "e:8",
@@ -434,6 +442,7 @@ const MOVED: Readonly<Record<string, ReadonlyArray<string>>> = {
     "e:0",
     "e:1",
     "e:2",
+    "e:4",
     "e:6",
     "e:7",
     "e:8",
@@ -442,10 +451,12 @@ const MOVED: Readonly<Record<string, ReadonlyArray<string>>> = {
     "e:11",
     "e:12",
     "e:14",
+    "e:17",
     "e:20",
     "e:21",
     "e:22",
     "e:23",
+    "e:27",
     "e:28",
     "e:29",
     "e:30",
@@ -462,6 +473,7 @@ const MOVED: Readonly<Record<string, ReadonlyArray<string>>> = {
     "e:15",
   ],
   "gas-web": [
+    "e:2",
     "e:3",
     "e:4",
     "e:9",
