@@ -2077,8 +2077,8 @@ export function paddedObstacles(
 // slices the card it dodged. If no clear column exists within `radius` of the
 // desired one, return `desiredX` unchanged (degraded but stable -- the
 // segment-vs-card audit quantifies the residual rather than flinging the run
-// across the graph). Pure and deterministic: a function of the sorted obstacle
-// list (and the pure accept) only.
+// across the graph). Pure and deterministic: a function of the obstacle set (in
+// any order) and the pure accept only.
 const CLEAR_COLUMN_RADIUS = RECIPE_WIDTH + BETWEEN_LAYERS_SPACING;
 
 // Exported for the column suite, which asserts the escape distance and the
@@ -2124,9 +2124,7 @@ export function clearColumnX(
   const ymin = Math.min(yLo, yHi);
   const ymax = Math.max(yLo, yHi);
   // Only obstacles whose vertical extent the run overlaps can block it.
-  const spanned = obstacles
-    .filter((o) => o.bottom > ymin && o.top < ymax)
-    .sort((a, b) => a.left - b.left || a.right - b.right);
+  const spanned = obstacles.filter((o) => o.bottom > ymin && o.top < ymax);
   const drawn = opts?.drawnColumns;
   const drawnSpanned =
     drawn === undefined
@@ -2148,20 +2146,18 @@ export function clearColumnX(
   // band. Gather both padded edges of every obstacle, drop any that are still
   // blocked (they fall inside a neighbour's band), rejected by the caller's
   // accept, or beyond the search radius, and pick the nearest surviving
-  // candidate, tie-breaking toward the target.
-  const candidates = [
-    ...spanned.flatMap((o) => [o.left - gapOf(o), o.right + gapOf(o)]),
-    ...drawnSpanned.flatMap((o) => [o.left - gapOf(o), o.right + gapOf(o)]),
-    ...(opts?.extra ?? []),
-  ].sort((a, b) => a - b);
+  // candidate, tie-breaking toward the target. The candidates are visited
+  // unsorted: the nearest wins, and two at the same distance are either one
+  // value or sit on opposite sides of desiredX, where the tie-break picks the
+  // same one whichever came first.
   let best: number | undefined;
-  for (const x of candidates) {
-    if (Math.abs(x - desiredX) > radius) continue;
-    if (blocked(x)) continue;
-    if (!accept(x)) continue;
+  const consider = (x: number): void => {
+    if (Math.abs(x - desiredX) > radius) return;
+    if (blocked(x)) return;
+    if (!accept(x)) return;
     if (best === undefined) {
       best = x;
-      continue;
+      return;
     }
     const dNew = Math.abs(x - desiredX);
     const dBest = Math.abs(best - desiredX);
@@ -2172,8 +2168,55 @@ export function clearColumnX(
       const preferX = toward > 0 ? x > best : toward < 0 ? x < best : x < best;
       if (preferX) best = x;
     }
+  };
+  for (const o of spanned) {
+    consider(o.left - gapOf(o));
+    consider(o.right + gapOf(o));
   }
+  for (const o of drawnSpanned) {
+    consider(o.left - gapOf(o));
+    consider(o.right + gapOf(o));
+  }
+  for (const x of opts?.extra ?? []) consider(x);
   return best ?? desiredX;
+}
+
+// Names the set of obstacles a vertical run between `anchorY` and y spans
+// (the clearColumnX filter: bottom > ymin && top < ymax). Moving y away from
+// the anchor on one side only ever adds obstacles, so the sets on one side
+// form a chain and (side, size) names one exactly. A caller searching columns
+// for many levels against one anchor can then search once per distinct set,
+// since clearColumnX reads the y-span only through that set.
+function spannedSetKeyOf(
+  obstacles: ReadonlyArray<ObstacleRect>,
+  anchorY: number,
+): (y: number) => string {
+  const bottomsBelow = obstacles
+    .filter((o) => o.top < anchorY)
+    .map((o) => o.bottom)
+    .sort((a, b) => a - b);
+  const topsAbove = obstacles
+    .filter((o) => o.bottom > anchorY)
+    .map((o) => o.top)
+    .sort((a, b) => a - b);
+  // How many of the ascending `xs` are <= y (strict false) or < y (strict true).
+  const countUpTo = (xs: number[], y: number, strict: boolean): number => {
+    let lo = 0;
+    let hi = xs.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (strict ? xs[mid]! < y : xs[mid]! <= y) {
+        lo = mid + 1;
+      } else {
+        hi = mid;
+      }
+    }
+    return lo;
+  };
+  return (y) =>
+    y <= anchorY
+      ? `below:${bottomsBelow.length - countUpTo(bottomsBelow, y, false)}`
+      : `above:${countUpTo(topsAbove, y, true)}`;
 }
 
 // Raw (unpadded) card rectangles, one per node, tagged with the node id. The
@@ -3397,6 +3440,14 @@ export function jogForwardLegs(
       const descentColumnSet = columnSet.filter(
         (o) => o.nodeId !== edge.target,
       );
+      // The two column searches below depend on R only through the set of
+      // obstacles their vertical run spans (spannedSetKeyOf), and the descent
+      // search also on C, through its accept. Each distinct set is searched
+      // once per tier.
+      let srcSpanKey: ((y: number) => string) | undefined;
+      let descentSpanKey: ((y: number) => string) | undefined;
+      const srcColumnBySpan = new Map<string, number>();
+      const descentBySpan = new Map<string, number>();
       for (const [i, R] of candidates.entries()) {
         const single = withSingle && i === 0;
         // A detour level inside the floor of the row it left has cleared
@@ -3416,23 +3467,29 @@ export function jogForwardLegs(
         // clear.
         let C = bx;
         if (srcBlocked) {
-          C = clearColumnX(
-            desiredSrcColX,
-            Math.min(sy, R),
-            Math.max(sy, R),
-            columnSet,
-            {
-              towardTarget: 1,
-              gap: colGap,
-              radius,
-              extra: srcStubColumns,
-              accept: (x) =>
-                x > sx &&
-                x < tx &&
-                (relaxed || inSourceZone(x)) &&
-                !stubBlocked(sy, sx, x),
-            },
-          );
+          srcSpanKey ??= spannedSetKeyOf(columnSet, sy);
+          const srcKey = srcSpanKey(R);
+          const known = srcColumnBySpan.get(srcKey);
+          C =
+            known ??
+            clearColumnX(
+              desiredSrcColX,
+              Math.min(sy, R),
+              Math.max(sy, R),
+              columnSet,
+              {
+                towardTarget: 1,
+                gap: colGap,
+                radius,
+                extra: srcStubColumns,
+                accept: (x) =>
+                  x > sx &&
+                  x < tx &&
+                  (relaxed || inSourceZone(x)) &&
+                  !stubBlocked(sy, sx, x),
+              },
+            );
+          srcColumnBySpan.set(srcKey, C);
           if (vRunBlockedIn(columnSet, C, sy, R) || stubBlocked(sy, sx, C)) {
             continue;
           }
@@ -3450,26 +3507,32 @@ export function jogForwardLegs(
         // The descent must stay left of the target port (final approach runs
         // rightward into the Left handle; a column at or past tx would reverse
         // the closing stub and flip the arrow).
-        const D =
-          faninPinX ??
-          clearColumnX(
-            descentX0,
-            Math.min(R, ty),
-            Math.max(R, ty),
-            descentColumnSet,
-            {
-              towardTarget: 1,
-              gap: colGap,
-              radius,
-              extra: tgtStubColumns,
-              accept: (x) =>
-                x <= tx - CHAMFER &&
-                x - C >= minJogRun &&
-                inSpan(x, allowedDescent) &&
-                (relaxed || inDescentZone(x)) &&
-                !stubBlocked(ty, x, tx),
-            },
-          );
+        let D = faninPinX;
+        if (D === undefined) {
+          descentSpanKey ??= spannedSetKeyOf(descentColumnSet, ty);
+          const descentKey = `${descentSpanKey(R)}|${C}`;
+          D =
+            descentBySpan.get(descentKey) ??
+            clearColumnX(
+              descentX0,
+              Math.min(R, ty),
+              Math.max(R, ty),
+              descentColumnSet,
+              {
+                towardTarget: 1,
+                gap: colGap,
+                radius,
+                extra: tgtStubColumns,
+                accept: (x) =>
+                  x <= tx - CHAMFER &&
+                  x - C >= minJogRun &&
+                  inSpan(x, allowedDescent) &&
+                  (relaxed || inDescentZone(x)) &&
+                  !stubBlocked(ty, x, tx),
+              },
+            );
+          descentBySpan.set(descentKey, D);
+        }
         if (D > tx - CHAMFER) continue;
         // Also the fan-in pin's test, and the search's when it handed back
         // its desired column unaccepted.
