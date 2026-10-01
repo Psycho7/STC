@@ -10,6 +10,7 @@ import {
   isExcludedProducer,
   isExtractionRecipe,
 } from "../data/recipe-category";
+import { devAsserts } from "../util/dev-asserts";
 
 export type LpInput = {
   targets: ReadonlyArray<ItemTarget>;
@@ -74,8 +75,9 @@ export const SURPLUS_WEIGHT = 1e-3;
 export const DEFICIT_WEIGHT = 1e9;
 
 // Big-M cost for target-only and excluded-producer recipes. Named once so the
-// extraction's pass-2 leak filter and recipeCostWeight key on the same value.
-const BIG_M_COST = 1e6;
+// tie-break passes' big-M column exclusion and recipeCostWeight key on the same
+// value.
+export const BIG_M_COST = 1e6;
 
 // Default cost weights. The ordering deficit >> recipe >> surplus is the cost
 // contract. Target-only and excluded-producer recipes get a big-M cost so the LP
@@ -221,6 +223,86 @@ function capSlack(cap: number): number {
     CAP_SLACK_MAX,
   );
 }
+
+// The slice of javascript-lp-solver's full Solution the primal read needs. The
+// library types Solve's return as unknown, and a library upgrade could move any
+// of these, so readTableauPrimals checks each one at runtime.
+type EngineTableau = {
+  matrix: ArrayLike<number>;
+  width: number;
+  height: number;
+  rhsColumn: number;
+  varIndexByRow: ArrayLike<number>;
+  variablesPerIndex: ArrayLike<{ id: string; isSlack?: boolean } | undefined>;
+};
+type EngineSolution = {
+  feasible: boolean;
+  bounded: boolean;
+  evaluation: number;
+  _tableau?: Partial<EngineTableau>;
+};
+const TABLEAU_FIELDS = [
+  "matrix",
+  "width",
+  "height",
+  "rhsColumn",
+  "varIndexByRow",
+  "variablesPerIndex",
+] as const;
+
+export type TableauRead = {
+  feasible: boolean;
+  bounded: boolean;
+  result: number;
+  // Every basic non-slack variable at its unrounded value, zero and negative
+  // values included. Variables missing here are non-basic, so 0.
+  primals: Map<string, number>;
+};
+
+// Solve a model and read its primals straight from the final tableau. Solve's
+// plain result rounds every primal to the engine precision (1e-8), and a
+// __domain_transfer column moves hundreds of units per execution, so rounded
+// primals left balance rows several 1e-6 off. The read mirrors the library's
+// generateSolutionSet without the rounding: each tableau row past the cost row
+// names its basic variable, and the row's RHS is that variable's value. That
+// holds for these models: no integer, unrestricted or bounded-simplex variables.
+export function readTableauPrimals(model: LpModel): TableauRead {
+  const solution = solver.Solve(model, undefined, true) as EngineSolution;
+  const tableau = solution._tableau;
+  if (tableau === undefined) {
+    throw new Error(
+      "javascript-lp-solver returned no _tableau; the exact primal read needs it",
+    );
+  }
+  for (const field of TABLEAU_FIELDS) {
+    if (tableau[field] === undefined) {
+      throw new Error(
+        `javascript-lp-solver _tableau has no ${field}; the exact primal read needs it`,
+      );
+    }
+  }
+
+  const { matrix, width, height, rhsColumn, varIndexByRow, variablesPerIndex } =
+    tableau as EngineTableau;
+  const primals = new Map<string, number>();
+  for (let row = 1; row < height; row++) {
+    const variable = variablesPerIndex[varIndexByRow[row]!];
+    if (variable === undefined || variable.isSlack === true) continue;
+    primals.set(variable.id, matrix[row * width + rhsColumn]!);
+  }
+  return {
+    feasible: solution.feasible,
+    bounded: solution.bounded,
+    result: solution.evaluation,
+    primals,
+  };
+}
+
+// A basic variable the engine leaves negative is within its 1e-8 absolute row
+// tolerance (the tie-break passes leave deficit_ columns near -8e-9). Anything
+// below -NEGATIVE_PRIMAL_REL * plan scale is not tolerance noise, and clamping
+// it to 0 would hide a real defect.
+const NEGATIVE_PRIMAL_REL = 1e-6;
 
 export function solveLp(input: LpInput): LpResult {
   const t0 = performance.now();
@@ -373,6 +455,7 @@ export function solveLp(input: LpInput): LpResult {
     mode: "primary" | "boundary" | "lex",
     costCap?: number,
     boundaryCap?: number,
+    frozenZero?: ReadonlySet<RecipeId>,
   ): LpModel => {
     // Fresh objects per pass: an onModel observer may hold every pass's model.
     const variables: LpModelVars = {};
@@ -381,7 +464,14 @@ export function solveLp(input: LpInput): LpResult {
       constraints[name] = { ...row };
     }
 
-    for (const r of recipes) {
+    // Recipes that get a column in this pass. The tie-break passes leave out
+    // the big-M recipes pass 1 kept at zero, see frozenZero below.
+    const columns =
+      frozenZero === undefined
+        ? recipes
+        : recipes.filter((r) => !frozenZero.has(r.id));
+
+    for (const r of columns) {
       const objective =
         mode === "primary"
           ? costById.get(r.id)!
@@ -418,7 +508,7 @@ export function solveLp(input: LpInput): LpResult {
     if (mode !== "primary" && costCap !== undefined) {
       const capName = "cost_cap";
       constraints[capName] = { max: costCap + capSlack(costCap) };
-      for (const r of recipes) {
+      for (const r of columns) {
         const cost = costById.get(r.id)!;
         if (cost !== 0) variables[`x_${r.id}`]![capName] = cost;
       }
@@ -435,7 +525,7 @@ export function solveLp(input: LpInput): LpResult {
     if (mode === "lex" && boundaryCap !== undefined) {
       const capName = "boundary_cap";
       constraints[capName] = { max: boundaryCap + capSlack(boundaryCap) };
-      for (const r of recipes) {
+      for (const r of columns) {
         const coef = boundaryCoefById.get(r.id)!;
         if (coef !== 0) variables[`x_${r.id}`]![capName] = coef;
       }
@@ -457,7 +547,37 @@ export function solveLp(input: LpInput): LpResult {
   const mbTol = (itemId: ItemId): number =>
     relSlack(scaleFloor, Math.abs(demand.get(itemId) ?? 0));
 
-  const pass1 = solver.Solve(buildModel("primary")) as LpRaw;
+  // Plan scale: the magnitude this plan operates at. Sizes the negative-primal
+  // assert below and the extraction's noise ceiling.
+  let planScale = 1;
+  for (const d of demand.values()) planScale = Math.max(planScale, Math.abs(d));
+
+  // One pass: exact tableau primals, negatives clamped to 0 (a variable is
+  // non-negative; a slightly negative basic value is the engine's row
+  // tolerance), zeros omitted as the engine's plain result omits them.
+  const solvePass = (model: LpModel): LpRaw => {
+    const read = readTableauPrimals(model);
+    const raw = {
+      feasible: read.feasible,
+      bounded: read.bounded,
+      result: read.result,
+    } as LpRaw;
+    const assertFloor =
+      read.feasible && devAsserts()
+        ? -NEGATIVE_PRIMAL_REL * planScale
+        : -Infinity;
+    for (const [name, value] of read.primals) {
+      if (value < assertFloor) {
+        throw new Error(
+          `solveLp: tableau primal ${name} = ${value} is below ${assertFloor}, more negative than engine tolerance`,
+        );
+      }
+      if (value > 0) raw[name] = value;
+    }
+    return raw;
+  };
+
+  const pass1 = solvePass(buildModel("primary"));
   let lpResult: LpRaw;
   if (pass1.feasible === false || pass1.bounded === false) {
     // Infeasible or unbounded: skip the lex pass. A non-finite pass-1 objective
@@ -509,13 +629,44 @@ export function solveLp(input: LpInput): LpResult {
     const boundaryTol = (value: number): number =>
       Math.max(Math.abs(value) * COST_REL_TOL, COST_REL_TOL);
 
+    // Big-M recipes pass 1 left at zero get no column in the tie-break passes.
+    // The cost cap's slack (up to CAP_SLACK_MAX cost units) can otherwise buy a
+    // ~1e-9 execution of a 1e6-cost transfer, which the boundary objective
+    // takes because it lowers the boundary draw, and at exact primals that is
+    // a ~1.5e-6 row break once the transfer is dropped. Leaving the columns out
+    // only shrinks the feasible region, and pass 1's point stays feasible in it.
+    // The smaller model can land on a vertex that fails costValid where the full
+    // one does not (crystal x1: a -1e-9 deficit buys one cost unit), so a pass
+    // that fails on the frozen model is solved once more with every column.
+    const frozenZero = new Set<RecipeId>();
+    for (const r of recipes) {
+      if (costById.get(r.id)! < BIG_M_COST) continue;
+      if ((pass1[`x_${r.id}`] ?? 0) > RATE_ZERO) continue;
+      frozenZero.add(r.id);
+    }
+    const solveTieBreak = (
+      mode: "boundary" | "lex",
+      boundaryCap: number | undefined,
+      valid: (raw: LpRaw) => boolean,
+    ): LpRaw => {
+      const frozen = solvePass(
+        buildModel(mode, costCap, boundaryCap, frozenZero),
+      );
+      if (valid(frozen) || frozenZero.size === 0) return frozen;
+      // The retry's frozen columns are dropped before the caller validates it,
+      // so a pass that needed one of them fails balanceHolds instead of leaking.
+      const full = solvePass(buildModel(mode, costCap, boundaryCap));
+      for (const id of frozenZero) delete full[`x_${id}`];
+      return full;
+    };
+
     // A pack whose surviving recipes pull nothing from the boundary has no
     // boundary pass and no boundary_cap row, so it builds the same lex model it
     // always did.
     let boundaryPass: LpRaw | undefined;
     let boundaryBest: number | undefined;
     if (hasBoundaryConsumption) {
-      const pass = solver.Solve(buildModel("boundary", costCap)) as LpRaw;
+      const pass = solveTieBreak("boundary", undefined, costValid);
       if (costValid(pass)) {
         boundaryPass = pass;
         boundaryBest = boundaryObjective(pass, recipes, boundaryCoefById);
@@ -536,15 +687,14 @@ export function solveLp(input: LpInput): LpResult {
         ? boundaryBest
         : undefined;
 
-    const lexPass = solver.Solve(
-      buildModel("lex", costCap, boundaryCap),
-    ) as LpRaw;
-    let lexValid = costValid(lexPass);
-    if (lexValid && boundaryBest !== undefined) {
-      const lexBoundary = boundaryObjective(lexPass, recipes, boundaryCoefById);
-      lexValid =
-        Math.abs(lexBoundary - boundaryBest) <= boundaryTol(boundaryBest);
-    }
+    const lexHolds = (raw: LpRaw): boolean => {
+      if (!costValid(raw)) return false;
+      if (boundaryBest === undefined) return true;
+      const lexBoundary = boundaryObjective(raw, recipes, boundaryCoefById);
+      return Math.abs(lexBoundary - boundaryBest) <= boundaryTol(boundaryBest);
+    };
+    const lexPass = solveTieBreak("lex", boundaryCap, lexHolds);
+    const lexValid = lexHolds(lexPass);
 
     lpResult = lexValid ? lexPass : (boundaryPass ?? pass1);
     // Report pass-1's objective; the later passes' "result" is a tie-break.
@@ -569,13 +719,12 @@ export function solveLp(input: LpInput): LpResult {
 
   return extractResult({
     lpResult,
-    pass1,
     recipes,
     items,
     recipeById,
     supplyTable,
-    costById,
     demand,
+    planScale,
     mbTol,
     targets,
     t0,
@@ -587,20 +736,27 @@ export function solveLp(input: LpInput): LpResult {
 // ---------------------------------------------------------------------------
 
 // Constants for the extraction hygiene pass.
-//  - SNAP_REL: snap radius for rational extraction. Applied relatively
-//    (min(SNAP_REL, |v|*SNAP_REL)), so values >= 1 keep the historical 1e-6
-//    absolute radius while sub-unit rates snap proportionally and survive with
-//    their magnitude intact.
+//  - PLAIN_SNAP_REL: snap window of plainSnap, the rational reading of every
+//    rate. Applied as min(PLAIN_SNAP_REL, |v|*PLAIN_SNAP_REL): absolute from 1
+//    up, relative below, so sub-unit rates keep their magnitude. Bounded on
+//    both sides by a witness. At 1e-6 it mis-snaps rates whose denominators
+//    legitimately run near 4e5 (copper-script43 with copper_ore capped at
+//    604395/10000 per second left copper_nugget 1/404078 short). At 1e-9 it
+//    misses the 3.5e-8 relative feasibility slop of the boundary pass on
+//    xiranite_enr_powder at 6/min.
+//  - SNAP_REL: snapDraw's window for landing a draw on its cap, the historical
+//    1e-6 absolute radius, relative above 1.
 //  - RATE_ZERO: hard zero floor; raw primals at or below it are solver dust.
 //  - NOISE_CEILING_REL: noise-sweep candidate ceiling relative to plan scale.
-//    Deliberately decoupled from (two decades above) the snap radius: epsilon
-//    chains exist precisely because they exceed the snap radius (1/900900).
+//    Deliberately decoupled from (decades above) the snap window: epsilon
+//    chains exist precisely because they exceed the snap window (1/900900).
 //  - Mass-balance residuals use the shared REL_TOL declared above: residuals
 //    the extraction leaves unreported must stay at or below what
 //    checkMassBalance tags, which is why the gate reads the checkers' own
 //    constant rather than a local copy that could drift above it.
 //  - DEFICIT_MATERIAL_REL: materiality threshold for raw deficit variables,
 //    relative to the item's demand.
+const PLAIN_SNAP_REL = 1e-7;
 const SNAP_REL = 1e-6;
 // Exported so the optimality screen filters active recipes on the same floor
 // solveLp used to build its rates map, instead of a hand-copied duplicate.
@@ -608,114 +764,41 @@ export const RATE_ZERO = 1e-12;
 const NOISE_CEILING_REL = 1e-4;
 const DEFICIT_MATERIAL_REL = 1e-9;
 
-// Largest denominator fraction.js's float parser walks to.
-const FAREY_MAX_DENOM = 10_000_000;
+// Test seam: lets a test replay the 1e-6 mis-snap and turn off the window-0
+// re-snap of the repair loop. Production code never writes it.
+export const extractionTuning = {
+  plainSnapRel: PLAIN_SNAP_REL,
+  exactResnap: true,
+};
 
-// Number of leading indices in [0, limit) where a monotone predicate holds
-// (true on a prefix, false after): galloping probe, then binary search.
-function leadingTrueCount(
-  limit: number,
-  holds: (j: number) => boolean,
-): number {
-  let lo = 0;
-  let hi = limit;
-  let stride = 1;
-  while (lo < hi) {
-    const probe = Math.min(lo + stride - 1, hi - 1);
-    if (!holds(probe)) {
-      hi = probe;
-      break;
-    }
-    lo = probe + 1;
-    stride *= 2;
+// The exact rational a finite non-negative double is, as [n, 2^k]: doubling a
+// double is exact, so the loop ends on the integer mantissa.
+function exactDyadic(value: number): [bigint, bigint] {
+  let n = value;
+  let d = 1n;
+  while (n % 1 !== 0) {
+    n *= 2;
+    d *= 2n;
   }
-  while (lo < hi) {
-    const mid = Math.floor((lo + hi) / 2);
-    if (holds(mid)) {
-      lo = mid + 1;
-    } else {
-      hi = mid;
-    }
-  }
-  return lo;
+  return [BigInt(n), d];
 }
 
-// The rational `new Fraction(p)` parses a non-negative float to, as [n, d]
-// (not reduced). fraction.js walks the Stern-Brocot tree one mediant at a time,
-// up to ten million steps for a float just off a small rational; this takes
-// each run of same-direction steps in one galloping search. Every mediant is
-// evaluated with the same float expression the library uses, so the float
-// equality stop and the final bound pick are reproduced exactly.
-function fareyParse(value: number): [bigint, bigint] {
-  if (value % 1 === 0) return [BigInt(value), 1n];
-
-  let p = value;
-  let z = 1;
-  if (p >= 1) {
-    z = 10 ** Math.floor(1 + Math.log10(p));
-    p /= z;
-  }
-
-  const max = FAREY_MAX_DENOM;
-  let a = 0;
-  let b = 1;
-  let c = 1;
-  let d = 1;
-  let n = 0;
-  let den = 1;
-  while (b <= max && d <= max) {
-    if (p === (a + c) / (b + d)) {
-      if (b + d <= max) {
-        n = a + c;
-        den = b + d;
-      } else if (d > b) {
-        n = c;
-        den = d;
-      } else {
-        n = a;
-        den = b;
-      }
-      break;
-    }
-
-    if (p > (a + c) / (b + d)) {
-      const steps = leadingTrueCount(
-        Math.floor((max - b) / d) + 1,
-        (j) => p > (a + (j + 1) * c) / (b + (j + 1) * d),
-      );
-      a += steps * c;
-      b += steps * d;
-    } else {
-      const steps = leadingTrueCount(
-        Math.floor((max - d) / b) + 1,
-        (j) => p < ((j + 1) * a + c) / ((j + 1) * b + d),
-      );
-      c += steps * a;
-      d += steps * b;
-    }
-    if (b > max) {
-      n = c;
-      den = d;
-    } else {
-      n = a;
-      den = b;
-    }
-  }
-  return [BigInt(n) * BigInt(z), BigInt(den)];
+// A positive float primal read as the exact rational it is, with no snap.
+function exactRate(v: number): Fraction {
+  const [n, d] = exactDyadic(v);
+  return new Fraction(n, d);
 }
 
 // Relative rational snap: the extraction's default reading of a float primal.
-// Returns exactly `new Fraction(v).simplify(eps)`: the first continued-fraction
-// convergent (the full fraction excluded) of the parsed rational within eps of
-// it, else the parsed rational. Computed directly because the library's parse
-// and its per-convergent rebuild dominated solve time. One representational
-// difference: a negative v that parses to zero yields +0 where fraction.js
-// keeps a negative-signed zero; the solver only snaps positive primals.
+// Parses v exactly as a binary rational, then returns its first
+// continued-fraction convergent (the full fraction excluded) within
+// eps = min(PLAIN_SNAP_REL, |v| * PLAIN_SNAP_REL) of it, else the exact binary
+// rational itself. Throws a RangeError on v = 0 (a zero window).
 export function plainSnap(v: number): Fraction {
-  const eps = Math.min(SNAP_REL, Math.abs(v) * SNAP_REL);
-  // Same threshold arithmetic as simplify, including its throw on v = 0.
+  const rel = extractionTuning.plainSnapRel;
+  const eps = Math.min(rel, Math.abs(v) * rel);
   const ieps = BigInt(Math.ceil(1 / eps));
-  const [pn, pd] = fareyParse(Math.abs(v));
+  const [pn, pd] = exactDyadic(Math.abs(v));
   const sign = v < 0 ? -1n : 1n;
 
   let hPrev = 0n;
@@ -761,13 +844,12 @@ const FRAC_ZERO = new Fraction(0);
 
 type ExtractArgs = {
   lpResult: LpRaw;
-  pass1: LpRaw;
   recipes: Recipe[];
   items: RecipePack["items"];
   recipeById: Map<string, Recipe>;
   supplyTable: SupplyTable;
-  costById: Map<RecipeId, number>;
   demand: Map<ItemId, number>;
+  planScale: number;
   mbTol: (itemId: ItemId) => number;
   targets: ReadonlyArray<ItemTarget>;
   t0: number;
@@ -775,7 +857,7 @@ type ExtractArgs = {
 
 // Turn the raw float primals of a feasible solve into an exact, self-consistent
 // LpResult. Ordered hygiene pass:
-//   1. snap rates (pass-2 big-M filter, relative snap)
+//   1. snap rates (relative snap)
 //   2. tentatively zero sub-noise rates (flow-blind candidate set)
 //   3. recompute per-item slack exactly; re-admit whatever the checkers would
 //      tag (in-pass checkMassBalance-tolerance gate)
@@ -784,13 +866,12 @@ type ExtractArgs = {
 function extractResult(args: ExtractArgs): LpResult {
   const {
     lpResult,
-    pass1,
     recipes,
     items,
     recipeById,
     supplyTable,
-    costById,
     demand,
+    planScale,
     mbTol,
     targets,
     t0,
@@ -808,27 +889,12 @@ function extractResult(args: ExtractArgs): LpResult {
     );
   }
 
-  // Plan scale: the magnitude this plan operates at; sizes the noise ceiling.
-  let planScale = 1;
-  for (const d of demand.values()) planScale = Math.max(planScale, Math.abs(d));
-
-  // Rate extraction. On pass-2 results, big-M recipes that pass 1 kept at zero
-  // are dropped: the lex cost_cap row magnitude grows with target scale and
-  // the solver's internal relative tolerance can buy them a tiny positive
-  // rate, while a legitimate big-M activation (a sole producer of a demanded
-  // item) forces pass-1 positivity too.
-  const isPass2 = lpResult !== pass1;
+  // Rate extraction. A big-M recipe pass 1 kept at zero has no column in the
+  // tie-break models, so no pass can hand it a rate to drop here.
   const rates = new Map<RecipeId, Fraction>();
   for (const r of recipes) {
     const v = lpResult[`x_${r.id}`] ?? 0;
     if (v <= RATE_ZERO) continue;
-    if (
-      isPass2 &&
-      costById.get(r.id)! >= BIG_M_COST &&
-      (pass1[`x_${r.id}`] ?? 0) <= RATE_ZERO
-    ) {
-      continue;
-    }
     rates.set(r.id, plainSnap(v));
   }
 
@@ -904,11 +970,17 @@ function extractResult(args: ExtractArgs): LpResult {
 
   // Repair loop: zeroing candidates must not leave an item with a raw-clean
   // negative slack the checkers would tag. Re-admit zeroed producers of a
-  // broken item (their removal caused the shortfall). The loop never grows the
-  // zeroed set and each round shrinks it, so it terminates in at most |zeroed|
-  // iterations.
+  // broken item (their removal caused the shortfall). A broken row with no
+  // zeroed producer left can still be a snap artefact: each rate is snapped on
+  // its own, so a row whose rates carry large denominators may not close. Its
+  // live producers and consumers are then re-read at their exact float value
+  // (window 0) before the shortfall counts as real; the mis-snap can sit on
+  // either side. Each round shrinks the zeroed set or grows the re-read set
+  // and neither ever reverses, so the loop runs at most |zeroed| + |rates|
+  // rounds.
   let slack = computeSlack();
   const forcedDeficit = new Set<ItemId>();
+  const exactRead = new Set<RecipeId>();
   for (;;) {
     const broken: ItemId[] = [];
     for (const [itemId, s] of slack) {
@@ -928,7 +1000,29 @@ function extractResult(args: ExtractArgs): LpResult {
       slack = computeSlack();
       continue;
     }
-    // Nothing can close these rows: no producer to re-admit.
+    const touchesBroken = (recipeId: RecipeId): boolean => {
+      const r = recipeById.get(recipeId)!;
+      return (
+        producesBroken(recipeId) ||
+        r.in.some((i) => i.qty > 0 && broken.includes(i.item))
+      );
+    };
+    const reread = [...rates.keys()].filter(
+      (recipeId) =>
+        extractionTuning.exactResnap &&
+        !zeroed.has(recipeId) &&
+        !exactRead.has(recipeId) &&
+        touchesBroken(recipeId),
+    );
+    if (reread.length > 0) {
+      for (const recipeId of reread) {
+        rates.set(recipeId, exactRate(lpResult[`x_${recipeId}`]!));
+        exactRead.add(recipeId);
+      }
+      slack = computeSlack();
+      continue;
+    }
+    // Nothing can close these rows: no producer to re-admit, no rate to re-read.
     // Report the shortfall honestly as a deficit (softFeasible goes false in the
     // surplus/deficit derivation below) instead of swallowing a broken row and
     // claiming the plan is feasible. The broken slack is negative by construction
