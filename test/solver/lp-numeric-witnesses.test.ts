@@ -139,12 +139,18 @@ describe("window-0 re-snap: a mis-snapped row closes", () => {
 
 // Pass 1's primary objective of a pass's tableau primals, negatives clamped to
 // 0 the way solveLp's pass read clamps them. Infinity when the engine reports
-// the pass infeasible.
-function primaryCost(primary: LpModel, model: LpModel): number {
+// the pass infeasible. Columns in `dropped` are skipped: solveLp deletes the
+// frozen big-M columns from a retried pass before it checks the cost.
+function primaryCost(
+  primary: LpModel,
+  model: LpModel,
+  dropped: ReadonlySet<string> = new Set(),
+): number {
   const read = readTableauPrimals(structuredClone(model));
   if (!read.feasible) return Infinity;
   let cost = 0;
   for (const [name, value] of read.primals) {
+    if (dropped.has(name)) continue;
     cost += (primary.variables[name]?.objective ?? 0) * Math.max(0, value);
   }
   return cost;
@@ -171,12 +177,20 @@ describe("tie-break passes: no pass-1 fallback", () => {
     expect(firstMode).toBe("primary");
 
     const optimum = primaryCost(primary, primary);
+    // The frozen columns: the ones pass 1 has and the first (frozen) tie-break
+    // model leaves out.
+    const firstTieBreak = models[1]![1];
+    const frozen = new Set(
+      Object.keys(primary.variables).filter(
+        (name) => !(name in firstTieBreak.variables),
+      ),
+    );
     const passes = (["boundary", "lex"] as const).map((mode) => {
       const last = models.filter(([m]) => m === mode).at(-1)?.[1];
       const delta =
         last === undefined
           ? Infinity
-          : Math.abs(primaryCost(primary, last) - optimum);
+          : Math.abs(primaryCost(primary, last, frozen) - optimum);
       return { mode, delta };
     });
     const tol = COST_TOL_REL * Math.max(1, optimum);
