@@ -14,6 +14,12 @@
 // entry gutter of q:5 and q:6, and the bend corridor ends at that gutter's
 // wall, so the bend keeps its fan column 1685. Both lines draw exactly as on
 // the base; the pair is inverted there too.
+//
+// multi6 gap #3: the order predicts e:82's jog off its drawn target row and
+// ranks its descent, so the arrival rows of q:17 and q:49 take the slot one
+// pitch further left (3233.5). The descents of e:71 and e:82 must stand right
+// of a column at 3249.5, but the zone ends at 3289.5 and 3277.5 is taken, so
+// no pitch is free and both keep their next free slot, 3053.5.
 
 import { describe, it, expect } from "vitest";
 
@@ -41,6 +47,8 @@ const PLANS = [
 
 const EXPECTED: ReadonlyArray<string> = [
   "gas-web: a:u:class:q:6@44900 -> b:e:5:u:class:q:16->u:class:q:2:gas_copper",
+  "multi6: a:u:class:q:17@158100 -> d:e:82:u:in:liquid_water->u:class:q:9:liquid_water",
+  "multi6: a:u:class:q:49@15000 -> d:e:71:u:in:gas_inert->u:class:q:32:gas_inert",
 ];
 
 // Constraint cycles per plan (GapColumnOrder.cycles), before any is broken.

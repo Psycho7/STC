@@ -423,7 +423,15 @@ const CROSSING_BASELINE: Record<string, number> = {
   // every column pair and entry rows take slots one at a time across cards.
   //
   // ELK GREEDY SWITCH: 95 -> 74, hierarchical greedy switch on.
-  multi6: 74,
+  //
+  // DRAWN PORTS 2026-10-01: 74 -> 79. The jog trigger reads the drawn ports,
+  // so e:82's run at its drawn target row (1423), which grazed the padding of
+  // q:2 and q:24, jogs to 1652 and crosses e:15, e:43 (twice), e:74 and e:90.
+  // e:43's loop-return rail leaves that level (1653 -> 1538) and crosses e:36
+  // and e:90; the gap order now ranks e:82's descent, which moves e:31's
+  // descent to the zone's left edge (e:27 x e:31 3 -> 1). UP move, listed
+  // for ruling.
+  multi6: 79,
   tundra: 0,
   // CATALYST NODE 2026-09-14 (PR B of the catalyst supply pools plan): every
   // catalyst charge now leaves the item's own u:cat:* boundary card instead of
@@ -521,7 +529,10 @@ const PADDED_GRAZE_BASELINE: Record<string, number> = {
   // CATALYST NODE 2026-09-14 (PR B): 0 -> 2. The gas_xiranite catalyst card
   // sits one column off the chain it feeds, and two of its supply runs clip a
   // foreign card's padding overhang on the way. UP move, listed for ruling.
-  multi6: 2,
+  //
+  // DRAWN PORTS 2026-10-01: 2 -> 0. Both grazes were e:82's run at its drawn
+  // target row; the jog trigger now reads that row and e:82 jogs.
+  multi6: 0,
   tundra: 0,
   // CATALYST EXAM FIXES 2026-09-15 (T6): script43 0 -> 1, script43-xiranite
   // 0 -> 1. One graze, the same on both plans: the charge run
