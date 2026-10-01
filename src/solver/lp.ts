@@ -764,6 +764,13 @@ export const RATE_ZERO = 1e-12;
 const NOISE_CEILING_REL = 1e-4;
 const DEFICIT_MATERIAL_REL = 1e-9;
 
+// Test seam: lets a test replay the 1e-6 mis-snap and turn off the window-0
+// re-snap of the repair loop. Production code never writes it.
+export const extractionTuning = {
+  plainSnapRel: PLAIN_SNAP_REL,
+  exactResnap: true,
+};
+
 // The exact rational a finite non-negative double is, as [n, 2^k]: doubling a
 // double is exact, so the loop ends on the integer mantissa.
 function exactDyadic(value: number): [bigint, bigint] {
@@ -788,7 +795,8 @@ function exactRate(v: number): Fraction {
 // eps = min(PLAIN_SNAP_REL, |v| * PLAIN_SNAP_REL) of it, else the exact binary
 // rational itself. Throws a RangeError on v = 0 (a zero window).
 export function plainSnap(v: number): Fraction {
-  const eps = Math.min(PLAIN_SNAP_REL, Math.abs(v) * PLAIN_SNAP_REL);
+  const rel = extractionTuning.plainSnapRel;
+  const eps = Math.min(rel, Math.abs(v) * rel);
   const ieps = BigInt(Math.ceil(1 / eps));
   const [pn, pd] = exactDyadic(Math.abs(v));
   const sign = v < 0 ? -1n : 1n;
@@ -965,9 +973,11 @@ function extractResult(args: ExtractArgs): LpResult {
   // broken item (their removal caused the shortfall). A broken row with no
   // zeroed producer left can still be a snap artefact: each rate is snapped on
   // its own, so a row whose rates carry large denominators may not close. Its
-  // live producers are then re-read at their exact float value (window 0)
-  // before the shortfall counts as real. Each round shrinks the zeroed set or
-  // grows the re-read set and neither ever reverses, so the loop terminates.
+  // live producers and consumers are then re-read at their exact float value
+  // (window 0) before the shortfall counts as real; the mis-snap can sit on
+  // either side. Each round shrinks the zeroed set or grows the re-read set
+  // and neither ever reverses, so the loop runs at most |zeroed| + |rates|
+  // rounds.
   let slack = computeSlack();
   const forcedDeficit = new Set<ItemId>();
   const exactRead = new Set<RecipeId>();
@@ -990,11 +1000,19 @@ function extractResult(args: ExtractArgs): LpResult {
       slack = computeSlack();
       continue;
     }
+    const touchesBroken = (recipeId: RecipeId): boolean => {
+      const r = recipeById.get(recipeId)!;
+      return (
+        producesBroken(recipeId) ||
+        r.in.some((i) => i.qty > 0 && broken.includes(i.item))
+      );
+    };
     const reread = [...rates.keys()].filter(
       (recipeId) =>
+        extractionTuning.exactResnap &&
         !zeroed.has(recipeId) &&
         !exactRead.has(recipeId) &&
-        producesBroken(recipeId),
+        touchesBroken(recipeId),
     );
     if (reread.length > 0) {
       for (const recipeId of reread) {
@@ -1004,7 +1022,7 @@ function extractResult(args: ExtractArgs): LpResult {
       slack = computeSlack();
       continue;
     }
-    // Nothing can close these rows: no producer to re-admit or re-read.
+    // Nothing can close these rows: no producer to re-admit, no rate to re-read.
     // Report the shortfall honestly as a deficit (softFeasible goes false in the
     // surplus/deficit derivation below) instead of swallowing a broken row and
     // claiming the plan is feasible. The broken slack is negative by construction

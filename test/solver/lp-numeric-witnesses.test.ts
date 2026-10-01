@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import Fraction from "fraction.js";
 import {
   latestArea,
@@ -9,6 +9,7 @@ import { pack } from "../../src/data/load";
 import { loadPlan, type ItemOverride } from "../../src/data/plan";
 import type { ItemTarget } from "../../src/data/targets";
 import {
+  extractionTuning,
   readTableauPrimals,
   solveLp,
   type LpModel,
@@ -105,6 +106,34 @@ describe("exact dyadic snap: no phantom deficit", () => {
     const r = solveLp({ targets, pack: netted });
     expect(deficitIds(r)).toEqual([]);
     expect(r.softFeasible).toBe(true);
+  });
+});
+
+describe("window-0 re-snap: a mis-snapped row closes", () => {
+  // At a 1e-6 snap window the cs43 copper_ore 604395/10000 witness mis-snaps
+  // a rate on the copper_nugget row. The repair loop must re-read the row's
+  // live producers and consumers exactly before it reports a deficit.
+  const defaults = { ...extractionTuning };
+  afterEach(() => {
+    Object.assign(extractionTuning, defaults);
+  });
+
+  function solveWitness(): LpResult {
+    extractionTuning.plainSnapRel = 1e-6;
+    return solveLp({
+      targets: targetsOf("copper-script43"),
+      pack: netted,
+      itemOverrides: capped("copper_ore", "604395", "10000"),
+    });
+  }
+
+  it("leaves no copper_nugget deficit with the re-snap", () => {
+    expect(deficitIds(solveWitness())).not.toContain("copper_nugget");
+  });
+
+  it("reports the copper_nugget deficit without the re-snap", () => {
+    extractionTuning.exactResnap = false;
+    expect(deficitIds(solveWitness())).toContain("copper_nugget");
   });
 });
 
