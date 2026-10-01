@@ -23,7 +23,7 @@ import type Fraction from "fraction.js";
 import { CHIP_BOX_HEIGHT, CHIP_BOX_WIDTH } from "./dimensions";
 import type { BusEdgeData } from "./busRouting";
 import { edgeRate } from "./nodeGeometry";
-import { formatRatePerMin } from "../data/rate-format";
+import { formatRatePerMin, groupRateDigits } from "../data/rate-format";
 
 // Chip half-extents, in graph units. A chip draws at its natural CSS size at
 // every zoom, so its box in graph space IS that box and half of each dimension
@@ -56,7 +56,8 @@ const CHIP_CHROME_PX =
   CHIP_ICON_PX + CHIP_GAP_PX + 2 * CHIP_PAD_X_PX + 2 * CHIP_BORDER_PX;
 
 // Upper bound on one body glyph's advance, in px. A chip body is digits plus
-// "." and "/" only (formatRatePerMin is locale-independent ASCII), set at 11px
+// ".", "/" and the grouping "," only (chipRateBody is locale-independent
+// ASCII; a comma is no wider than a digit, so it counts as one), set at 11px
 // weight 700 in --font-num, and letter-spacing: -0.01em only subtracts. The
 // font stack is remote ("Space Grotesk", then "JetBrains Mono", the Han faces,
 // and generic monospace), so the bound has to survive a box where the webfont
@@ -143,7 +144,13 @@ export function rateChipText(edge: Edge): ChipText | undefined {
   const rate = edgeRate(edge);
   return rate === undefined
     ? undefined
-    : { body: formatRatePerMin(rate), unit: true };
+    : { body: chipRateBody(rate), unit: true };
+}
+
+// The digits every rate chip draws: the shared display formatter, grouped
+// ("1,234.5") like every other rate text the reader only reads.
+function chipRateBody(rate: Fraction): string {
+  return groupRateDigits(formatRatePerMin(rate));
 }
 
 // The chip text a fan-out trunk's AGGREGATE chip draws: the trunk total (falling
@@ -154,7 +161,7 @@ export function aggregateChipText(edge: Edge): ChipText | undefined {
   const total = (edge.data as BusEdgeData | undefined)?.busTotalRate;
   return total === undefined
     ? rateChipText(edge)
-    : { body: formatRatePerMin(total), unit: true };
+    : { body: chipRateBody(total), unit: true };
 }
 
 // The chip text a fan-out member's own chip draws: the member's own rate plus
@@ -201,10 +208,7 @@ const rateSeatHalfWByRate = new WeakMap<Fraction, number>();
 function rateSeatHalfW(rate: Fraction): number {
   const cached = rateSeatHalfWByRate.get(rate);
   if (cached !== undefined) return cached;
-  const halfW = chipSeatHalfW(
-    { body: formatRatePerMin(rate), unit: true },
-    false,
-  );
+  const halfW = chipSeatHalfW({ body: chipRateBody(rate), unit: true }, false);
   rateSeatHalfWByRate.set(rate, halfW);
   return halfW;
 }

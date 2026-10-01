@@ -9,8 +9,11 @@ import Fraction from "fraction.js";
 import {
   aggregateChipText,
   branchChipText,
+  chipHalfWidthsOf,
   chipSeatHalfW,
   examChipReservations,
+  memberHalfWOf,
+  rateChipText,
 } from "../../src/canvas/chipMetrics";
 import { CHIP_BOX_HEIGHT, CHIP_BOX_WIDTH } from "../../src/canvas/dimensions";
 
@@ -162,5 +165,50 @@ describe("examChipReservations", () => {
     expect(
       examChipReservations([edge("x", "item", {}), edge("y", "bus", {})]),
     ).toEqual([]);
+  });
+});
+
+// Canvas rate text is digit-grouped like the panel: a chip at 1000/min or more
+// draws "1,234.5", and the seat counts the comma as one more glyph.
+describe("digit grouping in chip text", () => {
+  const edge = (data: Record<string, unknown>) =>
+    ({
+      id: "e0",
+      source: "s",
+      target: "t",
+      type: "bus",
+      data: { item: "a", ...data },
+    }) as unknown as Parameters<typeof rateChipText>[0];
+  // 823/40 per sec * 60 = 1234.5/min; 333/20 per sec * 60 = 999/min.
+  const R1234_5 = new Fraction(823, 40);
+  const R999 = new Fraction(333, 20);
+
+  it("rateChipText groups a 1234.5/min rate and leaves 999/min alone", () => {
+    expect(rateChipText(edge({ rate: R1234_5 }))).toEqual({
+      body: "1,234.5",
+      unit: true,
+    });
+    expect(rateChipText(edge({ rate: R999 }))).toEqual({
+      body: "999",
+      unit: true,
+    });
+  });
+
+  it("aggregateChipText groups the trunk total", () => {
+    expect(
+      aggregateChipText(edge({ rate: R999, busTotalRate: R1234_5 })),
+    ).toEqual({ body: "1,234.5", unit: true });
+    expect(
+      aggregateChipText(edge({ rate: new Fraction(1), busTotalRate: R999 })),
+    ).toEqual({ body: "999", unit: true });
+  });
+
+  it("the payload half-widths reserve the grouped text, comma included", () => {
+    const grouped = chipSeatHalfW({ body: "1,234.5", unit: true }, false);
+    expect(memberHalfWOf({ item: "a", rate: R1234_5 })).toBe(grouped);
+    expect(
+      chipHalfWidthsOf({ item: "a", rate: R999, busTotalRate: R1234_5 })
+        .aggHalfW,
+    ).toBe(grouped);
   });
 });
