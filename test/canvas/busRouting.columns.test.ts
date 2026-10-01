@@ -32,11 +32,18 @@ import {
 import { ENV_ROW_HEIGHT } from "../../src/canvas/envBanner";
 import { cardRectsFor } from "../../src/canvas/chipSeating";
 import { widenLayerGaps } from "../../src/canvas/layerModel";
-import { nodeHeight, nodeIndexOf } from "../../src/canvas/nodeGeometry";
+import {
+  drawnPortsOf,
+  nodeHeight,
+  nodeIndexOf,
+} from "../../src/canvas/nodeGeometry";
+import { FORWARD_LEVEL_FLOOR } from "../../src/canvas/levelOccupancy";
 import {
   PORT_STUB,
   CHAMFER,
   chamferStepPath,
+  clearRailY,
+  drawnEdge,
   routingHintsFromData,
   type ObstacleRect,
 } from "../../src/canvas/edgePath";
@@ -662,7 +669,7 @@ describe("paddedObstacles", () => {
     const { srcBlocked } = forwardLegsBlocked(
       obstacles,
       exempt,
-      { sx: 310, sy, tx: 890, ty: 220 },
+      { sourceX: 310, sourceY: sy, targetX: 890, targetY: 220 },
       880,
     );
     expect(srcBlocked).toBe(true);
@@ -892,12 +899,13 @@ describe("clampBackwardRails loop returns", () => {
     // CONTAINER_COLUMN_GAP off the raw slab border (either side).
     const gLeft = 200;
     const gRight = 800;
-    const sx = 788; // src's absolute right edge (640 + 148)
-    const tx = 212; // tgt's absolute left edge
+    // The drawn ports, HANDLE_HALF (4) outside the product cards' edges.
+    const sx = 788; // src's drawn out-port (200 + 436 + 148 + 4)
+    const tx = 212; // tgt's drawn in-port (200 + 16 - 4)
     const nodes: RFAnyNode[] = [
       containerNode("G", gLeft, 0, gRight - gLeft, 260),
-      { ...productNode("src", 440, 80, 148, 78), parentId: "G" },
-      { ...productNode("tgt", 12, 80, 148, 78), parentId: "G" },
+      { ...productNode("src", 436, 80, 148, 78), parentId: "G" },
+      { ...productNode("tgt", 16, 80, 148, 78), parentId: "G" },
     ];
     const out = clampBackwardRails(nodes, [mkEdge("e0", "src", "tgt", "w")]);
     const railXRight =
@@ -926,11 +934,11 @@ describe("clampBackwardRails loop returns", () => {
     // default (no container is its own geometry).
     const gLeft = 200;
     const gRight = 800;
-    const sx = 788; // src's absolute right edge (200 + 440 + 148)
+    const sx = 788; // src's drawn out-port (200 + 436 + 148 + 4)
     const tx = -400; // tgt's absolute left edge, outside the slab
     const nodes: RFAnyNode[] = [
       containerNode("G", gLeft, 0, gRight - gLeft, 260),
-      { ...productNode("src", 440, 80, 148, 78), parentId: "G" },
+      { ...productNode("src", 436, 80, 148, 78), parentId: "G" },
       productNode("tgt", tx, 80, 148, 78),
     ];
     const out = clampBackwardRails(nodes, [mkEdge("e0", "src", "tgt", "w")]);
@@ -1002,26 +1010,17 @@ describe("clearColumnX", () => {
     expect(x).toBe(110 + CHAMFER);
   });
 
-  it("tests drawn column bands at the drawn column over the drawn y-span", () => {
-    // A drawn vertical at x 120 over drawn y [100.5, 150]. The model column 100
-    // draws at 105 (the drawer's own default), 15 off the band: inside the
-    // CHAMFER gap is 8, so it is clear. The model y-span [0, 100] misses the
-    // band but the drawn one [1, 101] overlaps it.
+  it("tests drawn column bands over the drawn y-span", () => {
+    // A drawn vertical at x 120 over drawn y [100.5, 150]. Column 105 sits 15
+    // off the band: past the CHAMFER gap of 8, so it is clear. The model y-span
+    // [0, 100] misses the band but the drawn one [1, 101] overlaps it.
     const band = rect(120, 120, 100.5, 150);
-    const xOf = (x: number): number => (x === 100 ? 105 : x);
+    const drawnColumns = { bands: [band], yLo: 1, yHi: 101 };
+    expect(clearColumnX(105, 0, 100, [], { drawnColumns })).toBe(105);
+    // Column 115 sits 5 off the band and has to move: the nearest clear column
+    // is the band's left escape, 120 - 8.
     expect(
-      clearColumnX(100, 0, 100, [], {
-        drawnColumns: { bands: [band], yLo: 1, yHi: 101, xOf },
-      }),
-    ).toBe(100);
-    // Drawn at 115 it sits 5 off the band and has to move: the nearest clear
-    // column is the band's left escape, 120 - 8.
-    const nearer = (x: number): number => (x === 100 ? 115 : x);
-    expect(
-      clearColumnX(100, 0, 100, [], {
-        towardTarget: -1,
-        drawnColumns: { bands: [band], yLo: 1, yHi: 101, xOf: nearer },
-      }),
+      clearColumnX(115, 0, 100, [], { towardTarget: -1, drawnColumns }),
     ).toBe(120 - CHAMFER);
   });
 
@@ -1672,5 +1671,230 @@ describe("column families keep the pitch floor off each other", () => {
     const levelA = railOf(out, "e0").railY ?? preferredOf(edges[0]!);
     const levelB = railOf(out, "e1").railY ?? preferredOf(edges[1]!);
     expect(Math.abs(levelA - levelB)).toBeGreaterThanOrEqual(CHAMFER);
+  });
+});
+
+// Every obstacle test compares port-derived geometry and card rects in ONE
+// frame, the drawn one: the card rects are the drawn boxes (nodeRectOf), so
+// the port rows and columns they are tested against are the drawn ports too.
+describe("obstacle tests read the drawn frame", () => {
+  // s -> t skips a layer; F is a foreign card of the middle layer whose padded
+  // top sits half a unit ABOVE the drawn source row and half a unit BELOW the
+  // model one (a recipe's resolved row draws CARD_BORDER lower). The long
+  // source run at the drawn row therefore enters F's padded rect.
+  const driftFixture = (): { nodes: RFAnyNode[]; edges: Edge[] } => {
+    const s = recipeNode("s", 0, 0, mkRecipe("rs", [], ["ore"]));
+    const t = inputProductNode("t", "ore", 1200, 400);
+    const edge: Edge = {
+      ...mkEdge("e0", "s", "t", "ore"),
+      data: { item: "ore", rate: new Fraction(1), bendX: 1000 },
+    };
+    const drawnSy = drawnPortsOf(edge, nodeIndexOf([s, t]))!.sourceY;
+    const f = inputProductNode("F", "ore", 600, drawnSy - 0.5 + OBSTACLE_PAD_Y);
+    return { nodes: [s, f, t], edges: [edge] };
+  };
+
+  it("jogs a source run whose drawn row enters a foreign padded card", () => {
+    const { nodes, edges } = driftFixture();
+    const byId = nodeIndexOf(nodes);
+    const fPadded = paddedObstacles(nodes, edges).find(
+      (o) => o.kind === "card" && o.nodeId === "F",
+    )!;
+    // Premise: the two frames disagree on this row.
+    expect(edgePortsModel(edges[0]!, byId)!.sy).toBeLessThan(fPadded.top);
+    expect(drawnPortsOf(edges[0]!, byId)!.sourceY).toBeGreaterThan(fPadded.top);
+
+    const out = jogForwardLegs(nodes, edges);
+    const laid = out[0]!;
+    const { pts } = drawnEdge(drawnPortsOf(laid, byId)!, laid.type, laid.data);
+    for (let i = 1; i < pts.length; i++) {
+      const [ax, ay] = pts[i - 1]!;
+      const [bx, by] = pts[i]!;
+      expect(segCrossesRect({ x: ax, y: ay }, { x: bx, y: by }, fPadded)).toBe(
+        false,
+      );
+    }
+  });
+
+  it("draws a jog descent at the column the pass cleared on a drifted target", () => {
+    // s -> t with mid blocking the straight leg, so the edge jogs over mid and
+    // descends in front of t. t is a product card: its drawn in-port sits
+    // HANDLE_HALF left of the model one. The descent's slot is model
+    // tx - PORT_STUB (736); w's padded right edge stands 8.5 left of it, so
+    // that column keeps the CHAMFER clearance the search asks for, while the
+    // drawn tx - PORT_STUB (732) would stand 4.5 off w.
+    const nodes: RFAnyNode[] = [
+      inputProductNode("s", "ore", 0, 0, 148, 78), // port y 39
+      inputProductNode("t", "ore", 760, 100, 148, 78), // port y 139
+      inputProductNode("mid", "ore", 400, 100, 148, 78),
+      inputProductNode("w", "ore", 663.5, 100, 40, 60), // padded right 727.5
+    ];
+    const edges: Edge[] = [
+      {
+        ...mkEdge("e0", "s", "t", "ore"),
+        data: { item: "ore", rate: new Fraction(1), bendX: 200 },
+      },
+    ];
+    const byId = nodeIndexOf(nodes);
+    // Premise: the two frames put the target port at different columns.
+    expect(drawnPortsOf(edges[0]!, byId)!.targetX).toBeLessThan(
+      edgePortsModel(edges[0]!, byId)!.tx,
+    );
+    const wall = paddedObstacles(nodes, edges).find(
+      (o) => o.kind === "card" && o.nodeId === "w",
+    )!;
+
+    const out = jogForwardLegs(nodes, edges);
+    const laid = out[0]!;
+    expect(legYOf(out, "e0")).toBeDefined();
+    const { pts } = drawnEdge(drawnPortsOf(laid, byId)!, laid.type, laid.data);
+    // The descent is the last vertical run before the approach into t.
+    const verticals = pts
+      .slice(1)
+      .map((p, i) => [pts[i]!, p] as const)
+      .filter(([a, b]) => a[0] === b[0] && a[1] !== b[1]);
+    const [[descentX, y0], [, y1]] = verticals.at(-1)!;
+    // Premise: the descent runs beside w, so w's clearance applies to it.
+    expect(Math.min(y0, y1)).toBeLessThan(wall.bottom);
+    expect(Math.max(y0, y1)).toBeGreaterThan(wall.top);
+    expect(descentX - wall.right).toBeGreaterThanOrEqual(CHAMFER);
+  });
+
+  it("offers a backward rail no level of its own endpoint cards", () => {
+    // Rail s -> t, preferred level 200, card-clear. A forward run at 200 from
+    // a (left of the rail span) to b (right of it) puts the rail inside its
+    // floor, so the rail pass rescans the candidate levels. F1 and F2 cover
+    // the band's edges and their padded escapes, so the nearest acceptable
+    // foreign levels are F1's top escape and F2's bottom escape. The source
+    // card's bottom escape and the target card's top escape sit nearer, 4
+    // inside those: an own endpoint card must not offer them.
+    const RAIL = 200;
+    const reach = FORWARD_LEVEL_FLOOR + CHAMFER + 20;
+    const f1Top = RAIL - reach; // F1 padded [f1Top, RAIL - 8]
+    const f2Bottom = RAIL + reach; // F2 padded [RAIL + 8, f2Bottom]
+    const ownGap = 4;
+    // Source padded bottom + CHAMFER = f1Top - CHAMFER + ownGap.
+    const sBottom = f1Top - 2 * CHAMFER + ownGap - OBSTACLE_PAD_Y;
+    const sTop = sBottom - 78;
+    const sy = sTop + 39;
+    const ty = 2 * RAIL - sy;
+    const tTop = ty - 39;
+    const nodes: RFAnyNode[] = [
+      productNode("t", 0, tTop, 148, 78),
+      productNode("s", 1000, sTop, 148, 78),
+      productNode(
+        "F1",
+        500,
+        f1Top + OBSTACLE_PAD_Y,
+        148,
+        RAIL - CHAMFER - OBSTACLE_PAD_Y - (f1Top + OBSTACLE_PAD_Y),
+      ),
+      productNode(
+        "F2",
+        500,
+        RAIL + CHAMFER + OBSTACLE_PAD_Y,
+        148,
+        f2Bottom - OBSTACLE_PAD_Y - (RAIL + CHAMFER + OBSTACLE_PAD_Y),
+      ),
+      productNode("a", -600, RAIL - 39, 148, 78),
+      productNode("b", 1600, RAIL - 39, 148, 78),
+    ];
+    const edges = [mkEdge("e0", "s", "t", "w"), mkEdge("e1", "a", "b", "w")];
+    const out = clampBackwardRails(nodes, edges);
+    const railY = (out[0]!.data as { railY?: number }).railY;
+    const ownLevels = [
+      sBottom + OBSTACLE_PAD_Y + CHAMFER,
+      tTop - OBSTACLE_PAD_Y - CHAMFER,
+    ];
+    expect(ownLevels).not.toContain(railY);
+    // The nearest foreign escape, the lower value of an equidistant pair.
+    expect(railY).toBe(f1Top - CHAMFER);
+  });
+});
+
+// A candidate level can equal the drawn target row without being the
+// single-column shape: the single shape is the candidate offered first for a
+// blocked source run, and every other level at ty is a detour level the floor
+// judges like any other. Only the bands-on case is pinned here.
+describe("a detour level at the drawn target row", () => {
+  it("is held to the floor when the bands have a say", () => {
+    // e0 runs at sy 39 from its bend column out to its entry column 700. e1
+    // arrives on row 39 from its own entry column 300, so its approach runs
+    // beside e0's source stretch: a floor-only jog (no card is crossed). W's
+    // padded bottom escape is exactly t1's port row 139, and that row is clear
+    // of every card and band, so a level at ty passes every shape test.
+    const nodes: RFAnyNode[] = [
+      inputProductNode("s1", "ore", 0, 0, 148, 78), // port y 39
+      inputProductNode("t1", "ore", 760, 100, 148, 78), // port y 139
+      inputProductNode("s2", "ore", 0, 300, 148, 78), // port y 339
+      inputProductNode("t2", "ore", 1000, 0, 148, 78), // port y 39
+      productNode("W", 450, 60, 100, 139 - CHAMFER - OBSTACLE_PAD_Y - 60),
+    ];
+    const edges: Edge[] = [
+      {
+        ...mkEdge("e0", "s1", "t1", "ore"),
+        data: { item: "ore", rate: new Fraction(1), bendX: 200, entryX: 700 },
+      },
+      {
+        ...mkEdge("e1", "s2", "t2", "ore"),
+        data: { item: "ore", rate: new Fraction(1), bendX: 250, entryX: 300 },
+      },
+    ];
+    const byId = nodeIndexOf(nodes);
+    const ty = drawnPortsOf(edges[0]!, byId)!.targetY;
+    const w = paddedObstacles(nodes, edges).find((o) => o.nodeId === "W")!;
+    // Premise: W offers a level exactly at the drawn target row, and the
+    // source run at 39 clears W.
+    expect(w.bottom + CHAMFER).toBe(ty);
+    expect(w.top).toBeGreaterThan(39);
+
+    const out = jogForwardLegs(nodes, edges);
+    const legY = legYOf(out, "e0");
+    expect(legY).toBeDefined();
+    expect(Math.abs(legY! - ty)).toBeGreaterThanOrEqual(FORWARD_LEVEL_FLOOR);
+  });
+});
+
+// The rail pass drops its own endpoint CARDS from the candidate levels, but
+// not the endpoint's container: the slab's frame levels stay candidates, and
+// its padded escapes stay in the list too, where clearRailY never hands them
+// back unchanged (they sit inside the slab's CONTAINER_RAIL_GAP strike).
+describe("a backward rail out of a container", () => {
+  it("can still take its own container's frame level on a rescan", () => {
+    // src sits in G (raw y 200..300); tgt sits left of G. The preferred level
+    // 155 falls in G's strike and escapes to G's top level, where a forward
+    // run (a -> b) lies, so the rail rescans. F covers every level above
+    // that run; every level below it down to G's bottom is inside G's strike.
+    // The nearest level left is G's own bottom frame level.
+    const gTop = 200;
+    const gBottom = 300;
+    const frameGap = CONTAINER_RAIL_GAP + OBSTACLE_PAD_Y;
+    const runY = gTop - frameGap;
+    const nodes: RFAnyNode[] = [
+      containerNode("G", 400, gTop, 400, gBottom - gTop),
+      inContainer(productNode("src", 200, 11, 148, 78), "G"), // port y 250
+      productNode("tgt", 0, 21, 148, 78), // port y 60
+      productNode("F", 250, -248, 80, runY - 9 - OBSTACLE_PAD_Y + 248),
+      productNode("a", -600, runY - 39, 148, 78),
+      productNode("b", 1600, runY - 39, 148, 78),
+    ];
+    const edges = [
+      mkEdge("e0", "src", "tgt", "w"),
+      mkEdge("e1", "a", "b", "w"),
+    ];
+    const obstacles = paddedObstacles(nodes, edges);
+    const slab = obstacles.find((o) => o.nodeId === "G")!;
+    // Premise: G's own padded escapes are offered but never a fixed point.
+    for (const y of [slab.top - CHAMFER, slab.bottom + CHAMFER]) {
+      expect(
+        clearRailY(y, 0, 800, obstacles, CHAMFER, CONTAINER_RAIL_GAP),
+      ).not.toBe(y);
+    }
+    // Premise: without e1 the rail lands on G's top level, the run's row.
+    const alone = clampBackwardRails(nodes, [edges[0]!]);
+    expect((alone[0]!.data as { railY?: number }).railY).toBe(runY);
+
+    const out = clampBackwardRails(nodes, edges);
+    expect((out[0]!.data as { railY?: number }).railY).toBe(gBottom + frameGap);
   });
 });

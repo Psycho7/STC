@@ -391,8 +391,9 @@ function driftedPortY(
 //
 // This is the DRAWN frame. Its sibling edgePortsModel in busRouting.ts answers
 // the same four names in the MODEL frame, the coordinate the routing passes
-// place by. The two are never merged: the difference is PORT_DRIFT, 1-2 units,
-// exactly the size the ratcheted occlusion and crossing counts turn on.
+// place by. The two are never merged: the gap between them is PORT_DRIFT, up to
+// 5 units in x (recipe sourceDx) and 1 in y, exactly the size the ratcheted
+// occlusion and crossing counts turn on.
 export function drawnPortsOf(
   edge: Edge,
   byId: ReadonlyMap<string, RFAnyNode>,
