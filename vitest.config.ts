@@ -53,7 +53,12 @@ export default mergeConfig(
             name: "node",
             environment: "node",
             setupFiles: [ENCODING_SETUP],
-            include: TEST_ROOTS.map((root) => `${root}/**/*.{test,spec}.ts`),
+            // tools/heavy.test.ts by name: a tools/ root would also sweep in
+            // the extractor's bun:test suite.
+            include: [
+              ...TEST_ROOTS.map((root) => `${root}/**/*.{test,spec}.ts`),
+              "tools/heavy.test.ts",
+            ],
             exclude: DOM_TESTS,
           },
         },

@@ -30,10 +30,15 @@ type Props = {
   // Optional one-line explanation of what a dimmed tile means, rendered under
   // the search box while the filter leaves a dimmed tile visible. A caller that disables tiles for a reason the grid cannot
   // show passes it; a caller whose disabled tiles are self-explanatory omits
-  // it. Not a per-tile title: a disabled button dispatches no pointer events,
+  // it. A function receives the ids of the dimmed tiles the filter leaves on
+  // screen, so a caller with several reasons can name only those present.
+  // Not a per-tile title: a disabled button dispatches no pointer events,
   // so a title on one never renders a tooltip, and aria-label beats title for
   // the accessible name, so nothing is announced either.
-  disabledHint?: string | undefined;
+  disabledHint?:
+    | string
+    | ((shownDimmed: ReadonlySet<string>) => string | undefined)
+    | undefined;
   onPick: (itemId: string) => void;
   onClose: () => void;
 };
@@ -104,8 +109,13 @@ export function ItemPickerPopup({
   );
   const firstEnabled = navIds.find((id) => !disabledIds.has(id)) ?? null;
   // The hint explains dimmed tiles, so a filter that leaves none hides it.
-  const showHint =
-    disabledHint !== undefined && navIds.some((id) => disabledIds.has(id));
+  const shownDimmed = new Set(navIds.filter((id) => disabledIds.has(id)));
+  const hintText =
+    shownDimmed.size === 0
+      ? undefined
+      : typeof disabledHint === "function"
+        ? disabledHint(shownDimmed)
+        : disabledHint;
 
   // Where each group sits in navIds. A row move happens inside one group's own
   // grid, so stepping by a flat column count over navIds lands a column off
@@ -292,9 +302,9 @@ export function ItemPickerPopup({
           onChange={(e) => setSearch(e.target.value)}
           onKeyDown={onSearchKeyDown}
         />
-        {showHint ? (
+        {hintText !== undefined ? (
           <div className="recipe-picker-hint" data-testid="picker-hint">
-            {disabledHint}
+            {hintText}
           </div>
         ) : null}
         <div className="recipe-picker-body">

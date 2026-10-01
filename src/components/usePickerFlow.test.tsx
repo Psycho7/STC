@@ -20,7 +20,7 @@ function setup() {
   const trigger = document.createElement("button");
   document.body.appendChild(trigger);
   const hook = renderHook(
-    () => usePickerFlow<string, string>(PACK, PACK.items, new Map()),
+    () => usePickerFlow<string, string>(PACK, new Map()),
     { wrapper },
   );
   return { trigger, hook };
@@ -65,16 +65,17 @@ test("an armed focus token is consumed by the matching row only", () => {
 // The disabled hint, one case per cause kind: every kind the availability core
 // can hand over has to explain itself in the picker, and the event wording is
 // the one that must stay byte-identical to what the validation error names.
-const CATALOGUE = [{ id: "gadget" }] as unknown as RecipePack["items"];
-
+// shownDimmed is what the popup's filter leaves on screen; by default every
+// item with a cause is shown.
 function hintFor(
   causes: ReadonlyArray<[string, ProducerUnavailableCause]>,
+  shownDimmed: ReadonlySet<string> = new Set(causes.map(([id]) => id)),
 ): string | undefined {
   const hook = renderHook(
-    () => usePickerFlow<string, string>(PACK, CATALOGUE, new Map(causes)),
+    () => usePickerFlow<string, string>(PACK, new Map(causes)),
     { wrapper },
   );
-  return hook.result.current.unavailableHint;
+  return hook.result.current.unavailableHint(shownDimmed);
 }
 
 test("an event cause names the cohort the validation error also names", () => {
@@ -112,10 +113,13 @@ test("mixed causes explain each kind once, in precedence order", () => {
   );
 });
 
-test("no hint when nothing dimmed is in the catalogue", () => {
+test("no hint when no shown dimmed tile has a cause", () => {
   expect(hintFor([])).toBeUndefined();
   expect(
-    hintFor([["absent", { kind: "event", cohort: "v1.5" }]]),
+    hintFor(
+      [["absent", { kind: "event", cohort: "v1.5" }]],
+      new Set(["gadget"]),
+    ),
   ).toBeUndefined();
 });
 

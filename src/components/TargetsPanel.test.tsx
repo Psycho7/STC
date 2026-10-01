@@ -1043,6 +1043,29 @@ test("the already-a-target sentence joins the area sentence with ' · '", () => 
   );
 });
 
+function searchPicker(text: string) {
+  const search = document.querySelector<HTMLInputElement>(
+    ".recipe-picker-search",
+  )!;
+  fireEvent.change(search, { target: { value: text } });
+}
+
+// The hint describes the dimmed tiles on screen, not the whole catalogue: a
+// search that hides the targeted tile drops its sentence.
+test("a search leaving only an out-of-area tile dimmed shows only the area sentence", () => {
+  openAddPickerWith([IRON_TARGET], TUNDRA_ONLY);
+  const en = loadI18n("en");
+  searchPicker("liquid_copper");
+  expect(pickerTile("iron_powder")).toBeNull();
+  expect(pickerTile("liquid_copper")!.disabled).toBe(true);
+  expect(pickerHintText()).toBe(en.t("picker.area.off"));
+
+  searchPicker("");
+  expect(pickerHintText()).toBe(
+    [en.t("targets.picker.listed"), en.t("picker.area.off")].join(" · "),
+  );
+});
+
 test("the row-swap picker omits the target sentence when no other target is dimmed", () => {
   render(
     <LocaleProvider locale="en">

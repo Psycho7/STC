@@ -2,7 +2,10 @@ import { Handle, Position, type NodeProps, type Node } from "@xyflow/react";
 import type { Item } from "@aef/schema";
 import { useI18n } from "../data/i18n-context";
 import type { I18nIndex } from "../data/i18n";
-import { formatRationalPerMin } from "../data/rate-format";
+import {
+  formatDeliveredPerMin,
+  formatRationalPerMin,
+} from "../data/rate-format";
 import type { RationalString } from "../pipeline/types";
 import { portId } from "../pipeline/render/port-ids";
 import { PortGlyph } from "./PortGlyph";
@@ -52,6 +55,8 @@ export type ProductNodeData =
       kind: "outputProduct";
       itemId: string;
       rate: RationalString;
+      // What an under-delivered target actually receives; `rate` stays declared.
+      delivered?: RationalString;
       flavor: "target" | "surplus";
       portTransportKinds?: PortTransportKinds;
     };
@@ -227,14 +232,29 @@ export default function ProductNode({
   );
 
   // Primary rate. For inputs this is realized demand; for outputs the target or
-  // surplus rate.
-  const rateValue = formatRationalPerMin(data.rate);
+  // surplus rate, except an under-delivered target, which leads with what
+  // actually arrives.
+  const delivered = isInput ? undefined : data.delivered;
+  const rateValue =
+    delivered !== undefined
+      ? formatDeliveredPerMin(delivered, data.rate)
+      : formatRationalPerMin(data.rate);
   // Share of the parent aggregate, fanout slices only: "of <total>/min" points
-  // the reader back at the source card this tap draws from.
+  // the reader back at the source card this tap draws from. An under-delivered
+  // target states its declared rate in the same chip.
   const shareOf =
     isInput && data.isFanout && data.parentRate !== undefined
       ? formatRationalPerMin(data.parentRate)
-      : null;
+      : delivered !== undefined
+        ? formatRationalPerMin(data.rate)
+        : null;
+  const rateTitle =
+    delivered !== undefined && shareOf !== null
+      ? i18n.t("product.target.delivered", {
+          delivered: rateValue,
+          declared: shareOf,
+        })
+      : undefined;
 
   return (
     <div
@@ -305,7 +325,12 @@ export default function ProductNode({
           ) : null}
         </div>
       </div>
-      <div className="pn-rate">
+      <div
+        className={
+          delivered !== undefined ? "pn-rate pn-rate--short" : "pn-rate"
+        }
+        title={rateTitle}
+      >
         {rateValue}
         <span className="unit">{i18n.t("canvas.rate.unit")}</span>
         {shareOf !== null ? (

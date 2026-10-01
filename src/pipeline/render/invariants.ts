@@ -13,6 +13,7 @@ import type {
   RenderUnitId,
   RenderUnit,
   RenderUnitInputProduct,
+  RenderUnitOutputProduct,
   ItemId,
   RecipeId,
 } from "../types";
@@ -191,9 +192,10 @@ export function checkEdgeEndpointIntegrity(
  *   NOT part of that consumption: it leaves the catalyst node, so an ordinary
  *   node justified by nothing but a catalyst is a violation. Production
  *   claimed by a declared target draw never feeds internal consumers, so it is
- *   subtracted before the comparison. Or, for a free-supply target item, by
- *   its export shortfall: the declared rate beyond what net production covers
- *   arrives as a boundary passthrough into the target output.
+ *   subtracted before the comparison. Or, for a target item with external
+ *   supply (capped or free), by its export shortfall: the declared rate beyond
+ *   what net production covers arrives as a boundary passthrough into the
+ *   target output.
  *
  * - outputProduct "target" for X: justified iff X is a declared target item
  *   (X is a demandByItem key).
@@ -258,16 +260,13 @@ export function checkBoundaryProductsJustified(
       const availRaw = prod.sub(targetDemand);
       const availProd = availRaw.compare(FRAC_ZERO) > 0 ? availRaw : FRAC_ZERO;
       const net = cons.sub(availProd); // positive means net external draw
-      // A free-supply target item is additionally justified by its export
-      // shortfall: the declared rate beyond what net production covers arrives
-      // as a boundary passthrough into the target output.
+      // A target item is additionally justified by its export shortfall: the
+      // declared rate beyond what net production covers arrives as a boundary
+      // passthrough into the target output, capped or free.
       const netProd = prod.sub(cons);
-      const exportShortfall =
-        supply === Infinity
-          ? targetDemand.sub(
-              netProd.compare(FRAC_ZERO) > 0 ? netProd : FRAC_ZERO,
-            )
-          : FRAC_ZERO;
+      const exportShortfall = targetDemand.sub(
+        netProd.compare(FRAC_ZERO) > 0 ? netProd : FRAC_ZERO,
+      );
       const magnitude = net.valueOf();
       const slack = relSlack(scaleFloor, Math.abs(magnitude));
       const shortSlack = relSlack(
@@ -623,7 +622,7 @@ export type TargetOutputShortfall = {
  * otherwise renders as a silently under-fed plan.
  */
 export function targetOutputShortfalls(
-  plan: RenderPlan,
+  plan: Pick<RenderPlan, "edges">,
   targets: ReadonlyArray<ItemTarget>,
 ): TargetOutputShortfall[] {
   const scaleFloor = planScaleFloor(targets);
@@ -891,6 +890,8 @@ export function checkUnitOutflowVsProduction(
  *   (d) outputProduct "surplus" rate chip == sum of inbound edge rates.
  *   (e) outputProduct "target" rate chip == the declared target rate for the
  *       item (sum over targets sharing the primary output).
+ *   (f) outputProduct "target" carries `delivered` iff targetOutputShortfalls
+ *       flags its item, and then delivered == inbound edge sum < declared.
  */
 export function checkProductUnitRates(
   args: RenderInvariantArgs,
@@ -958,6 +959,42 @@ export function checkProductUnitRates(
     return false;
   };
 
+  // Clause (f), on the same predicate the shortfall strip reads.
+  const shortItems = new Set(
+    targetOutputShortfalls(plan, targets).map((s) => s.item),
+  );
+  const checkDelivered = (
+    unit: RenderUnitOutputProduct,
+    declared: number,
+  ): void => {
+    if (unit.delivered === undefined) {
+      if (shortItems.has(unit.itemId)) {
+        violations.push(
+          `outputProduct (target) "${unit.id}": under-delivered but carries no delivered figure`,
+        );
+      }
+      return;
+    }
+    if (!shortItems.has(unit.itemId)) {
+      violations.push(
+        `outputProduct (target) "${unit.id}": delivered figure on a target fed at its declared rate`,
+      );
+      return;
+    }
+    const delivered = rationalFromString(unit.delivered).valueOf();
+    const inbound = (inboundByUnit.get(unit.id) ?? FRAC_ZERO).valueOf();
+    if (Math.abs(delivered - inbound) > slackFor(inbound)) {
+      violations.push(
+        `outputProduct (target) "${unit.id}": delivered ${delivered} != inbound edge sum ${inbound}`,
+      );
+    }
+    if (delivered >= declared) {
+      violations.push(
+        `outputProduct (target) "${unit.id}": delivered ${delivered} is not below declared ${declared}`,
+      );
+    }
+  };
+
   for (const unit of plan.units) {
     if (isInputProductUnit(unit)) {
       const chip = rationalFromString(unit.rate).valueOf();
@@ -997,6 +1034,7 @@ export function checkProductUnitRates(
             `outputProduct (target) "${unit.id}": rate chip ${chip} != declared target rate ${declared}`,
           );
         }
+        checkDelivered(unit, declared);
       }
     }
   }
@@ -1015,8 +1053,8 @@ export function checkProductUnitRates(
     if (!to) continue; // dangling endpoint is checkEdgeEndpointIntegrity's job
     const okTarget =
       (isInputProductUnit(to) && to.itemId === from.itemId) ||
-      // Free-boundary target passthrough: the import feeds the same item's
-      // target export directly.
+      // Target passthrough: the import feeds the same item's target export
+      // directly.
       (isOutputProductUnit(to) &&
         to.itemId === from.itemId &&
         to.flavor === "target") ||

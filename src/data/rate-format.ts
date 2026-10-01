@@ -22,10 +22,14 @@ function trimZeros(s: string): string {
 // slash. The cap and the ladder meet at 0.1 for that reason: the ladder owns
 // exactly the range where one digit cannot carry the value.
 function formatDecimal(value: number): string {
+  return trimZeros(value.toFixed(Math.min(displayDecimals(value), 100)));
+}
+
+// The fractional digits formatDecimal draws for a value.
+function displayDecimals(value: number): number {
   const abs = Math.abs(value);
-  if (abs >= 0.1) return trimZeros(value.toFixed(1));
-  const decimals = Math.floor(-Math.log10(abs)) + 2;
-  return trimZeros(value.toFixed(Math.min(decimals, 100)));
+  if (abs >= 0.1) return 1;
+  return Math.floor(-Math.log10(abs)) + 2;
 }
 
 // Shared per-minute core: an exact integer stays exact (and keeps its sign --
@@ -85,6 +89,44 @@ export function formatRationalPerMin(rps: {
   denom: string;
 }): string {
   return formatFractionPerMin(rationalFromString(rps));
+}
+
+// Thousands separators for rate text the reader only reads: panel readouts,
+// prompt text and error messages ("1000000" -> "1,000,000"). Both locales use
+// the same Western grouping, so it takes no locale. Only integer digit runs
+// are grouped ("1234.5678" -> "1,234.5678"; "1000001/3" -> "1,000,001/3").
+// Editable input values never go through it, so typed text reparses as is,
+// and the canvas keeps its own ungrouped formatter.
+export function groupRateDigits(text: string): string {
+  return text.replace(
+    /(^|[^.\d])(\d{4,})/g,
+    (_, lead: string, digits: string) =>
+      lead + digits.replace(/\B(?=(\d{3})+$)/g, ","),
+  );
+}
+
+// How many decimals past the usual display a delivered figure may gain.
+const MAX_EXTRA_DELIVERED_DECIMALS = 4;
+
+// An under-delivered target's figure. A shortfall below the display resolution
+// would round to the declared figure ("120 of 120/min"), so the delivered rate
+// gains decimals until its text differs, up to the cap; past the cap it reads
+// "<120" (the declared figure with a "<").
+export function formatDeliveredPerMin(
+  delivered: RationalString,
+  declared: RationalString,
+): string {
+  const declaredText = formatRationalPerMin(declared);
+  const deliveredText = formatRationalPerMin(delivered);
+  if (deliveredText !== declaredText) return deliveredText;
+
+  const value = perMinFromRational(delivered).valueOf();
+  const base = displayDecimals(value);
+  for (let extra = 1; extra <= MAX_EXTRA_DELIVERED_DECIMALS; extra++) {
+    const text = trimZeros(value.toFixed(Math.min(base + extra, 100)));
+    if (text !== declaredText) return text;
+  }
+  return `<${declaredText}`;
 }
 
 // Items-per-minute input text (per-second rational x60) for editable rate
@@ -204,7 +246,7 @@ export function rateErrorText(
   reason: RateTextError,
 ): string {
   return i18n.t(RATE_ERROR_KEY[reason], {
-    max: MAX_RATE_PER_MIN.toLocaleString("en-US"),
+    max: groupRateDigits(String(MAX_RATE_PER_MIN)),
   });
 }
 

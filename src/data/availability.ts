@@ -143,8 +143,8 @@ function unavailableCauseOf(
   return null;
 }
 
-// The core's product: every unavailable recipe mapped to its cause. Plan
-// validation reads the cause; the solver seam reads only the keys.
+// The core's product: every unavailable recipe mapped to its cause. The
+// blocked-target check reads the cause; the solver seam reads only the keys.
 export function unavailableCauses(
   pack: RecipePack,
   settings: AvailabilitySettings,

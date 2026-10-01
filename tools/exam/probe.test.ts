@@ -13,8 +13,8 @@ import {
   paintSide,
   parseArgs,
   parseCssColor,
+  hoverGraphFromDom,
   relativeLuminance,
-  resolveEndpoints,
   srgbToLab,
   usableSamples,
   type ColorRead,
@@ -463,27 +463,40 @@ describe("srgbToLab / deltaE76", () => {
   });
 });
 
-describe("resolveEndpoints", () => {
-  const ids = new Set(["u:in:copper", "u:out:copper", "a to b", "c"]);
+describe("hoverGraphFromDom", () => {
+  const nodes = [
+    { id: "u:in:copper", type: "product" },
+    { id: "u:out:copper", type: "product" },
+  ];
 
-  test("reads React Flow's default edge label", () => {
-    expect(
-      resolveEndpoints("Edge from u:in:copper to u:out:copper", ids),
-    ).toEqual(["u:in:copper", "u:out:copper"]);
+  test("reads endpoints from the edge wrapper's data attributes", () => {
+    const graph = hoverGraphFromDom({
+      nodes,
+      edges: [{ id: "e1", source: "u:in:copper", target: "u:out:copper" }],
+    });
+    expect(graph).toEqual({
+      nodes,
+      edges: [{ id: "e1", source: "u:in:copper", target: "u:out:copper" }],
+    });
   });
 
-  // Splitting on the first " to " would name a node that does not exist; the
-  // split is resolved against the ids the DOM actually rendered.
-  test("splits where both halves are real node ids", () => {
-    expect(resolveEndpoints("Edge from a to b to c", ids)).toEqual([
-      "a to b",
-      "c",
-    ]);
+  // An unattributable edge would quietly shrink the expected dim set.
+  test("throws when an edge has no endpoint attributes", () => {
+    expect(() =>
+      hoverGraphFromDom({
+        nodes,
+        edges: [{ id: "e1", source: null, target: "u:out:copper" }],
+      }),
+    ).toThrow(/e1/);
   });
 
-  test("returns null when the label is not the default one", () => {
-    expect(resolveEndpoints("copper 30/min", ids)).toBeNull();
-    expect(resolveEndpoints("Edge from x to y", ids)).toBeNull();
+  test("throws when an endpoint names a node that did not render", () => {
+    expect(() =>
+      hoverGraphFromDom({
+        nodes,
+        edges: [{ id: "e1", source: "u:in:copper", target: "u:ghost" }],
+      }),
+    ).toThrow(/u:ghost/);
   });
 });
 

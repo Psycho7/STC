@@ -262,9 +262,12 @@ describe("two verticals in one gap keep the column pitch floor", () => {
 // Fan-out columns are handed out top-to-bottom by source port row, except where
 // a trunk's near leg runs at a sibling's port row: there the leaver stands right
 // of the arriver, so its leg cannot run across the sibling's stub and under its
-// split dot. That rule fires on ONE corpus gap, and this suite is the guard that
-// it stays there -- a gap reordered on any other plan is a layout change nobody
-// measured, whichever direction it moves the columns.
+// split dot. The same order nests trunks whose legs would otherwise cross the
+// other's column (multi6 gap #1: the originium_ore trunk stands left of the
+// plant_grass_1 water trunk, one crossing instead of two). Those rules fire on
+// TWO corpus gaps, and this suite is the guard that they stay there -- a gap
+// reordered on any other plan is a layout change nobody measured, whichever
+// direction it moves the columns.
 // The column a trunk drew on, read off the stamps of one of its members. Not
 // every member carries it: a backward member keeps its detour rail and is
 // stamped railXRight (fan-out) or railXLeft (fan-in) instead, so the scan takes
@@ -312,7 +315,7 @@ describe("the trunk column is read off a member that carries one", () => {
   });
 });
 
-describe("only one corpus gap takes the fan-out order off plain port order", () => {
+describe("only two corpus gaps take the fan-out order off plain port order", () => {
   it("holds on every corpus plan", async () => {
     const reordered: string[] = [];
     let checked = 0;
@@ -366,7 +369,10 @@ describe("only one corpus gap takes the fan-out order off plain port order", () 
     // Premise: the corpus really does put two or more fan-out trunks in one gap,
     // so a short list below is a verdict and not an empty scan.
     expect(checked).toBeGreaterThan(0);
-    expect(reordered.map((entry) => entry.split(" ")[0])).toEqual(["default"]);
+    expect(reordered.map((entry) => entry.split(" ")[0])).toEqual([
+      "default",
+      "multi6",
+    ]);
   }, 600_000);
 });
 

@@ -236,6 +236,7 @@ describe("render policy / boundary product units", () => {
       // No consumed items in either recipe, so nothing is drawn from the
       // boundary.
       boundaryShare: new Map(),
+      draws: new Map(),
     });
     const outputs = plan.units.filter(isOutputProductUnit);
     expect(outputs.length).toBe(1);
@@ -315,6 +316,7 @@ describe("render policy / boundary product units", () => {
       // No in-graph producer for `built`, so the boundary covers all of its
       // demand (share 0 < 1 -> input product emitted with the cap).
       boundaryShare: new Map([["built", new Fraction(0)]]),
+      draws: new Map(),
     });
     const inputs = plan.units.filter(isInputProductUnit);
     const built = inputs.find((u) => u.itemId === "built");
@@ -387,6 +389,7 @@ describe("render policy / boundary product units", () => {
       // Zero finite supply is gated upstream regardless of share, so the
       // boundary draw is irrelevant here.
       boundaryShare: new Map(),
+      draws: new Map(),
     });
     const inputs = plan.units.filter(isInputProductUnit);
     expect(inputs.find((u) => u.itemId === "built")).toBeUndefined();
@@ -454,6 +457,7 @@ describe("render policy / boundary product units", () => {
       // raw_in has Infinity effective supply, so the share map is never
       // consulted for it.
       boundaryShare: new Map(),
+      draws: new Map(),
     });
     const inputs = plan.units.filter(isInputProductUnit);
     const rawIn = inputs.find((u) => u.itemId === "raw_in");
@@ -598,6 +602,7 @@ describe("render policy / boundary product units", () => {
       // Partial boundary draw (share 0 < 1): the boundary input product and
       // its edge are emitted alongside the in-graph producer's edge.
       boundaryShare: new Map([["shared", new Fraction(0)]]),
+      draws: new Map(),
     });
     const inputs = plan.units.filter(isInputProductUnit);
     const shared = inputs.find((u) => u.itemId === "shared");
@@ -642,6 +647,7 @@ describe("render policy / boundary product units", () => {
       // Override with no fields => Infinity effective supply; share is never
       // consulted, and with no producer in-graph the item single-emits.
       boundaryShare: new Map(),
+      draws: new Map(),
     });
     const inputs = plan.units.filter(isInputProductUnit);
     const shared = inputs.find((u) => u.itemId === "shared");
@@ -859,6 +865,7 @@ describe("render policy / boundary product units", () => {
       // boundary supplies the residual half. Each consumer's boundary edge =
       // c.rate * (1 - share) = 1 * 1/2 = 1/2, completing its 1/s demand.
       boundaryShare: new Map([["shared", new Fraction(1, 2)]]),
+      draws: new Map(),
     });
     // For each consumer, sum all incoming edges carrying `shared` and assert
     // the total equals the consumer's per-input demand (1/s here).
@@ -961,6 +968,7 @@ describe("render policy / boundary product units", () => {
       // Partial boundary draw (share 0 < 1) so `dual` surfaces as a capped
       // input product in addition to its target output.
       boundaryShare: new Map([["dual", new Fraction(0)]]),
+      draws: new Map(),
     });
     const inputs = plan.units.filter(isInputProductUnit);
     const outputs = plan.units.filter(isOutputProductUnit);
@@ -1050,6 +1058,7 @@ describe("render policy / boundary product units", () => {
       // raw_target is raw (Infinity supply) so the source never reads its
       // share; the recapture deficit alone drives the input emission.
       boundaryShare: new Map(),
+      draws: new Map(),
     });
     const inputs = plan.units.filter(isInputProductUnit);
     expect(inputs.find((u) => u.itemId === "raw_target")).toBeDefined();
@@ -1086,6 +1095,7 @@ describe("render policy / boundary product units", () => {
       // Producer covers half the 1/s demand; boundary covers the residual
       // half. Boundary edge = c.rate * (1 - share) = 1 * 1/2 = 1/2.
       boundaryShare: new Map([["shared", new Fraction(1, 2)]]),
+      draws: new Map(),
     });
     const incoming = plan.edges.filter(
       (e) => e.toUnit === "u:class:r_cons#0" && e.item === "shared",
@@ -1184,6 +1194,7 @@ describe("render policy / boundary product units", () => {
       // raw_in has Infinity supply (no override): consumedSupply collapses to
       // total demand; share is never consulted.
       boundaryShare: new Map(),
+      draws: new Map(),
     });
     const inputs = plan.units.filter(isInputProductUnit);
     const rawInUnit = inputs.find((u) => u.itemId === "raw_in");
@@ -1274,6 +1285,7 @@ describe("render policy / boundary product units", () => {
       // totalDemand * (1 - share) = 1 * 1/2 = 1/2, matching the cap-limited
       // boundary draw.
       boundaryShare: new Map([["built", new Fraction(1, 2)]]),
+      draws: new Map(),
     });
     const inputs = plan.units.filter(isInputProductUnit);
     const built = inputs.find((u) => u.itemId === "built");
@@ -1413,6 +1425,7 @@ describe("render policy / input fan-out per container", () => {
       supply: mkSupply(itemById),
       // water is raw with no override -> Infinity supply; share unused.
       boundaryShare: new Map(),
+      draws: new Map(),
     });
     const inputs = plan.units
       .filter(isInputProductUnit)
@@ -1470,6 +1483,7 @@ describe("render policy / input fan-out per container", () => {
       supply: mkSupply(itemById),
       // water is raw with no override -> Infinity supply; share unused.
       boundaryShare: new Map(),
+      draws: new Map(),
     });
     const inputs = plan.units
       .filter(isInputProductUnit)
@@ -1494,6 +1508,7 @@ describe("render policy / input fan-out per container", () => {
       supply: mkSupply(itemById),
       // water is raw with no override -> Infinity supply; share unused.
       boundaryShare: new Map(),
+      draws: new Map(),
     });
     const inputs = plan.units
       .filter(isInputProductUnit)
@@ -1534,6 +1549,7 @@ describe("render policy / input fan-out per container", () => {
       supply: mkSupply(itemById),
       // water is raw with no override -> Infinity supply; share unused.
       boundaryShare: new Map(),
+      draws: new Map(),
     });
     const inputs = plan.units
       .filter(isInputProductUnit)
@@ -1559,6 +1575,7 @@ describe("render policy / input fan-out per container", () => {
       supply: mkSupply(itemById),
       // water is raw with no override -> Infinity supply; share unused.
       boundaryShare: new Map(),
+      draws: new Map(),
     });
     const inputs = plan.units
       .filter(isInputProductUnit)
@@ -1613,6 +1630,7 @@ describe("render policy / input fan-out per container", () => {
       recipeById,
       supply: mkSupply(itemById),
       boundaryShare: new Map(),
+      draws: new Map(),
     });
     const inputs = plan.units
       .filter(isInputProductUnit)
@@ -1675,6 +1693,7 @@ describe("render policy / input fan-out per container", () => {
       // totalDemand * (1 - share) = 4 * 1/2 = 2, so the aggregate realizes the
       // full cap and the per-container fanouts prorate to 3/2 and 1/2.
       boundaryShare: new Map([["water", new Fraction(1, 2)]]),
+      draws: new Map(),
     });
     const inputs = plan.units
       .filter(isInputProductUnit)

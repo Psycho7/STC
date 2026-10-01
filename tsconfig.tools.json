@@ -15,6 +15,7 @@
     "tools/color",
     "tools/exam",
     "tools/solver-cli",
+    "tools/heavy.test.ts",
     "src/vite-env.d.ts"
   ]
 }

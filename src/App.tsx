@@ -200,6 +200,33 @@ function describeBlocked(
   return joinSentences(i18n.locale, sentences);
 }
 
+// A malformed hash carries the raw decoder or parser text ("incorrect header
+// check"), which tells a reader nothing: it gets a friendly localized reason,
+// and the raw text moves to rawLoadErrorDetail for bug reports. Every other
+// kind passes through unchanged.
+function describeLoadError(error: PlanLoadError, i18n: I18nIndex): string {
+  if (error.kind === "malformed-hash") return i18n.t("app.error.link-broken");
+  return describePlanLoadError(error);
+}
+
+function rawLoadErrorDetail(error: PlanLoadError): string | undefined {
+  if (error.kind !== "malformed-hash") return undefined;
+  return describePlanLoadError(error);
+}
+
+// The raw error text, collapsed under the friendly message so a bug report can
+// still quote it.
+function RawErrorDetails({ text }: { text: string | undefined }) {
+  const i18n = useI18n();
+  if (text === undefined) return null;
+  return (
+    <details>
+      <summary>{i18n.t("app.error.details")}</summary>
+      {text}
+    </details>
+  );
+}
+
 // Localized text for a solver exception. An infeasibility names the implicated
 // items instead of the raw LP message, and advises raising the supply caps
 // only when the plan sets at least one; otherwise it names the targets.
@@ -501,7 +528,7 @@ function AppInner() {
   }
   const unavailable = availability.ids;
   // The items behind that map, each with its cause: the pickers dim exactly
-  // these tiles and their hint names the cause the validation error above also
+  // these tiles and their hint names the cause the blocked-target banner also
   // interpolates. Derived beside `availability` from the same settings, so the
   // tiles, the hint, and the banner can never disagree.
   const unavailableItemCauses = useMemo(
@@ -694,6 +721,9 @@ function AppInner() {
         // Decode and check the plan without the viewer's settings: a target
         // they switch off blocks the solve, not the link.
         const outcome = await loadPlan(hash, pack);
+        // A newer generation may have started its layout during the decode.
+        // Laying out now would terminate that layout's ELK worker.
+        if (myGen !== solveGen.current) return;
         if (outcome.kind === "error") {
           failLoad(outcome.error);
           return;
@@ -1009,7 +1039,10 @@ function AppInner() {
       <div className="ak-app-shell" style={splashStyle}>
         <div role="alert" style={splashCardStyle}>
           <p style={splashTitleStyle}>{i18n.t("app.error.corrupt")}</p>
-          <p style={splashDetailStyle}>{describePlanLoadError(initialError)}</p>
+          <div style={splashDetailStyle}>
+            {describeLoadError(initialError, i18n)}
+            <RawErrorDetails text={rawLoadErrorDetail(initialError)} />
+          </div>
           <button type="button" onClick={handleReset}>
             {i18n.t("app.error.reset")}
           </button>
@@ -1065,7 +1098,7 @@ function AppInner() {
   const bannerText = (err: BannerError): string => {
     if (err.kind === "load")
       return i18n.t("app.error.load", {
-        message: describePlanLoadError(err.error),
+        message: describeLoadError(err.error, i18n),
       });
     if (err.kind === "edit")
       return i18n.t("app.error.edit", {
@@ -1163,9 +1196,16 @@ function AppInner() {
         </div>
         {mutationError ? (
           <div role="alert" className="app-error-banner">
-            <span className="app-error-banner-body">
+            <div className="app-error-banner-body">
               {bannerText(mutationError)}
-            </span>
+              <RawErrorDetails
+                text={
+                  mutationError.kind === "load"
+                    ? rawLoadErrorDetail(mutationError.error)
+                    : undefined
+                }
+              />
+            </div>
             <button
               type="button"
               className="app-error-banner-dismiss"

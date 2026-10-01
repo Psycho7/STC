@@ -180,6 +180,10 @@ export type RenderUnitOutputProduct = {
   // nothing downstream consumes (or doesn't fully consume); its rate is the
   // per-item overproduction.
   flavor: "target" | "surplus";
+  // The rate the plan actually feeds a "target" card, set only when that is
+  // below the declared `rate` (the targetOutputShortfalls predicate the
+  // shortfall strip reads). Absent on a fed target and on every surplus card.
+  delivered?: RationalString;
 };
 
 export type RenderUnit =
@@ -276,6 +280,10 @@ export type RenderPolicyInput = {
   // sizes each boundary import as totalDemand * (1 - share) and skips emission
   // entirely for finite-capped items with no entry (realized draw 0).
   boundaryShare: ReadonlyMap<ItemId, Fraction>;
+  // The LP's boundary draw per finite-capped item. deriveBoundaryProducts feeds
+  // a capped target's export from what the draw has left after the item's
+  // in-plan consumers.
+  draws: ReadonlyMap<ItemId, Fraction>;
 };
 
 export type RenderPolicy = (input: RenderPolicyInput) => RenderPlan;
