@@ -5,8 +5,8 @@
 //
 // objectiveValue uses a 1e-9 relative tolerance
 // (Math.abs(actual - expected) / Math.max(1, |expected|) < 1e-9), which avoids
-// float-noise flakiness and is tighter than the solver's own 1e-6 simplify
-// threshold.
+// float-noise flakiness and is tighter than the solver's own 1e-7 rational
+// snap window (PLAIN_SNAP_REL in lp.ts).
 //
 // The active set compares Array.from(activeRecipeSet(result)).sort() as a sorted
 // string array (exact equality), so any change in which recipes run trips a
@@ -65,8 +65,8 @@ const {
   freeBoundaryTargetWithMinerGolden,
 } = corpus;
 
-// Relative tolerance for objectiveValue; tighter than the 1e-6
-// Fraction.simplify threshold in lp.ts.
+// Relative tolerance for objectiveValue; tighter than the 1e-7
+// PLAIN_SNAP_REL snap window in lp.ts.
 const OBJ_TOL = 1e-9;
 
 function assertObjective(actual: number, expected: number): void {
