@@ -70,13 +70,6 @@ function expectFullySatisfied(
   expect(r.deficit.size).toBe(0);
 }
 
-// Total reported deficit, in absolute terms across all items.
-function totalDeficit(r: LpResult): number {
-  let t = 0;
-  for (const v of r.deficit.values()) t += Math.abs(v.valueOf());
-  return t;
-}
-
 describe("LP small-rate / override producer-drop regressions", () => {
   // D1 (blocker): low-rate single target dropped its internal producer.
   it("D1: plant_moss_3 at 1/1000 keeps its producer chain balanced", () => {
@@ -90,9 +83,7 @@ describe("LP small-rate / override producer-drop regressions", () => {
 
   // D2: small-rate chain truncation (originium / iron / quartz family). The
   // producer chain is restored (was truncated to the lone target, residual
-  // ~1e-2); any remaining shortfall is sub-material snap drift the extraction
-  // cannot close exactly, surfaced honestly as a tiny deficit rather than a
-  // silent broken row. Exact closure is the deferred exact-rational snap work.
+  // ~1e-2) and, read from the exact tableau primals, closes with no deficit.
   it("D2: originium_enr_powder at 1/200 runs the full chain", () => {
     const targets: ItemTarget[] = [
       {
@@ -102,9 +93,8 @@ describe("LP small-rate / override producer-drop regressions", () => {
     ];
     const r = solve(targets);
     expect(r.status).toBe("feasible");
-    expectSoundAndHonest(r, targets);
+    expectFullySatisfied(r, targets);
     expect(r.rates.size).toBeGreaterThan(1); // the chain runs, not just the target
-    expect(totalDeficit(r)).toBeLessThan(1e-5); // material producer-drop is gone
   });
 
   // D3: lex-pass big-M drop deleted a legitimate boundary supplier.
@@ -121,16 +111,14 @@ describe("LP small-rate / override producer-drop regressions", () => {
 
   // D4: extraction dropped the sole producer of an intermediate at a small rate
   // (quartz_glass was entirely unsupplied, residual = full demand ~2.86e-3). The
-  // producer is restored; any remaining shortfall is sub-material snap drift
-  // surfaced honestly. Exact closure is the deferred exact-rational snap work.
+  // producer is restored and the plan closes with no deficit.
   it("D4: glass_bottle at 1/700 produces quartz_glass", () => {
     const targets: ItemTarget[] = [
       { itemId: "glass_bottle", ratePerSec: { num: "1", denom: "700" } },
     ];
     const r = solve(targets);
-    expectSoundAndHonest(r, targets);
+    expectFullySatisfied(r, targets);
     expect(r.rates.has("quartz_glass-quartz_sand")).toBe(true); // producer present
-    expect(totalDeficit(r)).toBeLessThan(1e-5);
   });
 
   // D5: finite cap on an intermediate left an unrepairable byproduct imbalance
