@@ -77,7 +77,7 @@ export const DEFICIT_WEIGHT = 1e9;
 // Big-M cost for target-only and excluded-producer recipes. Named once so the
 // tie-break passes' big-M column exclusion and recipeCostWeight key on the same
 // value.
-const BIG_M_COST = 1e6;
+export const BIG_M_COST = 1e6;
 
 // Default cost weights. The ordering deficit >> recipe >> surplus is the cost
 // contract. Target-only and excluded-producer recipes get a big-M cost so the LP

@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest";
 import solver from "javascript-lp-solver";
 import { CORPUS, type CorpusScenario } from "./corpus";
-import { readTableauPrimals, RATE_ZERO, solveLp, type LpModel } from "./lp";
+import {
+  BIG_M_COST,
+  readTableauPrimals,
+  RATE_ZERO,
+  solveLp,
+  type LpModel,
+} from "./lp";
 
 // The engine's default precision, and the rounding generateSolutionSet applies
 // to every primal before Solve returns it.
@@ -10,7 +16,6 @@ const ROUNDING_COEFF = Math.round(1 / ENGINE_PRECISION);
 const engineRound = (v: number): number =>
   Math.round((Number.EPSILON + v) * ROUNDING_COEFF) / ROUNDING_COEFF;
 
-const BIG_M_COST = 1e6;
 const RESULT_KEYS = new Set(["feasible", "result", "bounded", "isIntegral"]);
 
 // A column's coefficients on the rows every pass shares: the objective and the
