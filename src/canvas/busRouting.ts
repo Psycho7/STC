@@ -185,7 +185,8 @@ export type BusEdgeData = FanoutBusEdgeData | FaninBusEdgeData;
 // passes key rows and stamp defaults off it; every OBSTACLE test reads its
 // sibling drawnPortsOf in nodeGeometry.ts instead, which answers the same four
 // names in the DRAWN frame (model plus PORT_DRIFT), because the card rects are
-// drawn. The two are never merged: the gap between them is up to 5 units,
+// drawn. The two are never merged: the gap between them is PORT_DRIFT, up to
+// 5 units in x (recipe sourceDx) and 1 in y,
 // exactly where the ratcheted occlusion and crossing counts turn, so comparing
 // a model value against drawn geometry is a real error, not a rounding one.
 export function edgePortsModel(
@@ -2085,12 +2086,12 @@ const CLEAR_COLUMN_RADIUS = RECIPE_WIDTH + BETWEEN_LAYERS_SPACING;
 // the column that won.
 // Another edge's drawn verticals (drawnColumnBands) as a column search sees
 // them. They are built in the DRAWN frame, so they are tested over the run's
-// DRAWN y-span and at the column as the drawer will place it (`xOf`).
+// DRAWN y-span. The candidate column itself is tested as is: a stamped column
+// is drawn at the x it was stamped with.
 type DrawnColumnBands = {
   bands: ReadonlyArray<ObstacleRect>;
   yLo: number;
   yHi: number;
-  xOf: (x: number) => number;
 };
 
 export function clearColumnX(
@@ -2139,8 +2140,7 @@ export function clearColumnX(
     spanned.some((o) => x > o.left - gapOf(o) && x < o.right + gapOf(o)) ||
     (drawn !== undefined &&
       drawnSpanned.some(
-        (o) =>
-          drawn.xOf(x) > o.left - gapOf(o) && drawn.xOf(x) < o.right + gapOf(o),
+        (o) => x > o.left - gapOf(o) && x < o.right + gapOf(o),
       ));
   if (!blocked(desiredX) && accept(desiredX)) return desiredX;
 
@@ -2348,8 +2348,8 @@ function clearColumnKeepingLeg(args: {
       (o) =>
         o.bottom > Math.min(drawnColumns.yLo, drawnColumns.yHi) &&
         o.top < Math.max(drawnColumns.yLo, drawnColumns.yHi) &&
-        drawnColumns.xOf(x) > o.left - (o.container ? cGap : gap) &&
-        drawnColumns.xOf(x) < o.right + (o.container ? cGap : gap),
+        x > o.left - (o.container ? cGap : gap) &&
+        x < o.right + (o.container ? cGap : gap),
     );
 
   // One resolve-then-verify step, shared by every tier below. clearColumnX hands
@@ -2765,7 +2765,6 @@ export function clampBackwardRails(
             bands: foreignColumnBands,
             yLo: sy,
             yHi: drawnRailY(railY),
-            xOf: (x) => x,
           },
           containerGap: CONTAINER_COLUMN_GAP,
           columnAccept: zoneAccept(sourceGap),
@@ -2799,7 +2798,6 @@ export function clampBackwardRails(
             bands: foreignColumnBands,
             yLo: drawnRailY(railY),
             yHi: ty,
-            xOf: (x) => x,
           },
           containerGap: CONTAINER_COLUMN_GAP,
           columnAccept: zoneAccept(targetGap),
