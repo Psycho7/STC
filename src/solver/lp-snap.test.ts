@@ -1,8 +1,14 @@
 import { describe, expect, it } from "vitest";
 import Fraction from "fraction.js";
-import solver from "javascript-lp-solver";
 import { CORPUS } from "./corpus";
-import { plainSnap, solveLp, type LpInput, type LpModel } from "./lp";
+import {
+  extractionTuning,
+  plainSnap,
+  readTableauPrimals,
+  solveLp,
+  type LpInput,
+  type LpModel,
+} from "./lp";
 import { pack } from "../data/load";
 
 // plainSnap reads a float primal as the exact binary rational it is and returns
@@ -12,17 +18,15 @@ const SNAP_WINDOW = 1e-7;
 const windowOf = (v: number): number =>
   Math.min(SNAP_WINDOW, Math.abs(v) * SNAP_WINDOW);
 
-// Every primal the engine returns across each pass of a solve: the values the
-// extraction snaps (rates, draws, deficits), plus the rest of the raw result.
+// Every positive unrounded tableau primal across each pass of a solve: the
+// values the extraction snaps (rates, draws, deficits), plus the rest.
 function primalsOf(input: LpInput): number[] {
   const models: LpModel[] = [];
   solveLp({ ...input, onModel: (_mode, model) => models.push(model) });
   const values: number[] = [];
   for (const model of models) {
-    const raw = solver.Solve(model) as Record<string, unknown>;
-    for (const [key, value] of Object.entries(raw)) {
-      if (key === "feasible" || key === "bounded" || key === "result") continue;
-      if (typeof value === "number" && value > 0) values.push(value);
+    for (const value of readTableauPrimals(model).primals.values()) {
+      if (value > 0) values.push(value);
     }
   }
   return values;
@@ -39,6 +43,10 @@ function expectWithinWindow(values: number[]): void {
 }
 
 describe("plainSnap", () => {
+  it("snaps on the window this suite checks", () => {
+    expect(extractionTuning.plainSnapRel).toBe(SNAP_WINDOW);
+  });
+
   it("round-trips p/q exactly on a denominator grid", () => {
     // q stays below sqrt(1e7), see the bound on the next case.
     const denominators = [
