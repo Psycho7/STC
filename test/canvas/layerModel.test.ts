@@ -23,6 +23,7 @@ import {
   gapSpansOf,
   layerIndexIn,
   layerSpanOf,
+  measureGapRecords,
   widenLayerGaps,
 } from "../../src/canvas/layerModel";
 import { chipNaturalWidth } from "../../src/canvas/chipMetrics";
@@ -264,6 +265,82 @@ describe("gap widening on three layers", () => {
       const output = widened.nodes.find((n) => n.id === row.id)!;
       expect(output).not.toBe(input);
       expect(output.position).not.toBe(input.position);
+    }
+  });
+});
+
+// A drop moves a card after the widening ran, so the records are measured
+// again on the live placement: nothing moves, and a gap the drop squeezed below
+// its requirement gives up its chip rooms before its columns.
+describe("measure-only gap records", () => {
+  const widenedFixture = () => {
+    const { nodes, edges } = threeLayerFixture();
+    return { ...widenLayerGaps(nodes, edges), edges };
+  };
+  // Layer 1's left edge follows d once d moves left of c1 and c2.
+  const withDMovedBy = (nodes: RFAnyNode[], dx: number): RFAnyNode[] =>
+    nodes.map((n) =>
+      n.id === "d"
+        ? { ...n, position: { x: n.position.x + dx, y: n.position.y } }
+        : n,
+    );
+  const COLUMNS = FORWARD_STEP_BUDGET + 2 * COLUMN_PITCH;
+
+  it("returns widenLayerGaps' own records on its output and moves nothing", () => {
+    const { nodes, gaps, edges } = widenedFixture();
+    const positions = nodes.map((n) => n.position);
+
+    expect(measureGapRecords(nodes, edges)).toEqual(gaps);
+    nodes.forEach((n, i) => expect(n.position).toBe(positions[i]));
+  });
+
+  it("keeps the column zone whole and shrinks both chip zones in a squeezed gap", () => {
+    const { nodes, edges } = widenedFixture();
+    // The widened gap holds exactly its requirement, 397; a 150 drag leaves
+    // 247, more than the 128 the columns owe.
+    const [gap] = measureGapRecords(withDMovedBy(nodes, -150), edges);
+    const span = gap!.right - gap!.left;
+    expect(span).toBe(247);
+
+    const width = (z: { left: number; right: number }) => z.right - z.left;
+    expect(width(gap!.columnZone)).toBeCloseTo(COLUMNS, 9);
+    // What is left goes to the two chip rooms in proportion to what they owe
+    // (both owe TRUNK_CHIP here, so half each).
+    expect(width(gap!.sourceZone)).toBeCloseTo((span - COLUMNS) / 2, 9);
+    expect(width(gap!.targetZone)).toBeCloseTo((span - COLUMNS) / 2, 9);
+    expect(gap!.sourceZone.left).toBe(gap!.left);
+    expect(gap!.sourceZone.right).toBe(gap!.columnZone.left);
+    expect(gap!.columnZone.right).toBe(gap!.targetZone.left);
+    expect(gap!.targetZone.right).toBe(gap!.right);
+  });
+
+  it("gives the whole span to the columns when they alone exceed it", () => {
+    const { nodes, edges } = widenedFixture();
+    // d leaves layer 1 for a layer of its own 40 right of layer 0, so gap 0
+    // is 40 wide and still owes both trunk columns.
+    const moved = withDMovedBy(
+      nodes,
+      280 - nodes.find((n) => n.id === "d")!.position.x,
+    );
+    const [gap] = measureGapRecords(moved, edges);
+    expect(gap!.right - gap!.left).toBe(40);
+    expect(gap!.columns).toBe(2);
+
+    expect(gap!.columnZone).toEqual({ left: gap!.left, right: gap!.right });
+    expect(gap!.sourceZone).toEqual({ left: gap!.left, right: gap!.left });
+    expect(gap!.targetZone).toEqual({ left: gap!.right, right: gap!.right });
+  });
+
+  it("never inverts a zone, however far the gap is squeezed", () => {
+    const { nodes, edges } = widenedFixture();
+    for (const dx of [-60, -150, -230, -300, -350]) {
+      for (const gap of measureGapRecords(withDMovedBy(nodes, dx), edges)) {
+        for (const zone of [gap.sourceZone, gap.columnZone, gap.targetZone]) {
+          expect(zone.left, `dx ${dx} gap ${gap.index}`).toBeLessThanOrEqual(
+            zone.right,
+          );
+        }
+      }
     }
   });
 });

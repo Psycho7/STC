@@ -32,6 +32,7 @@ import {
   forwardDropX,
   forwardStepGeometry,
   routingHintsFromData,
+  trunkChipsSeat,
   type DrawnPorts,
   type ObstacleRect,
 } from "./edgePath";
@@ -62,7 +63,7 @@ import {
   type LayerModel,
   type Trunk,
 } from "./layerModel";
-import { CHIP_HALF_H } from "./chipMetrics";
+import { CHIP_HALF_H, chipHalfWidthsOf, memberHalfWOf } from "./chipMetrics";
 // Horizontal level occupancy: the run bands the jog and rail passes owe
 // clearance to, the floor predicate over them, the port-row waiver and the
 // levels a relocated run may take.
@@ -540,10 +541,36 @@ export function routeTrunkEdges(
       !legBlockedIn(foreign, ty, jx + CHAMFER, tx)
     );
   };
+  // The same demotion covers a run too short for a chip it carries: the
+  // trunk's shared stub (fan-out) or leg (fan-in) has to hold a port stub, the
+  // aggregate box and the dot keep-off, and so does a shared-y member's own
+  // run for its own chip, or the box slides over the port it labels. The gap
+  // reserve guarantees those lengths at rest; only a drop that squeezes a gap
+  // below its requirement takes them away. A trunk on the corridor-midpoint
+  // fallback has no reserve to measure against and is not asked. A member that
+  // is also a near fan-in member seats its own chip at the fan-in hand-over
+  // instead, so only the aggregate is asked of it on the fan-out side.
+  const chipsSeat = (edge: Edge, side: Side): boolean => {
+    const { trunk } = side.geom;
+    if (order.laneColumn(order.trunkId(trunk.key)) === undefined) return true;
+    const ends = drawnPortsOf(edge, byId);
+    if (ends === null) return true;
+    const dual =
+      trunk.kind === "fanOut" && fanInByEdgeId.get(edge.id)?.reach === "near";
+    return trunkChipsSeat(
+      trunk.kind,
+      ends,
+      side.junctionX,
+      chipHalfWidthsOf({ busTotalRate: trunk.total }).aggHalfW,
+      dual ? undefined : memberHalfWOf(edge.data),
+    );
+  };
+  const drawableAsTrunk = (edge: Edge, side: Side): boolean =>
+    trunkRunsClear(edge, side.junctionX) && chipsSeat(edge, side);
   for (const [id, side] of fanOutByEdgeId) {
     const edge = edgeById.get(id);
     if (side.reach !== "near" || edge === undefined) continue;
-    if (trunkRunsClear(edge, side.junctionX)) continue;
+    if (drawableAsTrunk(edge, side)) continue;
     fanOutByEdgeId.set(id, { ...side, reach: "far" });
   }
   for (const [id, side] of fanInByEdgeId) {
@@ -552,7 +579,7 @@ export function routeTrunkEdges(
     // A dual member is drawn as its fan-out branch and only hands its flow to
     // the merge column, so its runs were already tested on the fan-out side.
     if (fanOutByEdgeId.get(id)?.reach === "near") continue;
-    if (trunkRunsClear(edge, side.junctionX)) continue;
+    if (drawableAsTrunk(edge, side)) continue;
     fanInByEdgeId.set(id, { ...side, reach: "far" });
   }
 

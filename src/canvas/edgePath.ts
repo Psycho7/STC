@@ -594,10 +594,12 @@ function rectsOverlap(
   );
 }
 
-// Tolerance for the card-clear box tests. The anchors and the card rects are
-// sums of the same fractional layout coordinates, so a seat computed to stand
-// exactly flush against a card edge must not read back as intersecting it.
-const BOX_EPS = 1e-6;
+// Tolerance for the card-clear box tests and the chip and gap fit tests. The
+// anchors, the card rects and the gap spans are sums of the same fractional
+// layout coordinates, so a seat computed to stand exactly flush against a card
+// edge must not read back as intersecting it, nor a run or gap that exactly
+// fits as a hair short.
+export const BOX_EPS = 1e-6;
 
 // Clearance a seated chip box keeps from every card: a box flush against a
 // foreign card's border reads as that card's own label at reading zoom, so the
@@ -987,17 +989,45 @@ function reserveSeatX(
   runLo: number,
   runHi: number,
 ): number {
-  // The port is one END of the run, so which way the chip steps inward off it
-  // is decided by which end it is.
-  const away = portX <= Math.min(runLo, runHi) ? 1 : -1;
+  const away = awayFromPort(portX, runLo, runHi);
   const fromPort = portX + away * (PORT_STUB + halfW);
   const seat =
-    inwardX === null
+    inwardX === null || seatsOffPort(portX, inwardX, halfW, runLo, runHi)
       ? fromPort
-      : away > 0
-        ? Math.min(fromPort, inwardX - (DOT_KEEPOFF + halfW))
-        : Math.max(fromPort, inwardX + DOT_KEEPOFF + halfW);
+      : dotSeatX(inwardX, halfW, away);
   return clamp(seat, Math.min(runLo, runHi), Math.max(runLo, runHi));
+}
+
+// The port is one END of the run, so which way a chip steps inward off it is
+// decided by which end it is.
+function awayFromPort(portX: number, runLo: number, runHi: number): 1 | -1 {
+  return portX <= Math.min(runLo, runHi) ? 1 : -1;
+}
+
+// Does a trunk chip take reserveSeatX's port-stub seat on its run, i.e. does
+// the run hold the stub, the box and the dot keep-off end to end? Where it
+// does not, reserveSeatX lets the dot win and the box slides toward the port,
+// so routeTrunkEdges asks this before it draws a member as part of its trunk.
+export function seatsOffPort(
+  portX: number,
+  inwardX: number,
+  halfW: number,
+  runLo: number,
+  runHi: number,
+): boolean {
+  const away = awayFromPort(portX, runLo, runHi);
+  const fromPort = portX + away * (PORT_STUB + halfW);
+  const dotSeat = dotSeatX(inwardX, halfW, away);
+  return away > 0
+    ? fromPort <= dotSeat + BOX_EPS
+    : fromPort >= dotSeat - BOX_EPS;
+}
+
+// The seat whose box clears the junction dot at inwardX by DOT_KEEPOFF.
+function dotSeatX(inwardX: number, halfW: number, away: 1 | -1): number {
+  return away > 0
+    ? inwardX - (DOT_KEEPOFF + halfW)
+    : inwardX + DOT_KEEPOFF + halfW;
 }
 
 // Chip anchor of a DUAL member -- a fan-out member whose target port also
@@ -1037,6 +1067,52 @@ export function fanJunctionX(
   return lo < hi ? clamp(junctionX ?? mid, lo, hi) : mid;
 }
 
+// The junction dot of a trunk drawn on column jx: the fan-out's split one
+// chamfer before the column on the source row, the fan-in's merge one chamfer
+// past it on the target row. The aggregate chip rides the run between that dot
+// and the unit's port.
+function fanoutSplitX(jx: number): number {
+  return r(jx - CHAMFER);
+}
+
+function faninMergeX(jx: number): number {
+  return r(jx + CHAMFER);
+}
+
+// Do a NEAR trunk member's chips take their port-stub seats on the runs the
+// trunk shape gives them? The aggregate rides chamferFanoutPath's shared source
+// stub or chamferFaninPath's shared leg into the target port, clear of the
+// trunk's dot at the run's column end. The member's own chip reaches that dot
+// only on a shared-y member, whose one straight run passes through it; pass no
+// memberHalfW where the member's own chip seats elsewhere. routeTrunkEdges draws
+// a member as part of its trunk only where both seat, so no box slides over
+// the port it labels.
+export function trunkChipsSeat(
+  kind: "fanOut" | "fanIn",
+  ends: DrawnPorts,
+  junctionX: number | undefined,
+  aggHalfW: number,
+  memberHalfW: number | undefined,
+): boolean {
+  const { sourceX: sx, sourceY: sy, targetX: tx, targetY: ty } = ends;
+  const jx = fanJunctionX(sx, tx, junctionX);
+  const ownChipOnDotRow = memberHalfW !== undefined && sy === ty;
+  if (kind === "fanOut") {
+    const split = fanoutSplitX(jx);
+    return (
+      seatsOffPort(sx, split, aggHalfW, sx, split) &&
+      (!ownChipOnDotRow ||
+        seatsOffPort(tx, split, memberHalfW, Math.min(jx + CHAMFER, tx), tx))
+    );
+  }
+  const merge = faninMergeX(jx);
+  return (
+    seatsOffPort(tx, merge, aggHalfW, Math.min(merge, tx), tx) &&
+    (!ownChipOnDotRow ||
+      seatsOffPort(sx, merge, memberHalfW, sx, Math.max(jx - CHAMFER, sx)))
+  );
+}
+
 // chamferFanoutPath: one member of a fan-out trunk (routeTrunkEdges). N members
 // share a source PORT (same item, same source unit) and fan out to N targets one
 // layer over. Every member is drawn with the SAME junction column, so their
@@ -1074,7 +1150,7 @@ export function chamferFanoutPath(
   // point every member still shares is one chamfer before the column, on the
   // trunk horizontal -- for a branching member, a small-dy diagonal, AND a
   // shared-y straight trunk alike, so all members of one trunk agree on it.
-  const junction = { x: r(jx - CHAMFER), y: r(sy) };
+  const junction = { x: fanoutSplitX(jx), y: r(sy) };
   // Aggregate chip rides the shared trunk horizontal, seated a port stub out of
   // the source port and clear of the split dot at the run's far end.
   const aggHalfW = args.aggHalfW ?? CHIP_HALF_W_WIDE;
@@ -1175,7 +1251,7 @@ export function chamferFaninPath(
   // coincide: the outgoing chamfer's end on the target row, which every
   // branching, small-dy and shared-y member alike emits (or, for a straight
   // member, lies on).
-  const junction = { x: r(jx + CHAMFER), y: r(ty) };
+  const junction = { x: faninMergeX(jx), y: r(ty) };
   // Aggregate chip rides the shared leg from the merge dot into the target
   // port, seated a port stub back from that port -- the fan-out trunk seat read
   // from the other end. Member chip rides this member's own stub, from its
@@ -1420,18 +1496,16 @@ export function drawnEdge(
         hints.bendX === undefined
           ? stub.hi
           : Math.min(stub.hi, hints.bendX - CHAMFER);
-      trunkAnchor = {
-        x: r(
-          reserveSeatX(
-            ports.sourceX,
-            inward,
-            chipHalfWidthsOf(d).aggHalfW,
-            stub.lo,
-            stub.hi,
-          ),
-        ),
-        y: r(stub.y),
-      };
+      const aggHalfW = chipHalfWidthsOf(d).aggHalfW;
+      // A stub too short for the port stub, the box and the dot keep-off draws
+      // no total, as a near member on such a run demotes: the box would
+      // otherwise slide over the source port it labels.
+      if (seatsOffPort(ports.sourceX, inward, aggHalfW, stub.lo, stub.hi)) {
+        trunkAnchor = {
+          x: r(reserveSeatX(ports.sourceX, inward, aggHalfW, stub.lo, stub.hi)),
+          y: r(stub.y),
+        };
+      }
     }
   }
   return {
