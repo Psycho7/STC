@@ -1,9 +1,19 @@
 import { describe, expect, it } from "vitest";
 import Fraction from "fraction.js";
+import {
+  latestArea,
+  unavailableCauses,
+  unavailableRecipeIds,
+} from "../../src/data/availability";
 import { pack } from "../../src/data/load";
 import { loadPlan, type ItemOverride } from "../../src/data/plan";
 import type { ItemTarget } from "../../src/data/targets";
-import { solveLp, type LpResult } from "../../src/solver/lp";
+import {
+  readTableauPrimals,
+  solveLp,
+  type LpModel,
+  type LpResult,
+} from "../../src/solver/lp";
 import { netSelfConsumption } from "../../src/solver/net-self";
 import { SCENARIOS } from "../e2e/scenarios";
 
@@ -17,6 +27,9 @@ import { SCENARIOS } from "../e2e/scenarios";
 //    denominators no longer closed.
 
 const netted = netSelfConsumption(pack);
+
+// solveLp's tie-break cost check (COST_REL_TOL), relative to pass 1's cost.
+const COST_TOL_REL = 1e-6;
 
 function targetsOf(id: string): ItemTarget[] {
   const scenario = SCENARIOS.find((s) => s.id === id);
@@ -92,5 +105,55 @@ describe("exact dyadic snap: no phantom deficit", () => {
     const r = solveLp({ targets, pack: netted });
     expect(deficitIds(r)).toEqual([]);
     expect(r.softFeasible).toBe(true);
+  });
+});
+
+// Pass 1's primary objective of a pass's tableau primals, negatives clamped to
+// 0 the way solveLp's pass read clamps them. Infinity when the engine reports
+// the pass infeasible.
+function primaryCost(primary: LpModel, model: LpModel): number {
+  const read = readTableauPrimals(structuredClone(model));
+  if (!read.feasible) return Infinity;
+  let cost = 0;
+  for (const [name, value] of read.primals) {
+    cost += (primary.variables[name]?.objective ?? 0) * Math.max(0, value);
+  }
+  return cost;
+}
+
+describe("tie-break passes: no pass-1 fallback", () => {
+  // Without pass 1's idle big-M columns, the engine's boundary and lex vertices
+  // for these plans leave a deficit at about -1e-9 that buys one cost unit
+  // (crystal_enr_powder rerouted from cost 4 to cost 5). Clamped to 0 it costs
+  // pass 1's optimum + 1, so both tie-breaks failed the cost check and the
+  // result fell back to pass 1. solveLp keeps the last lex pass, else the last
+  // boundary pass, when it holds pass 1's cost; one of them must.
+  it.each(["crystal", "equip4"])("%s keeps a tie-break pass", (id) => {
+    const models: [string, LpModel][] = [];
+    solveLp({
+      targets: targetsOf(id),
+      pack: netted,
+      unavailableRecipeIds: unavailableRecipeIds(
+        unavailableCauses(pack, { eventOverrides: {}, area: latestArea(pack) }),
+      ),
+      onModel: (mode, model) => models.push([mode, structuredClone(model)]),
+    });
+    const [firstMode, primary] = models[0]!;
+    expect(firstMode).toBe("primary");
+
+    const optimum = primaryCost(primary, primary);
+    const passes = (["boundary", "lex"] as const).map((mode) => {
+      const last = models.filter(([m]) => m === mode).at(-1)?.[1];
+      const delta =
+        last === undefined
+          ? Infinity
+          : Math.abs(primaryCost(primary, last) - optimum);
+      return { mode, delta };
+    });
+    const tol = COST_TOL_REL * Math.max(1, optimum);
+    expect(
+      passes.some((p) => p.delta <= tol),
+      `tol ${tol}: ${JSON.stringify(passes)}`,
+    ).toBe(true);
   });
 });

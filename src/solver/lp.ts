@@ -635,12 +635,30 @@ export function solveLp(input: LpInput): LpResult {
     // takes because it lowers the boundary draw, and at exact primals that is
     // a ~1.5e-6 row break once the transfer is dropped. Leaving the columns out
     // only shrinks the feasible region, and pass 1's point stays feasible in it.
+    // The smaller model can land on a vertex that fails costValid where the full
+    // one does not (crystal x1: a -1e-9 deficit buys one cost unit), so a pass
+    // that fails on the frozen model is solved once more with every column.
     const frozenZero = new Set<RecipeId>();
     for (const r of recipes) {
       if (costById.get(r.id)! < BIG_M_COST) continue;
       if ((pass1[`x_${r.id}`] ?? 0) > RATE_ZERO) continue;
       frozenZero.add(r.id);
     }
+    const solveTieBreak = (
+      mode: "boundary" | "lex",
+      boundaryCap: number | undefined,
+      valid: (raw: LpRaw) => boolean,
+    ): LpRaw => {
+      const frozen = solvePass(
+        buildModel(mode, costCap, boundaryCap, frozenZero),
+      );
+      if (valid(frozen) || frozenZero.size === 0) return frozen;
+      // The retry's frozen columns are dropped before the caller validates it,
+      // so a pass that needed one of them fails balanceHolds instead of leaking.
+      const full = solvePass(buildModel(mode, costCap, boundaryCap));
+      for (const id of frozenZero) delete full[`x_${id}`];
+      return full;
+    };
 
     // A pack whose surviving recipes pull nothing from the boundary has no
     // boundary pass and no boundary_cap row, so it builds the same lex model it
@@ -648,9 +666,7 @@ export function solveLp(input: LpInput): LpResult {
     let boundaryPass: LpRaw | undefined;
     let boundaryBest: number | undefined;
     if (hasBoundaryConsumption) {
-      const pass = solvePass(
-        buildModel("boundary", costCap, undefined, frozenZero),
-      );
+      const pass = solveTieBreak("boundary", undefined, costValid);
       if (costValid(pass)) {
         boundaryPass = pass;
         boundaryBest = boundaryObjective(pass, recipes, boundaryCoefById);
@@ -671,15 +687,14 @@ export function solveLp(input: LpInput): LpResult {
         ? boundaryBest
         : undefined;
 
-    const lexPass = solvePass(
-      buildModel("lex", costCap, boundaryCap, frozenZero),
-    );
-    let lexValid = costValid(lexPass);
-    if (lexValid && boundaryBest !== undefined) {
-      const lexBoundary = boundaryObjective(lexPass, recipes, boundaryCoefById);
-      lexValid =
-        Math.abs(lexBoundary - boundaryBest) <= boundaryTol(boundaryBest);
-    }
+    const lexHolds = (raw: LpRaw): boolean => {
+      if (!costValid(raw)) return false;
+      if (boundaryBest === undefined) return true;
+      const lexBoundary = boundaryObjective(raw, recipes, boundaryCoefById);
+      return Math.abs(lexBoundary - boundaryBest) <= boundaryTol(boundaryBest);
+    };
+    const lexPass = solveTieBreak("lex", boundaryCap, lexHolds);
+    const lexValid = lexHolds(lexPass);
 
     lpResult = lexValid ? lexPass : (boundaryPass ?? pass1);
     // Report pass-1's objective; the later passes' "result" is a tie-break.
