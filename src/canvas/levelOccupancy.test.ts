@@ -27,8 +27,10 @@ import {
   containerNode,
   inputProductNode,
   mkEdge,
+  mkRecipe,
   orderedRecipeNode,
   productNode,
+  recipeNode,
 } from "./levelOccupancy.testkit";
 
 // A band at `y` spanning [left, right], for the queries that take bands as
@@ -108,6 +110,22 @@ describe("container frame lines", () => {
     expect(containerFrameLines(nodes)).toEqual([
       { nodeId: "g", y: 50, left: 100, right: 500 },
       { nodeId: "g", y: 350, left: 100, right: 500 },
+    ]);
+  });
+
+  it("keeps a loop slab's frame on its model box, whatever its recipe members draw", () => {
+    // A recipe member's drawn box grows 2 right and down; the slab does not.
+    const loop: RFAnyNode = {
+      ...containerNode("loop", 300, 200, 600, 400),
+      data: { containerKind: "loop-box", containerId: "loop", memberCount: 1 },
+    };
+    const member: RFAnyNode = {
+      ...recipeNode("r", 40, 60, mkRecipe("r", ["a"], ["b"])),
+      parentId: "loop",
+    };
+    expect(containerFrameLines([loop, member])).toEqual([
+      { nodeId: "loop", y: 200, left: 300, right: 900 },
+      { nodeId: "loop", y: 600, left: 300, right: 900 },
     ]);
   });
 
@@ -192,8 +210,6 @@ describe("candidate levels", () => {
     expect(
       levelCandidates({
         anchorY: 250,
-        x0: 0,
-        x1: 500,
         drawnX0: 0,
         drawnX1: 500,
         bands: [],
@@ -214,8 +230,6 @@ describe("candidate levels", () => {
     expect(
       levelCandidates({
         anchorY: 1010,
-        x0: 0,
-        x1: 500,
         drawnX0: 0,
         drawnX1: 500,
         bands: [],
@@ -237,8 +251,6 @@ describe("candidate levels", () => {
     expect(
       levelCandidates({
         anchorY: 1010,
-        x0: 0,
-        x1: 500,
         drawnX0: 0,
         drawnX1: 500,
         bands: [],
@@ -255,8 +267,6 @@ describe("candidate levels", () => {
     expect(
       levelCandidates({
         anchorY: 100,
-        x0: 0,
-        x1: 500,
         drawnX0: 0,
         drawnX1: 500,
         bands: [band],
@@ -276,8 +286,6 @@ describe("candidate levels", () => {
     const far = { left: 0, right: 500, top: 1000, bottom: 1100 };
     const levels = levelCandidates({
       anchorY: 250,
-      x0: 0,
-      x1: 500,
       drawnX0: 0,
       drawnX1: 500,
       bands: [],
@@ -294,8 +302,6 @@ describe("candidate levels", () => {
     const symmetric = { left: 0, right: 500, top: 208, bottom: 292 };
     const args = {
       anchorY: 250,
-      x0: 0,
-      x1: 500,
       drawnX0: 0,
       drawnX1: 500,
       bands: [],
@@ -315,8 +321,6 @@ describe("candidate levels", () => {
     expect(
       levelCandidates({
         anchorY: 250,
-        x0: 0,
-        x1: 500,
         drawnX0: 0,
         drawnX1: 500,
         bands: [],
@@ -327,22 +331,30 @@ describe("candidate levels", () => {
     ).toEqual([192, 308]);
   });
 
-  it("spans the drawn bands with the drawn span and the model rects with the model one", () => {
-    // A run whose drawn span sits 5 right of its model span: a band only the
-    // drawn span reaches offers its levels, a card only the model span reaches
-    // offers its escapes, and neither is filtered by the other frame's span.
-    const bandOnlyDrawn = bandAt(100, 502, 700);
-    const cardOnlyModel = { left: 496, right: 498, top: 200, bottom: 300 };
+  it("filters the bands, the cards and the frame lines by the one drawn span", () => {
+    // A recipe source card at model x 0..240 draws 0..242, and its port draws
+    // at 245. The run's drawn span starts at that port, so the card it leaves
+    // offers nothing; a card and a band inside the span offer their levels. A
+    // frame line ending at 244 lies wholly short of the span and offers
+    // nothing; one the span reaches offers its gap levels.
+    const sourceCard = { left: 0, right: 242, top: 400, bottom: 500 };
+    const spanned = { left: 600, right: 700, top: 200, bottom: 300 };
+    const shortFrame: FrameLine = { nodeId: "a", y: 40, left: 0, right: 244 };
+    const reachedFrame: FrameLine = {
+      nodeId: "b",
+      y: 1000,
+      left: 700,
+      right: 900,
+    };
     expect(
       levelCandidates({
         anchorY: 100,
-        x0: 0,
-        x1: 500,
-        drawnX0: 5,
-        drawnX1: 505,
-        bands: [bandOnlyDrawn],
-        ...NO_FRAMES,
-        cards: [cardOnlyModel],
+        drawnX0: 245,
+        drawnX1: 800,
+        bands: [bandAt(100, 600, 800)],
+        frames: [shortFrame, reachedFrame],
+        frameGap: 32,
+        cards: [sourceCard, spanned],
         pad: 8,
       }),
     ).toEqual([
@@ -352,6 +364,8 @@ describe("candidate levels", () => {
       100 + FORWARD_LEVEL_FLOOR + 8,
       192,
       308,
+      968,
+      1032,
     ]);
   });
 
@@ -360,8 +374,6 @@ describe("candidate levels", () => {
     expect(
       levelCandidates({
         anchorY: 250,
-        x0: 0,
-        x1: 500,
         drawnX0: 0,
         drawnX1: 500,
         bands: [bandAt(100, 900, 1200)],

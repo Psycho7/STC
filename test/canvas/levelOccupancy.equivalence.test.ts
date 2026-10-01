@@ -35,7 +35,7 @@
 // u:in:gas_inert:target, so e:20's source id becomes u:in:gas_inert; the edge
 // ids e:0..e:25 are unchanged. gas-web carries no F, D, J, K, A, H or B entries
 // because its rewritten fixture already holds their moves; its G, P and N
-// entries are measured against the rewritten fixture.
+// entries, and any R entry, are measured against the rewritten fixture.
 
 import { describe, it, expect } from "vitest";
 import { readFileSync, writeFileSync } from "node:fs";
@@ -249,6 +249,14 @@ function flatten(snapshot: Snapshot): Map<string, unknown> {
 //      e:78, e:79, e:81, e:83, e:84, e:85, e:86, e:87, e:88, e:89, e:90.
 //      Some of these already sit under an earlier family. On the gap-order
 //      base no gas-web card or edge moves under S.
+//   R  the router pads the DRAWN card rect (nodeRectOf grows a recipe card by
+//      its border on the right and the bottom), so a run under a card keeps
+//      its pad off the drawn bottom: battery5-xiranite e:30, copper-script43
+//      e:0 and script43 e:28 step 2 down; the loop returns multi6 e:51 and
+//      rot-bottled_food_3 e:2 drop their rail 2. On script43 and
+//      script43-xiranite e:1 leaves y 241 for 221, the level e:0 held; e:0
+//      (already listed) escapes past the plan's edge, and script43 e:2
+//      re-levels 23.5 lower: script43 e:1, e:2, e:28; script43-xiranite e:1.
 // An edge key is the short `e:NN` head of the routed edge id.
 const MOVED: Readonly<Record<string, ReadonlyArray<string>>> = {
   battery5: [
@@ -285,10 +293,12 @@ const MOVED: Readonly<Record<string, ReadonlyArray<string>>> = {
     "e:27",
     "e:28",
     "e:29",
+    "e:30",
     "e:33",
     "e:35",
   ],
   "copper-script43": [
+    "e:0",
     "e:1",
     "e:2",
     "e:6",
@@ -366,6 +376,7 @@ const MOVED: Readonly<Record<string, ReadonlyArray<string>>> = {
     "e:48",
     "e:49",
     "e:50",
+    "e:51",
     "e:52",
     "e:53",
     "e:54",
@@ -395,10 +406,12 @@ const MOVED: Readonly<Record<string, ReadonlyArray<string>>> = {
     "e:90",
     "e:91",
   ],
-  "rot-bottled_food_3": ["e:5", "e:15"],
+  "rot-bottled_food_3": ["e:2", "e:5", "e:15"],
   "rot-bottled_food_4": ["e:5", "e:6", "e:9", "e:11", "e:14"],
   script43: [
     "e:0",
+    "e:1",
+    "e:2",
     "e:6",
     "e:7",
     "e:8",
@@ -411,10 +424,12 @@ const MOVED: Readonly<Record<string, ReadonlyArray<string>>> = {
     "e:20",
     "e:22",
     "e:27",
+    "e:28",
     "e:29",
   ],
   "script43-xiranite": [
     "e:0",
+    "e:1",
     "e:2",
     "e:6",
     "e:7",
@@ -529,6 +544,12 @@ const CHIP_SEATS_MOVED: Readonly<Record<string, ReadonlyArray<string>>> = {
     "e:11:u:class:q:4->u:class:q:0:copper_nugget",
   ],
   "copper-script43": ["e:26:u:class:q:9->u:class:q:32:gas_xiranite_enr"],
+  // Family R (see MOVED): script43-xiranite e:1 leaves its level, and these
+  // two chips slide off the vertical that now crosses them.
+  "script43-xiranite": [
+    "e:24:u:in:copper_ore->u:class:q:11:copper_ore",
+    "e:31:u:in:liquid_water->u:class:q:11:liquid_water",
+  ],
   "rot-bottled_rec_hp_1": ["e:4:u:class:q:4->u:class:q:5:plant_moss_1"],
   "rot-proc_bomb_1": ["e:4:u:class:q:4->u:class:q:5:plant_bbflower_1"],
 };

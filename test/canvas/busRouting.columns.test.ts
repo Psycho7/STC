@@ -12,6 +12,7 @@ import {
   clampBackwardRails,
   clearColumnX,
   edgePortsModel,
+  forwardLegsBlocked,
   jogForwardLegs,
   entryGutterRects,
   paddedObstacles,
@@ -20,6 +21,7 @@ import {
   ENTRY_SLOT_PITCH,
   CONTAINER_COLUMN_GAP,
   CONTAINER_RAIL_GAP,
+  OBSTACLE_PAD_LEFT,
   OBSTACLE_PAD_Y,
 } from "../../src/canvas/busRouting";
 import {
@@ -30,7 +32,7 @@ import {
 import { ENV_ROW_HEIGHT } from "../../src/canvas/envBanner";
 import { cardRectsFor } from "../../src/canvas/chipSeating";
 import { widenLayerGaps } from "../../src/canvas/layerModel";
-import { nodeIndexOf } from "../../src/canvas/nodeGeometry";
+import { nodeHeight, nodeIndexOf } from "../../src/canvas/nodeGeometry";
 import {
   PORT_STUB,
   CHAMFER,
@@ -41,6 +43,8 @@ import {
 import { parsePoints, type Point } from "./pathAssertions";
 import type { RFAnyNode } from "../../src/canvas/layout";
 import {
+  containerNode,
+  inContainer,
   mkRecipe,
   recipeNode,
   inputProductNode,
@@ -608,6 +612,76 @@ describe("paddedObstacles", () => {
     expect(leftPad).toBeGreaterThan(PORT_STUB);
     // Each card carries the id of the node it was built from.
     expect(card!.nodeId).toBe("n");
+  });
+
+  it("pads a recipe card's DRAWN box, the one chip seating reads", () => {
+    const node = recipeNode("r", 100, 50, mkRecipe("r", ["a"], ["b"]));
+    const drawn = cardRectsFor([node], nodeIndexOf([node]))[0]!;
+    const raw = rawCardRects([node])[0]!;
+    expect([raw.left, raw.right, raw.top, raw.bottom]).toEqual([
+      drawn.left,
+      drawn.right,
+      drawn.top,
+      drawn.bottom,
+    ]);
+    const card = paddedObstacles([node], []).find((r) => r.kind === "card")!;
+    expect(drawn.left - card.left).toBe(
+      Math.max(PORT_STUB, ENTRY_GUTTER_OVERHANG),
+    );
+    expect(card.right - drawn.right).toBe(PORT_STUB);
+    expect(drawn.top - card.top).toBe(CHAMFER);
+    expect(card.bottom - drawn.bottom).toBe(CHAMFER);
+  });
+
+  it("keeps a run off the DRAWN box of a recipe card inside a loop container", () => {
+    // The card sits at a parent-relative position inside a loop-box slab. Its
+    // drawn border box reaches 2 below the model box, so a run one unit below
+    // the model box's pad still enters the drawn box's pad and must jog. The
+    // slab itself grows by nothing.
+    const loop: RFAnyNode = {
+      ...containerNode("loop", 300, 200, 600, 400),
+      data: {
+        containerKind: "loop-box",
+        containerId: "loop",
+        memberCount: 1,
+      },
+    };
+    const card = inContainer(
+      recipeNode("r", 40, 60, mkRecipe("r", ["a"], ["b"])),
+      "loop",
+    );
+    const nodes = [loop, card];
+    const obstacles = paddedObstacles(nodes, []);
+
+    const modelBottom = 200 + 60 + nodeHeight(card);
+
+    // An edge between two other members of the loop: its own slab is exempt,
+    // the card is foreign.
+    const exempt = new Set(["s", "t", "loop"]);
+    const sy = modelBottom + OBSTACLE_PAD_Y + 1;
+    const { srcBlocked } = forwardLegsBlocked(
+      obstacles,
+      exempt,
+      { sx: 310, sy, tx: 890, ty: 220 },
+      880,
+    );
+    expect(srcBlocked).toBe(true);
+
+    const cardObstacle = obstacles.find((o) => o.nodeId === "r")!;
+    expect(cardObstacle.left).toBe(340 - OBSTACLE_PAD_LEFT);
+    expect(cardObstacle.right).toBe(340 + RECIPE_WIDTH + 2 + PORT_STUB);
+    expect(cardObstacle.top).toBe(260 - OBSTACLE_PAD_Y);
+    expect(cardObstacle.bottom).toBe(modelBottom + 2 + OBSTACLE_PAD_Y);
+    expect(rawCardRects(nodes).find((o) => o.nodeId === "r")!.bottom).toBe(
+      modelBottom + 2,
+    );
+    const slab = obstacles.find((o) => o.nodeId === "loop")!;
+    expect([slab.left, slab.right, slab.top, slab.bottom]).toEqual([
+      300 - OBSTACLE_PAD_LEFT,
+      900 + PORT_STUB,
+      200 - OBSTACLE_PAD_Y,
+      600 + OBSTACLE_PAD_Y,
+    ]);
   });
 
   it("adds no frame term to an environment recipe's card obstacle: the plate is a row of the card", () => {

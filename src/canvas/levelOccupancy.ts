@@ -182,10 +182,10 @@ export function frameFloorHit(
   );
 }
 
-// The levels a horizontal spanning [x0, x1] may relocate to, in acceptance
-// order: every spanned card's padded escape, every spanned band's own edges as
-// well as those edges padded, and every spanned frame line at `frameGap` above
-// and below the raw border. A band already carries the clearance it wants, so
+// The levels a horizontal spanning [drawnX0, drawnX1] may relocate to, in
+// acceptance order: every spanned card's padded escape, every spanned band's
+// own edges as well as those edges padded, and every spanned frame line at
+// `frameGap` above and below the raw border. A band already carries the clearance it wants, so
 // its own edge IS a candidate level; offering only the padded one would skip
 // the level that just clears a neighbouring line and land on the line past it.
 // Both are offered, since a candidate further out of a band is no less clear of
@@ -196,21 +196,19 @@ export function frameFloorHit(
 // stacks its policy constant on the padding its own obstacle rects carry. The
 // module holds no clearance policy of its own.
 //
-// The span is given in BOTH frames, because the inputs are built in two: the
-// bands are read off the drawn polylines (runBandsOfEdge), while the cards are
-// the routing passes' model rects and the frame lines are the model node rects
-// (containerFrameLines). Each input is filtered by the span in its own frame,
-// so the drift between the two never decides what the run spans.
+// One frame: the span is the run's DRAWN span, because every input is drawn.
+// The bands are read off the drawn polylines (runBandsOfEdge), the cards are
+// the drawn card rects (nodeRectOf), and the frame lines are the container
+// rects (containerFrameLines), which a border never grows. A model span would
+// sit the port drift off all of them: a recipe card draws 2 past its model
+// right edge, so a model span starting at a model port would count every card
+// of the layer it leaves as spanned, though the drawn run starts past them.
 //
 // Sorted nearest to `anchorY` first -- the smallest vertical excursion wins --
 // with the row value as the tie-break, so the order never depends on the order
 // the obstacles were handed in.
 export function levelCandidates(args: {
   anchorY: number;
-  // The run's x-span in the MODEL frame, for the cards and the frame lines.
-  x0: number;
-  x1: number;
-  // The same span in the DRAWN frame, for the bands.
   drawnX0: number;
   drawnX1: number;
   bands: ReadonlyArray<RunBand>;
@@ -219,11 +217,10 @@ export function levelCandidates(args: {
   cards: ReadonlyArray<Rect>;
   pad: number;
 }): number[] {
-  const lo = Math.min(args.x0, args.x1);
-  const hi = Math.max(args.x0, args.x1);
-  const spans = (o: Rect): boolean => o.right > lo && o.left < hi;
-  const drawnLo = Math.min(args.drawnX0, args.drawnX1);
-  const drawnHi = Math.max(args.drawnX0, args.drawnX1);
+  const lo = Math.min(args.drawnX0, args.drawnX1);
+  const hi = Math.max(args.drawnX0, args.drawnX1);
+  const spans = (o: { left: number; right: number }): boolean =>
+    o.right > lo && o.left < hi;
   const levels = new Set<number>();
   for (const card of args.cards) {
     if (!spans(card)) continue;
@@ -231,14 +228,14 @@ export function levelCandidates(args: {
     levels.add(card.bottom + args.pad);
   }
   for (const band of args.bands) {
-    if (band.right <= drawnLo || band.left >= drawnHi) continue;
+    if (!spans(band)) continue;
     levels.add(band.top);
     levels.add(band.bottom);
     levels.add(band.top - args.pad);
     levels.add(band.bottom + args.pad);
   }
   for (const frame of args.frames) {
-    if (frame.right <= lo || frame.left >= hi) continue;
+    if (!spans(frame)) continue;
     levels.add(frame.y - args.frameGap);
     levels.add(frame.y + args.frameGap);
   }
