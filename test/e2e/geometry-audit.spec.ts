@@ -365,7 +365,12 @@ const CROSSING_BASELINE: Record<string, number> = {
   // thick stroke) steps clear of it and crosses one more corridor on the way.
   // Measured: with that band back at zero height the count is 14 again, every
   // other cell in this file unchanged. UP move, listed for ruling.
-  battery5: 15,
+  //
+  // FAN-IN PIN SURVIVES THE JOG: 15 -> 16, UP move under the 2026-09-25 owner
+  // ruling (extended from multi6). e:19 no longer rides q:16's row from
+  // x ~3025; it jogs to 720 and joins at the fan-in dot, and its bevel crosses
+  // e:3's descent at the trunk column. Cued.
+  battery5: 16,
   // CATALYST NODE 2026-09-14 (PR B): 21 -> 26. Both xiranite pools took their
   // own boundary card, and their supply runs cross the chain. Measured 25 with
   // the rail deconfliction switched off, so four of the five added crossings
@@ -379,7 +384,12 @@ const CROSSING_BASELINE: Record<string, number> = {
   // FAN-IN TRUNK KEY 2026-09-19 (#154): 27 -> 25. The card's catalyst row and
   // input row of gas_xiranite stopped merging into one fan-in trunk, so gap 2
   // drops a junction column and the layers right of it move 32 units left.
-  "battery5-xiranite": 25,
+  //
+  // #192 pair cost relation: 25 -> 23, the gap order weighs both orders of
+  // every column pair and entry rows take slots one at a time across cards.
+  //
+  // ELK GREEDY SWITCH: 23 -> 22, hierarchical greedy switch on.
+  "battery5-xiranite": 22,
   crystal: 1,
   // CATALYST NODE 2026-09-14 (PR B): 1 -> 2. The plan's one catalyst charge
   // moved to its own card, one layer further from its consumer. UP move,
@@ -399,7 +409,21 @@ const CROSSING_BASELINE: Record<string, number> = {
   // e:79, e:45 with e:77) step a chip box clear of it, and their columns now
   // cross the runs they used to be drawn on top of. Every counted crossing
   // carries its cue.
-  multi6: 95,
+  //
+  // JOG FLOOR IN THE DRAWN FRAME: 95 -> 93. e:12 stops jogging to 1722 (a
+  // model-row floor query against e:28's drawn band) and no longer crosses
+  // e:63 twice.
+  //
+  // FAN-IN PIN SURVIVES THE JOG: 93 -> 97, UP move under the 2026-09-25 owner
+  // ruling. The sewage members e:27 / e:31 no longer ride the collector's row
+  // from x ~3250; they jog to their own levels and descend at the trunk column,
+  // where their bevels cross the members already descending it. All cued.
+  //
+  // #192 pair cost relation: 97 -> 95, the gap order weighs both orders of
+  // every column pair and entry rows take slots one at a time across cards.
+  //
+  // ELK GREEDY SWITCH: 95 -> 74, hierarchical greedy switch on.
+  multi6: 74,
   tundra: 0,
   // CATALYST NODE 2026-09-14 (PR B of the catalyst supply pools plan): every
   // catalyst charge now leaves the item's own u:cat:* boundary card instead of
@@ -431,7 +455,14 @@ const CROSSING_BASELINE: Record<string, number> = {
   // Inergen target no longer draws its own :target card at the top; the export
   // now leaves the item's one pool card and its straight run to the output
   // card crosses the band five times at right angles. UP move, ruled by stc-13.
-  "gas-web": 23,
+  // #192 pair cost relation: 23 -> 21, the gap order weighs both orders of
+  // every column pair and entry rows take slots one at a time across cards.
+  //
+  // ELK GREEDY SWITCH: 21 -> 21, hierarchical greedy switch on. On this base
+  // the switch moves no gas-web card or edge; the twin chains already read
+  // side by side.
+  "gas-web": 21,
+
   "rot-bottled_food_3": 2,
   "rot-bottled_food_4": 3,
   // CATALYST NODE 2026-09-14 (PR B of the catalyst supply pools plan): every
@@ -442,7 +473,12 @@ const CROSSING_BASELINE: Record<string, number> = {
   // CATALYST EXAM FIXES 2026-09-15 (T6 with T2 / T3): 22 -> 24. Two of those
   // supply runs take the forward floor off the lines they shadowed, at rows the
   // taller cards moved. UP move, listed for ruling.
-  transmuters: 24,
+  //
+  // #192 gap column order: 24 -> 22, e:1 x e:11 no longer cross.
+  //
+  // #192 pair cost relation: 22 -> 20, the gap order weighs both orders of
+  // every column pair and entry rows take slots one at a time across cards.
+  transmuters: 20,
   // ROUTING FINDINGS 2026-09-14 (docs/plans/2026-09-14-render-findings.md): the
   // two reported plans join the corpus. Both route several flows through one
   // corridor (a 14x refinery fan-in on script43-xiranite), so these are first
@@ -460,7 +496,9 @@ const CROSSING_BASELINE: Record<string, number> = {
   // couple of units of each other: the floor lifts them apart, and each run it
   // moves crosses the chain at its new level. Seven is the largest move in this
   // table. Both cells: UP moves, listed for ruling.
-  "copper-script43": 38,
+  //
+  // #192 gap column order: 38 -> 36, e:8 x e:18 no longer cross.
+  "copper-script43": 36,
   "script43-xiranite": 31,
 };
 
@@ -519,7 +557,10 @@ const CHIP_SEGMENT_BASELINE: Record<string, number> = {
   // CATALYST NODE 2026-09-14 (PR B): 0 -> 1. One catalyst supply run from the
   // new card shares its row with a chip of the flow it feeds. UP move, listed
   // for ruling.
-  transmuters: 1,
+  //
+  // 1 -> 0: develop d69ccde already measures 0; no segment draws under a
+  // chip box on this plan any more.
+  transmuters: 0,
   "copper-script43": 0,
   "script43-xiranite": 0,
 };

@@ -1,4 +1,16 @@
+import { mkdirSync } from "node:fs";
+import { resolve } from "node:path";
 import { defineConfig, devices } from "@playwright/test";
+
+// Playwright always passes --disable-dev-shm-usage (kept: containers ship a
+// tiny /dev/shm), so Chromium puts its shared memory in $TMPDIR. A per-user
+// quota on /tmp then makes fallocate fail mid-test and Chromium crashes on
+// purpose, so point the browser's TMPDIR at a gitignored dir in the repo.
+const BROWSER_TMPDIR = resolve(
+  import.meta.dirname,
+  "test-results/.chromium-tmp",
+);
+mkdirSync(BROWSER_TMPDIR, { recursive: true });
 
 export default defineConfig({
   testDir: "test/e2e",
@@ -13,6 +25,9 @@ export default defineConfig({
     baseURL: "http://localhost:4173",
     headless: true,
     screenshot: "only-on-failure",
+    launchOptions: {
+      env: { ...process.env, TMPDIR: BROWSER_TMPDIR },
+    },
   },
   projects: [
     {

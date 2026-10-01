@@ -192,9 +192,10 @@ export function checkEdgeEndpointIntegrity(
  *   NOT part of that consumption: it leaves the catalyst node, so an ordinary
  *   node justified by nothing but a catalyst is a violation. Production
  *   claimed by a declared target draw never feeds internal consumers, so it is
- *   subtracted before the comparison. Or, for a free-supply target item, by
- *   its export shortfall: the declared rate beyond what net production covers
- *   arrives as a boundary passthrough into the target output.
+ *   subtracted before the comparison. Or, for a target item with external
+ *   supply (capped or free), by its export shortfall: the declared rate beyond
+ *   what net production covers arrives as a boundary passthrough into the
+ *   target output.
  *
  * - outputProduct "target" for X: justified iff X is a declared target item
  *   (X is a demandByItem key).
@@ -259,16 +260,13 @@ export function checkBoundaryProductsJustified(
       const availRaw = prod.sub(targetDemand);
       const availProd = availRaw.compare(FRAC_ZERO) > 0 ? availRaw : FRAC_ZERO;
       const net = cons.sub(availProd); // positive means net external draw
-      // A free-supply target item is additionally justified by its export
-      // shortfall: the declared rate beyond what net production covers arrives
-      // as a boundary passthrough into the target output.
+      // A target item is additionally justified by its export shortfall: the
+      // declared rate beyond what net production covers arrives as a boundary
+      // passthrough into the target output, capped or free.
       const netProd = prod.sub(cons);
-      const exportShortfall =
-        supply === Infinity
-          ? targetDemand.sub(
-              netProd.compare(FRAC_ZERO) > 0 ? netProd : FRAC_ZERO,
-            )
-          : FRAC_ZERO;
+      const exportShortfall = targetDemand.sub(
+        netProd.compare(FRAC_ZERO) > 0 ? netProd : FRAC_ZERO,
+      );
       const magnitude = net.valueOf();
       const slack = relSlack(scaleFloor, Math.abs(magnitude));
       const shortSlack = relSlack(
@@ -1055,8 +1053,8 @@ export function checkProductUnitRates(
     if (!to) continue; // dangling endpoint is checkEdgeEndpointIntegrity's job
     const okTarget =
       (isInputProductUnit(to) && to.itemId === from.itemId) ||
-      // Free-boundary target passthrough: the import feeds the same item's
-      // target export directly.
+      // Target passthrough: the import feeds the same item's target export
+      // directly.
       (isOutputProductUnit(to) &&
         to.itemId === from.itemId &&
         to.flavor === "target") ||
