@@ -44,6 +44,7 @@ import {
   chamferStepPath,
   clearRailY,
   drawnEdge,
+  forwardStepGeometry,
   routingHintsFromData,
   type ObstacleRect,
 } from "../../src/canvas/edgePath";
@@ -1465,6 +1466,56 @@ describe("jogForwardLegs", () => {
       expect(out[0]).toBe(edges[0]);
       expect(out[1]).toBe(edges[1]);
     });
+  });
+
+  // The drawer bevels both jog columns by the step's chamfer, so the run at
+  // legY spans [bx + ch, D - ch] and draws backwards (a hairpin spike) when the
+  // descent D stands less than two chamfers right of the bend column bx.
+  //
+  // e0 drops late at its entry column 600, 26 right of its bend at 574. e1
+  // never moves (no stretch of its own to relocate) and its approach run at
+  // y 49 shares [574, 600] with e0's source run at 39, inside the floor, so
+  // e0 jogs off it. The descent starts at 600, where e1's bend column at 604
+  // stands; walking off it toward the source lands at 588, 14 from the bend.
+  // The floor hit holds against e1's final run, so the jog is not one a
+  // floor-only revert would drop.
+  it("keeps a jog's descent two chamfers right of its bend column", () => {
+    const nodes: RFAnyNode[] = [
+      inputProductNode("s1", "ore", 0, 0, 148, 78), // port y 39
+      inputProductNode("s2", "ore", 0, 300, 148, 78), // port y 339
+      inputProductNode("t1", "ore", 760, 100, 148, 78), // port y 139
+      inputProductNode("t2", "ore", 760, 10, 148, 78), // port y 49
+    ];
+    const edges: Edge[] = [
+      {
+        ...mkEdge("e0", "s1", "t1", "ore"),
+        data: { item: "ore", rate: new Fraction(1), bendX: 574, entryX: 600 },
+      },
+      {
+        ...mkEdge("e1", "s2", "t2", "ore"),
+        data: { item: "ore", rate: new Fraction(1), bendX: 604, entryX: 560 },
+      },
+    ];
+    const widened = widenLayerGaps(nodes, edges);
+    const out = jogForwardLegs(widened.nodes, edges, { gaps: widened.gaps });
+    const byId = nodeIndexOf(widened.nodes);
+    const e0 = out.find((e) => e.id === "e0")!;
+    const ends = drawnPortsOf(e0, byId)!;
+    const hints = routingHintsFromData(e0.data);
+
+    // Premise: the edge is jogged and descends at a column of its own.
+    expect(hints.legY).toBeDefined();
+    expect(hints.jogDescentX).toBeDefined();
+
+    const geom = forwardStepGeometry(ends.sourceX, ends.targetX, hints.bendX);
+    const bx = hints.srcColX ?? geom.bx;
+    expect(hints.jogDescentX! - bx).toBeGreaterThanOrEqual(2 * geom.chamfer);
+
+    // The drawn path never steps back in x.
+    const { pts } = drawnEdge(ends, e0.type, e0.data);
+    for (let i = 1; i < pts.length; i++) {
+      expect(pts[i]![0]).toBeGreaterThanOrEqual(pts[i - 1]![0]);
+    }
   });
 });
 

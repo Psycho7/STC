@@ -511,7 +511,14 @@ const CROSSING_BASELINE: Record<string, number> = {
   // table. Both cells: UP moves, listed for ruling.
   //
   // #192 gap column order: 38 -> 36, e:8 x e:18 no longer cross.
-  "copper-script43": 36,
+  //
+  // JOG DESCENT HAIRPIN 2026-10-01: 36 -> 38. A jog's descent keeps two
+  // chamfers right of its bend column, so e:8 descends at 2459 instead of
+  // walking back onto its bend at 2427, and e:18 loses that column for 2381.7:
+  // e:8's descent crosses e:18's approach at 426, and e:18's rise crosses
+  // e:8's source run at 440, where before only e:18's descent crossed e:8's
+  // approach. UP, awaiting ruling (task B).
+  "copper-script43": 38,
   // DRAWN CARD RECT 2026-10-01: 31 -> 30, e:0 escapes above the plan (y 27.5).
   "script43-xiranite": 30,
 };

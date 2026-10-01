@@ -259,6 +259,11 @@ function flatten(snapshot: Snapshot): Map<string, unknown> {
 //      re-levels 23.5 lower: script43 e:1, e:2, e:28; script43-xiranite e:1.
 //   O  every obstacle test reads the DRAWN ports: multi6 e:82's drawn run
 //      enters a foreign padded card its model run cleared, so it jogs.
+//   B  a jog's descent keeps two chamfers right of its bend column, so the
+//      run at its level never draws backwards: coupon-web e:13 and
+//      copper-script43 e:8 walk one pitch right of the column they walked
+//      left of, and coupon-web e:27 and copper-script43 e:18, scanned after
+//      them, lose that column and take the next free slot.
 // An edge key is the short `e:NN` head of the routed edge id.
 const MOVED: Readonly<Record<string, ReadonlyArray<string>>> = {
   battery5: [
