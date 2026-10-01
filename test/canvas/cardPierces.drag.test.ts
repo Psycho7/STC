@@ -15,7 +15,7 @@
 import { describe, it, expect } from "vitest";
 import type { Edge } from "@xyflow/react";
 
-import { rerouteEdges, type RFAnyNode } from "../../src/canvas/layout";
+import { rerouteAfterDrop, type RFAnyNode } from "../../src/canvas/layout";
 import { layoutSolved } from "../../src/canvas/layoutSolved";
 import { drawnEdge } from "../../src/canvas/edgePath";
 import { cardRectsFor } from "../../src/canvas/chipSeating";
@@ -44,7 +44,7 @@ describe("no drawn segment of a dragged card's edges enters a card", () => {
         itemId: t.itemId,
         ratePerSec: t.ratePerSec,
       }));
-      const { nodes, baseEdges, gaps } = await layoutSolved(
+      const { nodes, baseEdges } = await layoutSolved(
         solveForRender({ targets, pack }),
       );
 
@@ -74,7 +74,9 @@ describe("no drawn segment of a dragged card's edges enters a card", () => {
           ? { ...n, position: { x: n.position.x + DRAG_DX, y: n.position.y } }
           : n,
       );
-      const rerouted = rerouteEdges(movedNodes, baseEdges, { gaps });
+      // Routed the way App routes a drop: gap records re-measured on the
+      // live positions.
+      const rerouted = rerouteAfterDrop(movedNodes, baseEdges).edges;
 
       const movedById = nodeIndexOf(movedNodes);
       const rects: NodeRect[] = cardRectsFor(movedNodes, movedById).map(

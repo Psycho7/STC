@@ -26,7 +26,8 @@ import {
   expectRightwardFinish,
   distanceToPolyline,
 } from "./pathAssertions";
-import { RECIPE_ROW_HEIGHT } from "../../src/canvas/dimensions";
+import { DOT_KEEPOFF, RECIPE_ROW_HEIGHT } from "../../src/canvas/dimensions";
+import { chipHalfWidthsOf } from "../../src/canvas/chipMetrics";
 
 // Segments of a `d` string that run in both axes at once (the bevels and the
 // collapsed single diagonal).
@@ -992,6 +993,25 @@ describe("drawnEdge: the item chip anchor", () => {
     expect(dual).toEqual(
       anchorOf({ item: "s", bendX: 100, fanoutColumn: true }),
     );
+  });
+
+  it("draws a far fan-out owner's total only on a stub that holds it", () => {
+    const owner = { item: "s", fanoutColumn: true, busChipOwner: true };
+    const { aggHalfW } = chipHalfWidthsOf(owner);
+    // The stub ends one chamfer before the borrowed column; it must hold the
+    // port stub, the box and the dot keep-off end to end.
+    const need = PORT_STUB + 2 * aggHalfW + DOT_KEEPOFF;
+    const trunkAnchorAt = (bendX: number) => {
+      const drawn = drawnEdge(PORTS, "item", { ...owner, bendX });
+      if (drawn.shape !== "item") throw new Error("expected the item shape");
+      return drawn.trunkAnchor;
+    };
+
+    expect(trunkAnchorAt(need + CHAMFER - 1)).toBeUndefined();
+    expect(trunkAnchorAt(need + CHAMFER)).toEqual({
+      x: PORT_STUB + aggHalfW,
+      y: PORTS.sourceY,
+    });
   });
 
   it("puts every other item edge on the longest run's centre", () => {
