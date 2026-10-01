@@ -1843,6 +1843,12 @@
   color: var(--ak-accent-amber);
 }
 
+/* Under-delivered target: the figure is what arrives, in the "not met" red.
+   Amber would read as a surplus; the lime tab still marks it a target. */
+.product-node.output.target .pn-rate--short {
+  color: var(--ak-accent-red);
+}
+
 .pn-rate .unit {
   font-family: var(--ak-font-mono);
   font-size: 9px;

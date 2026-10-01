@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { Item, RecipePack } from "@aef/schema";
+import type { RecipePack } from "@aef/schema";
 import { useI18n } from "../data/i18n-context";
 import { computeItemDepths } from "../data/recipe-depth";
 import type { ProducerUnavailableCause } from "../data/plan";
@@ -22,8 +22,6 @@ const HINT_SEPARATOR = " · ";
 // key for inputs).
 export function usePickerFlow<PickerFor, Prompt>(
   pack: RecipePack,
-  // The pickable catalogue, which only gates the unavailable hint below.
-  catalogue: readonly Item[],
   unavailableItems: ReadonlyMap<string, ProducerUnavailableCause>,
 ) {
   const i18n = useI18n();
@@ -31,17 +29,23 @@ export function usePickerFlow<PickerFor, Prompt>(
   // computeItemDepths seeds every pack item; ones no recipe can reach land in
   // the unranked bucket, which on the shipped pack is empty.
   const tierByItemId = useMemo(() => computeItemDepths(pack), [pack]);
-  // The picker hint for dimmed items: one sentence per cause kind present, in
-  // the cause precedence order. The event sentence carries the raw cohort
-  // tokens ("v1.2 · v1.5"), the same ones the blocked-target banner sentence
-  // (blockedTargets, describeBlockedTarget) interpolates, so both surfaces name
-  // a cohort identically. Gated on at least one of the items being in the
-  // catalogue, so a cause whose every item the grid never shows explains
-  // nothing.
-  const unavailableHint = useMemo(() => {
-    if (unavailableItems.size === 0) return undefined;
-    if (!catalogue.some((it) => unavailableItems.has(it.id))) return undefined;
-    const causes = [...unavailableItems.values()];
+  // The availability sentences for the dimmed tiles the popup currently
+  // shows: one sentence per cause kind among them, in the cause precedence
+  // order, so a search that leaves only an out-of-area tile names only the
+  // area. The event sentence carries the raw cohort tokens ("v1.2 · v1.5"), the
+  // same ones the blocked-target banner sentence (blockedTargets,
+  // describeBlockedTarget) interpolates, so both surfaces name a cohort
+  // identically.
+  function unavailableHint(
+    shownDimmed: ReadonlySet<string>,
+  ): string | undefined {
+    const causes: ProducerUnavailableCause[] = [];
+    for (const id of shownDimmed) {
+      const cause = unavailableItems.get(id);
+      if (cause !== undefined) causes.push(cause);
+    }
+    if (causes.length === 0) return undefined;
+
     const sentences: string[] = [];
     if (causes.some((c) => c.kind === "area")) {
       sentences.push(i18n.t("picker.area.off"));
@@ -58,7 +62,7 @@ export function usePickerFlow<PickerFor, Prompt>(
       sentences.push(i18n.t("picker.manual.off"));
     }
     return sentences.join(" ");
-  }, [unavailableItems, catalogue, i18n]);
+  }
 
   // Which row the picker popup is open for, or that Add opened it, plus the
   // trigger button that opened it so focus can return there on close.
@@ -96,14 +100,20 @@ export function usePickerFlow<PickerFor, Prompt>(
   return {
     tierByItemId,
     unavailableHint,
-    // The popup's hint line: the panel's own "listed" sentence when it applies,
-    // then the availability sentences, or undefined when neither applies.
-    pickerHint(listed: string | undefined): string | undefined {
-      const sentences = [
-        ...(listed !== undefined ? [listed] : []),
-        ...(unavailableHint !== undefined ? [unavailableHint] : []),
-      ];
-      return sentences.length > 0 ? sentences.join(HINT_SEPARATOR) : undefined;
+    // The popup's hint line as a function of the dimmed tiles it shows: the
+    // panel's own "listed" sentence when one of listedIds is among them, then
+    // the availability sentences, or undefined when neither applies.
+    pickerHint(listed: string, listedIds: ReadonlySet<string>) {
+      return (shownDimmed: ReadonlySet<string>): string | undefined => {
+        const availability = unavailableHint(shownDimmed);
+        const sentences = [
+          ...([...shownDimmed].some((id) => listedIds.has(id)) ? [listed] : []),
+          ...(availability !== undefined ? [availability] : []),
+        ];
+        return sentences.length > 0
+          ? sentences.join(HINT_SEPARATOR)
+          : undefined;
+      };
     },
     pickerFor,
     prompt,

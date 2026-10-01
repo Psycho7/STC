@@ -431,33 +431,38 @@ export type HoverGraph = {
   edges: Array<{ id: string; source: string; target: string }>;
 };
 
-// React Flow labels an edge wrapper `Edge from <source> to <target>` whenever
-// the edge carries no ariaLabel of its own, which none of this app's edges do.
-// That string is the only place the DOM states the graph's own adjacency, and
-// the probe needs adjacency from a source INDEPENDENT of the hover code it is
-// testing - deriving the expectation from the app's own focus computation would
-// make the op agree with the app by construction.
-//
-// The split is resolved against the known node ids rather than on the first
-// " to ": an id containing that substring would otherwise silently name a node
-// that does not exist.
-export function resolveEndpoints(
-  ariaLabel: string,
-  nodeIds: ReadonlySet<string>,
-): [string, string] | null {
-  const prefix = "Edge from ";
-  if (!ariaLabel.startsWith(prefix)) return null;
-  const body = ariaLabel.slice(prefix.length);
-  for (
-    let i = body.indexOf(" to ");
-    i !== -1;
-    i = body.indexOf(" to ", i + 1)
-  ) {
-    const source = body.slice(0, i);
-    const target = body.slice(i + 4);
-    if (nodeIds.has(source) && nodeIds.has(target)) return [source, target];
-  }
-  return null;
+// What the in-page collector reads off the rendered graph. Canvas stamps each
+// edge wrapper with `data-source` / `data-target` straight from the edge's own
+// endpoints, so the probe gets adjacency from a source INDEPENDENT of the hover
+// code it is testing - deriving the expectation from the app's own focus
+// computation would make the op agree with the app by construction.
+export type GraphDom = {
+  nodes: Array<{ id: string; type: string }>;
+  edges: Array<{ id: string; source: string | null; target: string | null }>;
+};
+
+// Fails loudly rather than dropping an edge: an unattributable edge would
+// quietly shrink the expected dim set, and a refuter that under-states what
+// must dim is how a real defect gets waved through. An endpoint must also be a
+// node the DOM rendered, or the expectation would name a node that is not there.
+export function hoverGraphFromDom(dom: GraphDom): HoverGraph {
+  const nodeIds = new Set(dom.nodes.map((n) => n.id));
+  const edges = dom.edges.map(({ id, source, target }) => {
+    if (source === null || target === null) {
+      throw new Error(
+        `edge "${id}" carries no data-source/data-target endpoints`,
+      );
+    }
+    for (const end of [source, target]) {
+      if (!nodeIds.has(end)) {
+        throw new Error(
+          `edge "${id}" names node "${end}", which did not render`,
+        );
+      }
+    }
+    return { id, source, target };
+  });
+  return { nodes: dom.nodes, edges };
 }
 
 // The dim set the graph says should appear, given a hovered element: everything

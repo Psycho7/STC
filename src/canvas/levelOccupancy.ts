@@ -196,13 +196,23 @@ export function frameFloorHit(
 // stacks its policy constant on the padding its own obstacle rects carry. The
 // module holds no clearance policy of its own.
 //
+// The span is given in BOTH frames, because the inputs are built in two: the
+// bands are read off the drawn polylines (runBandsOfEdge), while the cards are
+// the routing passes' model rects and the frame lines are the model node rects
+// (containerFrameLines). Each input is filtered by the span in its own frame,
+// so the drift between the two never decides what the run spans.
+//
 // Sorted nearest to `anchorY` first -- the smallest vertical excursion wins --
 // with the row value as the tie-break, so the order never depends on the order
 // the obstacles were handed in.
 export function levelCandidates(args: {
   anchorY: number;
+  // The run's x-span in the MODEL frame, for the cards and the frame lines.
   x0: number;
   x1: number;
+  // The same span in the DRAWN frame, for the bands.
+  drawnX0: number;
+  drawnX1: number;
   bands: ReadonlyArray<RunBand>;
   frames: ReadonlyArray<FrameLine>;
   frameGap: number;
@@ -212,6 +222,8 @@ export function levelCandidates(args: {
   const lo = Math.min(args.x0, args.x1);
   const hi = Math.max(args.x0, args.x1);
   const spans = (o: Rect): boolean => o.right > lo && o.left < hi;
+  const drawnLo = Math.min(args.drawnX0, args.drawnX1);
+  const drawnHi = Math.max(args.drawnX0, args.drawnX1);
   const levels = new Set<number>();
   for (const card of args.cards) {
     if (!spans(card)) continue;
@@ -219,7 +231,7 @@ export function levelCandidates(args: {
     levels.add(card.bottom + args.pad);
   }
   for (const band of args.bands) {
-    if (!spans(band)) continue;
+    if (band.right <= drawnLo || band.left >= drawnHi) continue;
     levels.add(band.top);
     levels.add(band.bottom);
     levels.add(band.top - args.pad);

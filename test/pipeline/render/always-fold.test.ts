@@ -45,6 +45,7 @@ function makeInput(
     supply: buildSupplyTable({ items: [] }, []),
     idealCount,
     boundaryShare: new Map(),
+    draws: new Map(),
   };
 }
 
@@ -437,6 +438,7 @@ describe("AlwaysFoldRender - boundary products for a dual-emission fixture", () 
       // Half of `shared`'s demand is covered in-graph, so the boundary supplies
       // the other half: the realized draw is nonzero and the import is emitted.
       boundaryShare: new Map([["shared", new Fraction(1, 2)]]),
+      draws: new Map(),
     };
 
     const fold = AlwaysFoldRender(input);

@@ -27,6 +27,8 @@ export type UiKey =
   | "app.error.load"
   | "app.error.edit"
   | "app.error.corrupt"
+  | "app.error.link-broken"
+  | "app.error.details"
   | "app.error.reset"
   | "app.error.solver"
   | "app.error.infeasible"
@@ -85,6 +87,7 @@ export type UiKey =
   | "product.catalyst.fromGeneral"
   | "product.catalyst.short"
   | "product.tap.share"
+  | "product.target.delivered"
   | "product.flavor.target"
   | "product.flavor.surplus"
   | "canvas.controls.panel"
@@ -92,6 +95,8 @@ export type UiKey =
   | "canvas.controls.zoom_out"
   | "canvas.controls.fit_view"
   | "canvas.controls.interactive"
+  | "canvas.a11y.node"
+  | "canvas.a11y.edge"
   | "canvas.empty.hint"
   | "rate.invalid"
   | "rate.zero"
@@ -179,6 +184,8 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "app.error.load": "加载方案失败: {message}",
     "app.error.edit": "无法应用此更改: {message}",
     "app.error.corrupt": "此分享链接已损坏，或来自更新版本的规划器。",
+    "app.error.link-broken": "链接不完整或已被修改。",
+    "app.error.details": "详情",
     "app.error.reset": "从新方案开始",
     "app.error.solver": "求解器错误: {message}",
     "app.error.infeasible":
@@ -256,6 +263,7 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "product.catalyst.fromGeneral": "来自普通供给 {rate}/分",
     "product.catalyst.short": "催化不足 {rate}/分",
     "product.tap.share": "共 {rate}/分",
+    "product.target.delivered": "实际 {delivered}/分，共需 {declared}/分",
     "product.flavor.target": "目标",
     "product.flavor.surplus": "过剩",
     "canvas.controls.panel": "控制面板",
@@ -263,6 +271,8 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "canvas.controls.zoom_out": "缩小",
     "canvas.controls.fit_view": "适应视图",
     "canvas.controls.interactive": "切换交互",
+    "canvas.a11y.node": "规划中的一张卡片。按 Tab 键在卡片之间切换。",
+    "canvas.a11y.edge": "两张卡片之间的一条物料流。",
     // {action} is the targets.add button label, so the hint names the button
     // exactly as the side rail draws it.
     "canvas.empty.hint": "尚无目标 · 在左侧点击「{action}」开始规划",
@@ -345,6 +355,8 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "app.error.edit": "Cannot apply this change: {message}",
     "app.error.corrupt":
       "This share link is damaged or from a newer version of the planner.",
+    "app.error.link-broken": "The link is incomplete or was altered.",
+    "app.error.details": "Details",
     "app.error.reset": "Start with a fresh plan",
     "app.error.solver": "Solver error: {message}",
     "app.error.infeasible":
@@ -419,6 +431,8 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "product.catalyst.fromGeneral": "from general supply {rate}/min",
     "product.catalyst.short": "catalyst short by {rate}/min",
     "product.tap.share": "of {rate}/min",
+    "product.target.delivered":
+      "{delivered}/min delivered of {declared}/min declared",
     "product.flavor.target": "target",
     "product.flavor.surplus": "surplus",
     "canvas.controls.panel": "Control panel",
@@ -426,6 +440,8 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "canvas.controls.zoom_out": "Zoom out",
     "canvas.controls.fit_view": "Fit view",
     "canvas.controls.interactive": "Toggle interactivity",
+    "canvas.a11y.node": "A card in the plan. Tab moves between cards.",
+    "canvas.a11y.edge": "One item flow between two cards.",
     "canvas.empty.hint":
       "No targets yet · click {action} on the left to start a plan",
     "rate.invalid": "Enter a number, e.g. 30 or 1/3",

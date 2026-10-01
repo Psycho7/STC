@@ -24,8 +24,12 @@
 // layoutRenderPlan ever runs.
 
 import type { Item, Recipe } from "@aef/schema";
-import type { ElkNode, ElkExtendedEdge, ElkPort } from "elkjs/lib/elk-api";
-import ELK from "elkjs/lib/elk.bundled.js";
+import ElkApi, {
+  type ELK,
+  type ElkNode,
+  type ElkExtendedEdge,
+  type ElkPort,
+} from "elkjs/lib/elk-api";
 import {
   MarkerType,
   type Node as RFNode,
@@ -54,6 +58,7 @@ import {
 } from "./busRouting";
 import { deconflictChipAnchors } from "./chipSeating";
 import { widenLayerGaps, type GapRecord } from "./layerModel";
+import { buildGapColumnOrder, type GapColumnOrder } from "./gapColumnOrder";
 // Type-only: ItemEdge.tsx declares the canvas edge payload this module stamps.
 // Erased at compile time, so it adds no runtime or bundler edge, and ItemEdge
 // imports none of layout / busRouting / chipSeating, so there is no cycle.
@@ -197,6 +202,13 @@ export const ROOT_LAYOUT_OPTIONS: Readonly<Record<string, string>> = {
   // stay forward and span fewer layers. On the repro census this drops the
   // long-edge (>820px) count 14 -> 9 and the max span 5507 -> 4334.
   "elk.layered.cycleBreaking.strategy": "DEPTH_FIRST",
+  // Greedy-switch refinement after the layer sweep. Under INCLUDE_CHILDREN ELK
+  // reads only the hierarchical variant, which defaults to OFF, so without this
+  // the sweep's local minimum stands. On the crossing census (CROSSING_BASELINE
+  // in the geometry audit) this drops multi6 95 -> 74 and battery5-xiranite
+  // 23 -> 22.
+  "org.eclipse.elk.layered.crossingMinimization.greedySwitchHierarchical.type":
+    "TWO_SIDED",
 };
 
 // FIXED_SIDE pins each port to its declared side (WEST inputs / EAST outputs)
@@ -855,6 +867,7 @@ function unitToRFNode(
           kind: "outputProduct",
           itemId: unit.itemId,
           rate: unit.rate,
+          ...(unit.delivered && { delivered: unit.delivered }),
           flavor: unit.flavor,
           portTransportKinds,
         },
@@ -886,7 +899,15 @@ export type RoutingPass = (
 // records the pre-pass produced, so a pass that needs a corridor reads the zone
 // it was widened for instead of re-deriving one from the node columns. Optional
 // on the signature because every pass predating it ignores the argument.
-export type RoutingCtx = { readonly gaps: ReadonlyArray<GapRecord> };
+//
+// `order` is the one column order per gap (gapColumnOrder.ts), built from the
+// same placement and the pre-pass edges before the first routing pass, so every
+// column pass reads one order instead of a sort key of its own. A pass handed
+// no order (a hand-built fixture) builds it from what it was given.
+export type RoutingCtx = {
+  readonly gaps: ReadonlyArray<GapRecord>;
+  readonly order?: GapColumnOrder;
+};
 
 // The one pre-pass: it runs BEFORE every routing pass and is the only step that
 // moves a node after ELK. It widens each inter-layer gap -- of the root and of
@@ -1007,15 +1028,159 @@ export function rerouteEdges(
 ): RFEdge[] {
   // Left fold over the passes: every pass sees the SAME nodes array, never a
   // re-derived one, plus the previous pass's output edges.
+  // The column order is built once per fold, after the gaps are final and
+  // before the first pass, so a drag-stop replay rebuilds it too.
+  const routing: RoutingCtx = {
+    gaps: ctx?.gaps ?? [],
+    order: buildGapColumnOrder(nodes, baseEdges, ctx?.gaps ?? []),
+  };
   return ROUTING_PASSES.reduce<RFEdge[]>(
-    (routed, pass) => pass.run(nodes, routed, ctx),
+    (routed, pass) => pass.run(nodes, routed, routing),
     baseEdges,
   );
 }
 
 // layoutRenderPlan: one elk.layout() call per cycle.
 
-const elk = new ELK();
+// In the browser ELK runs in a Web Worker, so its seconds of node placement
+// never block the main thread and the ELK bundle stays out of the main chunk.
+// Without Worker (vitest) the bundled ELK runs in-process, loaded on first use.
+// Both run the same ELK release, so the layout is the same. The worker URL is
+// imported only where a Worker exists: vite refuses a ?url load from a
+// node_modules outside the project root, as in a worktree that links it.
+// The URL's own chunk can fail to load (offline, a stale deploy); null then
+// means no worker, and the session lays out in-process.
+const workerUrl: Promise<string | null> | null =
+  typeof Worker !== "undefined"
+    ? import("elkjs/lib/elk-worker.min.js?url").then(
+        (m) => m.default,
+        () => null,
+      )
+    : null;
+
+let bundledElk: Promise<ELK> | null = null;
+function inProcessLayout(graph: ElkGraph): Promise<ElkGraph> {
+  bundledElk ??= import("elkjs/lib/elk.bundled.js").then(
+    (m) => new m.default(),
+  );
+  return bundledElk.then((elk) => elk.layout(graph) as Promise<ElkGraph>);
+}
+
+// How long a new worker may take to answer its first message. The worker
+// handles messages in order, and the probe is posted before any layout, so
+// the bound covers loading and booting the script (about 1.6 MB, milliseconds
+// from cache, seconds on a slow link) and never a layout's own run time.
+export const ELK_WORKER_BOOT_BOUND_MS = 30_000;
+
+class ElkWorkerFailure extends Error {}
+
+type ElkWorker = {
+  elk: ELK;
+  // Rejects with ElkWorkerFailure if the worker errors or misses the bound;
+  // never settles for a worker that was stopped first.
+  failure: Promise<never>;
+  stop: () => void;
+};
+
+// Set once a worker fails; the rest of the session lays out in-process.
+let workerBroken = false;
+let workerElk: ElkWorker | null = null;
+
+function startWorker(url: string): ElkWorker {
+  let stopped = false;
+  let fail!: (reason: ElkWorkerFailure) => void;
+  const failure = new Promise<never>((_, reject) => {
+    fail = (reason) => {
+      if (!stopped) reject(reason);
+    };
+  });
+  const elk = new ElkApi({
+    workerUrl: url,
+    workerFactory: (u) => {
+      const worker = new Worker(u!);
+      worker.onerror = () => fail(new ElkWorkerFailure("ELK worker failed"));
+      worker.onmessageerror = () =>
+        fail(new ElkWorkerFailure("ELK worker sent an unreadable message"));
+      return worker;
+    },
+  });
+  const boot = setTimeout(
+    () => fail(new ElkWorkerFailure("ELK worker did not answer")),
+    ELK_WORKER_BOOT_BOUND_MS,
+  );
+  const stop = () => {
+    stopped = true;
+    clearTimeout(boot);
+    elk.terminateWorker();
+  };
+  void elk.knownLayoutAlgorithms().then(
+    () => clearTimeout(boot),
+    () => clearTimeout(boot),
+  );
+
+  const self: ElkWorker = { elk, failure, stop };
+  failure.catch(() => {
+    workerBroken = true;
+    stop();
+    if (workerElk === self) workerElk = null;
+  });
+  return self;
+}
+
+// Started at load so the worker boots while the first plan solves.
+void workerUrl?.then((url) => {
+  if (url === null) workerBroken = true;
+  else if (!workerBroken) workerElk ??= startWorker(url);
+});
+
+// Every layout call supersedes the one still running: App keeps only its newest
+// generation's result. A worker runs one layout at a time, so the stale one is
+// cut short by terminating its worker, which a fresh one replaces. A worker
+// that fails instead hands its layout, and every later one, to in-process ELK.
+let abandonRunning: (() => void) | null = null;
+
+async function runElk(graph: ElkGraph): Promise<ElkGraph> {
+  if (workerUrl === null || workerBroken) {
+    return inProcessLayout(graph);
+  }
+  abandonRunning?.();
+  return new Promise<ElkGraph>((resolve, reject) => {
+    let mine: ElkWorker | null = null;
+    let abandoned = false;
+    const abandon = () => {
+      abandoned = true;
+      mine?.stop();
+      if (mine !== null && workerElk === mine) workerElk = null;
+      reject(new Error("ELK layout superseded by a newer one"));
+    };
+    abandonRunning = abandon;
+    workerUrl
+      .then(async (url) => {
+        if (abandoned) return;
+        if (url === null) workerBroken = true;
+        else if (!workerBroken) {
+          mine = workerElk ??= startWorker(url);
+          try {
+            resolve(
+              (await Promise.race([
+                mine.elk.layout(graph),
+                mine.failure,
+              ])) as ElkGraph,
+            );
+            return;
+          } catch (e) {
+            if (!(e instanceof ElkWorkerFailure)) throw e;
+          }
+        }
+        if (abandoned) return;
+        resolve(await inProcessLayout(graph));
+      })
+      .catch(reject)
+      .finally(() => {
+        if (abandonRunning === abandon) abandonRunning = null;
+      });
+  });
+}
 
 export async function layoutRenderPlan(input: LayoutInput): Promise<{
   nodes: RFAnyNode[];
@@ -1027,7 +1192,7 @@ export async function layoutRenderPlan(input: LayoutInput): Promise<{
   baseEdges: RFEdge[];
 }> {
   const elkGraph = renderPlanToElkGraph(input);
-  const laid = (await elk.layout(elkGraph)) as ElkGraph;
+  const laid = await runElk(elkGraph);
   const placed = fromElkRenderLayout(laid, input);
   // Gap widening first, so the passes below see the final positions. With the
   // pre-pass switched off the nodes stay exactly where ELK put them and there

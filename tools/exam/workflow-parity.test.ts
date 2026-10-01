@@ -1123,6 +1123,16 @@ describe("the refuter's probe command is absolute", () => {
     expect(prompt).not.toContain("from the repo root");
   });
 
+  test("routes the probe through the machine-wide heavy-command gate", async () => {
+    const { prompts } = await runWorkflow([solo({})]);
+    const prompt = prompts.get("refute:solo:chip-adrift");
+
+    expect(prompt).toContain(
+      `${REPO_ROOT}/tools/heavy.sh bun run ${REPO_ROOT}/tools/exam/probe.ts`,
+    );
+    expect(prompt).toContain("exit 75");
+  });
+
   test("refuses args carrying no repoRoot, and a relative one", async () => {
     const spec: PlanSpec = {
       id: "bare",

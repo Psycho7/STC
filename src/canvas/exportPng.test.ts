@@ -259,12 +259,16 @@ const fontFetch = vi.fn<(url: string) => Promise<Response>>(
 );
 
 // Returns the live face list, so a test can load a face between exports.
-function stubDocumentFonts(): FakeFace[] {
+// `extra` declares more faces, each with its src URL.
+function stubDocumentFonts(
+  extra: readonly [FakeFace, string][] = [],
+): FakeFace[] {
   const faces = [
     { ...LATIN },
     { ...CJK_UNUSED },
     { ...CINZEL },
     { ...CINZEL_BLACK },
+    ...extra.map(([face]) => ({ ...face })),
   ];
   const sheets = [
     {
@@ -274,6 +278,7 @@ function stubDocumentFonts(): FakeFace[] {
         fontFaceRule(CJK_UNUSED, CJK_URL),
         fontFaceRule(CINZEL, CINZEL_URL),
         fontFaceRule(CINZEL_BLACK, CINZEL_BLACK_URL),
+        ...extra.map(([face, url]) => fontFaceRule(face, url)),
       ],
     },
   ];
@@ -449,6 +454,21 @@ describe("font embedding", () => {
       LATIN_URL,
       LATIN_URL,
     ]);
+  });
+
+  // Google Fonts serves one file for every weight of a family, so faces that
+  // differ only in weight share a src URL.
+  test("faces sharing a src URL fetch it once", async () => {
+    stubDocumentFonts([[{ ...LATIN, weight: "700" }, LATIN_URL]]);
+    const capturePlanPng = await freshCapture();
+
+    await capturePlanPng(canvasViewport(), FRAME, "#000");
+
+    expect(fontFetch.mock.calls.map(([url]) => url)).toEqual([LATIN_URL]);
+    const css = fontEmbedCSSPassed(0) as string;
+    expect(css).toContain("font-weight: 400");
+    expect(css).toContain("font-weight: 700");
+    expect(css).not.toContain(LATIN_URL);
   });
 
   // An empty string, not undefined: html-to-image only falls back to its own

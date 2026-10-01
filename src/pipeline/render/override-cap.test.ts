@@ -5,13 +5,13 @@
 // import.meta.env.DEV = true, so solvePlanWithIntermediates and
 // renderPlanFromSolve both run their invariant hooks; completing without a
 // throw is itself an assertion.
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import Fraction from "fraction.js";
 import { pack } from "../../data/load";
 import { solvePlanWithIntermediates } from "../../solver/index";
 import type { SolvePlanFull } from "../../solver/index";
-import { solveForRender } from "../solveForRender";
-import { checkRenderPlan } from "./invariants";
+import { solveForRender, solveFromPlan } from "../solveForRender";
+import { checkRenderPlan, targetOutputShortfalls } from "./invariants";
 import { makePack } from "../../solver/closed-form-fixtures";
 import {
   isInputProductUnit,
@@ -20,7 +20,8 @@ import {
 } from "../types";
 import type { RenderPlan } from "../types";
 import type { ItemTarget } from "../../data/targets";
-import type { ItemOverride } from "../../data/plan";
+import { defaultPlan, type ItemOverride } from "../../data/plan";
+import { rationalFromString } from "./rational";
 
 function solveAndRender(
   targets: ItemTarget[],
@@ -285,4 +286,98 @@ describe("forced-byproduct zero-draw cap", () => {
     expect(inflow(plan, consumerUnit.id, "c").equals(1)).toBe(true);
     expect(plan.edges.some((e) => e.fromUnit.startsWith("u:in:c"))).toBe(false);
   });
+});
+
+// A target item that is also an in-plan input, short because a cap starves its
+// producer. coupon-web: copper_jar is a 30/min target and a filter_core input,
+// and copper_jar eats gas_inert. The LP bills the whole deficit to the item's
+// row; the render bills it to the target, so the in-plan consumer is fed and
+// the target card, the strip and `delivered` all read the LP's shortfall.
+describe("short target that is also an in-plan input", () => {
+  const COUPON_WEB: ItemTarget[] = [
+    { itemId: "jinlong_coupon", ratePerSec: { num: "1", denom: "1" } },
+    { itemId: "filter_core", ratePerSec: { num: "1", denom: "4" } },
+    { itemId: "copper_jar", ratePerSec: { num: "1", denom: "2" } },
+  ];
+  const DECLARED = new Fraction(1, 2);
+  const capped = (perMin: number) =>
+    solveFromPlan({
+      ...defaultPlan(pack),
+      targets: COUPON_WEB,
+      itemOverrides: [
+        {
+          itemId: "gas_inert",
+          ratePerSec: { num: String(perMin), denom: "60" },
+        },
+      ],
+    });
+
+  it.each([
+    [30, new Fraction(3, 8)],
+    [20, new Fraction(5, 24)],
+  ])(
+    "gas_inert %i/min feeds filter_core and delivers the LP's %s",
+    (perMin, lpDelivered) => {
+      vi.stubEnv("DEV", false);
+      try {
+        const out = capped(perMin);
+        const deficit = out.full.feasibility.deficits.get("copper_jar");
+        expect(deficit?.equals(DECLARED.sub(lpDelivered))).toBe(true);
+
+        // The consumer gets its whole LP demand.
+        const filterCore = out.plan.units.filter(
+          (u) => isRecipeUnit(u) && u.recipeId === "filter_core",
+        );
+        expect(filterCore.length).toBeGreaterThan(0);
+        const fed = filterCore.reduce(
+          (acc, u) => acc.add(inflow(out.plan, u.id, "copper_jar")),
+          new Fraction(0),
+        );
+        expect(fed.equals(out.full.rates.get("filter_core")!)).toBe(true);
+
+        // The target takes declared minus the LP deficit, and every reader of
+        // the shortfall agrees on it.
+        const delivered = inflow(out.plan, "u:out:copper_jar", "copper_jar");
+        expect(delivered.equals(lpDelivered)).toBe(true);
+        const card = out.plan.units.find((u) => u.id === "u:out:copper_jar");
+        if (!card || !isOutputProductUnit(card)) throw new Error("no card");
+        expect(card.delivered).toBeDefined();
+        expect(rationalFromString(card.delivered!).equals(lpDelivered)).toBe(
+          true,
+        );
+        expect(out.underDelivered).toEqual(["copper_jar"]);
+        expect(out.cappedAtLimit).toEqual(["gas_inert"]);
+        const shortfalls = targetOutputShortfalls(out.plan, out.targets);
+        expect(shortfalls.map((s) => s.item)).toEqual(["copper_jar"]);
+        expect(shortfalls[0]!.actual).toBeCloseTo(lpDelivered.valueOf(), 12);
+
+        const violations = checkRenderPlan({
+          plan: out.plan,
+          rates: out.full.rates,
+          pack,
+          targets: out.targets,
+          itemOverrides: out.itemOverrides,
+          catalystAccount: out.full.catalystAccount,
+        }).flatMap((r) => r.violations);
+        expect(violations).toHaveLength(1);
+        expect(violations[0]).toMatch(/^target output "copper_jar"/);
+      } finally {
+        vi.unstubAllEnvs();
+      }
+    },
+  );
+
+  it.each([30, 20])(
+    "gas_inert %i/min trips only the target assert under DEV",
+    (perMin) => {
+      vi.stubEnv("DEV", true);
+      try {
+        expect(() => capped(perMin)).toThrow(
+          /^render invariants violated:\ntarget output "copper_jar"[^\n]*$/,
+        );
+      } finally {
+        vi.unstubAllEnvs();
+      }
+    },
+  );
 });

@@ -61,7 +61,7 @@ export function TargetsPanel({
   const flow = usePickerFlow<
     { kind: "row"; itemId: string } | { kind: "add" },
     { itemId: string }
-  >(pack, pickableItems, unavailableItems);
+  >(pack, unavailableItems);
   const { pickerFor, prompt, closePicker, focusOnMount } = flow;
   const [duplicateError, setDuplicateError] = useState<{
     rowId: string;
@@ -275,14 +275,10 @@ export function TargetsPanel({
     </div>
   );
 
-  // The "already a target" sentence applies only when such a tile is in the
-  // grid; the flow appends the availability sentences.
-  function pickerHint(targetedIds: ReadonlySet<string>): string | undefined {
-    return flow.pickerHint(
-      pickableItems.some((it) => targetedIds.has(it.id))
-        ? i18n.t("targets.picker.listed")
-        : undefined,
-    );
+  // The "already a target" sentence applies only while such a tile is shown;
+  // the flow appends the availability sentences.
+  function pickerHint(targetedIds: ReadonlySet<string>) {
+    return flow.pickerHint(i18n.t("targets.picker.listed"), targetedIds);
   }
 
   function renderPicker() {
