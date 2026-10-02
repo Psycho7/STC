@@ -37,7 +37,11 @@ import {
   nodeHeight,
   nodeIndexOf,
 } from "../../src/canvas/nodeGeometry";
-import { FORWARD_LEVEL_FLOOR } from "../../src/canvas/levelOccupancy";
+import {
+  FORWARD_LEVEL_FLOOR,
+  runBandsOfEdge,
+  runFloorHit,
+} from "../../src/canvas/levelOccupancy";
 import {
   PORT_STUB,
   CHAMFER,
@@ -1476,6 +1480,60 @@ describe("jogForwardLegs", () => {
       );
       expect(legYOf(out, "e0")).toBeUndefined();
       expect(out[0]).toBe(edges[0]);
+    });
+
+    it("keeps a floor-only jog whose revert would put its approach back on a settled run", () => {
+      // x drops at its entry column 600, and its long run at sy 39 lies within
+      // the floor of z's approach at 45, so x jogs for the floor alone. y's
+      // source stub at 145 stands within the floor of x's approach at 139 out
+      // to 742, so x's jogged descent walks right of 600 to clear it. z is
+      // scanned later and jogs around blk, so nothing strikes x's run at 39 any
+      // more. Reverting x would draw its approach from 600 again, back inside
+      // y's floor: the revert must not, and x keeps its jog.
+      const nodes: RFAnyNode[] = [
+        inputProductNode("s1", "ore", 0, 0, 148, 78), // port y 39
+        inputProductNode("t1", "ore", 1000, 100, 148, 78), // port y 139
+        inputProductNode("s2", "ore", 0, 300, 148, 78), // port y 339
+        inputProductNode("t2", "ore", 1100, 6, 148, 78), // port y 45
+        inputProductNode("blk", "ore", 760, -20, 148, 78), // on z's run at 45
+        inputProductNode("s3", "ore", 400, 106, 148, 78), // port y 145
+        inputProductNode("t3", "ore", 1300, 306, 148, 78), // port y 345
+      ];
+      const edges: Edge[] = [
+        {
+          ...mkEdge("x", "s1", "t1", "ore"),
+          data: { item: "ore", rate: new Fraction(1), bendX: 200, entryX: 600 },
+        },
+        {
+          ...mkEdge("z", "s2", "t2", "ore"),
+          data: { item: "ore", rate: new Fraction(1), bendX: 300 },
+        },
+        {
+          ...mkEdge("y", "s3", "t3", "ore"),
+          data: { item: "ore", rate: new Fraction(1), bendX: 750 },
+        },
+      ];
+      const byId = nodeIndexOf(nodes);
+      // Premise: x alone is clean, so any jog it takes is the floor's.
+      expect(legYOf(jogForwardLegs(nodes, [edges[0]!]), "x")).toBeUndefined();
+      // Premise: with z unable to move, x's jog descends right of its entry
+      // column, which is what keeps its approach off y's stub.
+      const pinned = jogForwardLegs(
+        nodes.filter((n) => n.id !== "blk"),
+        edges,
+      );
+      const pinnedX = pinned[0]!.data as { jogDescentX?: number };
+      expect(pinnedX.jogDescentX).toBeGreaterThan(600 + PORT_STUB);
+
+      const out = jogForwardLegs(nodes, edges);
+      expect(typeof legYOf(out, "z")).toBe("number");
+      expect(typeof legYOf(out, "x")).toBe("number");
+      const xBands = runBandsOfEdge(out[0]!, byId);
+      for (const band of runBandsOfEdge(out[2]!, byId)) {
+        expect(runFloorHit(xBands, band, band.y, band.left, band.right)).toBe(
+          false,
+        );
+      }
     });
 
     it("exempts two members of one fan-in trunk from each other's level", () => {
