@@ -3051,7 +3051,7 @@ export function jogForwardLegs(
   const descentXByIndex = new Map<number, number>();
   const srcColXByIndex = new Map<number, number>();
   // The jogs the level floor alone fired (no card, no owed jog), in scan order,
-  // with the stretches the trigger asked, for the revisit after the scan.
+  // with the stretches a revert would redraw, for the revisit after the scan.
   type FloorOnlyJog = {
     edge: Edge;
     index: number;
@@ -3580,12 +3580,20 @@ export function jogForwardLegs(
       if (trunkKey !== undefined) srcSlotsByTrunk.set(trunkKey, srcSlot + 1);
     }
     if (!cardBlocked && !owed) {
+      // A revert draws the run at ty from the drop column again, and the jog's
+      // descent may have walked right of descentX0 to clear a band there (an
+      // unstamped descent stands at tx - PORT_STUB). The span at ty therefore
+      // covers both the trigger's stretch and every piece the revert restores.
+      const tgtHi = Math.max(
+        descentX0,
+        descentXByIndex.get(index) ?? tx - PORT_STUB,
+      );
       floorOnlyJogs.push({
         edge,
         index,
         self,
         srcSpan: srcStretch ? [bx, dropX] : undefined,
-        tgtSpan: tgtStretch ? [dropX, descentX0] : undefined,
+        tgtSpan: tgtHi > dropX ? [dropX, tgtHi] : undefined,
       });
     }
 
@@ -3616,10 +3624,11 @@ export function jogForwardLegs(
   // The revisit: a floor-only jog moved because a band stood within the floor
   // of its row WHEN IT WAS SCANNED, and the band's owner may have jogged off
   // that level since. levelBands now holds every edge's final runs, so ask the
-  // trigger's own stretches again; where nothing strikes them, the jog guards
-  // nothing and the straight step comes back. The restored runs go into
-  // levelBands, so a later revisit sees them. runFloorHit is symmetric, so a
-  // clear revert cannot put a settled edge inside a floor. Slots and staked
+  // stretches the revert would redraw (the trigger's own among them) again;
+  // where nothing strikes them, the jog guards nothing and the straight step
+  // comes back. The restored runs go into levelBands, so a later revisit sees
+  // them. runFloorHit is symmetric, so a clear revert cannot put a settled edge
+  // inside a floor. Slots and staked
   // columns stay taken: only edges scanned later read them, and those have run.
   for (const { edge, index, self, srcSpan, tgtSpan } of floorOnlyJogs) {
     const foreignBands: RunBand[] = [];
@@ -3634,7 +3643,6 @@ export function jogForwardLegs(
     if (struck) continue;
     legYByIndex.delete(index);
     descentXByIndex.delete(index);
-    srcColXByIndex.delete(index);
     levelBands.set(edge.id, runBandsOfEdge(edge, byId));
   }
 
