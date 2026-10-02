@@ -32,6 +32,7 @@ import {
 import { ENV_ROW_HEIGHT } from "../../src/canvas/envBanner";
 import { cardRectsFor } from "../../src/canvas/chipSeating";
 import { widenLayerGaps, type GapRecord } from "../../src/canvas/layerModel";
+import { buildGapColumnOrder } from "../../src/canvas/gapColumnOrder";
 import {
   drawnPortsOf,
   nodeHeight,
@@ -1898,6 +1899,45 @@ describe("jogForwardLegs", () => {
       for (const rect of foreign) {
         expect(segmentEntersRect(p0, p1, rect, 0.5)).toBe(false);
       }
+    }
+  });
+
+  // The target-side half of the bound on an owed jog. e0 is clean and clear
+  // of the floor, so only the order's debt moves it. It drops at its entry
+  // column 586, 12 right of its bend at 574, so the descent the search starts
+  // from is inside the two-chamfer bound and nothing else is on offer. `c`
+  // gives the level below; it stands off both straight legs.
+  it("jogs an owed edge whose entry column stands inside the two-chamfer bound", () => {
+    const nodes: RFAnyNode[] = [
+      inputProductNode("s", "ore", 0, 0, 148, 78), // port y 39
+      inputProductNode("t", "ore", 760, 100, 148, 78), // port y 139
+      inputProductNode("c", "ore", 300, 200, 148, 78),
+    ];
+    const edges: Edge[] = [
+      {
+        ...mkEdge("e0", "s", "t", "ore"),
+        data: { item: "ore", rate: new Fraction(1), bendX: 574, entryX: 586 },
+      },
+    ];
+    const byId = nodeIndexOf(nodes);
+    const ends = drawnPortsOf(edges[0]!, byId)!;
+    const bx = 574;
+    const order = buildGapColumnOrder(nodes, edges, []);
+
+    // Premise: unowed, e0 is left alone, so the jog below is the debt's.
+    expect(jogForwardLegs(nodes, edges, { gaps: [], order })[0]).toBe(edges[0]);
+    expect(586 - bx).toBeLessThan(2 * CHAMFER);
+
+    const owed = { ...order, cycleOwed: new Set(["e0"]) };
+    const out = jogForwardLegs(nodes, edges, { gaps: [], order: owed });
+    const hints = routingHintsFromData(out[0]!.data);
+    expect(hints.legY).toBeDefined();
+    expect(hints.jogDescentX! - bx).toBeGreaterThanOrEqual(2 * CHAMFER);
+
+    // No backward run at legY.
+    const { pts } = drawnEdge(ends, out[0]!.type, out[0]!.data);
+    for (let i = 1; i < pts.length; i++) {
+      expect(pts[i]![0]).toBeGreaterThanOrEqual(pts[i - 1]![0]);
     }
   });
 });

@@ -3473,9 +3473,14 @@ export function jogForwardLegs(
         // The search only proposes obstacle edges, so a clear desired column
         // inside the bound (an arrival slot marched left onto the entry
         // column) comes back unaccepted with nothing else to offer. A jog
-        // around a card then also asks for the first column the bound allows;
-        // a floor-only jog has its straight step to fall back on.
-        if (faninPinX === undefined && cardBlocked && D - C < minJogRun) {
+        // around a card, or one the order owes, then also asks for the first
+        // column the bound allows; a floor-only jog has its straight step to
+        // fall back on.
+        if (
+          faninPinX === undefined &&
+          (cardBlocked || owed) &&
+          D - C < minJogRun
+        ) {
           D = descentSearch([...tgtStubColumns, C + minJogRun]);
         }
         if (D > tx - CHAMFER) continue;
@@ -3544,13 +3549,15 @@ export function jogForwardLegs(
     // minimum: a walk or a pull that breaks it falls back to the search's own
     // answer, which tryTier held to it. A walk toward the target that only
     // `keeps` forced (the walk toward the source was otherwise clear) is
-    // recorded in `forcedPastBound`.
+    // reported to `onForced`. Only the descent passes one: the flag's one
+    // reader runs before the source column settles.
     let forcedPastBound = false;
     const settle = (
       x: number,
       gap: GapRecord | undefined,
       clear: (candidate: number) => boolean,
       keeps: (candidate: number) => boolean,
+      onForced?: () => void,
     ): number => {
       if (!zoned) return x; // a relaxed column is out of the zone on purpose
       const pulled = clampToZone(x, gap);
@@ -3565,8 +3572,13 @@ export function jogForwardLegs(
       if (settled(walked)) return walked;
       const back = columnClearOfPinned(pulled, 1, blockers);
       if (!settled(back)) return fallback;
-      forcedPastBound =
-        !keeps(walked) && clear(walked) && clampToZone(walked, gap) === walked;
+      if (
+        !keeps(walked) &&
+        clear(walked) &&
+        clampToZone(walked, gap) === walked
+      ) {
+        onForced?.();
+      }
       return back;
     };
 
@@ -3593,6 +3605,9 @@ export function jogForwardLegs(
           // puts the column back inside another line's band undoes the jog.
           !runFloorHit(foreignBands, self, ty, x, tx),
         (x) => x - jog.C >= minJogRun,
+        () => {
+          forcedPastBound = true;
+        },
       );
       // A floor-only jog the bound pushed right of its natural column keeps
       // its straight step instead (see the header).
