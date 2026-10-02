@@ -2186,7 +2186,10 @@ export function clearColumnX(
 // the anchor on one side only ever adds obstacles, so the sets on one side
 // form a chain and (side, size) names one exactly. A caller searching columns
 // for many levels against one anchor can then search once per distinct set,
-// since clearColumnX reads the y-span only through that set.
+// provided the search reads the y-span only through that set: it must pass no
+// drawnColumns (clearColumnX filters those by their own y-span, which the key
+// does not name), and every other option must either not vary with y or be
+// folded into the key. clearSpannedColumnX is the search that fits this key.
 function spannedSetKeyOf(
   obstacles: ReadonlyArray<ObstacleRect>,
   anchorY: number,
@@ -2217,6 +2220,30 @@ function spannedSetKeyOf(
     y <= anchorY
       ? `below:${bottomsBelow.length - countUpTo(bottomsBelow, y, false)}`
       : `above:${countUpTo(topsAbove, y, true)}`;
+}
+
+// clearColumnX over the run from `anchorY` to `y`, for a result cached under
+// spannedSetKeyOf(obstacles, anchorY)(y). The options type rules out
+// drawnColumns, the one input that key cannot name.
+type SpannedColumnOpts = Omit<
+  NonNullable<Parameters<typeof clearColumnX>[4]>,
+  "drawnColumns"
+> & { drawnColumns?: never };
+
+function clearSpannedColumnX(
+  desiredX: number,
+  anchorY: number,
+  y: number,
+  obstacles: ReadonlyArray<ObstacleRect>,
+  opts: SpannedColumnOpts,
+): number {
+  return clearColumnX(
+    desiredX,
+    Math.min(anchorY, y),
+    Math.max(anchorY, y),
+    obstacles,
+    opts,
+  );
 }
 
 // Raw (unpadded) card rectangles, one per node, tagged with the node id. The
@@ -3472,23 +3499,17 @@ export function jogForwardLegs(
           const known = srcColumnBySpan.get(srcKey);
           C =
             known ??
-            clearColumnX(
-              desiredSrcColX,
-              Math.min(sy, R),
-              Math.max(sy, R),
-              columnSet,
-              {
-                towardTarget: 1,
-                gap: colGap,
-                radius,
-                extra: srcStubColumns,
-                accept: (x) =>
-                  x > sx &&
-                  x < tx &&
-                  (relaxed || inSourceZone(x)) &&
-                  !stubBlocked(sy, sx, x),
-              },
-            );
+            clearSpannedColumnX(desiredSrcColX, sy, R, columnSet, {
+              towardTarget: 1,
+              gap: colGap,
+              radius,
+              extra: srcStubColumns,
+              accept: (x) =>
+                x > sx &&
+                x < tx &&
+                (relaxed || inSourceZone(x)) &&
+                !stubBlocked(sy, sx, x),
+            });
           srcColumnBySpan.set(srcKey, C);
           if (vRunBlockedIn(columnSet, C, sy, R) || stubBlocked(sy, sx, C)) {
             continue;
@@ -3513,24 +3534,18 @@ export function jogForwardLegs(
           const descentKey = `${descentSpanKey(R)}|${C}`;
           D =
             descentBySpan.get(descentKey) ??
-            clearColumnX(
-              descentX0,
-              Math.min(R, ty),
-              Math.max(R, ty),
-              descentColumnSet,
-              {
-                towardTarget: 1,
-                gap: colGap,
-                radius,
-                extra: tgtStubColumns,
-                accept: (x) =>
-                  x <= tx - CHAMFER &&
-                  x - C >= minJogRun &&
-                  inSpan(x, allowedDescent) &&
-                  (relaxed || inDescentZone(x)) &&
-                  !stubBlocked(ty, x, tx),
-              },
-            );
+            clearSpannedColumnX(descentX0, ty, R, descentColumnSet, {
+              towardTarget: 1,
+              gap: colGap,
+              radius,
+              extra: tgtStubColumns,
+              accept: (x) =>
+                x <= tx - CHAMFER &&
+                x - C >= minJogRun &&
+                inSpan(x, allowedDescent) &&
+                (relaxed || inDescentZone(x)) &&
+                !stubBlocked(ty, x, tx),
+            });
           descentBySpan.set(descentKey, D);
         }
         if (D > tx - CHAMFER) continue;
