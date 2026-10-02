@@ -3450,8 +3450,7 @@ export function jogForwardLegs(
         // The descent must stay left of the target port (final approach runs
         // rightward into the Left handle; a column at or past tx would reverse
         // the closing stub and flip the arrow).
-        const D =
-          faninPinX ??
+        const descentSearch = (extra: ReadonlyArray<number>): number =>
           clearColumnX(
             descentX0,
             Math.min(R, ty),
@@ -3461,7 +3460,7 @@ export function jogForwardLegs(
               towardTarget: 1,
               gap: colGap,
               radius,
-              extra: tgtStubColumns,
+              extra,
               accept: (x) =>
                 x <= tx - CHAMFER &&
                 x - C >= minJogRun &&
@@ -3470,6 +3469,15 @@ export function jogForwardLegs(
                 !stubBlocked(ty, x, tx),
             },
           );
+        let D = faninPinX ?? descentSearch(tgtStubColumns);
+        // The search only proposes obstacle edges, so a clear desired column
+        // inside the bound (an arrival slot marched left onto the entry
+        // column) comes back unaccepted with nothing else to offer. A jog
+        // around a card then also asks for the first column the bound allows;
+        // a floor-only jog has its straight step to fall back on.
+        if (faninPinX === undefined && cardBlocked && D - C < minJogRun) {
+          D = descentSearch([...tgtStubColumns, C + minJogRun]);
+        }
         if (D > tx - CHAMFER) continue;
         // Also the fan-in pin's test, and the search's when it handed back
         // its desired column unaccepted.

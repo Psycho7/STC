@@ -1755,6 +1755,64 @@ describe("jogForwardLegs", () => {
       expect(pts[i]![0]).toBeGreaterThanOrEqual(pts[i - 1]![0]);
     }
   });
+
+  // The target-side half of the bound on a card-blocked edge. `blk` stands
+  // over e0's approach at ty 436, so the straight step pierces it. e0's bend
+  // column is 724 and its arrival slot is 736, 12 right of it, so the slot
+  // the descent search starts from is inside the two-chamfer bound. `top`'s
+  // padded rect holds sy at x 724, which fails every padded-tier level and
+  // leaves the raw tier, where nothing blocks the slot and only the bound
+  // rejects it. The search has to offer the column two chamfers right of the
+  // bend: without it every level fails and the straight step through blk is
+  // drawn.
+  it("jogs a card-blocked edge whose arrival slot stands inside the two-chamfer bound", () => {
+    const nodes: RFAnyNode[] = [
+      inputProductNode("s", "ore", 0, 0, 148, 78), // port y 39
+      inputProductNode("t", "ore", 760, 397, 148, 78), // port y 436
+      inputProductNode("top", "ore", 695, -47, 277, 83), // raw y -47..36
+      inputProductNode("blk", "ore", 570, 388, 146, 89), // on the approach
+    ];
+    const edges: Edge[] = [
+      {
+        ...mkEdge("e0", "s", "t", "ore"),
+        data: { item: "ore", rate: new Fraction(1), bendX: 729, entryX: 581 },
+      },
+    ];
+    const byId = nodeIndexOf(nodes);
+    const ends = drawnPortsOf(edges[0]!, byId)!;
+    const exempt = new Set(["s", "t"]);
+    const bx = 724; // bendX 729 clamped to the drawn corridor
+
+    // Premise: the approach is blocked in both tiers, so the straight step
+    // really pierces blk, and the arrival slot is inside the bound.
+    expect(
+      forwardLegsBlocked(paddedObstacles(nodes, edges), exempt, ends, 581),
+    ).toEqual({ srcBlocked: false, tgtBlocked: true });
+    expect(forwardLegsBlocked(rawCardRects(nodes), exempt, ends, 581)).toEqual({
+      srcBlocked: false,
+      tgtBlocked: true,
+    });
+    expect(760 - PORT_STUB - bx).toBeLessThan(2 * CHAMFER);
+
+    const out = jogForwardLegs(nodes, edges);
+    const e0 = out.find((e) => e.id === "e0")!;
+    const hints = routingHintsFromData(e0.data);
+    expect(hints.legY).toBeDefined();
+    expect(hints.jogDescentX! - bx).toBeGreaterThanOrEqual(2 * CHAMFER);
+
+    const { pts } = drawnEdge(ends, e0.type, e0.data);
+    // No backward run at legY.
+    for (let i = 1; i < pts.length; i++) {
+      expect(pts[i]![0]).toBeGreaterThanOrEqual(pts[i - 1]![0]);
+    }
+    // No segment enters a foreign drawn card, by the pierce audit's own test.
+    const foreign = cardRectsFor(nodes, byId).filter((c) => !exempt.has(c.id));
+    for (const [p0, p1] of segmentsOf(pts.map(([x, y]) => [x, y] as const))) {
+      for (const rect of foreign) {
+        expect(segmentEntersRect(p0, p1, rect, 0.5)).toBe(false);
+      }
+    }
+  });
 });
 
 describe("clampBackwardRails column clamp", () => {
