@@ -3533,21 +3533,42 @@ export function jogForwardLegs(
         if (D === undefined) {
           descentSpanKey ??= spannedSetKeyOf(descentColumnSet, ty);
           const descentKey = `${descentSpanKey(R)}|${C}`;
-          D =
-            descentBySpan.get(descentKey) ??
-            clearSpannedColumnX(descentX0, ty, R, descentColumnSet, {
-              towardTarget: 1,
-              gap: colGap,
-              radius,
-              extra: tgtStubColumns,
-              accept: (x) =>
-                x <= tx - CHAMFER &&
-                x - C >= minJogRun &&
-                inSpan(x, allowedDescent) &&
-                (relaxed || inDescentZone(x)) &&
-                !stubBlocked(ty, x, tx),
-            });
-          descentBySpan.set(descentKey, D);
+          const descentSearch = (
+            key: string,
+            extra: ReadonlyArray<number>,
+          ): number => {
+            const found =
+              descentBySpan.get(key) ??
+              clearSpannedColumnX(descentX0, ty, R, descentColumnSet, {
+                towardTarget: 1,
+                gap: colGap,
+                radius,
+                extra,
+                accept: (x) =>
+                  x <= tx - CHAMFER &&
+                  x - C >= minJogRun &&
+                  inSpan(x, allowedDescent) &&
+                  (relaxed || inDescentZone(x)) &&
+                  !stubBlocked(ty, x, tx),
+              });
+            descentBySpan.set(key, found);
+            return found;
+          };
+          D = descentSearch(descentKey, tgtStubColumns);
+          // The search only proposes obstacle edges, so a clear desired column
+          // inside the bound (an arrival slot marched left onto the entry
+          // column) comes back unaccepted with nothing else to offer. A jog
+          // around a card then also asks for the first column the bound
+          // allows; a floor-only jog has its straight step to fall back on.
+          // The extra column is in the key, so this search never shares the
+          // first one's entry.
+          if (cardBlocked && D - C < minJogRun) {
+            const retryX = C + minJogRun;
+            D = descentSearch(`${descentKey}|+${retryX}`, [
+              ...tgtStubColumns,
+              retryX,
+            ]);
+          }
         }
         if (D > tx - CHAMFER) continue;
         // Also the fan-in pin's test, and the search's when it handed back

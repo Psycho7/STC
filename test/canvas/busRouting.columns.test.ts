@@ -1561,6 +1561,93 @@ describe("jogForwardLegs", () => {
       }
     });
 
+    it("keeps a floor-only jog whose revert would land on a run an earlier revert restored", () => {
+      // a's approach at 139 and b's long source run at 145 (out to its entry
+      // column 600) share 328..592, so a, scanned first, jogs for the floor
+      // alone. b is scanned next against a's jogged band, but y's straight
+      // approach at 151 strikes b's run, so b jogs too. y runs through ta and
+      // jogs away. The revisit finds nothing near a's straight approach and
+      // reverts it; b's revisit must then read a's RESTORED run at 139, which
+      // strikes b's run at 145, so b keeps its jog. Read against a's stale
+      // jogged band instead, b would revert as well and the pair would draw
+      // 6 apart over 264 units.
+      const nodes: RFAnyNode[] = [
+        inputProductNode("sa", "ore", 0, 0, 148, 78), // port y 39
+        inputProductNode("ta", "ore", 760, 100, 148, 78), // port y 139
+        inputProductNode("sb", "ore", 0, 106, 148, 78), // port y 145
+        inputProductNode("tb", "ore", 1000, 306, 148, 78), // port y 345
+        inputProductNode("sy", "ore", 0, 400, 148, 78), // port y 439
+        inputProductNode("ty", "ore", 1300, 112, 148, 78), // port y 151
+      ];
+      const edges: Edge[] = [
+        {
+          ...mkEdge("a", "sa", "ta", "ore"),
+          data: { item: "ore", rate: new Fraction(1), bendX: 320 },
+        },
+        {
+          ...mkEdge("b", "sb", "tb", "ore"),
+          data: { item: "ore", rate: new Fraction(1), bendX: 300, entryX: 600 },
+        },
+        {
+          ...mkEdge("y", "sy", "ty", "ore"),
+          data: { item: "ore", rate: new Fraction(1), bendX: 250 },
+        },
+      ];
+      const byId = nodeIndexOf(nodes);
+      // Premise: a and b alone are each clean, so any jog either takes is the
+      // floor's.
+      expect(legYOf(jogForwardLegs(nodes, [edges[0]!]), "a")).toBeUndefined();
+      expect(legYOf(jogForwardLegs(nodes, [edges[1]!]), "b")).toBeUndefined();
+      // Premise: with y absent, a jogs off b's run and b, scanned against a's
+      // jogged band, stays put -- so b's jog below is y's doing.
+      const pair = jogForwardLegs(nodes, [edges[0]!, edges[1]!]);
+      expect(typeof legYOf(pair, "a")).toBe("number");
+      expect(legYOf(pair, "b")).toBeUndefined();
+
+      const out = jogForwardLegs(nodes, edges);
+      expect(typeof legYOf(out, "y")).toBe("number");
+      expect(out[0]).toBe(edges[0]);
+      expect(typeof legYOf(out, "b")).toBe("number");
+      const aBands = runBandsOfEdge(out[0]!, byId);
+      for (const band of runBandsOfEdge(out[1]!, byId)) {
+        expect(runFloorHit(aBands, band, band.y, band.left, band.right)).toBe(
+          false,
+        );
+      }
+    });
+
+    it("keeps a floor-only jog whose source run is still struck", () => {
+      // x drops at its entry column 600, so its long run at sy 39 spans the
+      // bend column 200 to 600, inside the floor of z's approach at 45. z,
+      // scanned later, has no reason to move, so the revisit finds x's run at
+      // sy still struck and x keeps its jog. x's jogged descent stands at the
+      // entry column, so a revert redraws nothing at ty: the run at sy alone
+      // decides.
+      const nodes: RFAnyNode[] = [
+        inputProductNode("s1", "ore", 0, 0, 148, 78), // port y 39
+        inputProductNode("t1", "ore", 1000, 100, 148, 78), // port y 139
+        inputProductNode("s2", "ore", 0, 300, 148, 78), // port y 339
+        inputProductNode("t2", "ore", 1100, 6, 148, 78), // port y 45
+      ];
+      const edges: Edge[] = [
+        {
+          ...mkEdge("x", "s1", "t1", "ore"),
+          data: { item: "ore", rate: new Fraction(1), bendX: 200, entryX: 600 },
+        },
+        {
+          ...mkEdge("z", "s2", "t2", "ore"),
+          data: { item: "ore", rate: new Fraction(1), bendX: 300 },
+        },
+      ];
+      // Premise: x alone is clean, so any jog it takes is the floor's.
+      expect(legYOf(jogForwardLegs(nodes, [edges[0]!]), "x")).toBeUndefined();
+
+      const out = jogForwardLegs(nodes, edges);
+      expect(typeof legYOf(out, "x")).toBe("number");
+      expect((out[0]!.data as { jogDescentX?: number }).jogDescentX).toBe(600);
+      expect(out[1]).toBe(edges[1]);
+    });
+
     it("exempts two members of one fan-in trunk from each other's level", () => {
       // Both edges land on the same target port, so their final legs share one
       // row for the whole approach -- which is what a trunk IS. Forcing them
@@ -1778,6 +1865,64 @@ describe("jogForwardLegs", () => {
     const { pts } = drawnEdge(ends, e0.type, e0.data);
     for (let i = 1; i < pts.length; i++) {
       expect(pts[i]![0]).toBeGreaterThanOrEqual(pts[i - 1]![0]);
+    }
+  });
+
+  // The target-side half of the bound on a card-blocked edge. `blk` stands
+  // over e0's approach at ty 436, so the straight step pierces it. e0's bend
+  // column is 724 and its arrival slot is 736, 12 right of it, so the slot
+  // the descent search starts from is inside the two-chamfer bound. `top`'s
+  // padded rect holds sy at x 724, which fails every padded-tier level and
+  // leaves the raw tier, where nothing blocks the slot and only the bound
+  // rejects it. The search has to offer the column two chamfers right of the
+  // bend: without it every level fails and the straight step through blk is
+  // drawn.
+  it("jogs a card-blocked edge whose arrival slot stands inside the two-chamfer bound", () => {
+    const nodes: RFAnyNode[] = [
+      inputProductNode("s", "ore", 0, 0, 148, 78), // port y 39
+      inputProductNode("t", "ore", 760, 397, 148, 78), // port y 436
+      inputProductNode("top", "ore", 695, -47, 277, 83), // raw y -47..36
+      inputProductNode("blk", "ore", 570, 388, 146, 89), // on the approach
+    ];
+    const edges: Edge[] = [
+      {
+        ...mkEdge("e0", "s", "t", "ore"),
+        data: { item: "ore", rate: new Fraction(1), bendX: 729, entryX: 581 },
+      },
+    ];
+    const byId = nodeIndexOf(nodes);
+    const ends = drawnPortsOf(edges[0]!, byId)!;
+    const exempt = new Set(["s", "t"]);
+    const bx = 724; // bendX 729 clamped to the drawn corridor
+
+    // Premise: the approach is blocked in both tiers, so the straight step
+    // really pierces blk, and the arrival slot is inside the bound.
+    expect(
+      forwardLegsBlocked(paddedObstacles(nodes, edges), exempt, ends, 581),
+    ).toEqual({ srcBlocked: false, tgtBlocked: true });
+    expect(forwardLegsBlocked(rawCardRects(nodes), exempt, ends, 581)).toEqual({
+      srcBlocked: false,
+      tgtBlocked: true,
+    });
+    expect(760 - PORT_STUB - bx).toBeLessThan(2 * CHAMFER);
+
+    const out = jogForwardLegs(nodes, edges);
+    const e0 = out.find((e) => e.id === "e0")!;
+    const hints = routingHintsFromData(e0.data);
+    expect(hints.legY).toBeDefined();
+    expect(hints.jogDescentX! - bx).toBeGreaterThanOrEqual(2 * CHAMFER);
+
+    const { pts } = drawnEdge(ends, e0.type, e0.data);
+    // No backward run at legY.
+    for (let i = 1; i < pts.length; i++) {
+      expect(pts[i]![0]).toBeGreaterThanOrEqual(pts[i - 1]![0]);
+    }
+    // No segment enters a foreign drawn card, by the pierce audit's own test.
+    const foreign = cardRectsFor(nodes, byId).filter((c) => !exempt.has(c.id));
+    for (const [p0, p1] of segmentsOf(pts.map(([x, y]) => [x, y] as const))) {
+      for (const rect of foreign) {
+        expect(segmentEntersRect(p0, p1, rect, 0.5)).toBe(false);
+      }
     }
   });
 });
