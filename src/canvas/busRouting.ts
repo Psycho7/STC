@@ -2190,7 +2190,8 @@ export function clearColumnX(
 // drawnColumns (clearColumnX filters those by their own y-span, which the key
 // does not name), and every other option must either not vary with y or be
 // folded into the key. clearSpannedColumnX is the search that fits this key.
-function spannedSetKeyOf(
+// Exported for the column suite, which pins the key at an obstacle's edge.
+export function spannedSetKeyOf(
   obstacles: ReadonlyArray<ObstacleRect>,
   anchorY: number,
 ): (y: number) => string {
