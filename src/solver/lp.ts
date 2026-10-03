@@ -27,8 +27,9 @@ export type LpInput = {
   // itself rather than the solution it produces.
   onModel?: (mode: string, model: LpModel) => void;
   // Test seam: called once per pass that ran, in pass order, after the solve
-  // settles. A tie-break pass retried without its frozen columns is still one
-  // pass, reported by the retry's outcome. See LpPassReport.
+  // settles. A tie-break pass retried with its frozen columns back is still one
+  // pass, reported by the retry's outcome after those columns are dropped from
+  // its result. See LpPassReport.
   onPass?: (report: LpPassReport) => void;
 };
 
