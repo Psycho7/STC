@@ -2943,6 +2943,12 @@ function stubClearColumns(
 // every jog the floor alone fired is revisited in scan order against the final
 // bands, and one whose own straight stretches no band strikes any more is
 // dropped: the edge draws its straight step again. One pass, no fixpoint.
+// A jog's descent keeps two chamfers right of its entry column, or the run at
+// its level draws backwards. When only that bound turns the descent's walk
+// from the source side to the target side, a floor-only jog is not taken at
+// all: the column it would walk onto may be one a later edge needs, and the
+// run that edge is then pushed onto can strike this edge's straight stretch,
+// so the revisit could never give the jog back.
 //
 // It reads each edge's FINAL bendX (the leg starts at that column); which pass
 // settles it is the ROUTING_PASSES entry in layout.ts.
@@ -3095,6 +3101,10 @@ export function jogForwardLegs(
     const hints = routingHintsFromData(edge.data);
     const geom = forwardStepGeometry(sx, tx, hints.bendX);
     const bx = geom.bx;
+    // The drawer bevels both jog columns by this chamfer, so the run at legY
+    // spans [C + chamfer, D - chamfer]: a descent D closer than two chamfers
+    // right of the entry column C draws that run backwards, a hairpin spike.
+    const minJogRun = 2 * geom.chamfer;
     // Where the straight step turns down: the target's entry column since the
     // late drop, so the long horizontal at sy runs out to HERE and the run at the
     // target row is only the approach band.
@@ -3440,8 +3450,7 @@ export function jogForwardLegs(
         // The descent must stay left of the target port (final approach runs
         // rightward into the Left handle; a column at or past tx would reverse
         // the closing stub and flip the arrow).
-        const D =
-          faninPinX ??
+        const descentSearch = (extra: ReadonlyArray<number>): number =>
           clearColumnX(
             descentX0,
             Math.min(R, ty),
@@ -3451,15 +3460,33 @@ export function jogForwardLegs(
               towardTarget: 1,
               gap: colGap,
               radius,
-              extra: tgtStubColumns,
+              extra,
               accept: (x) =>
                 x <= tx - CHAMFER &&
+                x - C >= minJogRun &&
                 inSpan(x, allowedDescent) &&
                 (relaxed || inDescentZone(x)) &&
                 !stubBlocked(ty, x, tx),
             },
           );
+        let D = faninPinX ?? descentSearch(tgtStubColumns);
+        // The search only proposes obstacle edges, so a clear desired column
+        // inside the bound (an arrival slot marched left onto the entry
+        // column) comes back unaccepted with nothing else to offer. A jog
+        // around a card, or one the order owes, then also asks for the first
+        // column the bound allows; a floor-only jog has its straight step to
+        // fall back on.
+        if (
+          faninPinX === undefined &&
+          (cardBlocked || owed) &&
+          D - C < minJogRun
+        ) {
+          D = descentSearch([...tgtStubColumns, C + minJogRun]);
+        }
         if (D > tx - CHAMFER) continue;
+        // Also the fan-in pin's test, and the search's when it handed back
+        // its desired column unaccepted.
+        if (D - C < minJogRun) continue;
         if (railBlocked(R, C, D)) continue;
         if (vRunBlockedIn(columnSet, D, R, ty)) continue;
         if (stubBlocked(ty, D, tx)) {
@@ -3518,28 +3545,51 @@ export function jogForwardLegs(
     // keeps it is the side to walk. A walk that would put the column through a
     // card, back out of the zone, or back inside the floor either way is dropped
     // for the clamped value: that is the degrade this pass has always taken.
+    // `keeps` is the one test no degrade may break, the jog run's two-chamfer
+    // minimum: a walk or a pull that breaks it falls back to the search's own
+    // answer, which tryTier held to it. A walk toward the target that only
+    // `keeps` forced (the walk toward the source was otherwise clear) is
+    // reported to `onForced`. Only the descent passes one: the flag's one
+    // reader runs before the source column settles.
+    let forcedPastBound = false;
     const settle = (
       x: number,
       gap: GapRecord | undefined,
       clear: (candidate: number) => boolean,
+      keeps: (candidate: number) => boolean,
+      onForced?: () => void,
     ): number => {
       if (!zoned) return x; // a relaxed column is out of the zone on purpose
       const pulled = clampToZone(x, gap);
+      const fallback = keeps(pulled) ? pulled : x;
       const blockers = columnsPinnedIn(gap).filter((b) => b.owner !== edge.id);
       const walked = columnClearOfPinned(pulled, -1, blockers);
-      if (walked === pulled) return pulled;
+      if (walked === pulled) return fallback;
       const settled = (candidate: number): boolean =>
-        clear(candidate) && clampToZone(candidate, gap) === candidate;
+        keeps(candidate) &&
+        clear(candidate) &&
+        clampToZone(candidate, gap) === candidate;
       if (settled(walked)) return walked;
       const back = columnClearOfPinned(pulled, 1, blockers);
-      return settled(back) ? back : pulled;
+      if (!settled(back)) return fallback;
+      if (
+        !keeps(walked) &&
+        clear(walked) &&
+        clampToZone(walked, gap) === walked
+      ) {
+        onForced?.();
+      }
+      return back;
     };
 
+    // Where the jog descends, once settled; none for the single-column shape.
+    let descent: number | undefined;
     if (!jog.single && faninPinX !== undefined) {
       // The pin is already a pinned trunk column of the gap, so the descent
       // neither walks off it nor takes an arrival slot in front of the card.
       legYByIndex.set(index, jog.R);
       descentXByIndex.set(index, faninPinX);
+      descent = faninPinX;
     } else if (!jog.single) {
       legYByIndex.set(index, jog.R);
       const descentX = settle(
@@ -3554,7 +3604,18 @@ export function jogForwardLegs(
           // The floor on the approach stub the search just cleared: a walk that
           // puts the column back inside another line's band undoes the jog.
           !runFloorHit(foreignBands, self, ty, x, tx),
+        (x) => x - jog.C >= minJogRun,
+        () => {
+          forcedPastBound = true;
+        },
       );
+      // A floor-only jog the bound pushed right of its natural column keeps
+      // its straight step instead (see the header).
+      if (!cardBlocked && !owed && forcedPastBound) {
+        legYByIndex.delete(index);
+        return;
+      }
+      descent = descentX;
       // Unstamped, the drawer descends at entryX, else at the DRAWN
       // tx - PORT_STUB, the port drift left of the model slot; the stamp is
       // skipped only where that fallback is the column cleared here.
@@ -3574,6 +3635,9 @@ export function jogForwardLegs(
           x < tx &&
           !vRunBlockedIn(foreignAll, x, sy, jog.R) &&
           !legBlockedIn(foreignCards, sy, sx, x),
+        // Settled after the descent, so it keeps the run against the descent
+        // as stamped rather than the one the search proposed.
+        (x) => descent === undefined || descent - x >= minJogRun,
       );
       srcColXByIndex.set(index, srcColX);
       stakeColumn(sourceGap, srcColX, edge.id);

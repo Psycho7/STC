@@ -31,7 +31,8 @@ import {
 } from "../../src/canvas/dimensions";
 import { ENV_ROW_HEIGHT } from "../../src/canvas/envBanner";
 import { cardRectsFor } from "../../src/canvas/chipSeating";
-import { widenLayerGaps } from "../../src/canvas/layerModel";
+import { widenLayerGaps, type GapRecord } from "../../src/canvas/layerModel";
+import { buildGapColumnOrder } from "../../src/canvas/gapColumnOrder";
 import {
   drawnPortsOf,
   nodeHeight,
@@ -52,6 +53,7 @@ import {
   type ObstacleRect,
 } from "../../src/canvas/edgePath";
 import { parsePoints, type Point } from "./pathAssertions";
+import { segmentEntersRect, segmentsOf } from "../e2e/geometry";
 import type { RFAnyNode } from "../../src/canvas/layout";
 import {
   containerNode,
@@ -1653,6 +1655,290 @@ describe("jogForwardLegs", () => {
       expect(out[0]).toBe(edges[0]);
       expect(out[1]).toBe(edges[1]);
     });
+  });
+
+  // The drawer bevels both jog columns by the step's chamfer, so the run at
+  // legY spans [bx + ch, D - ch] and draws backwards (a hairpin spike) when the
+  // descent D stands less than two chamfers right of the bend column bx.
+  //
+  // e0 drops late at its entry column 600, 26 right of its bend at 574. e1
+  // never moves (no stretch of its own to relocate) and its approach run at
+  // y 49 shares [574, 600] with e0's source run at 39, inside the floor, so
+  // e0 jogs off it. The descent starts at 600, where e1's bend column at 604
+  // stands; walking off it toward the source lands at 588, 14 from the bend.
+  // Only that bound turns the walk toward the target, and the jog is the
+  // floor's alone, so e0 keeps its straight step rather than taking a column
+  // right of 604 that a later edge may need. The floor gives way over the
+  // 26 units of [574, 600], and no hairpin is drawn.
+  it("keeps a floor-only jog's straight step where the two-chamfer bound would push its descent right", () => {
+    const nodes: RFAnyNode[] = [
+      inputProductNode("s1", "ore", 0, 0, 148, 78), // port y 39
+      inputProductNode("s2", "ore", 0, 300, 148, 78), // port y 339
+      inputProductNode("t1", "ore", 760, 100, 148, 78), // port y 139
+      inputProductNode("t2", "ore", 760, 10, 148, 78), // port y 49
+    ];
+    const edges: Edge[] = [
+      {
+        ...mkEdge("e0", "s1", "t1", "ore"),
+        data: { item: "ore", rate: new Fraction(1), bendX: 574, entryX: 600 },
+      },
+      {
+        ...mkEdge("e1", "s2", "t2", "ore"),
+        data: { item: "ore", rate: new Fraction(1), bendX: 604, entryX: 560 },
+      },
+    ];
+    const widened = widenLayerGaps(nodes, edges);
+    const out = jogForwardLegs(widened.nodes, edges, { gaps: widened.gaps });
+    const byId = nodeIndexOf(widened.nodes);
+    const e0 = out.find((e) => e.id === "e0")!;
+    const ends = drawnPortsOf(e0, byId)!;
+    const hints = routingHintsFromData(e0.data);
+
+    // Premise: e0 alone is clean, so any jog it takes is the floor's.
+    const alone = jogForwardLegs(widened.nodes, [edges[0]!], {
+      gaps: widened.gaps,
+    });
+    expect(routingHintsFromData(alone[0]!.data).legY).toBeUndefined();
+
+    expect(hints.legY).toBeUndefined();
+    expect(hints.jogDescentX).toBeUndefined();
+    expect(hints.srcColX).toBeUndefined();
+
+    // The drawn path never steps back in x.
+    const { pts } = drawnEdge(ends, e0.type, e0.data);
+    for (let i = 1; i < pts.length; i++) {
+      expect(pts[i]![0]).toBeGreaterThanOrEqual(pts[i - 1]![0]);
+    }
+  });
+
+  // A fan-in-pinned member with a clean source leg has D = pin = bx = C, and
+  // no entryX, so its drop column is bx too. Its only card trigger is then
+  // the approach at ty from bx to tx, which is also the jog's approach. The
+  // padded tier rejects it in every shape; the raw tier accepts a jog only
+  // when the raw approach is clear, and that jog's verticals at bx cover the
+  // straight drop. So the straight step the bound leaves is clear wherever
+  // the D = C jog was. `mid` is the case that reaches the raw tier: its padded
+  // rect holds ty 139, its raw rect (bottom 135) does not.
+  it("draws a clean-source fan-in member straight, with no card pierce, where the bound rejects its D = C jog", () => {
+    const nodes: RFAnyNode[] = [
+      inputProductNode("s", "ore", 0, 0, 148, 78), // right 148, port y 39
+      inputProductNode("t", "ore", 760, 100, 148, 78), // left 760, port y 139
+      inputProductNode("mid", "ore", 400, 57, 148, 78), // raw y 57..135
+    ];
+    const edges: Edge[] = [
+      {
+        ...mkEdge("e0", "s", "t", "ore"),
+        data: {
+          item: "ore",
+          rate: new Fraction(1),
+          bendX: 200,
+          faninColumn: true,
+        },
+      },
+    ];
+    const byId = nodeIndexOf(nodes);
+    const ends = drawnPortsOf(edges[0]!, byId)!;
+
+    // Premise: only the approach at ty is blocked, and only by the padded rect.
+    const exempt = new Set(["s", "t"]);
+    expect(
+      forwardLegsBlocked(paddedObstacles(nodes, edges), exempt, ends, 200),
+    ).toEqual({ srcBlocked: false, tgtBlocked: true });
+    expect(forwardLegsBlocked(rawCardRects(nodes), exempt, ends, 200)).toEqual({
+      srcBlocked: false,
+      tgtBlocked: false,
+    });
+
+    const out = jogForwardLegs(nodes, edges);
+    const e0 = out.find((e) => e.id === "e0")!;
+    expect(routingHintsFromData(e0.data).legY).toBeUndefined();
+
+    const { pts } = drawnEdge(ends, e0.type, e0.data);
+    // No backward run at any level.
+    for (let i = 1; i < pts.length; i++) {
+      expect(pts[i]![0]).toBeGreaterThanOrEqual(pts[i - 1]![0]);
+    }
+    // No segment enters a foreign drawn card, by the pierce audit's own test.
+    const foreign = cardRectsFor(nodes, byId).filter((c) => !exempt.has(c.id));
+    for (const [p0, p1] of segmentsOf(pts.map(([x, y]) => [x, y] as const))) {
+      for (const rect of foreign) {
+        expect(segmentEntersRect(p0, p1, rect, 0.5)).toBe(false);
+      }
+    }
+  });
+
+  // The source-side half of the bound: the source column settles after the
+  // descent, and its walk toward the target must still leave the run at legY
+  // two chamfers long. Source and target sit in adjacent layers, so both
+  // columns stand in the one hand-built gap zone [365, 420].
+  // - blk (layer 1) holds the source row; its padded left is left of e0's
+  //   drop column 721, so the source leg is the blocked piece.
+  // - c0 (layer 1) gives the level 365 below it, and its padded left (393)
+  //   moves the source column from its slot 418 to 385.
+  // - o0's bend column 374 is within a pitch of 385. Walking off it toward the
+  //   source leaves the zone, so the walk turns toward the target, to 390.
+  // - o1's run at y 385 keeps e0's descent at 403 or right of it.
+  // 390 would leave the run at legY 13 long, so the column stays at 385.
+  it("keeps the source column two chamfers left of the descent when its walk turns toward the target", () => {
+    const gap: GapRecord = {
+      scope: "",
+      index: 0,
+      left: 148,
+      right: 760,
+      sourceZone: { left: 148, right: 365 },
+      columnZone: { left: 365, right: 420 },
+      targetZone: { left: 420, right: 760 },
+      columns: 0,
+    };
+    const nodes: RFAnyNode[] = [
+      inputProductNode("s", "ore", 0, 0, 148, 78), // port y 39
+      inputProductNode("t", "ore", 760, 360, 148, 78), // port y 399
+      inputProductNode("blk", "ore", 688, 0, 228, 78),
+      inputProductNode("c0", "ore", 427, 291, 481, 54),
+      inputProductNode("os0", "ore", 0, 129, 148, 78),
+      inputProductNode("ot0", "ore", 760, 1139, 148, 78),
+      inputProductNode("os1", "ore", 0, 346, 148, 78), // port y 385
+      inputProductNode("ot1", "ore", 760, 1049, 148, 78),
+    ];
+    const edges: Edge[] = [
+      {
+        ...mkEdge("e0", "s", "t", "ore"),
+        data: { item: "ore", rate: new Fraction(1), bendX: 402, entryX: 721 },
+      },
+      {
+        ...mkEdge("o0", "os0", "ot0", "ore"),
+        data: { item: "ore", rate: new Fraction(1), bendX: 374 },
+      },
+      {
+        ...mkEdge("o1", "os1", "ot1", "ore"),
+        data: { item: "ore", rate: new Fraction(1), bendX: 435 },
+      },
+    ];
+    const byId = nodeIndexOf(nodes);
+    const ends = drawnPortsOf(edges[0]!, byId)!;
+
+    // Premise: the source leg is the blocked piece.
+    expect(
+      forwardLegsBlocked(
+        paddedObstacles(nodes, edges),
+        new Set(["s", "t"]),
+        ends,
+        721,
+      ),
+    ).toEqual({ srcBlocked: true, tgtBlocked: false });
+
+    const out = jogForwardLegs(nodes, edges, { gaps: [gap] });
+    const e0 = out.find((e) => e.id === "e0")!;
+    const hints = routingHintsFromData(e0.data);
+    expect(hints.legY).toBeDefined();
+    expect(hints.srcColX).toBeDefined();
+    expect(hints.jogDescentX).toBeDefined();
+    expect(hints.jogDescentX! - hints.srcColX!).toBeGreaterThanOrEqual(
+      2 * CHAMFER,
+    );
+
+    // The drawn path never steps back in x.
+    const { pts } = drawnEdge(ends, e0.type, e0.data);
+    for (let i = 1; i < pts.length; i++) {
+      expect(pts[i]![0]).toBeGreaterThanOrEqual(pts[i - 1]![0]);
+    }
+  });
+
+  // The target-side half of the bound on a card-blocked edge. `blk` stands
+  // over e0's approach at ty 436, so the straight step pierces it. e0's bend
+  // column is 724 and its arrival slot is 736, 12 right of it, so the slot
+  // the descent search starts from is inside the two-chamfer bound. `top`'s
+  // padded rect holds sy at x 724, which fails every padded-tier level and
+  // leaves the raw tier, where nothing blocks the slot and only the bound
+  // rejects it. The search has to offer the column two chamfers right of the
+  // bend: without it every level fails and the straight step through blk is
+  // drawn.
+  it("jogs a card-blocked edge whose arrival slot stands inside the two-chamfer bound", () => {
+    const nodes: RFAnyNode[] = [
+      inputProductNode("s", "ore", 0, 0, 148, 78), // port y 39
+      inputProductNode("t", "ore", 760, 397, 148, 78), // port y 436
+      inputProductNode("top", "ore", 695, -47, 277, 83), // raw y -47..36
+      inputProductNode("blk", "ore", 570, 388, 146, 89), // on the approach
+    ];
+    const edges: Edge[] = [
+      {
+        ...mkEdge("e0", "s", "t", "ore"),
+        data: { item: "ore", rate: new Fraction(1), bendX: 729, entryX: 581 },
+      },
+    ];
+    const byId = nodeIndexOf(nodes);
+    const ends = drawnPortsOf(edges[0]!, byId)!;
+    const exempt = new Set(["s", "t"]);
+    const bx = 724; // bendX 729 clamped to the drawn corridor
+
+    // Premise: the approach is blocked in both tiers, so the straight step
+    // really pierces blk, and the arrival slot is inside the bound.
+    expect(
+      forwardLegsBlocked(paddedObstacles(nodes, edges), exempt, ends, 581),
+    ).toEqual({ srcBlocked: false, tgtBlocked: true });
+    expect(forwardLegsBlocked(rawCardRects(nodes), exempt, ends, 581)).toEqual({
+      srcBlocked: false,
+      tgtBlocked: true,
+    });
+    expect(760 - PORT_STUB - bx).toBeLessThan(2 * CHAMFER);
+
+    const out = jogForwardLegs(nodes, edges);
+    const e0 = out.find((e) => e.id === "e0")!;
+    const hints = routingHintsFromData(e0.data);
+    expect(hints.legY).toBeDefined();
+    expect(hints.jogDescentX! - bx).toBeGreaterThanOrEqual(2 * CHAMFER);
+
+    const { pts } = drawnEdge(ends, e0.type, e0.data);
+    // No backward run at legY.
+    for (let i = 1; i < pts.length; i++) {
+      expect(pts[i]![0]).toBeGreaterThanOrEqual(pts[i - 1]![0]);
+    }
+    // No segment enters a foreign drawn card, by the pierce audit's own test.
+    const foreign = cardRectsFor(nodes, byId).filter((c) => !exempt.has(c.id));
+    for (const [p0, p1] of segmentsOf(pts.map(([x, y]) => [x, y] as const))) {
+      for (const rect of foreign) {
+        expect(segmentEntersRect(p0, p1, rect, 0.5)).toBe(false);
+      }
+    }
+  });
+
+  // The target-side half of the bound on an owed jog. e0 is clean and clear
+  // of the floor, so only the order's debt moves it. It drops at its entry
+  // column 586, 12 right of its bend at 574, so the descent the search starts
+  // from is inside the two-chamfer bound and nothing else is on offer. `c`
+  // gives the level below; it stands off both straight legs.
+  it("jogs an owed edge whose entry column stands inside the two-chamfer bound", () => {
+    const nodes: RFAnyNode[] = [
+      inputProductNode("s", "ore", 0, 0, 148, 78), // port y 39
+      inputProductNode("t", "ore", 760, 100, 148, 78), // port y 139
+      inputProductNode("c", "ore", 300, 200, 148, 78),
+    ];
+    const edges: Edge[] = [
+      {
+        ...mkEdge("e0", "s", "t", "ore"),
+        data: { item: "ore", rate: new Fraction(1), bendX: 574, entryX: 586 },
+      },
+    ];
+    const byId = nodeIndexOf(nodes);
+    const ends = drawnPortsOf(edges[0]!, byId)!;
+    const bx = 574;
+    const order = buildGapColumnOrder(nodes, edges, []);
+
+    // Premise: unowed, e0 is left alone, so the jog below is the debt's.
+    expect(jogForwardLegs(nodes, edges, { gaps: [], order })[0]).toBe(edges[0]);
+    expect(586 - bx).toBeLessThan(2 * CHAMFER);
+
+    const owed = { ...order, cycleOwed: new Set(["e0"]) };
+    const out = jogForwardLegs(nodes, edges, { gaps: [], order: owed });
+    const hints = routingHintsFromData(out[0]!.data);
+    expect(hints.legY).toBeDefined();
+    expect(hints.jogDescentX! - bx).toBeGreaterThanOrEqual(2 * CHAMFER);
+
+    // No backward run at legY.
+    const { pts } = drawnEdge(ends, out[0]!.type, out[0]!.data);
+    for (let i = 1; i < pts.length; i++) {
+      expect(pts[i]![0]).toBeGreaterThanOrEqual(pts[i - 1]![0]);
+    }
   });
 });
 

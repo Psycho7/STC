@@ -262,15 +262,20 @@ function flatten(snapshot: Snapshot): Map<string, unknown> {
 //   V  the jog pass revisits every jog the level floor alone fired and drops
 //      the ones whose struck band jogged off that level later in the scan:
 //      copper-script43 e:4; gas-web e:2; script43 e:4; script43-xiranite e:4,
-//      e:17, e:27 draw their straight step again. copper-script43 e:8,
-//      coupon-web e:13, multi6 e:13, script43 e:6 and script43-xiranite e:6
-//      revert the same way and are already listed. copper-script43 e:4 and
-//      e:8 and multi6 e:13 also shift under C below; each is listed once.
+//      e:17, e:27 draw their straight step again. multi6 e:13, script43 e:6
+//      and script43-xiranite e:6 revert the same way and are already listed.
+//      copper-script43 e:4 and e:8 and multi6 e:13 also shift under C below;
+//      each is listed once.
 //   C  canvas rate text is digit-grouped ("1,200"), so a chip at 1000/min or
 //      more reserves one more glyph and the gaps it sits in widen. Only the
 //      plans with such a chip move, cards included (NODES_MOVED): battery5,
 //      battery5-xiranite, copper-script43, multi6 and rot-bottled_food_3.
 //      Every edge and card right of a widened gap shifts with it.
+//   B  a jog's descent keeps two chamfers right of its bend column, so the
+//      run at its level never draws backwards. The only two jogs it would
+//      bend, coupon-web e:13 and copper-script43 e:8 (already listed), are
+//      floor-only, and a floor-only jog the bound pushes right is not taken
+//      at all: both keep their straight step, as V alone would leave them.
 // An edge key is the short `e:NN` head of the routed edge id.
 const MOVED: Readonly<Record<string, ReadonlyArray<string>>> = {
   battery5: [
