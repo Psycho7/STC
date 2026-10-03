@@ -2938,6 +2938,11 @@ function stubClearColumns(
 // clears every card; should no such level exist, a card-blocked edge falls back
 // to the band-blind tier, which is exactly the tier this pass ran before the
 // floor existed. The floor never costs an edge a card-clearing jog.
+// "Whichever moves first" reads the struck band as it stood at scan time, and
+// its owner may jog off that level later in the scan. So once the scan is done,
+// every jog the floor alone fired is revisited in scan order against the final
+// bands, and one whose own straight stretches no band strikes any more is
+// dropped: the edge draws its straight step again. One pass, no fixpoint.
 //
 // It reads each edge's FINAL bendX (the leg starts at that column); which pass
 // settles it is the ROUTING_PASSES entry in layout.ts.
@@ -3045,6 +3050,16 @@ export function jogForwardLegs(
   const legYByIndex = new Map<number, number>();
   const descentXByIndex = new Map<number, number>();
   const srcColXByIndex = new Map<number, number>();
+  // The jogs the level floor alone fired (no card, no owed jog), in scan order,
+  // with the stretches a revert would redraw, for the revisit after the scan.
+  type FloorOnlyJog = {
+    edge: Edge;
+    index: number;
+    self: LevelPorts;
+    srcSpan: [number, number] | undefined;
+    tgtSpan: [number, number] | undefined;
+  };
+  const floorOnlyJogs: FloorOnlyJog[] = [];
   // Descent slots are handed out first-come, so the scan runs in routing order
   // rather than array order: two jogs into one target then take the same two
   // columns however the caller happened to arrange the edges.
@@ -3564,6 +3579,23 @@ export function jogForwardLegs(
       stakeColumn(sourceGap, srcColX, edge.id);
       if (trunkKey !== undefined) srcSlotsByTrunk.set(trunkKey, srcSlot + 1);
     }
+    if (!cardBlocked && !owed) {
+      // A revert draws the run at ty from the drop column again, and the jog's
+      // descent may have walked right of descentX0 to clear a band there (an
+      // unstamped descent stands at tx - PORT_STUB). The span at ty therefore
+      // covers both the trigger's stretch and every piece the revert restores.
+      const tgtHi = Math.max(
+        descentX0,
+        descentXByIndex.get(index) ?? tx - PORT_STUB,
+      );
+      floorOnlyJogs.push({
+        edge,
+        index,
+        self,
+        srcSpan: srcStretch ? [bx, dropX] : undefined,
+        tgtSpan: tgtHi > dropX ? [dropX, tgtHi] : undefined,
+      });
+    }
 
     // This edge now draws somewhere else, so the edges scanned after it must
     // see the band where the line actually is. Stamps read back out of the
@@ -3588,6 +3620,31 @@ export function jogForwardLegs(
       ),
     );
   });
+
+  // The revisit: a floor-only jog moved because a band stood within the floor
+  // of its row WHEN IT WAS SCANNED, and the band's owner may have jogged off
+  // that level since. levelBands now holds every edge's final runs, so ask the
+  // stretches the revert would redraw (the trigger's own among them) again;
+  // where nothing strikes them, the jog guards nothing and the straight step
+  // comes back. The restored runs go into levelBands, so a later revisit sees
+  // them. runFloorHit is symmetric, so a clear revert cannot put a settled edge
+  // inside a floor. Slots and staked
+  // columns stay taken: only edges scanned later read them, and those have run.
+  for (const { edge, index, self, srcSpan, tgtSpan } of floorOnlyJogs) {
+    const foreignBands: RunBand[] = [];
+    for (const [otherId, bands] of levelBands) {
+      if (otherId !== edge.id) foreignBands.push(...bands);
+    }
+    const struck =
+      (srcSpan !== undefined &&
+        runFloorHit(foreignBands, self, self.sy, ...srcSpan)) ||
+      (tgtSpan !== undefined &&
+        runFloorHit(foreignBands, self, self.ty, ...tgtSpan));
+    if (struck) continue;
+    legYByIndex.delete(index);
+    descentXByIndex.delete(index);
+    levelBands.set(edge.id, runBandsOfEdge(edge, byId));
+  }
 
   if (
     legYByIndex.size === 0 &&

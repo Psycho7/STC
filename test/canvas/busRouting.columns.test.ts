@@ -37,7 +37,11 @@ import {
   nodeHeight,
   nodeIndexOf,
 } from "../../src/canvas/nodeGeometry";
-import { FORWARD_LEVEL_FLOOR } from "../../src/canvas/levelOccupancy";
+import {
+  FORWARD_LEVEL_FLOOR,
+  runBandsOfEdge,
+  runFloorHit,
+} from "../../src/canvas/levelOccupancy";
 import {
   PORT_STUB,
   CHAMFER,
@@ -1431,6 +1435,190 @@ describe("jogForwardLegs", () => {
       const out = jogForwardLegs(nodes, edges);
       expect(legYOf(out, "e0")).toBeUndefined();
       expect(out[0]).toBe(edges[0]);
+      expect(out[1]).toBe(edges[1]);
+    });
+
+    it("gives back a floor-only jog whose struck run jogs away later", () => {
+      // e0 is scanned first and its approach at ty 139 runs within the floor of
+      // e1's approach at 145, so e0 jogs for the floor alone. e1 is scanned
+      // second: its approach runs straight through t1, so it jogs around that
+      // card and its run at 145 is gone. Nothing is left near e0's own row, so
+      // the revisit drops e0's jog and the edge draws straight into its port.
+      const nodes: RFAnyNode[] = [
+        inputProductNode("s1", "ore", 0, 0, 148, 78), // port y 39
+        inputProductNode("s2", "ore", 0, 300, 148, 78), // port y 339
+        inputProductNode("t1", "ore", 760, 100, 148, 78), // port y 139
+        inputProductNode("t2", "ore", 1100, 106, 148, 78), // port y 145
+      ];
+      const edges: Edge[] = [
+        {
+          ...mkEdge("e0", "s1", "t1", "ore"),
+          data: { item: "ore", rate: new Fraction(1), bendX: 200 },
+        },
+        {
+          ...mkEdge("e1", "s2", "t2", "ore"),
+          data: { item: "ore", rate: new Fraction(1), bendX: 300 },
+        },
+      ];
+      const byId = nodeIndexOf(nodes);
+      // Premise: the two approaches start inside each other's floor.
+      expect(
+        Math.abs(
+          edgePortsModel(edges[0]!, byId)!.ty -
+            edgePortsModel(edges[1]!, byId)!.ty,
+        ),
+      ).toBeLessThan(FORWARD_LEVEL_FLOOR);
+      // Premise: e0 alone is clean, so any jog it takes is the floor's.
+      expect(legYOf(jogForwardLegs(nodes, [edges[0]!]), "e0")).toBeUndefined();
+
+      const out = jogForwardLegs(nodes, edges);
+      const e1LegY = legYOf(out, "e1");
+      expect(typeof e1LegY).toBe("number");
+      expect(Math.abs(e1LegY! - 139)).toBeGreaterThanOrEqual(
+        FORWARD_LEVEL_FLOOR,
+      );
+      expect(legYOf(out, "e0")).toBeUndefined();
+      expect(out[0]).toBe(edges[0]);
+    });
+
+    it("keeps a floor-only jog whose revert would put its approach back on a settled run", () => {
+      // x drops at its entry column 600, and its long run at sy 39 lies within
+      // the floor of z's approach at 45, so x jogs for the floor alone. y's
+      // source stub at 145 stands within the floor of x's approach at 139 out
+      // to 742, so x's jogged descent walks right of 600 to clear it. z is
+      // scanned later and jogs around blk, so nothing strikes x's run at 39 any
+      // more. Reverting x would draw its approach from 600 again, back inside
+      // y's floor: the revert must not, and x keeps its jog.
+      const nodes: RFAnyNode[] = [
+        inputProductNode("s1", "ore", 0, 0, 148, 78), // port y 39
+        inputProductNode("t1", "ore", 1000, 100, 148, 78), // port y 139
+        inputProductNode("s2", "ore", 0, 300, 148, 78), // port y 339
+        inputProductNode("t2", "ore", 1100, 6, 148, 78), // port y 45
+        inputProductNode("blk", "ore", 760, -20, 148, 78), // on z's run at 45
+        inputProductNode("s3", "ore", 400, 106, 148, 78), // port y 145
+        inputProductNode("t3", "ore", 1300, 306, 148, 78), // port y 345
+      ];
+      const edges: Edge[] = [
+        {
+          ...mkEdge("x", "s1", "t1", "ore"),
+          data: { item: "ore", rate: new Fraction(1), bendX: 200, entryX: 600 },
+        },
+        {
+          ...mkEdge("z", "s2", "t2", "ore"),
+          data: { item: "ore", rate: new Fraction(1), bendX: 300 },
+        },
+        {
+          ...mkEdge("y", "s3", "t3", "ore"),
+          data: { item: "ore", rate: new Fraction(1), bendX: 750 },
+        },
+      ];
+      const byId = nodeIndexOf(nodes);
+      // Premise: x alone is clean, so any jog it takes is the floor's.
+      expect(legYOf(jogForwardLegs(nodes, [edges[0]!]), "x")).toBeUndefined();
+      // Premise: with z unable to move, x's jog descends right of its entry
+      // column, which is what keeps its approach off y's stub.
+      const pinned = jogForwardLegs(
+        nodes.filter((n) => n.id !== "blk"),
+        edges,
+      );
+      const pinnedX = pinned[0]!.data as { jogDescentX?: number };
+      expect(pinnedX.jogDescentX).toBeGreaterThan(600 + PORT_STUB);
+
+      const out = jogForwardLegs(nodes, edges);
+      expect(typeof legYOf(out, "z")).toBe("number");
+      expect(typeof legYOf(out, "x")).toBe("number");
+      const xBands = runBandsOfEdge(out[0]!, byId);
+      for (const band of runBandsOfEdge(out[2]!, byId)) {
+        expect(runFloorHit(xBands, band, band.y, band.left, band.right)).toBe(
+          false,
+        );
+      }
+    });
+
+    it("keeps a floor-only jog whose revert would land on a run an earlier revert restored", () => {
+      // a's approach at 139 and b's long source run at 145 (out to its entry
+      // column 600) share 328..592, so a, scanned first, jogs for the floor
+      // alone. b is scanned next against a's jogged band, but y's straight
+      // approach at 151 strikes b's run, so b jogs too. y runs through ta and
+      // jogs away. The revisit finds nothing near a's straight approach and
+      // reverts it; b's revisit must then read a's RESTORED run at 139, which
+      // strikes b's run at 145, so b keeps its jog. Read against a's stale
+      // jogged band instead, b would revert as well and the pair would draw
+      // 6 apart over 264 units.
+      const nodes: RFAnyNode[] = [
+        inputProductNode("sa", "ore", 0, 0, 148, 78), // port y 39
+        inputProductNode("ta", "ore", 760, 100, 148, 78), // port y 139
+        inputProductNode("sb", "ore", 0, 106, 148, 78), // port y 145
+        inputProductNode("tb", "ore", 1000, 306, 148, 78), // port y 345
+        inputProductNode("sy", "ore", 0, 400, 148, 78), // port y 439
+        inputProductNode("ty", "ore", 1300, 112, 148, 78), // port y 151
+      ];
+      const edges: Edge[] = [
+        {
+          ...mkEdge("a", "sa", "ta", "ore"),
+          data: { item: "ore", rate: new Fraction(1), bendX: 320 },
+        },
+        {
+          ...mkEdge("b", "sb", "tb", "ore"),
+          data: { item: "ore", rate: new Fraction(1), bendX: 300, entryX: 600 },
+        },
+        {
+          ...mkEdge("y", "sy", "ty", "ore"),
+          data: { item: "ore", rate: new Fraction(1), bendX: 250 },
+        },
+      ];
+      const byId = nodeIndexOf(nodes);
+      // Premise: a and b alone are each clean, so any jog either takes is the
+      // floor's.
+      expect(legYOf(jogForwardLegs(nodes, [edges[0]!]), "a")).toBeUndefined();
+      expect(legYOf(jogForwardLegs(nodes, [edges[1]!]), "b")).toBeUndefined();
+      // Premise: with y absent, a jogs off b's run and b, scanned against a's
+      // jogged band, stays put -- so b's jog below is y's doing.
+      const pair = jogForwardLegs(nodes, [edges[0]!, edges[1]!]);
+      expect(typeof legYOf(pair, "a")).toBe("number");
+      expect(legYOf(pair, "b")).toBeUndefined();
+
+      const out = jogForwardLegs(nodes, edges);
+      expect(typeof legYOf(out, "y")).toBe("number");
+      expect(out[0]).toBe(edges[0]);
+      expect(typeof legYOf(out, "b")).toBe("number");
+      const aBands = runBandsOfEdge(out[0]!, byId);
+      for (const band of runBandsOfEdge(out[1]!, byId)) {
+        expect(runFloorHit(aBands, band, band.y, band.left, band.right)).toBe(
+          false,
+        );
+      }
+    });
+
+    it("keeps a floor-only jog whose source run is still struck", () => {
+      // x drops at its entry column 600, so its long run at sy 39 spans the
+      // bend column 200 to 600, inside the floor of z's approach at 45. z,
+      // scanned later, has no reason to move, so the revisit finds x's run at
+      // sy still struck and x keeps its jog. x's jogged descent stands at the
+      // entry column, so a revert redraws nothing at ty: the run at sy alone
+      // decides.
+      const nodes: RFAnyNode[] = [
+        inputProductNode("s1", "ore", 0, 0, 148, 78), // port y 39
+        inputProductNode("t1", "ore", 1000, 100, 148, 78), // port y 139
+        inputProductNode("s2", "ore", 0, 300, 148, 78), // port y 339
+        inputProductNode("t2", "ore", 1100, 6, 148, 78), // port y 45
+      ];
+      const edges: Edge[] = [
+        {
+          ...mkEdge("x", "s1", "t1", "ore"),
+          data: { item: "ore", rate: new Fraction(1), bendX: 200, entryX: 600 },
+        },
+        {
+          ...mkEdge("z", "s2", "t2", "ore"),
+          data: { item: "ore", rate: new Fraction(1), bendX: 300 },
+        },
+      ];
+      // Premise: x alone is clean, so any jog it takes is the floor's.
+      expect(legYOf(jogForwardLegs(nodes, [edges[0]!]), "x")).toBeUndefined();
+
+      const out = jogForwardLegs(nodes, edges);
+      expect(typeof legYOf(out, "x")).toBe("number");
+      expect((out[0]!.data as { jogDescentX?: number }).jogDescentX).toBe(600);
       expect(out[1]).toBe(edges[1]);
     });
 
