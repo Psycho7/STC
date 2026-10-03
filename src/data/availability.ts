@@ -12,8 +12,8 @@
 // currently on is app-level state, not plan state, so it lives here between
 // the recipe pack and localStorage rather than riding the plan wire.
 //
-// No React import on purpose: the bun CLIs can adopt the same effective-state
-// rule later without pulling the app in.
+// No React import on purpose: the bun CLIs (the solver CLI already does) adopt
+// the same effective-state rule without pulling the app in.
 
 import type { Recipe, RecipePack } from "@aef/schema";
 import type { RecipeId } from "../solver/types";
@@ -83,8 +83,8 @@ export function effectiveCohortEnabled(
 
 // Everything the predicates read, as one value the app owns and threads in.
 // Each field is its own storage key with its own writer; an absent field means
-// the predicate it drives passes, which is why a fresh browser sees exactly
-// the event rule and nothing else.
+// the predicate it drives passes. A fresh browser still gets an area (the
+// latest settlement) on top of the event rule; see freshAvailabilitySettings.
 export type AvailabilitySettings = {
   eventOverrides: EventCohortOverrides;
   // The settlement the plan is built in (#124). The app always sets one; absent
@@ -304,6 +304,19 @@ export function latestArea(pack: RecipePack): string {
   const latest = pack.locations.at(-1);
   if (latest === undefined) throw new Error("recipe pack lists no locations");
   return latest.id;
+}
+
+// What the app reads on a browser with nothing stored: no cohort overrides,
+// the latest settlement, no hand toggles. Pure, so a node caller (the solver
+// CLI) can solve what a fresh browser solves without touching localStorage.
+export function freshAvailabilitySettings(
+  pack: RecipePack,
+): AvailabilitySettings {
+  return {
+    eventOverrides: {},
+    area: latestArea(pack),
+    disabledRecipeIds: new Set(),
+  };
 }
 
 // The stored settlement (#124), validated against the pack's own location list.

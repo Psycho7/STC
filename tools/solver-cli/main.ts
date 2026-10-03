@@ -24,6 +24,11 @@ import {
 } from "../../src/solver/invariants";
 import { loadPlan, describePlanLoadError } from "../../src/data/plan";
 import { planToSolverArgs } from "../../src/solver/planToSolverArgs";
+import {
+  freshAvailabilitySettings,
+  unavailableCauses,
+  unavailableRecipeIds,
+} from "../../src/data/availability";
 import type { ItemOverride } from "../../src/data/plan";
 import type { RecipeId } from "../../src/solver/types";
 import {
@@ -131,6 +136,12 @@ export async function runCli(argv: string[]): Promise<string> {
   // side keeps the RAW `pack`: the driver and the render checkers net for
   // themselves and a pre-netted pack would give them wrong stoichiometry.
   const netted = netSelfConsumption(pack);
+  // Every solve below runs with the availability a fresh browser has (latest
+  // settlement, ended cohorts off, no hand toggles), derived from the RAW pack
+  // as the app does. Stored browser choices are not modelled here.
+  const unavailable = unavailableRecipeIds(
+    unavailableCauses(pack, freshAvailabilitySettings(pack)),
+  );
 
   // --- Arg parse ---
   let hashArg: string | undefined;
@@ -172,7 +183,7 @@ export async function runCli(argv: string[]): Promise<string> {
   // --- Resolve targets and overrides ---
   let targets: Target[];
   // --plan carries no overrides; --hash threads whatever the decoded plan
-  // carried so the CLI solve matches the app.
+  // carried, as the app does.
   let itemOverrides: ItemOverride[] = [];
   let recipeCosts: Map<RecipeId, number> | undefined;
 
@@ -202,6 +213,7 @@ export async function runCli(argv: string[]): Promise<string> {
     pack: netted,
     itemOverrides,
     ...(recipeCosts !== undefined ? { recipeCosts } : {}),
+    unavailableRecipeIds: unavailable,
   });
 
   const lines: string[] = [];
@@ -248,6 +260,7 @@ export async function runCli(argv: string[]): Promise<string> {
       pack,
       itemOverrides,
       recipeCosts,
+      unavailable,
     );
 
     const results = checkSolvePlan({
@@ -257,6 +270,7 @@ export async function runCli(argv: string[]): Promise<string> {
       targets,
       itemOverrides,
       ...(recipeCosts !== undefined ? { recipeCosts } : {}),
+      unavailableRecipeIds: unavailable,
     });
 
     // Labels come from the checker table exported beside the checkers
@@ -289,6 +303,7 @@ export async function runCli(argv: string[]): Promise<string> {
       pack,
       itemOverrides,
       recipeCosts,
+      unavailableRecipeIds: unavailable,
     });
 
     const results = checkRenderPlan({

@@ -251,6 +251,7 @@ async function coverOne(
   scenario: Scenario,
 ): Promise<PlanCoverage> {
   const hash = await scenarioHash(scenario);
+  // Full pack on purpose: coverage exercises every recipe, not one setting's.
   const out = solveForRender({ targets: scenario.targets, pack });
 
   const recipeById = new Map(pack.recipes.map((r) => [r.id, r]));

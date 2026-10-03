@@ -13,6 +13,7 @@ import {
   availabilityKey,
   effectiveCohortEnabled,
   eventCohortsOf,
+  freshAvailabilitySettings,
   packCohortOf,
   latestArea,
   readStoredArea,
@@ -624,6 +625,27 @@ describe("latestArea", () => {
       ],
     };
     expect(latestArea(newer)).toBe("newer");
+  });
+});
+
+describe("freshAvailabilitySettings", () => {
+  it("matches what the stored reads return on an empty localStorage", () => {
+    expect(freshAvailabilitySettings(shippedPack)).toEqual({
+      eventOverrides: readStoredEventOverrides(),
+      area: readStoredArea(shippedPack),
+      disabledRecipeIds: readStoredDisabledRecipes(shippedPack),
+    });
+  });
+
+  it("ignores choices held in localStorage", () => {
+    writeStoredArea("tundra");
+    writeStoredEventOverrides({ "v1.5": true });
+    writeStoredDisabledRecipes(new Set(["liquid_copper"]));
+    expect(freshAvailabilitySettings(shippedPack)).toEqual({
+      eventOverrides: {},
+      area: "jinlong",
+      disabledRecipeIds: new Set(),
+    });
   });
 });
 
