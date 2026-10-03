@@ -14,6 +14,25 @@
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 
+// Set by the solver-throw test to make the next solve throw; every other test
+// solves through the real pipeline.
+const solveFault = vi.hoisted(() => ({ throwNext: false }));
+
+vi.mock("./pipeline/solveForRender", async (importOriginal) => {
+  const orig =
+    await importOriginal<typeof import("./pipeline/solveForRender")>();
+  return {
+    ...orig,
+    solveFromPlan: (...args: Parameters<typeof orig.solveFromPlan>) => {
+      if (solveFault.throwNext) {
+        solveFault.throwNext = false;
+        throw new Error("injected solver failure");
+      }
+      return orig.solveFromPlan(...args);
+    },
+  };
+});
+
 vi.mock("./canvas/layout", async (importOriginal) => {
   const orig = await importOriginal<typeof import("./canvas/layout")>();
   return {
@@ -37,7 +56,14 @@ import { defaultPlan, encodePlan, validatePlan, type Plan } from "./data/plan";
 import { pack } from "./data/load";
 import { loadI18n } from "./data/i18n";
 import { AREA_STORAGE_KEY } from "./data/storage-keys";
-import { canvasSpy, flipStoredArea } from "./App.testkit";
+import { layoutRenderPlan } from "./canvas/layout";
+import {
+  LUNG_PLAN,
+  POWDER_PLAN,
+  canvasSpy,
+  deferred,
+  flipStoredArea,
+} from "./App.testkit";
 
 const en = loadI18n("en");
 // The sentence the strip used to print for every shortfall, cause unknown or
@@ -71,6 +97,7 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+  solveFault.throwNext = false;
   vi.unstubAllGlobals();
   vi.unstubAllEnvs();
   window.location.hash = "";
@@ -189,4 +216,89 @@ test("an availability change that rejects the plan reports ERROR", async () => {
     en.displayName("tundra"),
   );
   expect(screen.queryByRole("status")).toBeNull();
+});
+
+// Ruling R3: the strip shows only under SHORTFALL. The shortfall facts are
+// rewritten only by a finished solve, so a held, failed or in-flight solve
+// still carries the previous plan's facts; none of them may reach the strip.
+
+// Mount CAPPED and wait until its strip names copper_jar.
+async function mountShortfall(plan: Plan = CAPPED): Promise<void> {
+  canvasSpy.status = "";
+  window.location.hash = "#" + (await encodePlan(plan));
+  render(<App />);
+  await screen.findAllByTestId("target-row");
+  await waitFor(() => expect(canvasSpy.status).toBe("SHORTFALL"));
+  expect((await screen.findByTestId("shortfall-strip")).textContent).toContain(
+    en.displayName("copper_jar"),
+  );
+}
+
+async function navigateTo(plan: Plan): Promise<void> {
+  window.location.hash = "#" + (await encodePlan(plan));
+  window.dispatchEvent(new HashChangeEvent("hashchange"));
+}
+
+test("a share link to a blocked plan hides the previous plan's strip", async () => {
+  await mountShortfall();
+
+  // The lung's only producer is v1.5 event content, off by default.
+  await navigateTo(LUNG_PLAN);
+
+  await waitFor(() => expect(canvasSpy.status).toBe("ERROR"));
+  expect(await screen.findByRole("alert")).toBeTruthy();
+  expect(screen.queryByTestId("shortfall-strip")).toBeNull();
+});
+
+test("an area switch that blocks a target hides the old area's strip", async () => {
+  // copper_nugget is met in the default area and has no producer in tundra.
+  await mountShortfall({
+    ...CAPPED,
+    targets: [
+      ...CAPPED.targets,
+      { itemId: "copper_nugget", ratePerSec: { num: "1", denom: "1" } },
+    ],
+  });
+
+  flipStoredArea("tundra");
+
+  await waitFor(() => expect(canvasSpy.status).toBe("ERROR"));
+  expect(screen.queryByTestId("shortfall-strip")).toBeNull();
+
+  // Switching back re-solves to the same shortfall, so the strip returns.
+  flipStoredArea(undefined);
+
+  await waitFor(() => expect(canvasSpy.status).toBe("SHORTFALL"));
+  expect((await screen.findByTestId("shortfall-strip")).textContent).toContain(
+    en.displayName("copper_jar"),
+  );
+});
+
+test("a solve in flight hides the strip", async () => {
+  await mountShortfall();
+
+  const gate = deferred<{ nodes: []; edges: []; gaps: []; baseEdges: [] }>();
+  vi.mocked(layoutRenderPlan).mockImplementationOnce(() => gate.promise);
+  await navigateTo(POWDER_PLAN);
+
+  // Released even when the assertion fails, so the held layout cannot leak
+  // into the next test's mount.
+  try {
+    await waitFor(() => expect(canvasSpy.status).toBe("SOLVING"));
+    expect(screen.queryByTestId("shortfall-strip")).toBeNull();
+  } finally {
+    gate.resolve({ nodes: [], edges: [], gaps: [], baseEdges: [] });
+  }
+  await waitFor(() => expect(canvasSpy.status).toBe("READY"));
+});
+
+test("a solver throw hides the previous plan's strip", async () => {
+  await mountShortfall();
+
+  solveFault.throwNext = true;
+  await navigateTo(POWDER_PLAN);
+
+  await waitFor(() => expect(canvasSpy.status).toBe("ERROR"));
+  expect(await screen.findByRole("alert")).toBeTruthy();
+  expect(screen.queryByTestId("shortfall-strip")).toBeNull();
 });
