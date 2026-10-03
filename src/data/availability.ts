@@ -216,7 +216,7 @@ export function deriveAvailability(
   key: string;
 } {
   const causes = unavailableCauses(pack, settings);
-  const items = unavailableItems(pack, settings);
+  const items = itemCausesFrom(pack, settings, causes);
   return {
     causes,
     ids: unavailableRecipeIds(causes),
@@ -272,9 +272,18 @@ export function unavailableItems(
   pack: RecipePack,
   settings: AvailabilitySettings,
 ): ReadonlyMap<string /*itemId*/, ProducerUnavailableCause> {
+  return itemCausesFrom(pack, settings, unavailableCauses(pack, settings));
+}
+
+// unavailableItems over a recipe cause map the caller already derived from the
+// same settings, so deriveAvailability walks the recipes once.
+function itemCausesFrom(
+  pack: RecipePack,
+  settings: AvailabilitySettings,
+  recipeCauses: ReadonlyMap<RecipeId, ProducerUnavailableCause>,
+): ReadonlyMap<string /*itemId*/, ProducerUnavailableCause> {
   const causes = new Map(unavailableEventItems(pack, settings));
 
-  const recipeCauses = unavailableCauses(pack, settings);
   if (recipeCauses.size === 0) return causes;
 
   for (const item of pack.items) {
