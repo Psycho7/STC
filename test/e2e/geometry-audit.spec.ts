@@ -797,6 +797,9 @@ async function loadScenario(
     url: `/#${hash}`,
     locale: "en",
     area,
+    // The ended v1.5 event is off by default; keep it on so coupon-web still
+    // draws the event chain its pins were measured with.
+    eventOverrides: { "v1.5": true },
     readiness: "nodes",
     settle: "both",
   });

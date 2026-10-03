@@ -58,6 +58,8 @@ async function boot(locale: Locale): Promise<void> {
 }
 
 const nonLatestArea = pack.locations.find((l) => l.id !== latestArea(pack))!.id;
+// The pack's own cohort (v1.5). Its event has ended, so its default is off:
+// a stored false matches the default and a stored true departs from it.
 const packCohort = packCohortOf(pack);
 
 describe.each<Locale>(["en", "zh"])("locale %s", (locale) => {
@@ -71,7 +73,7 @@ describe.each<Locale>(["en", "zh"])("locale %s", (locale) => {
   test("hidden when a stored override equals the cohort's default", async () => {
     window.localStorage.setItem(
       EVENT_COHORT_OVERRIDES_STORAGE_KEY,
-      JSON.stringify({ [packCohort]: true }),
+      JSON.stringify({ [packCohort]: false }),
     );
     await boot(locale);
     expect(screen.queryByTestId("settings-indicator")).toBeNull();
@@ -87,12 +89,12 @@ describe.each<Locale>(["en", "zh"])("locale %s", (locale) => {
   test("names an event cohort override that departs from its default", async () => {
     window.localStorage.setItem(
       EVENT_COHORT_OVERRIDES_STORAGE_KEY,
-      JSON.stringify({ [packCohort]: false }),
+      JSON.stringify({ [packCohort]: true }),
     );
     await boot(locale);
     const indicator = screen.getByTestId("settings-indicator");
     expect(indicator.textContent).toBe(
-      i18n.t("app.settings.event.off", { cohort: packCohort }),
+      i18n.t("app.settings.event.on", { cohort: packCohort }),
     );
     expect(indicator.textContent).toContain(packCohort);
   });
@@ -101,13 +103,13 @@ describe.each<Locale>(["en", "zh"])("locale %s", (locale) => {
     window.localStorage.setItem(AREA_STORAGE_KEY, nonLatestArea);
     window.localStorage.setItem(
       EVENT_COHORT_OVERRIDES_STORAGE_KEY,
-      JSON.stringify({ [packCohort]: false }),
+      JSON.stringify({ [packCohort]: true }),
     );
     await boot(locale);
     const text = screen.getByTestId("settings-indicator").textContent ?? "";
     expect(text).toContain(i18n.displayName(nonLatestArea));
     expect(text).toContain(
-      i18n.t("app.settings.event.off", { cohort: packCohort }),
+      i18n.t("app.settings.event.on", { cohort: packCohort }),
     );
   });
 });

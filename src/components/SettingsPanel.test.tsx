@@ -4,7 +4,8 @@
 // Area group (#124), the Recipes section (#125) and the Events section (#144):
 // open and close paths (Escape, overlay, close button, focus return), the
 // per-cohort switch storing exactly one override, the section reset clearing
-// all, the current/past pill following the pack's own version, the recipe
+// all, the current/past pill following the pack's own version and the ended
+// events, the recipe
 // expansion, and the recipe toggles over the shipped pack. The harness mirrors
 // how App mounts the panel: an opener button flips it into the tree, and
 // onClose unmounts it.
@@ -44,7 +45,7 @@ afterEach(() => window.localStorage.clear());
 // A pack whose provenance is a LATER version (v9.9) carrying a few v1.5 rows,
 // so the cohort must read "past" and default off. Slicing the shipped pack's
 // v1.5 items/recipes keeps icons and names valid without hand-writing entity
-// literals; the shipped pack itself stays the "current" fixture.
+// literals.
 const NO_TARGETS: ReadonlySet<string> = new Set<string>();
 
 const pastPack: RecipePack = {
@@ -52,6 +53,14 @@ const pastPack: RecipePack = {
   source: { ...realPack.source, gameVersion: "v9.9" },
   items: realPack.items.filter((i) => i.event === "v1.5").slice(0, 3),
   recipes: realPack.recipes.filter((r) => r.event === "v1.5").slice(0, 2),
+};
+
+// The same rows re-tagged with the pack's own v9.9 cohort, whose event has not
+// ended: the "current" fixture, now that the shipped v1.5 event is over.
+const currentPack: RecipePack = {
+  ...pastPack,
+  items: pastPack.items.map((i) => ({ ...i, event: "v9.9" })),
+  recipes: pastPack.recipes.map((r) => ({ ...r, event: "v9.9" })),
 };
 
 function renderSettings({
@@ -250,15 +259,28 @@ test("the panel opens on the stored area, not the default", () => {
   expect(areaOption("Wuling").getAttribute("aria-pressed")).toBe("false");
 });
 
-test("the shipped pack's v1.5 row reads current, defaults on, with the default tag", () => {
+test("the shipped pack's v1.5 row reads past, defaults off, with the default tag", () => {
+  // v1.5 is the shipped pack's own cohort, but its event has ended.
   renderSettings();
   openPanel();
-  expect(screen.getByText("current")).toBeTruthy();
-  expect(switchFor("v1.5").checked).toBe(true);
+  expect(screen.getByText("past")).toBeTruthy();
+  expect(screen.queryByText("current")).toBeNull();
+  expect(switchFor("v1.5").checked).toBe(false);
   expect(screen.getByTestId("settings-default-tag").textContent).toBe(
     "default",
   );
   expect(screen.getByText("11 items · 14 recipes")).toBeTruthy();
+});
+
+test("a pack's own cohort whose event is running reads current and defaults on", () => {
+  renderSettings({ pack: currentPack });
+  openPanel();
+  expect(screen.getByText("current")).toBeTruthy();
+  expect(screen.queryByText("past")).toBeNull();
+  expect(switchFor("v9.9").checked).toBe(true);
+  expect(screen.getByTestId("settings-default-tag").textContent).toBe(
+    "default",
+  );
 });
 
 test("a cohort from a later-version pack reads past and defaults off", () => {
@@ -276,8 +298,8 @@ test("flipping the switch stores exactly one cohort boolean", () => {
   openPanel();
   fireEvent.click(switchFor("v1.5"));
   expect(h.onOverridesChange).toHaveBeenCalledTimes(1);
-  expect(h.onOverridesChange).toHaveBeenCalledWith({ "v1.5": false });
-  expect(h.overrides()).toEqual({ "v1.5": false });
+  expect(h.onOverridesChange).toHaveBeenCalledWith({ "v1.5": true });
+  expect(h.overrides()).toEqual({ "v1.5": true });
 });
 
 test("a flip merges into the existing overrides and touches nothing else", () => {
@@ -286,7 +308,7 @@ test("a flip merges into the existing overrides and touches nothing else", () =>
   fireEvent.click(switchFor("v1.5"));
   expect(h.onOverridesChange).toHaveBeenCalledWith({
     "v1.2": true,
-    "v1.5": false,
+    "v1.5": true,
   });
 });
 
@@ -296,19 +318,21 @@ test("the default tag disappears once an override exists for the row", () => {
   expect(screen.getByTestId("settings-default-tag")).toBeTruthy();
   fireEvent.click(switchFor("v1.5"));
   expect(screen.queryByTestId("settings-default-tag")).toBeNull();
-  // The controlled owner applied the emission, so the switch reads back off.
-  expect(switchFor("v1.5").checked).toBe(false);
+  // The controlled owner applied the emission, so the switch reads back on.
+  expect(switchFor("v1.5").checked).toBe(true);
 });
 
 test("the section reset clears every cohort override", () => {
-  const h = renderSettings({ overrides: { "v1.5": false } });
+  const h = renderSettings({ overrides: { "v1.5": true } });
   openPanel();
+  expect(switchFor("v1.5").checked).toBe(true);
   fireEvent.click(screen.getByRole("button", { name: "Reset to defaults" }));
   expect(h.onOverridesChange).toHaveBeenCalledTimes(1);
   expect(h.onOverridesChange).toHaveBeenCalledWith({});
   expect(h.overrides()).toEqual({});
-  // Applied back through the harness: the cohort is on the default rule again.
-  expect(switchFor("v1.5").checked).toBe(true);
+  // Applied back through the harness: the cohort is on the default rule again,
+  // which leaves the ended v1.5 event off.
+  expect(switchFor("v1.5").checked).toBe(false);
 });
 
 test("the show-recipes expansion lists the cohort's recipes with machine and inputs", () => {

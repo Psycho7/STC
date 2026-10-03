@@ -1,8 +1,9 @@
 // @vitest-environment jsdom
 //
-// Event-cohort overrides against the whole app (#144): the v1.5 cohort
-// defaults on (it matches the pack's own version), so a plan targeting an
-// event item solves; a stored `false` flips it off, and the boot validation
+// Event-cohort overrides against the whole app (#144): the v1.5 cohort is the
+// pack's own version but its event has ended, so it defaults off and a plan
+// targeting an event item boots blocked; a stored `true` flips it on and the
+// plan solves, a stored `false` keeps it off, and the boot validation
 // failure names the cohort in the UI language (default locale zh - no
 // aef.locale is seeded). A mid-session flip is driven through the `storage`
 // event a second browser tab would fire, which routes through the same
@@ -100,13 +101,16 @@ afterEach(() => {
   window.localStorage.clear();
 });
 
-test("the lung plan boots solved with no stored override (pack cohort on)", async () => {
+test("the lung plan boots blocked with no stored override (ended pack cohort off)", async () => {
   window.location.hash = "#" + (await encodePlan(LUNG_PLAN));
   render(<App />);
 
-  expect(await screen.findAllByTestId("target-row")).toHaveLength(1);
-  await waitFor(() => expect(canvasSpy.status).toBe("READY"));
-  expect(screen.queryByRole("alert")).toBeNull();
+  // Nothing stored, so the default rule decides: v1.5 is the pack's own
+  // cohort, but its event has ended.
+  const alert = await screen.findByRole("alert");
+  expect(alert.textContent).toContain(zhCohortError);
+  expect(screen.getAllByTestId("target-row")).toHaveLength(1);
+  await waitFor(() => expect(canvasSpy.status).toBe("ERROR"));
 });
 
 test("a stored on override boots the same plan solved", async () => {
@@ -194,6 +198,11 @@ test("a flip that leaves the blocking cohort off keeps the blocked banner", asyn
 });
 
 test("a mid-session flip off banners without clearing the render; flipping back re-solves", async () => {
+  // v1.5 defaults off now that its event has ended; start from a stored on.
+  window.localStorage.setItem(
+    EVENT_COHORT_OVERRIDES_STORAGE_KEY,
+    '{"v1.5": true}',
+  );
   window.location.hash = "#" + (await encodePlan(LUNG_PLAN));
   render(<App />);
   await screen.findAllByTestId("target-row");
@@ -224,6 +233,10 @@ test("a mid-session flip off banners without clearing the render; flipping back 
 // reason. Stabilizing on set membership alone would leave the event wording up
 // after the switch behind it changed.
 test("a reason-only availability change with an unchanged id set updates the banner", async () => {
+  window.localStorage.setItem(
+    EVENT_COHORT_OVERRIDES_STORAGE_KEY,
+    '{"v1.5": true}',
+  );
   window.location.hash = "#" + (await encodePlan(LUNG_PLAN));
   render(<App />);
   await screen.findAllByTestId("target-row");
@@ -261,6 +274,10 @@ test("a reason-only availability change with an unchanged id set updates the ban
 // gear button opens the modal, whose Events section names the cohort in the UI
 // language. Escape is one of its three close paths.
 test("the header gear button opens the settings panel; Escape closes it", async () => {
+  window.localStorage.setItem(
+    EVENT_COHORT_OVERRIDES_STORAGE_KEY,
+    '{"v1.5": true}',
+  );
   window.location.hash = "#" + (await encodePlan(LUNG_PLAN));
   render(<App />);
   await screen.findAllByTestId("target-row");
@@ -269,7 +286,9 @@ test("the header gear button opens the settings panel; Escape closes it", async 
   fireEvent.click(screen.getByRole("button", { name: "打开设置" }));
   const dialog = screen.getByRole("dialog");
   expect(dialog.textContent).toContain("v1.5");
-  expect(dialog.textContent).toContain("当前");
+  // The v1.5 event has ended, so its row reads past; the stored on override
+  // still holds the switch on.
+  expect(dialog.textContent).toContain("往期");
   expect(
     (screen.getByRole("switch", { name: "切换 v1.5 活动" }) as HTMLInputElement)
       .checked,

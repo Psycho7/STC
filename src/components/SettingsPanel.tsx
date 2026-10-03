@@ -6,6 +6,7 @@ import { joinList } from "../data/i18n-join";
 import {
   effectiveCohortEnabled,
   eventCohortsOf,
+  isCurrentCohort,
   type EventCohortOverrides,
 } from "../data/availability";
 import { iconSheetUrl } from "../canvas/iconSprite";
@@ -96,7 +97,7 @@ export function SettingsPanel({
   // sorted order. Recomputed per render of a small list; no memo needed.
   const rows: CohortRow[] = eventCohortsOf(pack).map((cohort) => ({
     cohort,
-    current: cohort === packCohort,
+    current: isCurrentCohort(cohort, packCohort),
     enabled: effectiveCohortEnabled(cohort, packCohort, overrides),
     overridden: overrides[cohort] !== undefined,
     items: pack.items.filter((i) => i.event === cohort),

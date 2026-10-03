@@ -78,7 +78,11 @@ import App from "./App";
 import { encodePlan, loadPlan, type Plan } from "./data/plan";
 import { pack } from "./data/load";
 import { loadI18n } from "./data/i18n";
-import { AREA_STORAGE_KEY, LOCALE_STORAGE_KEY } from "./data/storage-keys";
+import {
+  AREA_STORAGE_KEY,
+  EVENT_COHORT_OVERRIDES_STORAGE_KEY,
+  LOCALE_STORAGE_KEY,
+} from "./data/storage-keys";
 import {
   LUNG_PLAN,
   NUGGET_AND_POWDER_PLAN,
@@ -254,6 +258,11 @@ test("(b) a blocked edit writes the panels' plan; a reload shows it under the bl
 // URL still carries the pre-edit plan: the held solve that would have written
 // the edit is dropped by the flip.
 test("(c) a blocked settings flip writes the panels' plan; a reload shows it under the blocked banner", async () => {
+  // v1.5 defaults off now that its event has ended; start from a stored on.
+  window.localStorage.setItem(
+    EVENT_COHORT_OVERRIDES_STORAGE_KEY,
+    '{"v1.5": true}',
+  );
   await bootOn(LUNG_PLAN);
   await waitFor(() => expect(canvasSpy.status).toBe("READY"));
   const lengthBefore = history.length;

@@ -318,10 +318,16 @@ test("an edit made while a hash navigation is landing is refused", async () => {
   expect(byId.get("copper_bottle")).toEqual({ num: "2", denom: "1" });
 });
 
+// The lung plan's cohort switched on: v1.5 defaults off now that its event has
+// ended, so the availability cases below seed this before mount to start from
+// a solved lung plan.
+const LUNG_ON = '{"v1.5": true}';
+
 // The availability rejection is not a refusal like the one above: the edit has
 // already committed and its solve is running. Letting it land would clear the
 // banner the rejection just raised.
 test("a cross-tab availability flip invalidates the in-flight solve", async () => {
+  window.localStorage.setItem(EVENT_COHORT_OVERRIDES_STORAGE_KEY, LUNG_ON);
   window.location.hash = "#" + (await encodePlan(LUNG_PLAN));
   render(<App />);
 
@@ -341,6 +347,7 @@ test("a cross-tab availability flip invalidates the in-flight solve", async () =
 });
 
 test("a settings-panel availability flip invalidates the in-flight solve", async () => {
+  window.localStorage.setItem(EVENT_COHORT_OVERRIDES_STORAGE_KEY, LUNG_ON);
   window.location.hash = "#" + (await encodePlan(LUNG_PLAN));
   render(<App />);
 
@@ -367,6 +374,7 @@ test("a settings-panel availability flip invalidates the in-flight solve", async
 // link pasted while the lung solve was in flight is headed for another plan,
 // and the flip is that plan's problem to re-check, not a reason to drop it.
 test("an availability flip that rejects the committed plan re-runs a landing hash navigation", async () => {
+  window.localStorage.setItem(EVENT_COHORT_OVERRIDES_STORAGE_KEY, LUNG_ON);
   window.location.hash = "#" + (await encodePlan(LUNG_PLAN));
   render(<App />);
 

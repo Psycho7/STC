@@ -2,7 +2,7 @@
 //
 // The availability model: the cohort effective-state rule (override wins in
 // both directions; absent one, on iff the cohort matches the pack's own
-// version), the cause map the three predicates compose into, the unavailable-id
+// version and its event has not ended), the cause map the three predicates compose into, the unavailable-id
 // derivation that feeds the solver seam, pack-cohort truncation from
 // provenance, and the localStorage read/write pair - whose read side must
 // survive any malformed stored value, since the key is attacker-controllable
@@ -49,10 +49,11 @@ afterEach(() => {
 });
 
 // A pack small enough to reason about: one plain recipe, one recipe per event
-// cohort (v1.2 off by default, v1.5 on because it matches the pack version),
+// cohort (v1.2 off by default, v9.9 on because it matches the pack version),
 // plus one item tagged with a cohort no recipe carries, to pin that cohorts
-// are collected from items and recipes alike.
-function fixturePack(gameVersion = "v1.5.3"): RecipePack {
+// are collected from items and recipes alike. The pack cohort is a synthetic
+// v9.9 so no hand-kept ended event can switch it off.
+function fixturePack(gameVersion = "v9.9.3"): RecipePack {
   const stoich = (item: string, qty: number): Stoich => ({ item, qty });
   const item = (id: string, event?: string): Item => ({
     id,
@@ -91,7 +92,7 @@ function fixturePack(gameVersion = "v1.5.3"): RecipePack {
       item("ore"),
       item("bar"),
       item("coin", "v1.2"),
-      item("lung", "v1.5"),
+      item("lung", "v9.9"),
       item("token_orphan", "v1.1"),
     ],
     machines: [
@@ -109,7 +110,7 @@ function fixturePack(gameVersion = "v1.5.3"): RecipePack {
     recipes: [
       recipe("smelt", "bar"),
       recipe("mint_coin", "coin", "v1.2"),
-      recipe("grow_lung", "lung", "v1.5"),
+      recipe("grow_lung", "lung", "v9.9"),
     ],
   };
 }
@@ -130,8 +131,8 @@ describe("packCohortOf", () => {
 
 describe("eventCohortsOf", () => {
   it("collects distinct cohorts from items and recipes, sorted", () => {
-    // v1.1 appears on an item only, v1.2 on both, v1.5 on both.
-    expect(eventCohortsOf(fixturePack())).toEqual(["v1.1", "v1.2", "v1.5"]);
+    // v1.1 appears on an item only, v1.2 on both, v9.9 on both.
+    expect(eventCohortsOf(fixturePack())).toEqual(["v1.1", "v1.2", "v9.9"]);
   });
 
   it("is empty for a pack with no event content", () => {
@@ -145,20 +146,30 @@ describe("eventCohortsOf", () => {
 describe("effectiveCohortEnabled", () => {
   it("lets an explicit override win in both directions", () => {
     // On-cohort forced off, off-cohort forced on: the override decides.
+    expect(effectiveCohortEnabled("v9.9", "v9.9", { "v9.9": false })).toBe(
+      false,
+    );
+    expect(effectiveCohortEnabled("v1.2", "v9.9", { "v1.2": true })).toBe(true);
+    // An ended pack cohort, forced on and forced off.
+    expect(effectiveCohortEnabled("v1.5", "v1.5", { "v1.5": true })).toBe(true);
     expect(effectiveCohortEnabled("v1.5", "v1.5", { "v1.5": false })).toBe(
       false,
     );
-    expect(effectiveCohortEnabled("v1.2", "v1.5", { "v1.2": true })).toBe(true);
   });
 
-  it("falls back to cohort === packCohort when no override is stored", () => {
-    expect(effectiveCohortEnabled("v1.5", "v1.5", {})).toBe(true);
-    expect(effectiveCohortEnabled("v1.2", "v1.5", {})).toBe(false);
+  it("falls back to a current pack cohort when no override is stored", () => {
+    expect(effectiveCohortEnabled("v9.9", "v9.9", {})).toBe(true);
+    expect(effectiveCohortEnabled("v1.2", "v9.9", {})).toBe(false);
+  });
+
+  it("defaults an ended event off even when it is the pack cohort", () => {
+    // v1.5 is the shipped pack's own cohort, but its event is over.
+    expect(effectiveCohortEnabled("v1.5", "v1.5", {})).toBe(false);
   });
 
   it("ignores overrides for other cohorts", () => {
-    expect(effectiveCohortEnabled("v1.5", "v1.5", { "v1.2": true })).toBe(true);
-    expect(effectiveCohortEnabled("v1.2", "v1.5", { "v1.5": true })).toBe(
+    expect(effectiveCohortEnabled("v9.9", "v9.9", { "v1.2": true })).toBe(true);
+    expect(effectiveCohortEnabled("v1.2", "v9.9", { "v9.9": true })).toBe(
       false,
     );
   });
@@ -289,9 +300,11 @@ describe("unavailableCauses", () => {
 describe("unavailableCauses - area over the shipped pack", () => {
   const TOTAL_RECIPES = 256;
 
+  // The pack's own cohort is forced on (its event has ended, so it defaults
+  // off): the area is then the only predicate that can cut a recipe.
   function survivingIds(area?: string): string[] {
     const causes = unavailableCauses(shippedPack, {
-      eventOverrides: {},
+      eventOverrides: { [packCohortOf(shippedPack)]: true },
       ...(area !== undefined ? { area } : {}),
     });
     return shippedPack.recipes.map((r) => r.id).filter((id) => !causes.has(id));
@@ -348,23 +361,23 @@ describe("unavailableRecipeIds", () => {
     unavailableRecipeIds(unavailableCauses(pack, settings));
 
   it("defaults to the off-cohort recipes only (fresh browser)", () => {
-    // Pack cohort is v1.5: the v1.2 recipe is off, the v1.5 recipe and the
+    // Pack cohort is v9.9: the v1.2 recipe is off, the v9.9 recipe and the
     // non-event recipe are on.
     expect(idsFor(fixturePack(), eventsOnly())).toEqual(new Set(["mint_coin"]));
   });
 
   it("includes the pack cohort's recipes when it is forced off", () => {
-    expect(idsFor(fixturePack(), eventsOnly({ "v1.5": false }))).toEqual(
+    expect(idsFor(fixturePack(), eventsOnly({ "v9.9": false }))).toEqual(
       new Set(["mint_coin", "grow_lung"]),
     );
   });
 
   it("excludes everything non-event and honors a forced-on off-cohort", () => {
     expect(
-      idsFor(fixturePack(), eventsOnly({ "v1.2": true, "v1.5": true })),
+      idsFor(fixturePack(), eventsOnly({ "v1.2": true, "v9.9": true })),
     ).toEqual(new Set());
     // The non-event recipe never appears under any override map.
-    expect(idsFor(fixturePack(), eventsOnly({ "v1.5": false }))).not.toContain(
+    expect(idsFor(fixturePack(), eventsOnly({ "v9.9": false }))).not.toContain(
       "smelt",
     );
   });
@@ -394,7 +407,7 @@ describe("availabilityKey", () => {
 
 describe("unavailableItems", () => {
   it("defaults to the off-cohort items only, each mapped to its cause", () => {
-    // Pack cohort is v1.5: coin (v1.2) is off, and so is token_orphan (v1.1)
+    // Pack cohort is v9.9: coin (v1.2) is off, and so is token_orphan (v1.1)
     // - the derivation is item-driven, so an item whose cohort carries no
     // recipe still surfaces with the cohort its tiles must name.
     expect(unavailableItems(fixturePack(), eventsOnly())).toEqual(
@@ -406,16 +419,16 @@ describe("unavailableItems", () => {
   });
 
   it("follows overrides in both directions", () => {
-    // v1.2 forced on drops its item; v1.5 forced off adds the pack cohort's;
+    // v1.2 forced on drops its item; v9.9 forced off adds the pack cohort's;
     // untouched v1.1 keeps its default-off item.
     expect(
       unavailableItems(
         fixturePack(),
-        eventsOnly({ "v1.2": true, "v1.5": false }),
+        eventsOnly({ "v1.2": true, "v9.9": false }),
       ),
     ).toEqual(
       new Map([
-        ["lung", { kind: "event", cohort: "v1.5" }],
+        ["lung", { kind: "event", cohort: "v9.9" }],
         ["token_orphan", { kind: "event", cohort: "v1.1" }],
       ]),
     );
@@ -481,7 +494,7 @@ describe("unavailableItems", () => {
   });
 
   it("never contains non-event items, under any override map", () => {
-    const map = unavailableItems(fixturePack(), eventsOnly({ "v1.5": false }));
+    const map = unavailableItems(fixturePack(), eventsOnly({ "v9.9": false }));
     expect(map.has("ore")).toBe(false);
     expect(map.has("bar")).toBe(false);
     // And every cohort on empties it entirely.

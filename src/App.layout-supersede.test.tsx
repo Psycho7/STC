@@ -145,11 +145,11 @@ test("a navigation resuming after a newer re-solve's layout started does not sup
   window.location.hash = "#" + (await encodePlan(b));
   await waitFor(() => expect(loadGate.parked).toHaveLength(1));
 
-  // Another tab flips a cohort the committed default plan does not need: the
-  // plan stays valid, so it re-solves as a newer generation and its layout
-  // starts in the worker.
+  // Another tab flips on a cohort the committed default plan does not need
+  // (v1.5 defaults off, its event having ended): the plan stays valid, so it
+  // re-solves as a newer generation and its layout starts in the worker.
   elkWorker.hold = true;
-  flipStoredOverrides('{"v1.5": false}');
+  flipStoredOverrides('{"v1.5": true}');
   await waitFor(() => expect(heldLayouts()).toBe(1));
   const newer = elkWorker.instances.find((w) => w.held.length === 1)!;
 

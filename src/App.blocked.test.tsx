@@ -235,6 +235,11 @@ test("a settings-panel area flip that orphans a target keeps the area and adopts
 test("a cross-tab event flip that orphans a target adopts the blocked state in zh; flipping back re-solves", async () => {
   const zh = loadI18n("zh");
   window.localStorage.setItem(LOCALE_STORAGE_KEY, "zh");
+  // v1.5 defaults off now that its event has ended; start from a stored on.
+  window.localStorage.setItem(
+    EVENT_COHORT_OVERRIDES_STORAGE_KEY,
+    '{"v1.5": true}',
+  );
   window.location.hash = "#" + (await encodePlan(LUNG_PLAN));
   render(<App />);
   await screen.findAllByTestId("target-row");

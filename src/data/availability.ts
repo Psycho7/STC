@@ -26,7 +26,7 @@ import {
 } from "./storage-keys";
 
 // User override per cohort: true = forced on, false = forced off, absent =
-// follow the default rule (on iff the cohort matches the pack's own version).
+// follow the default rule (on iff the cohort's event is current).
 // Only booleans ever ride the wire; readStoredEventOverrides drops anything
 // else under the key.
 export type EventCohortOverrides = Record<string, boolean>;
@@ -61,15 +61,24 @@ export function eventCohortsOf(pack: RecipePack): string[] {
   return [...cohorts].sort();
 }
 
+// Cohorts whose in-game event has closed. Events run on a schedule, not per
+// game version, and the pack carries no event times, so this is kept by hand.
+const ENDED_COHORTS: ReadonlySet<string> = new Set(["v1.5"]);
+
+// Whether a cohort's event is running now: it shipped with the pack's own
+// version and has not been marked ended.
+export function isCurrentCohort(cohort: string, packCohort: string): boolean {
+  return cohort === packCohort && !ENDED_COHORTS.has(cohort);
+}
+
 // The effective-state rule: an explicit override wins in both directions;
-// without one, the cohort is on exactly when it matches the pack's own
-// version. A fresh browser stores nothing, so every shipped cohort is on.
+// without one, the cohort is on exactly when its event is current.
 export function effectiveCohortEnabled(
   cohort: string,
   packCohort: string,
   overrides: EventCohortOverrides,
 ): boolean {
-  return overrides[cohort] ?? cohort === packCohort;
+  return overrides[cohort] ?? isCurrentCohort(cohort, packCohort);
 }
 
 // Everything the predicates read, as one value the app owns and threads in.

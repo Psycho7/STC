@@ -164,20 +164,21 @@ test("a flipped cohort round-trips through localStorage and survives a reload", 
   });
   await waitForCanvasReady(page);
 
-  // Fresh browser: nothing stored, so the pack's own cohort is on.
+  // Fresh browser: nothing stored, so the default rule decides. v1.5 is the
+  // pack's own cohort, but its event has ended, so it is off.
   await page.getByRole("button", { name: TEXT.openSettings }).click();
   const cohortSwitch = page
     .getByRole("dialog")
     .getByRole("switch", { name: TEXT.switchV15 });
-  await expect(cohortSwitch).toBeChecked();
+  await expect(cohortSwitch).not.toBeChecked();
 
   await cohortSwitch.click();
-  await expect(cohortSwitch).not.toBeChecked();
+  await expect(cohortSwitch).toBeChecked();
   const stored = await page.evaluate(
     (key) => window.localStorage.getItem(key),
     EVENT_COHORT_OVERRIDES_STORAGE_KEY,
   );
-  expect(JSON.parse(stored ?? "null")).toEqual({ "v1.5": false });
+  expect(JSON.parse(stored ?? "null")).toEqual({ "v1.5": true });
 
   await page.reload();
   await waitForCanvasReady(page);
@@ -185,13 +186,13 @@ test("a flipped cohort round-trips through localStorage and survives a reload", 
     (key) => window.localStorage.getItem(key),
     EVENT_COHORT_OVERRIDES_STORAGE_KEY,
   );
-  expect(JSON.parse(afterReload ?? "null")).toEqual({ "v1.5": false });
+  expect(JSON.parse(afterReload ?? "null")).toEqual({ "v1.5": true });
 
   // And the panel reads the stored state back, not the default.
   await page.getByRole("button", { name: TEXT.openSettings }).click();
   await expect(
     page.getByRole("dialog").getByRole("switch", { name: TEXT.switchV15 }),
-  ).not.toBeChecked();
+  ).toBeChecked();
 });
 
 test("a blocked event link is adopted under a banner and recovers through the settings panel", async ({

@@ -912,9 +912,11 @@ test("without unavailableItems every event tile stays enabled and no hint render
 
 // The area's item-level fallout (#124): an item every one of whose producers
 // sits outside the selected settlement is dimmed just like an off-cohort one,
-// and its hint names the area setting rather than a cohort.
+// and its hint names the area setting rather than a cohort. The shipped v1.5
+// cohort is forced on (its event has ended, so it defaults off), leaving the
+// area as the only cause on the map.
 const TUNDRA_ONLY = unavailableItems(realPack, {
-  eventOverrides: {},
+  eventOverrides: { "v1.5": true },
   area: "tundra",
 });
 
