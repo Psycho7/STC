@@ -17,6 +17,7 @@ import {
   entryGutterRects,
   paddedObstacles,
   rawCardRects,
+  spannedSetKeyOf,
   gutterWidth,
   ENTRY_SLOT_PITCH,
   CONTAINER_COLUMN_GAP,
@@ -1112,6 +1113,30 @@ function segCrossesRect(a: Point, b: Point, rect: ObstacleRect): boolean {
   }
   return t0 < t1;
 }
+
+describe("spannedSetKeyOf", () => {
+  // One obstacle above the anchor and one below it. clearColumnX spans an
+  // obstacle only when bottom > ymin && top < ymax, so a level exactly on the
+  // near edge spans nothing and must share the key of a level short of it.
+  const anchorY = 500;
+  const above = { left: 0, right: 100, top: 700, bottom: 800 };
+  const below = { left: 0, right: 100, top: 200, bottom: 300 };
+  const keyOf = spannedSetKeyOf([above, below], anchorY);
+  const spans = (o: ObstacleRect, y: number): boolean =>
+    o.bottom > Math.min(anchorY, y) && o.top < Math.max(anchorY, y);
+
+  it("does not count an obstacle whose top the level only touches", () => {
+    expect(spans(above, above.top)).toBe(false);
+    expect(keyOf(above.top)).toBe(keyOf(above.top - 1));
+    expect(keyOf(above.top)).not.toBe(keyOf(above.top + 1));
+  });
+
+  it("does not count an obstacle whose bottom the level only touches", () => {
+    expect(spans(below, below.bottom)).toBe(false);
+    expect(keyOf(below.bottom)).toBe(keyOf(below.bottom + 1));
+    expect(keyOf(below.bottom)).not.toBe(keyOf(below.bottom - 1));
+  });
+});
 
 describe("jogForwardLegs", () => {
   // A forward item edge s -> t skipping a layer, its bend column staked in the
