@@ -586,8 +586,9 @@ export function deconflictChipAnchors(
     if (column !== true || bendX === undefined) return;
     const ty = targetYById.get(edge.id);
     if (ty === undefined) return;
-    // One trunk is one (item, target port) with one column, the same key
-    // routeTrunkEdges pinned the column by.
+    // Groups by (item, target unit, column x). routeTrunkEdges groups trunks
+    // by faninKeyOf (item, target unit, target side) instead; members of one
+    // trunk share its pinned column, so they land in one group here too.
     const key = `${edgeItem(edge) ?? ""}|${edge.target}|${bendX}`;
     pushInto(faninGroups, key, {
       index,
@@ -672,7 +673,7 @@ export function deconflictChipAnchors(
       if (pts === undefined || pts.length < 2) return;
       const ports = drawnPortsOf(edge, byId);
       if (ports === null) return;
-      const halfW = chipSeatHalfW(rateChipText(edge), false);
+      const halfW = chipSeatHalfW(rateChipText(edge.data), false);
       const [ruleX, ruleY] = itemAnchor(
         pts,
         { ...routingHintsFromData(edge.data), memberHalfW: halfW },
@@ -811,7 +812,7 @@ export function seatedChipBoxes(
         "label",
         drawn.labelAnchor.x,
         drawn.labelAnchor.y,
-        chipSeatHalfW(rateChipText(edge), false),
+        chipSeatHalfW(rateChipText(edge.data), false),
       );
       // The far owner of a fan-out trunk with no near member draws its trunk's
       // aggregate on the item shape too, seated on its source stub, so the
@@ -822,7 +823,7 @@ export function seatedChipBoxes(
           "fanout-agg",
           drawn.trunkAnchor.x,
           drawn.trunkAnchor.y,
-          chipSeatHalfW(aggregateChipText(edge), false),
+          chipSeatHalfW(aggregateChipText(edge.data), false),
         );
       }
       continue;
@@ -835,7 +836,7 @@ export function seatedChipBoxes(
         "fanout-agg",
         drawn.trunkAnchor.x,
         drawn.trunkAnchor.y,
-        chipSeatHalfW(aggregateChipText(edge), false),
+        chipSeatHalfW(aggregateChipText(edge.data), false),
       );
     }
     push(
@@ -843,7 +844,7 @@ export function seatedChipBoxes(
       "fanout-branch",
       drawn.branchAnchor.x,
       drawn.branchAnchor.y,
-      chipSeatHalfW(branchChipText(edge), false),
+      chipSeatHalfW(branchChipText(edge.data), false),
     );
   }
   return out;

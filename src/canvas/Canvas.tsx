@@ -246,7 +246,7 @@ function labelEdge(edge: Edge, i18n: I18nIndex): Edge {
     return cached;
   }
 
-  const ariaLabel = edgeRateLabel(edge, i18n);
+  const ariaLabel = edgeRateLabel(edge.data, i18n);
   const labelled: Edge = {
     ...edge,
     ...(ariaLabel === "" ? {} : { ariaLabel }),
