@@ -26,6 +26,20 @@ export type LpInput = {
   // the object handed to the engine; observing it is how a suite pins the model
   // itself rather than the solution it produces.
   onModel?: (mode: string, model: LpModel) => void;
+  // Test seam: called once per pass that ran, in pass order, after the solve
+  // settles. A tie-break pass retried without its frozen columns is still one
+  // pass, reported by the retry's outcome. See LpPassReport.
+  onPass?: (report: LpPassReport) => void;
+};
+
+// One solve pass's outcome. `accepted`: the pass met its own check (primary:
+// feasible and bounded; boundary: cost and balance hold; lex: those plus the
+// boundary optimum). `acceptedFinal`: the result came from this pass; exactly
+// one pass of a feasible solve has it, none of an infeasible one.
+export type LpPassReport = {
+  pass: "primary" | "boundary" | "lex";
+  accepted: boolean;
+  acceptedFinal: boolean;
 };
 
 export type LpResult = {
@@ -586,6 +600,7 @@ export function solveLp(input: LpInput): LpResult {
     // model: every objective coefficient is non-negative under a min objective, so
     // the optimum is bounded below by 0.)
     lpResult = pass1;
+    input.onPass?.({ pass: "primary", accepted: false, acceptedFinal: false });
   } else {
     const costCap = pass1.result ?? 0;
     // Enforce the cost cap the engine may not have. A tie-break pass must only
@@ -697,6 +712,26 @@ export function solveLp(input: LpInput): LpResult {
     const lexValid = lexHolds(lexPass);
 
     lpResult = lexValid ? lexPass : (boundaryPass ?? pass1);
+    if (input.onPass !== undefined) {
+      const boundaryKept = boundaryPass !== undefined;
+      input.onPass({
+        pass: "primary",
+        accepted: true,
+        acceptedFinal: !lexValid && !boundaryKept,
+      });
+      if (hasBoundaryConsumption) {
+        input.onPass({
+          pass: "boundary",
+          accepted: boundaryKept,
+          acceptedFinal: !lexValid && boundaryKept,
+        });
+      }
+      input.onPass({
+        pass: "lex",
+        accepted: lexValid,
+        acceptedFinal: lexValid,
+      });
+    }
     // Report pass-1's objective; the later passes' "result" is a tie-break.
     lpResult.result = costCap;
   }

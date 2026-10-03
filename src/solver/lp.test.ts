@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 import Fraction from "fraction.js";
-import { snapDraw, solveLp, type LpModel, type LpResult } from "./lp";
+import {
+  snapDraw,
+  solveLp,
+  type LpModel,
+  type LpPassReport,
+  type LpResult,
+} from "./lp";
 import { makePack, withoutGasMachines } from "./closed-form-fixtures";
 import { effectiveSupply } from "./effectiveSupply";
 import { pack } from "../data/load";
@@ -1185,6 +1191,16 @@ describe("solveLp - boundary-consumption tie-break", () => {
     ).toBeGreaterThan(0);
     expect(result.rates.has("gas_copper_enr")).toBe(false);
     expect(result.rates.has("gas_xiranite_enr")).toBe(false);
+  });
+
+  it("reports each pass it ran and keeps the lex pass", () => {
+    const reports: LpPassReport[] = [];
+    solveLp({ targets, pack: leanPack, onPass: (r) => reports.push(r) });
+    expect(reports).toEqual([
+      { pass: "primary", accepted: true, acceptedFinal: false },
+      { pass: "boundary", accepted: true, acceptedFinal: false },
+      { pass: "lex", accepted: true, acceptedFinal: true },
+    ]);
   });
 });
 

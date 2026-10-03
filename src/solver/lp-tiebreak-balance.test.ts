@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import Fraction from "fraction.js";
 import { solvePlanWithIntermediates, type SolvePlanFull } from "./index";
 import { planToSolverArgs } from "./planToSolverArgs";
+import { solveLp, type LpPassReport } from "./lp";
+import { netSelfConsumption } from "./net-self";
 import { pack } from "../data/load";
 import { defaultPlan, type Plan } from "../data/plan";
 import {
@@ -31,6 +33,23 @@ function solveIn(plan: Plan, area: string): SolvePlanFull {
     recipeCosts,
     unavailable,
   );
+}
+
+// The passes solveLp ran for the same solve, as solveIn hands it to the LP.
+function passReportsIn(plan: Plan, area: string): LpPassReport[] {
+  const { targets, itemOverrides, recipeCosts } = planToSolverArgs(plan);
+  const reports: LpPassReport[] = [];
+  solveLp({
+    targets,
+    pack: netSelfConsumption(pack),
+    itemOverrides: itemOverrides ?? [],
+    ...(recipeCosts !== undefined && { recipeCosts }),
+    unavailableRecipeIds: unavailableRecipeIds(
+      unavailableCauses(pack, { eventOverrides: {}, area }),
+    ),
+    onPass: (r) => reports.push(r),
+  });
+  return reports;
 }
 
 // Net production of one item over the solved recipe rates, on the netted
@@ -80,6 +99,11 @@ describe("tie-break passes keep mass balance", () => {
         ["copper_powder", "1/2"],
       ]),
     );
+    expect(passReportsIn(defaultPlan(pack), "tundra")).toEqual([
+      { pass: "primary", accepted: true, acceptedFinal: false },
+      { pass: "boundary", accepted: true, acceptedFinal: false },
+      { pass: "lex", accepted: true, acceptedFinal: true },
+    ]);
   });
 
   it("delivers iron_powder at exactly 1/4 with copper_ore capped at 1/min", () => {
