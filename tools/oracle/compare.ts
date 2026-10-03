@@ -112,6 +112,7 @@ export function nettedScenario(s: Scenario): Scenario {
 
 export function runStc(s: Scenario): StcRun {
   const ns = nettedScenario(s);
+  // Full pack on purpose: the vendor oracle sees every recipe, so STC must too.
   const r = solveLp({
     targets: ns.targets,
     pack: ns.pack,

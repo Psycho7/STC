@@ -132,6 +132,21 @@ describe("solver-cli smoke", () => {
     expect(withOverride).not.toMatch(/^phase_trans_2-xiranite_powder=/m);
   });
 
+  it("solves under the fresh-browser default availability", async () => {
+    // activity_xiranite_nugget's only producer is a v1.5 event recipe, and
+    // v1.5 has ended, so a fresh browser has it off. The CLI must not route
+    // the box through it.
+    const out = await runCli([
+      "--plan",
+      "activity_xiranite_box=1",
+      "--mode",
+      "rates",
+    ]);
+    expect(out).not.toMatch(/^status=feasible$/m);
+    expect(out).not.toMatch(/^activity_xiranite_nugget=/m);
+    expect(out.split("# deficit")[1]).toMatch(/^activity_xiranite_box=1$/m);
+  });
+
   it("returns clean error for full mode on unknown item", async () => {
     // The --plan path validates target itemIds against the pack and returns a
     // clean error string instead of letting the unknown id reach the solver.

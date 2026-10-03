@@ -306,6 +306,19 @@ export function latestArea(pack: RecipePack): string {
   return latest.id;
 }
 
+// What the app reads on a browser with nothing stored: no cohort overrides,
+// the latest settlement, no hand toggles. Pure, so a node caller (the solver
+// CLI) can solve what a fresh browser solves without touching localStorage.
+export function freshAvailabilitySettings(
+  pack: RecipePack,
+): AvailabilitySettings {
+  return {
+    eventOverrides: {},
+    area: latestArea(pack),
+    disabledRecipeIds: new Set(),
+  };
+}
+
 // The stored settlement (#124), validated against the pack's own location list.
 // An absent key or an unknown id - hand-edited storage, or an area a pack bump
 // retired - reads as the latest settlement. The key stays absent until the user

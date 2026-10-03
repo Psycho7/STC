@@ -12,6 +12,10 @@ bun run tools/solver-cli/main.ts --hash <planHash> [--mode full|rates]
 
 Exactly one of `--plan` or `--hash` must be given.
 
+Every solve uses the availability a fresh browser starts with: the latest
+settlement, ended event cohorts off, no recipes switched off by hand. Settings
+stored in a browser are not read, and there is no flag to change them.
+
 ### --plan spec
 
 Comma-separated list of `itemId=rate` entries. Accepted rate forms:

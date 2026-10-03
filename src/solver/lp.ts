@@ -20,7 +20,8 @@ export type LpInput = {
   // App-level availability state (#144): recipe ids switched off for this
   // solve. Treated mechanically like the extraction ban - no LP variable - but
   // unlike the extraction ban it never renumbers lexRank (see below). Defaults
-  // empty, which is what a fresh browser runs with.
+  // empty, i.e. the full pack; a fresh browser does NOT run with that (it has
+  // ended cohorts and other settlements off).
   unavailableRecipeIds?: ReadonlySet<RecipeId>;
   // Test seam: called once per model built, with the pass label. The model is
   // the object handed to the engine; observing it is how a suite pins the model
