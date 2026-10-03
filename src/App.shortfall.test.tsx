@@ -264,6 +264,14 @@ test("an area switch that blocks a target hides the old area's strip", async () 
 
   await waitFor(() => expect(canvasSpy.status).toBe("ERROR"));
   expect(screen.queryByTestId("shortfall-strip")).toBeNull();
+
+  // Switching back re-solves to the same shortfall, so the strip returns.
+  flipStoredArea(undefined);
+
+  await waitFor(() => expect(canvasSpy.status).toBe("SHORTFALL"));
+  expect((await screen.findByTestId("shortfall-strip")).textContent).toContain(
+    en.displayName("copper_jar"),
+  );
 });
 
 test("a solve in flight hides the strip", async () => {
