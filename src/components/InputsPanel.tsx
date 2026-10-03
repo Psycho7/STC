@@ -64,8 +64,9 @@ type Props = {
   onChange: (update: (current: ItemOverride[]) => ItemOverride[]) => void;
   pack: RecipePack;
   // Unavailable items, each mapped to the cause behind it, as derived by
-  // deriveAvailability(pack, settings).items in the owner. The picker dims these tiles
-  // and the hint names the cause. Optional with an empty default so callers
+  // unavailableEventItems(pack, settings) in the owner: an input is imported,
+  // so only an off cohort dims it. The picker dims these tiles and the hint
+  // names the cause. Optional with an empty default so callers
   // that model no availability render every tile enabled.
   unavailableItems?: ReadonlyMap<string, ProducerUnavailableCause> | undefined;
   targetItemIds?: ReadonlySet<string>;
