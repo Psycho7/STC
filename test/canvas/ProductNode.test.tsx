@@ -362,6 +362,42 @@ describe("ProductNode", () => {
     );
   });
 
+  it("groups the digits of the rate, the delivered figure and their tooltip", () => {
+    // delivered 41/2 per sec = 1230/min; declared 41/1 per sec = 2460/min.
+    const { container } = renderProduct(
+      {
+        kind: "outputProduct",
+        itemId: "copper_nugget",
+        rate: { num: "41", denom: "1" },
+        delivered: { num: "41", denom: "2" },
+        flavor: "target",
+      },
+      [makeItem("copper_nugget", false)],
+    );
+    const rate = container.querySelector(".pn-rate");
+    expect(rate?.textContent).toBe("1,230/minof 2,460/min");
+    expect(rate?.getAttribute("title")).toBe(
+      "1,230/min delivered of 2,460/min declared",
+    );
+  });
+
+  it("groups the digits of a plain rate and a fanout share", () => {
+    // rate 41/2 per sec = 1230/min; parentRate 41/1 per sec = 2460/min.
+    const { container } = renderProduct(
+      {
+        kind: "inputProduct",
+        itemId: "copper_ore",
+        rate: { num: "41", denom: "2" },
+        isFanout: true,
+        parentRate: { num: "41", denom: "1" },
+      },
+      [makeItem("copper_ore", true)],
+    );
+    expect(container.querySelector(".pn-rate")?.textContent).toBe(
+      "1,230/minof 2,460/min",
+    );
+  });
+
   it("leads an unfed target with zero, of the declared rate", () => {
     const { container } = renderProduct(
       {
@@ -497,6 +533,24 @@ describe("ProductNode", () => {
       expect(title).toContain("catalyst short by 1/min");
       // The name still leads the tooltip.
       expect(title.startsWith("Xiragen")).toBe(true);
+    });
+
+    it("groups the digits of the pool breakdown in the name tooltip", () => {
+      const { container } = renderProduct(
+        catalystData({
+          catalystBreakdown: {
+            fromCatalyst: { num: "41", denom: "1" },
+            fromGeneral: { num: "41", denom: "2" },
+            unmet: { num: "823", denom: "40" },
+          },
+        }),
+        [makeItem("gas_xiranite", true)],
+      );
+      const title =
+        container.querySelector(".pn-name")?.getAttribute("title") ?? "";
+      expect(title).toContain("from catalyst supply 2,460/min");
+      expect(title).toContain("from general supply 1,230/min");
+      expect(title).toContain("catalyst short by 1,234.5/min");
     });
 
     it("drops the shortage line from the tooltip when nothing is unmet", () => {

@@ -13,7 +13,8 @@ import { CHIP_BOX_HEIGHT } from "../../src/canvas/dimensions";
 // (compact) chip reserves the exact square icon box instead, so it is checked
 // against CHIP_BOX_HEIGHT rather than the estimate.
 //
-// The chip bodies are locale-independent ASCII digits, so the full scenario
+// The chip bodies are locale-independent ASCII (digits, ".", "/" and the
+// grouping ","; both locales group digits the same way), so the full scenario
 // corpus runs in en only; zh varies just the appended unit string, and two
 // dense scenarios cover it. The pinned unit strings double
 // as a composition check: each drawn chip text must be exactly body + unit,

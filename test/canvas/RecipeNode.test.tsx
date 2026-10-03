@@ -486,6 +486,20 @@ describe("RecipeNode", () => {
       expect(container.querySelectorAll("[data-handleid]")).toHaveLength(4);
     });
 
+    // 200 machines: copper_nugget 6/min each -> 1200, liquid_water -> 2400,
+    // copper_powder -> 1200, and the catalyst charge 6/min each -> 1200.
+    it("groups the digits of row rates and the catalyst aggregate at 1000/min or more", () => {
+      const { container } = renderCatalyst(200);
+      const rates = (sel: string) =>
+        Array.from(container.querySelectorAll(sel)).map((el) => el.textContent);
+      expect(rates(".rn-side.in .rn-row.input .rate")).toEqual([
+        "1,200",
+        "2,400",
+      ]);
+      expect(rates(".rn-side.out .rn-row.output .rate")).toEqual(["1,200"]);
+      expect(rates(".rn-row.catalyst .rate")).toEqual(["1,200"]);
+    });
+
     it("draws the catalyst rate as a bare number, no locale rate unit", () => {
       const { container } = renderCatalyst();
       expect(
@@ -710,7 +724,7 @@ describe("RecipeNode", () => {
       };
       const wide1200 = labelOf(20);
       const narrow60 = labelOf(1);
-      expect(wide1200.rate).toBe("1200");
+      expect(wide1200.rate).toBe("1,200");
       expect(narrow60.rate).toBe("60");
       expect(wide1200.visible.endsWith("…"), wide1200.visible).toBe(true);
       // Same name, wider rate: the label gets less room, so it is cut shorter.
