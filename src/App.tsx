@@ -1263,10 +1263,11 @@ function AppInner() {
             </button>
           </div>
         ) : null}
-        {/* The strip's gate mirrors the status gate above (the tolerant
-            under-delivery list, not the raw deficit map) so the two can never
-            disagree: no "unmet demand" sentence under a READY header. */}
-        {underDelivered.length > 0 ? (
+        {/* The strip renders only when the status is SHORTFALL. Its facts are
+            rewritten only by a finished solve, so under ERROR (held, rejected
+            or failed solve) or SOLVING they describe an earlier plan or
+            setting and stay hidden. */}
+        {status === "SHORTFALL" ? (
           <div
             role="status"
             data-testid="shortfall-strip"
