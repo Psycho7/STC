@@ -21,6 +21,7 @@ import type { ProducerUnavailableCause } from "./plan";
 import { producerUnavailableCause } from "./plan";
 import {
   AREA_STORAGE_KEY,
+  DISABLED_RECIPES_STORAGE_KEY,
   EVENT_COHORT_OVERRIDES_STORAGE_KEY as STORAGE_KEY,
 } from "./storage-keys";
 
@@ -315,6 +316,44 @@ export function writeStoredArea(next: string): void {
   if (typeof window === "undefined") return;
   try {
     window.localStorage?.setItem(AREA_STORAGE_KEY, next);
+  } catch {
+    // As above: an unpersisted choice still drives this session.
+  }
+}
+
+// The hand-disabled recipes (#125), validated against the pack the way the
+// overrides read validates its value types: anything that is not a string
+// naming a recipe of this pack is dropped, so a renamed or retired recipe
+// comes back enabled instead of silently switching off the id's new owner.
+export function readStoredDisabledRecipes(
+  pack: RecipePack,
+): ReadonlySet<RecipeId> {
+  const disabled = new Set<RecipeId>();
+  if (typeof window === "undefined") return disabled;
+  try {
+    const raw = window.localStorage?.getItem(DISABLED_RECIPES_STORAGE_KEY);
+    if (!raw) return disabled;
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return disabled;
+    const known = new Set(pack.recipes.map((r) => r.id));
+    for (const id of parsed) {
+      if (typeof id === "string" && known.has(id)) disabled.add(id);
+    }
+  } catch {
+    // Same private-mode fall-through as the reads above.
+  }
+  return disabled;
+}
+
+// Written sorted, so two browsers that switched the same recipes off hold the
+// same string and a diff of the key reads as a set rather than a history.
+export function writeStoredDisabledRecipes(next: ReadonlySet<RecipeId>): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage?.setItem(
+      DISABLED_RECIPES_STORAGE_KEY,
+      JSON.stringify([...next].sort()),
+    );
   } catch {
     // As above: an unpersisted choice still drives this session.
   }
