@@ -133,7 +133,10 @@ function manuallyDisabled(
 // Why a recipe is off, or null when it is available. Precedence when more than
 // one predicate fails: area, then event, then manual - the outermost reason
 // first, so the message points at the switch that the user has to flip before
-// any of the others would even matter.
+// any of the others would even matter. This is the RECIPE level, read by the
+// recipe rows in settings. The ITEM level (unavailableItems) puts the item's
+// own off cohort first and only then falls back to the outermost producer
+// cause: an item whose cohort is off does not exist, wherever it could be built.
 function unavailableCauseOf(
   recipe: Recipe,
   packCohort: string,
@@ -196,6 +199,30 @@ export function availabilityKey(
     .map(([id, cause]) => `${id}:${cause.kind}:${causeDetail(cause)}`)
     .sort()
     .join("|");
+}
+
+// Everything the app derives from the settings at once: the recipe cause map,
+// the solver's id set, the item-level cause map the pickers and the
+// blocked-target banner read, and one digest over both maps. The digest covers
+// the item map too, so a cohort tagged only on items (its recipes untagged)
+// still moves the key and the banner cannot go stale.
+export function deriveAvailability(
+  pack: RecipePack,
+  settings: AvailabilitySettings,
+): {
+  causes: ReadonlyMap<RecipeId, ProducerUnavailableCause>;
+  ids: ReadonlySet<RecipeId>;
+  items: ReadonlyMap<string /*itemId*/, ProducerUnavailableCause>;
+  key: string;
+} {
+  const causes = unavailableCauses(pack, settings);
+  const items = unavailableItems(pack, settings);
+  return {
+    causes,
+    ids: unavailableRecipeIds(causes),
+    items,
+    key: `${availabilityKey(causes)}#${availabilityKey(items)}`,
+  };
 }
 
 function causeDetail(cause: ProducerUnavailableCause): string {

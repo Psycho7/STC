@@ -160,6 +160,36 @@ test.each(
   },
 );
 
+// activity_copper_poly is a v1.5 event item whose every producer is
+// jinlong-only. In the tundra with v1.5 off both settings block it; the banner
+// names the item's own cohort, as the picker hint and shortfall strip do.
+test("a blocked event item out of area names its cohort, not the area", async () => {
+  const en = loadI18n("en");
+  window.localStorage.setItem(LOCALE_STORAGE_KEY, "en");
+  window.localStorage.setItem(AREA_STORAGE_KEY, VALLEY);
+  window.localStorage.setItem(
+    EVENT_COHORT_OVERRIDES_STORAGE_KEY,
+    '{"v1.5": false}',
+  );
+  const plan: Plan = {
+    ...defaultPlan(pack),
+    targets: [
+      {
+        itemId: "activity_copper_poly",
+        ratePerSec: { num: "1", denom: "1" },
+      },
+    ],
+  };
+  window.location.hash = "#" + (await encodePlan(plan));
+  render(<App />);
+
+  const banner = await screen.findByRole("alert");
+  expect(banner.textContent).toContain(en.displayName("activity_copper_poly"));
+  expect(banner.textContent).toContain("v1.5");
+  expect(banner.textContent).not.toContain(en.displayName(VALLEY));
+  await waitFor(() => expect(canvasSpy.status).toBe("ERROR"));
+});
+
 test("a navigation to a blocked plan over a drawn plan adopts it and marks the drawing stale", async () => {
   const en = loadI18n("en");
   window.localStorage.setItem(LOCALE_STORAGE_KEY, "en");
