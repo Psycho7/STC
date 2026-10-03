@@ -85,8 +85,8 @@ function setReason(
 
 // The edit / commit / revert / invalid protocol behind one rate input family.
 // One instance owns one disjoint family of rows: it carries its own invalid
-// set, so a caller with two families (auto rows and override rows) needs two
-// instances and must guarantee a row key is never in both at once.
+// set, so a caller with two families needs two instances and must guarantee a
+// row key is never in both at once.
 //
 // The key is whatever identifies a row to the caller and is opaque here: an
 // item id for the targets panel, an (item, pool) row key for the inputs one.
@@ -227,9 +227,10 @@ export function useRateEdit(config: RateEditConfig): RateEdit {
       });
     },
     // Display text handed over from elsewhere, WITHOUT marking the row dirty, so
-    // a seeded row will not re-commit on blur. One flow needs it: an auto row
-    // promoting into an override row passes on the text the user typed, so the
-    // new row shows that instead of the re-serialized Fraction.
+    // a seeded row will not re-commit on blur. One flow needs it: an Assumed
+    // row's pending cap promoting into an override row passes on the text the
+    // user typed, so the new row shows that instead of the re-serialized
+    // Fraction.
     seedCommittedText(rowKey, text) {
       setTexts((prev) => new Map(prev).set(rowKey, text));
     },

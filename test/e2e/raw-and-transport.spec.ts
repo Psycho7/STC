@@ -138,7 +138,9 @@ test.describe("raw-product boundaries", () => {
     );
     await expect(gasXiraniteInput).toHaveCount(1);
 
-    await page.getByTestId("side-panel-tab-inputs").click();
+    await page
+      .getByTestId("inputs-section")
+      .evaluate((el) => el.scrollIntoView({ block: "start" }));
     const gasXiraniteSupply = page.locator(
       '[data-testid="input-auto-row"][data-item-id="gas_xiranite"]',
     );

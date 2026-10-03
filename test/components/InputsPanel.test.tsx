@@ -457,27 +457,26 @@ describe("InputsPanel", () => {
     ]);
   });
 
-  it("prunes a promoted row's seeded text when the override leaves by prop change", () => {
-    // Promotion seeds the override family's display text without the dirty
-    // flag; only handleRemove used to clear it, so an override dropped by any
-    // other route left the text behind to resurface when the item returned.
+  it("prunes a committed row's text when the override leaves by prop change", () => {
+    // The override family keeps its committed text as the display value; only
+    // handleRemove used to clear it, so an override dropped by any other route
+    // left the text behind to resurface when the item returned.
     const onChange = vi.fn();
     const view = render(
       <InputsPanel
-        itemOverrides={[]}
+        itemOverrides={[{ itemId: "copper_ore" }]}
         onChange={onChange}
         pack={fixturePack}
         assumedRawItemIds={["copper_ore"]}
       />,
     );
-    const auto = screen.getAllByLabelText(/速率/)[0]!;
-    fireEvent.change(auto, { target: { value: "60" } });
-    fireEvent.blur(auto);
-    // The commit promotes and seeds "60" into the override family.
+    const rate = screen.getAllByLabelText(/速率/)[0]!;
+    fireEvent.change(rate, { target: { value: "60" } });
+    fireEvent.blur(rate);
     expect(onChange).toHaveBeenCalledTimes(1);
 
-    // The parent applies the promotion, then later drops the override by some
-    // route other than the row's X button...
+    // The parent applies the cap, then later drops the override by some route
+    // other than the row's X button...
     view.rerender(
       <InputsPanel
         itemOverrides={[
@@ -497,7 +496,7 @@ describe("InputsPanel", () => {
       />,
     );
     // ...and when the item returns as an uncapped override, the field shows
-    // the fresh prop-derived value, not the stale seeded "60".
+    // the fresh prop-derived value, not the stale committed "60".
     view.rerender(
       <InputsPanel
         itemOverrides={[{ itemId: "copper_ore" }]}
@@ -506,9 +505,8 @@ describe("InputsPanel", () => {
         assumedRawItemIds={["copper_ore"]}
       />,
     );
-    const row = screen.getByTestId("input-row");
-    const rate = row.querySelector("input")!;
-    expect(rate.value).toBe("");
+    const returned = screen.getByTestId("input-row").querySelector("input")!;
+    expect(returned.value).toBe("");
   });
 
   it("negative rate is rejected: retains prior value, does not call onChange", () => {
@@ -611,12 +609,13 @@ describe("InputsPanel", () => {
     expect(autoRows[1]!.getAttribute("data-item-id")).toBe("iron_ore");
     // The empty-state string must not render alongside auto-rows.
     expect(screen.queryByText(/未配置|No declared inputs/)).toBeNull();
-    // RAW/IMPORT and UNLIMITED chips were dropped from .b-tags - the only
-    // Unlimited indicator left is the rate-input placeholder.
+    // RAW/IMPORT and UNLIMITED chips were dropped from .b-tags, and an Assumed
+    // row has no rate field at all: the block carries the "unlimited" claim
+    // itself, and its rows offer promotion instead of a place to type.
     expect(screen.queryByTestId("input-unlimited")).toBeNull();
     expect(screen.queryByText(/^RAW$/)).toBeNull();
-    const rateFields = screen.getAllByLabelText(/速率/);
-    expect(rateFields[0]!.getAttribute("placeholder")).toBe("无限");
+    expect(screen.queryAllByLabelText(/速率/).length).toBe(0);
+    expect(screen.getAllByTestId("input-set-cap").length).toBe(2);
   });
 
   it("auto-rows: assumed-raw items without an override stay visible alongside overrides", () => {
@@ -673,53 +672,43 @@ describe("InputsPanel", () => {
     expect(neededLine.textContent).toMatch(/需求|needed/);
   });
 
-  it("auto-rows: typing a cap materialises a new ItemOverride entry", () => {
-    vi.useFakeTimers();
-    try {
-      const onChange = vi.fn();
-      render(
-        <InputsPanel
-          itemOverrides={[]}
-          onChange={onChange}
-          pack={fixturePack}
-          assumedRawItemIds={["copper_ore"]}
-        />,
-      );
-      const input = screen.getAllByLabelText(/速率/)[0]!;
-      fireEvent.change(input, { target: { value: "180" } });
-      fireEvent.blur(input);
-      expect(onChange).toHaveBeenCalledTimes(1);
-      const next = firstUpdater(onChange)([]);
-      // 180/min -> 3/s = "3/1".
-      expect(next).toEqual([
-        { itemId: "copper_ore", ratePerSec: { num: "3", denom: "1" } },
-      ]);
-    } finally {
-      vi.useRealTimers();
-    }
+  it("auto-rows: set cap materialises an ItemOverride only once a rate is committed", () => {
+    const onChange = vi.fn();
+    render(
+      <InputsPanel
+        itemOverrides={[]}
+        onChange={onChange}
+        pack={fixturePack}
+        assumedRawItemIds={["copper_ore"]}
+      />,
+    );
+    fireEvent.click(screen.getByTestId("input-set-cap"));
+    // The click only opens the field: nothing reaches the plan yet.
+    expect(onChange).not.toHaveBeenCalled();
+    const field = screen.getByTestId("input-pending-cap");
+    fireEvent.change(field, { target: { value: "120" } });
+    fireEvent.blur(field);
+    expect(onChange).toHaveBeenCalledTimes(1);
+    expect(firstUpdater(onChange)([])).toEqual([
+      { itemId: "copper_ore", ratePerSec: { num: "2", denom: "1" } },
+    ]);
   });
 
-  it("auto-rows: typing empty string does NOT materialise (stays as auto)", () => {
-    vi.useFakeTimers();
-    try {
-      const onChange = vi.fn();
-      render(
-        <InputsPanel
-          itemOverrides={[]}
-          onChange={onChange}
-          pack={fixturePack}
-          assumedRawItemIds={["copper_ore"]}
-        />,
-      );
-      const input = screen.getAllByLabelText(/速率/)[0]!;
-      // The input starts empty; firing change with "" should be a no-op since
-      // an empty value on an auto-row is the natural "Unlimited" state.
-      fireEvent.change(input, { target: { value: "" } });
-      vi.advanceTimersByTime(150);
-      expect(onChange).not.toHaveBeenCalled();
-    } finally {
-      vi.useRealTimers();
-    }
+  it("auto-rows: nothing but the button can promote a row", () => {
+    const onChange = vi.fn();
+    render(
+      <InputsPanel
+        itemOverrides={[]}
+        onChange={onChange}
+        pack={fixturePack}
+        assumedRawItemIds={["copper_ore"]}
+      />,
+    );
+    const row = screen.getByTestId("input-auto-row");
+    // No rate field to type into, so the typing path that used to promote is
+    // gone rather than merely unused.
+    expect(row.querySelector("input[type=text]")).toBeNull();
+    expect(onChange).not.toHaveBeenCalled();
   });
 
   it("override row with no ratePerSec: prominent .b-needed line + 'Unlimited' placeholder, no RAW/IMPORT chip", () => {
@@ -827,20 +816,20 @@ describe("InputsPanel", () => {
         assumedRawItemIds={["copper_ore"]}
       />,
     );
+    // Both rows carry a name element, but only the override row has a rate
+    // field to describe: the Assumed row's cell holds the promotion button.
     for (const itemId of ["copper_ore", "iron_ore"]) {
-      // The name element still renders (it is the on-screen name), but the
-      // field's label already names the row, so aria-describedby omits it.
       expect(document.getElementById(`i-name-${itemId}`)).not.toBeNull();
-      const row = document.querySelector(`[data-item-id="${itemId}"]`);
-      const input = row!.querySelector("input")!;
-      expect(input.getAttribute("aria-describedby")).toBeNull();
-      // An invalid entry is the one thing left to describe, by its own id.
-      fireEvent.change(input, { target: { value: "x" } });
-      fireEvent.keyDown(input, { key: "Enter" });
-      expect(input.getAttribute("aria-describedby")).toBe(
-        `i-rate-err-${itemId}`,
-      );
     }
+    // The name element still renders (it is the on-screen name), but the
+    // field's label already names the row, so aria-describedby omits it.
+    const row = document.querySelector('[data-testid="input-row"]');
+    const input = row!.querySelector("input")!;
+    expect(input.getAttribute("aria-describedby")).toBeNull();
+    // An invalid entry is the one thing left to describe, by its own id.
+    fireEvent.change(input, { target: { value: "x" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(input.getAttribute("aria-describedby")).toBe("i-rate-err-iron_ore");
   });
 
   it("swapping a capped row onto an auto-row item carries the cap and retires the auto-row", async () => {
@@ -1083,14 +1072,15 @@ describe("InputsPanel", () => {
         assumedRawItemIds={["copper_ore"]}
       />,
     );
-    const input = screen.getAllByLabelText(/速率/)[0]! as HTMLInputElement;
+    fireEvent.click(screen.getByTestId("input-set-cap"));
+    const input = screen.getByTestId("input-pending-cap");
     fireEvent.change(input, { target: { value: "x" } });
     fireEvent.blur(input);
-    expect(input.value).toBe("");
+    expect(screen.queryByTestId("input-pending-cap")).toBeNull();
     const status = screen.getByTestId("rate-reverted");
     expect(status.textContent).toBe(loadI18n("zh").t("rate.reverted"));
-    // The field came back EMPTY (Unlimited), so copy claiming a rate was
-    // restored would be false on this row.
+    // The row went back to Unlimited, so copy claiming a rate was restored
+    // would be false on this row.
     expect(status.textContent).not.toMatch(/原速率|恢复/);
   });
 
