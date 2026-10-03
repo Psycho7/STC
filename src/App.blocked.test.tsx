@@ -295,6 +295,48 @@ test("a cross-tab event flip that orphans a target adopts the blocked state in z
   await waitFor(() => expect(canvasSpy.status).toBe("READY"));
 });
 
+// The flip path names the item-level cause too. With v1.5 on, the tundra is the
+// only thing blocking activity_copper_poly, so the banner names the area.
+// Switching v1.5 off mid-session leaves its producers' area cause in place,
+// but the item's own cohort now wins.
+test("a mid-session event flip renames an area-blocked event item's cause to its cohort", async () => {
+  const en = loadI18n("en");
+  window.localStorage.setItem(LOCALE_STORAGE_KEY, "en");
+  window.localStorage.setItem(AREA_STORAGE_KEY, VALLEY);
+  window.localStorage.setItem(
+    EVENT_COHORT_OVERRIDES_STORAGE_KEY,
+    '{"v1.5": true}',
+  );
+  const plan: Plan = {
+    ...defaultPlan(pack),
+    targets: [
+      {
+        itemId: "activity_copper_poly",
+        ratePerSec: { num: "1", denom: "1" },
+      },
+    ],
+  };
+  window.location.hash = "#" + (await encodePlan(plan));
+  render(<App />);
+
+  const before = await screen.findByRole("alert");
+  expect(before.textContent).toContain(en.displayName(VALLEY));
+  expect(before.textContent).not.toContain("v1.5");
+  await waitFor(() => expect(canvasSpy.status).toBe("ERROR"));
+
+  flipStoredOverrides('{"v1.5": false}');
+
+  // The alert is already up, so wait on its text rather than on the element.
+  await waitFor(() =>
+    expect(screen.getByRole("alert").textContent).toContain("v1.5"),
+  );
+  const after = screen.getByRole("alert");
+  expect(after.textContent).toContain(en.displayName("activity_copper_poly"));
+  expect(after.textContent).not.toContain(en.displayName(VALLEY));
+  expectNoRejection("en");
+  expect(canvasSpy.status).toBe("ERROR");
+});
+
 // The rule has no edit-rejection branch either: an edit to another row while
 // a target is blocked commits into the panels under the same banner, and it
 // is part of the plan that solves once the setting is flipped back.
