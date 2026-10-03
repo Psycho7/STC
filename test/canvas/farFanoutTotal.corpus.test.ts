@@ -260,7 +260,7 @@ describe("a fan-out with no near member still draws its total", () => {
         if (drawn.shape !== "item" || drawn.trunkAnchor === undefined) continue;
         owned.push(trunk.key);
 
-        const halfW = chipSeatHalfW(aggregateChipText(owner), false);
+        const halfW = chipSeatHalfW(aggregateChipText(owner.data), false);
         const seat: Seat = {
           plan: scenario.id,
           trunkKey: trunk.key,

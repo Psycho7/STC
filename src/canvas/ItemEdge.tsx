@@ -2,7 +2,6 @@ import {
   BaseEdge,
   EdgeLabelRenderer,
   useStore,
-  type Edge,
   type EdgeProps,
   type ReactFlowState,
 } from "@xyflow/react";
@@ -648,9 +647,9 @@ export function rateLabel(name: string, value: string): string {
 // The full "Name x rate/min" string an item edge is spoken by: its rate chip's
 // aria-label, and through Canvas the edge wrapper's own. "" when the edge
 // carries no item or no nonzero rate.
-export function edgeRateLabel(edge: Edge, i18n: I18nIndex): string {
-  const item = (edge.data as ItemEdgeData | undefined)?.item;
-  const body = rateChipText(edge)?.body;
+export function edgeRateLabel(data: unknown, i18n: I18nIndex): string {
+  const item = (data as ItemEdgeData | undefined)?.item;
+  const body = rateChipText(data)?.body;
   if (item === undefined || !body) return "";
   return rateLabel(
     i18n.displayName(item),
@@ -683,9 +682,7 @@ export default function ItemEdge({
   // The chip body comes from the builder the seat reserves its box by, so the
   // drawn text and the reserved width cannot disagree.
   const rateStr = useMemo(
-    () =>
-      rateChipText({ id: "", source: "", target: "", data: sourceData } as Edge)
-        ?.body ?? "",
+    () => rateChipText(sourceData)?.body ?? "",
     [sourceData],
   );
   const unit = i18n.t("canvas.rate.unit");
@@ -713,10 +710,7 @@ export default function ItemEdge({
     () =>
       item !== undefined && rate !== undefined && rateStr
         ? {
-            fullLabel: edgeRateLabel(
-              { id: "", source: "", target: "", data: sourceData } as Edge,
-              i18n,
-            ),
+            fullLabel: edgeRateLabel(sourceData, i18n),
             exactTitle: rateLabel(
               i18n.displayName(item),
               `${formatRateExactPerMin(rate)}${unit}`,
@@ -728,16 +722,12 @@ export default function ItemEdge({
 
   // The trunk total this edge carries when it is the elected far owner of a
   // fan-out with no near member: the same builder, wording and unit BusEdge's
-  // drop chip uses, so the two states of one contract read alike. Empty on
-  // every other item edge, where the payload carries no total.
+  // drop chip uses, so the two states of one contract read alike. On an edge
+  // with no total the builder falls back to the edge's own rate, so this is
+  // not empty there; the trunk-anchor check at the render site is what keeps
+  // the total chip off every other item edge.
   const totalStr = useMemo(
-    () =>
-      aggregateChipText({
-        id: "",
-        source: "",
-        target: "",
-        data: sourceData,
-      } as Edge)?.body ?? "",
+    () => aggregateChipText(sourceData)?.body ?? "",
     [sourceData],
   );
   const total = (sourceData as ItemEdgeData | undefined)?.busTotalRate;

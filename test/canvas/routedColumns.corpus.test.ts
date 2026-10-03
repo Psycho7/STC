@@ -380,7 +380,7 @@ describe("only two corpus gaps take the fan-out order off plain port order", () 
 // steps past plus the box it draws at its natural width. Both ends of the edge
 // owe it, which is exactly the reserve gapRequirements charged there.
 const chipRoom = (edge: Edge): number =>
-  PORT_STUB + chipNaturalWidth(rateChipText(edge));
+  PORT_STUB + chipNaturalWidth(rateChipText(edge.data));
 
 describe("a 1-to-1 edge keeps chip room on its first and last run", () => {
   it("holds on every corpus plan", async () => {
