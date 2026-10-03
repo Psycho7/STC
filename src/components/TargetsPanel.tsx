@@ -36,7 +36,7 @@ type Props = {
   onChange: (update: (current: Target[]) => Target[]) => void;
   pack: RecipePack;
   // Unavailable items, each mapped to the cause behind it, as derived by
-  // unavailableItems(pack, settings) in the owner. Both picker call sites dim
+  // deriveAvailability(pack, settings).items in the owner. Both picker call sites dim
   // these tiles and the hint names the cause. Optional with an empty default so
   // callers that model no availability render every tile enabled.
   unavailableItems?: ReadonlyMap<string, ProducerUnavailableCause> | undefined;
