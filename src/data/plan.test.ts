@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { pack } from "./load";
-import { unavailableCauses } from "./availability";
+import { unavailableCauses, unavailableItems } from "./availability";
 import {
   blockedTargets,
   decodeItemOverrideKey,
@@ -368,6 +368,9 @@ describe("blockedTargets", () => {
     .filter((r) => r.event === "v1.5")
     .map((r) => r.id);
   const v15 = causesFor(v15Ids, { kind: "event", cohort: "v1.5" });
+  // No item-level causes: the hand-built recipe maps above speak for the item.
+  const NO_ITEM_CAUSES: ReadonlyMap<string, ProducerUnavailableCause> =
+    new Map();
 
   function targeting(itemId: string): Plan {
     const plan = basePlan();
@@ -379,7 +382,12 @@ describe("blockedTargets", () => {
     // activity_xiranite_lung's only producer is the v1.5 event recipe of the
     // same id.
     expect(
-      blockedTargets(targeting("activity_xiranite_lung"), pack, v15),
+      blockedTargets(
+        targeting("activity_xiranite_lung"),
+        pack,
+        v15,
+        NO_ITEM_CAUSES,
+      ),
     ).toEqual([
       {
         itemId: "activity_xiranite_lung",
@@ -391,7 +399,12 @@ describe("blockedTargets", () => {
   it("blocks nothing with an empty set (the default)", () => {
     expect(validatePlan(targeting("activity_xiranite_lung"), pack)).toBeNull();
     expect(
-      blockedTargets(targeting("activity_xiranite_lung"), pack, new Map()),
+      blockedTargets(
+        targeting("activity_xiranite_lung"),
+        pack,
+        new Map(),
+        NO_ITEM_CAUSES,
+      ),
     ).toEqual([]);
   });
 
@@ -402,21 +415,28 @@ describe("blockedTargets", () => {
     expect(validatePlan(targeting("domain_key_tundra"), pack)?.kind).toBe(
       "target-not-producible",
     );
-    expect(blockedTargets(targeting("domain_key_tundra"), pack, v15)).toEqual(
-      [],
-    );
+    expect(
+      blockedTargets(targeting("domain_key_tundra"), pack, v15, NO_ITEM_CAUSES),
+    ).toEqual([]);
   });
 
   it("accepts an item with a partially available producer set", () => {
     // jinlong_coupon has 12 always-on producers besides the two v1.5 event
     // exchanges; switching the cohort off must not make it untargetable.
-    expect(blockedTargets(targeting("jinlong_coupon"), pack, v15)).toEqual([]);
+    expect(
+      blockedTargets(targeting("jinlong_coupon"), pack, v15, NO_ITEM_CAUSES),
+    ).toEqual([]);
   });
 
   it("carries an area cause when the area is what hides the producers", () => {
     const causes = causesFor(v15Ids, { kind: "area", area: "tundra" });
     expect(
-      blockedTargets(targeting("activity_xiranite_lung"), pack, causes),
+      blockedTargets(
+        targeting("activity_xiranite_lung"),
+        pack,
+        causes,
+        NO_ITEM_CAUSES,
+      ),
     ).toEqual([
       {
         itemId: "activity_xiranite_lung",
@@ -434,6 +454,7 @@ describe("blockedTargets", () => {
         targeting("liquid_copper"),
         pack,
         unavailableCauses(pack, { eventOverrides: {}, area: "tundra" }),
+        NO_ITEM_CAUSES,
       ),
     ).toEqual([
       { itemId: "liquid_copper", cause: { kind: "area", area: "tundra" } },
@@ -444,6 +465,7 @@ describe("blockedTargets", () => {
         targeting("liquid_copper"),
         pack,
         unavailableCauses(pack, { eventOverrides: {}, area: "jinlong" }),
+        NO_ITEM_CAUSES,
       ),
     ).toEqual([]);
     expect(
@@ -451,8 +473,28 @@ describe("blockedTargets", () => {
         targeting("liquid_copper"),
         pack,
         unavailableCauses(pack, { eventOverrides: {} }),
+        NO_ITEM_CAUSES,
       ),
     ).toEqual([]);
+  });
+
+  it("names the item's own off cohort over its producers' area", () => {
+    // Over the shipped pack in the tundra with default settings, each of these
+    // is a v1.5 event item whose every producer is jinlong-only. The banner
+    // must name the cohort, as the picker hint and shortfall strip do.
+    const settings = { eventOverrides: {}, area: "tundra" };
+    const recipeCauses = unavailableCauses(pack, settings);
+    const itemCauses = unavailableItems(pack, settings);
+    for (const itemId of [
+      "activity_copper_poly",
+      "activity_copper_poly_gas",
+      "activity_xiranite_enr_box",
+    ]) {
+      expect(itemCauses.get(itemId)).toEqual({ kind: "event", cohort: "v1.5" });
+      expect(
+        blockedTargets(targeting(itemId), pack, recipeCauses, itemCauses),
+      ).toEqual([{ itemId, cause: { kind: "event", cohort: "v1.5" } }]);
+    }
   });
 
   it("carries a manual cause naming the recipe the user switched off", () => {
@@ -462,7 +504,12 @@ describe("blockedTargets", () => {
     }));
     // The recipe id is the whole point of the manual kind: it names the toggle.
     expect(
-      blockedTargets(targeting("activity_xiranite_lung"), pack, causes),
+      blockedTargets(
+        targeting("activity_xiranite_lung"),
+        pack,
+        causes,
+        NO_ITEM_CAUSES,
+      ),
     ).toEqual([
       {
         itemId: "activity_xiranite_lung",
@@ -485,7 +532,9 @@ describe("blockedTargets", () => {
           : { kind: "area", area: "tundra" },
       ]),
     );
-    expect(blockedTargets(targeting("jinlong_coupon"), pack, causes)).toEqual([
+    expect(
+      blockedTargets(targeting("jinlong_coupon"), pack, causes, NO_ITEM_CAUSES),
+    ).toEqual([
       { itemId: "jinlong_coupon", cause: { kind: "area", area: "tundra" } },
     ]);
   });

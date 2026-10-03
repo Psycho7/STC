@@ -45,14 +45,11 @@ import type { Target } from "./data/targets";
 import { pack } from "./data/load";
 import { packIndex } from "./data/pack-index";
 import {
-  availabilityKey,
+  deriveAvailability,
   readStoredArea,
   readStoredDisabledRecipes,
   readStoredEventOverrides,
-  unavailableCauses,
   unavailableEventItems,
-  unavailableItems,
-  unavailableRecipeIds,
   writeStoredArea,
   writeStoredDisabledRecipes,
   writeStoredEventOverrides,
@@ -471,9 +468,10 @@ function AppInner() {
   // on screen rather than the broken link.
   const lastGoodHashRef = useRef<string | null>(null);
   // Event-cohort overrides (#144): cohort -> forced on/off beyond the default
-  // rule (on iff the cohort matches the pack's own version). Read once at
-  // boot; every later change goes through handleEventOverridesChange, which
-  // persists it, so state and storage never disagree.
+  // rule (on iff the cohort is the pack's own and its event has not ended).
+  // Read once at boot; every later change goes through
+  // handleEventOverridesChange, which persists it, so state and storage never
+  // disagree.
   const [eventOverrides, setEventOverrides] = useState<EventCohortOverrides>(
     readStoredEventOverrides,
   );
@@ -526,22 +524,20 @@ function AppInner() {
     () => ({ eventOverrides, area, disabledRecipeIds }),
     [eventOverrides, area, disabledRecipeIds],
   );
-  // What is switched off and why: the cause map the blocked-target check reads,
-  // the id set the solver seam takes, and the digest that decides whether any
-  // of it actually changed. `pack` is a module-stable import, so it stays out
-  // of the dependency list; only a settings change re-derives. A change that
-  // leaves the map saying the same thing keeps the previous object, so the
+  // What is switched off and why: the recipe cause map the blocked-target check
+  // reads, the id set the solver seam takes, the item-level cause map the
+  // banner, pickers and strip name causes from, and the digest over both maps
+  // that decides whether any of it actually changed. `pack` is a module-stable
+  // import, so it stays out of the dependency list; only a settings change
+  // re-derives. A change that leaves the maps saying the same thing keeps the
+  // previous object, so the
   // blocked-target / solve / layout work keyed on it does not re-run - and
   // unlike the old set-identity check, a same-ids-different-reason change does
   // re-run, because the digest carries the cause kind and its detail.
-  const derivedAvailability = useMemo(() => {
-    const causes = unavailableCauses(pack, availabilitySettings);
-    return {
-      causes,
-      ids: unavailableRecipeIds(causes),
-      key: availabilityKey(causes),
-    };
-  }, [availabilitySettings]);
+  const derivedAvailability = useMemo(
+    () => deriveAvailability(pack, availabilitySettings),
+    [availabilitySettings],
+  );
   const [availability, setAvailability] = useState(derivedAvailability);
   if (
     derivedAvailability !== availability &&
@@ -550,14 +546,11 @@ function AppInner() {
     setAvailability(derivedAvailability);
   }
   const unavailable = availability.ids;
-  // The items behind that map, each with its cause: the pickers dim exactly
-  // these tiles and their hint names the cause the blocked-target banner also
-  // interpolates. Derived beside `availability` from the same settings, so the
-  // tiles, the hint, and the banner can never disagree.
-  const unavailableItemCauses = useMemo(
-    () => unavailableItems(pack, availabilitySettings),
-    [availabilitySettings],
-  );
+  // The items behind that map, each with its item-level cause: the pickers dim
+  // exactly these tiles, and their hint, the shortfall strip and the
+  // blocked-target banner all name the cause from this one map, so they can
+  // never disagree.
+  const unavailableItemCauses = availability.items;
   // The inputs picker gets the narrower map: an input is imported, so having no
   // producer in the selected area - or none left after a hand toggle - is no
   // reason to refuse it. Only an off cohort, which takes the item out of the
@@ -766,6 +759,7 @@ function AppInner() {
           nextPlan,
           pack,
           availabilityRef.current.causes,
+          availabilityRef.current.items,
         );
         if (blocked.length > 0) {
           adoptUnsolved(nextPlan, goodHash, {
@@ -881,7 +875,12 @@ function AppInner() {
   // commitPlan refuses while a navigation is in flight.
   const solveOrHold = useCallback(
     (plan: Plan): void => {
-      const blocked = blockedTargets(plan, pack, availability.causes);
+      const blocked = blockedTargets(
+        plan,
+        pack,
+        availability.causes,
+        availability.items,
+      );
       if (blocked.length > 0) {
         if (navigationInFlightRef.current) {
           void loadFromHash(window.location.hash, "navigation");

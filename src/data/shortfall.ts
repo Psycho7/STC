@@ -7,9 +7,9 @@
 // up as a shortfall on the thing downstream of it). So attribution here is
 // evidence-driven, and the evidence is deliberately one hop deep:
 //
-//   - a restriction may be named for an unmet item only when EVERY direct
-//     producer of that item is off, which is exactly what the picker's item
-//     cause map already records (producersOfItem + outermostCause);
+//   - a restriction may be named for an unmet item only when the picker's item
+//     cause map records one: the item's own cohort is off, or EVERY direct
+//     producer of it is off (see unavailableItems);
 //   - a supply cap may be named only for an item whose explicit cap the drawn
 //     plan pulls in full;
 //   - anything else gets the neutral unmet-demand sentence. An available direct
@@ -49,7 +49,7 @@ export type ShortfallFacts = {
    * shortfall the item has.
    */
   deficitItemIds: ReadonlyArray<string>;
-  /** Items every direct producer of which is off, with the outermost cause. */
+  /** Unavailable items with their cause, as unavailableItems derives them. */
   itemCauses: ReadonlyMap<string, ProducerUnavailableCause>;
   /** Items whose explicit supply cap the drawn plan draws in full. */
   cappedAtLimit: ReadonlyArray<string>;
