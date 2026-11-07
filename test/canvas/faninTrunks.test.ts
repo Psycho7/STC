@@ -176,8 +176,8 @@ describe("routeTrunkEdges: fan-in trunks", () => {
     // one port stub back from the port -- the card-side pad of the reserve the
     // gap was widened for. The member's own chip rides its stub out of the
     // source port, its box one port stub out of it.
-    const aggHalfW = chipSeatHalfW(aggregateChipText(e), false);
-    const memberHalfW = chipSeatHalfW(branchChipText(e), false);
+    const aggHalfW = chipSeatHalfW(aggregateChipText(e.data), false);
+    const memberHalfW = chipSeatHalfW(branchChipText(e.data), false);
     expect(drawn.trunkAnchor).toEqual({
       x: ports.targetX - PORT_STUB - aggHalfW,
       y: ports.targetY,
@@ -560,7 +560,7 @@ describe("routeTrunkEdges: a fan-in trunk of FAR members only", () => {
       const drawn = drawnEdge(ports, e.type, e.data);
       expect(drawn.shape).toBe("item");
       if (drawn.shape !== "item") return;
-      const halfW = chipSeatHalfW(branchChipText(e), false);
+      const halfW = chipSeatHalfW(branchChipText(e.data), false);
       // Its own stub, at its own source row -- not the leg into the target,
       // which is the aggregate leg both members share.
       expect(drawn.labelAnchor.y).toBe(ports.sourceY);
@@ -662,7 +662,9 @@ describe("the default plan's Sewage fan-in", () => {
       if (drawn.shape !== "item") throw new Error("expected the item shape");
       expect(drawn.labelAnchor.y).toBe(ports.sourceY);
       expect(drawn.labelAnchor.x).toBe(
-        ports.sourceX + PORT_STUB + chipSeatHalfW(branchChipText(e), false),
+        ports.sourceX +
+          PORT_STUB +
+          chipSeatHalfW(branchChipText(e.data), false),
       );
     }
 

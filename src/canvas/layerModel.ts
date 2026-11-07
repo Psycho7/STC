@@ -641,14 +641,11 @@ function chipTextForSide(
 ): ChipText | undefined {
   const entry = trunkByEdgeId.get(edge.id);
   const trunk = side === "source" ? entry?.fanOut : entry?.fanIn;
-  if (trunk === undefined) return rateChipText(edge);
+  if (trunk === undefined) return rateChipText(edge.data);
   // Reuse the production aggregate builder rather than re-format the total: the
   // reserve has to measure the string the chip will really draw. The pass runs
   // before routeTrunkEdges stamps busTotalRate, so the total is handed in here.
-  return aggregateChipText({
-    ...edge,
-    data: { ...edge.data, busTotalRate: trunk.total },
-  });
+  return aggregateChipText({ ...edge.data, busTotalRate: trunk.total });
 }
 
 // The width one reserved chip box takes in a gap: the card-side pad, the chip at

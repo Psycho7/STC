@@ -66,15 +66,8 @@ describe("chipSeatHalfW: the per-chip reserved box", () => {
 });
 
 describe("aggregateChipText / branchChipText", () => {
-  // Minimal fan-out member edges: only the fields the builders read.
-  const member = (data: Record<string, unknown>) =>
-    ({
-      id: "e0",
-      source: "s",
-      target: "t",
-      type: "bus",
-      data: { item: "a", ...data },
-    }) as unknown as Parameters<typeof branchChipText>[0];
+  // Minimal fan-out member edge data: only the fields the builders read.
+  const member = (data: Record<string, unknown>) => ({ item: "a", ...data });
 
   it("branch: a multi-member trunk reads the member's own rate + unit", () => {
     // The trunk total prints on the aggregate chip alone; a member chip never
@@ -171,14 +164,7 @@ describe("examChipReservations", () => {
 // Canvas rate text is digit-grouped like the panel: a chip at 1000/min or more
 // draws "1,234.5", and the seat counts the comma as one more glyph.
 describe("digit grouping in chip text", () => {
-  const edge = (data: Record<string, unknown>) =>
-    ({
-      id: "e0",
-      source: "s",
-      target: "t",
-      type: "bus",
-      data: { item: "a", ...data },
-    }) as unknown as Parameters<typeof rateChipText>[0];
+  const edge = (data: Record<string, unknown>) => ({ item: "a", ...data });
   // 823/40 per sec * 60 = 1234.5/min; 333/20 per sec * 60 = 999/min.
   const R1234_5 = new Fraction(823, 40);
   const R999 = new Fraction(333, 20);

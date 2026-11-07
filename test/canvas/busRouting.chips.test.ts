@@ -73,7 +73,7 @@ describe("chip placement: fan-out trunk chips", () => {
     expect(drawn.shape).toBe("fanout");
     if (drawn.shape !== "fanout") return;
 
-    const memberHalfW = chipSeatHalfW(branchChipText(owner), false);
+    const memberHalfW = chipSeatHalfW(branchChipText(owner.data), false);
     expect(drawn.trunkAnchor.y).toBe(ends.sourceY);
     expect(drawn.branchAnchor.y).toBe(ends.targetY);
     // Both anchors stay ON their own run: the aggregate between the source port

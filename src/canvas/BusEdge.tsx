@@ -1,4 +1,4 @@
-import { type Edge, type EdgeProps } from "@xyflow/react";
+import { type EdgeProps } from "@xyflow/react";
 import { useMemo } from "react";
 import {
   FlowChip,
@@ -70,8 +70,10 @@ export default function BusEdge({
   );
   // This component renders the "bus" edge type alone (Canvas's edgeTypes map),
   // and routeTrunkEdges is its only producer, so drawnEdge answers one of the
-  // two trunk shapes. An edge that is bus-typed without either stamp draws
-  // nothing rather than being forced into a shape its data does not describe.
+  // two trunk shapes. Only malformed data reaches the other case: a bus-typed
+  // edge with neither stamp falls through to the plain item path, draws no
+  // junction dot, and still draws its drop and rise chips at (0,0), since
+  // isTrunkOwner treats a missing owner flag as owner.
   const fan =
     drawn.shape === "fanout" || drawn.shape === "fanin" ? drawn : null;
   const path = drawn.path;
@@ -119,13 +121,12 @@ export default function BusEdge({
   // their boxes by, so drawn text and reserved width agree.
   const { memberRateStr, memberExactStr, dropRateStr, totalExactStr } =
     useMemo(() => {
-      const edge = { id: "", source: "", target: "", data: sourceData } as Edge;
       return {
-        memberRateStr: branchChipText(edge)?.body ?? "",
+        memberRateStr: branchChipText(sourceData)?.body ?? "",
         memberExactStr: sourceData
           ? formatRateExactPerMin(sourceData.rate)
           : "",
-        dropRateStr: aggregateChipText(edge)?.body ?? "",
+        dropRateStr: aggregateChipText(sourceData)?.body ?? "",
         totalExactStr: totalRate ? formatRateExactPerMin(totalRate) : "",
       };
     }, [sourceData, totalRate]);

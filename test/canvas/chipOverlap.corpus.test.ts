@@ -81,7 +81,7 @@ function chipsOf(edge: Edge, drawn: DrawnEdge): Chip[] {
         kind: "item",
         x: drawn.labelAnchor.x,
         y: drawn.labelAnchor.y,
-        halfW: half(rateChipText(edge)),
+        halfW: half(rateChipText(edge.data)),
       },
     ];
     // The far owner of a fan-out trunk with no near member draws that trunk's
@@ -93,7 +93,7 @@ function chipsOf(edge: Edge, drawn: DrawnEdge): Chip[] {
         kind: "fanout aggregate",
         x: drawn.trunkAnchor.x,
         y: drawn.trunkAnchor.y,
-        halfW: half(aggregateChipText(edge)),
+        halfW: half(aggregateChipText(edge.data)),
       });
     }
     return chips;
@@ -104,7 +104,7 @@ function chipsOf(edge: Edge, drawn: DrawnEdge): Chip[] {
       kind: `${drawn.shape} member`,
       x: drawn.branchAnchor.x,
       y: drawn.branchAnchor.y,
-      halfW: half(branchChipText(edge)),
+      halfW: half(branchChipText(edge.data)),
     },
   ];
   if (isTrunkOwner(edge.data)) {
@@ -113,7 +113,7 @@ function chipsOf(edge: Edge, drawn: DrawnEdge): Chip[] {
       kind: `${drawn.shape} aggregate`,
       x: drawn.trunkAnchor.x,
       y: drawn.trunkAnchor.y,
-      halfW: half(aggregateChipText(edge)),
+      halfW: half(aggregateChipText(edge.data)),
     });
   }
   return out;

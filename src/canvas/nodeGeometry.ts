@@ -59,9 +59,15 @@ import type { RFAnyNode } from "./layout";
 // pass reads the same field to predict a chip's drawn text, and two readers of
 // one loosely typed field would be free to disagree about what counts as a rate.
 export function edgeRate(edge: Edge): Fraction | undefined {
+  return edgeDataRate(edge.data);
+}
+
+// The same read off the edge payload alone, for a caller that holds `data`
+// rather than the Edge (the chip text builders and the edge renderers).
+export function edgeDataRate(data: unknown): Fraction | undefined {
   // Deliberately weaker than ItemEdgeData: older fixtures carry a non-Fraction
   // rate, so the guard below has to see `unknown` rather than a claimed type.
-  const rate = (edge.data as { rate?: unknown } | undefined)?.rate;
+  const rate = (data as { rate?: unknown } | undefined)?.rate;
   return rate instanceof Fraction ? rate : undefined;
 }
 

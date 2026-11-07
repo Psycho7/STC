@@ -75,7 +75,7 @@ describe("contentBounds: chip extents", () => {
       ...PORTS,
       ...routingHintsFromData(data),
     });
-    const halfW = chipSeatHalfW(rateChipText(edges[0]!), false);
+    const halfW = chipSeatHalfW(rateChipText(edges[0]!.data), false);
 
     expect(contentBounds(NODES, edges)).toEqual(framing(lx, ly, halfW));
   });
@@ -96,7 +96,7 @@ describe("contentBounds: chip extents", () => {
       targetY: 900 + NODE_H / 2,
       ...routingHintsFromData(data),
     });
-    const halfW = chipSeatHalfW(rateChipText(edges[0]!), false);
+    const halfW = chipSeatHalfW(rateChipText(edges[0]!.data), false);
     const bounds = contentBounds(nodes, edges)!;
 
     expect(ly).toBe(900 + NODE_H / 2);
@@ -125,11 +125,17 @@ describe("contentBounds: chip extents", () => {
     const fan = chamferFanoutPath({
       ...PORTS,
       ...routingHintsFromData(base),
-      aggHalfW: chipSeatHalfW(aggregateChipText(edgeWith(true)), false),
-      memberHalfW: chipSeatHalfW(branchChipText(edgeWith(true)), false),
+      aggHalfW: chipSeatHalfW(aggregateChipText(edgeWith(true).data), false),
+      memberHalfW: chipSeatHalfW(branchChipText(edgeWith(true).data), false),
     });
-    const memberHalfW = chipSeatHalfW(branchChipText(edgeWith(true)), false);
-    const aggHalfW = chipSeatHalfW(aggregateChipText(edgeWith(true)), false);
+    const memberHalfW = chipSeatHalfW(
+      branchChipText(edgeWith(true).data),
+      false,
+    );
+    const aggHalfW = chipSeatHalfW(
+      aggregateChipText(edgeWith(true).data),
+      false,
+    );
 
     // The member chip alone on a non-owner.
     expect(contentBounds(NODES, [edgeWith(false)])).toEqual(

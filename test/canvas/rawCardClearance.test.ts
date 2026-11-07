@@ -296,7 +296,7 @@ describe("a far member whose named run cannot hold its chip", () => {
       widened.nodes.filter((n) => n.type !== "group"),
       byId,
     );
-    const halfW = chipSeatHalfW(rateChipText(laid), false);
+    const halfW = chipSeatHalfW(rateChipText(laid.data), false);
     const runs = horizontalRuns(drawn.pts);
     const last = runs[runs.length - 1]!;
     const named = Math.min(
@@ -396,7 +396,7 @@ describe("the chip slide's obstacle tiers", () => {
     return {
       drawn: own as Extract<typeof own, { shape: "item" }>,
       halfW: chipSeatHalfW(
-        rateChipText(seated.find((e) => e.id === "e:1")!),
+        rateChipText(seated.find((e) => e.id === "e:1")!.data),
         false,
       ),
       cards,
@@ -583,7 +583,7 @@ describe("a slide seat whose ideal position is off the 0.01 grid", () => {
       nodes.filter((n) => n.type !== "group"),
       byId,
     );
-    const halfW = chipSeatHalfW(rateChipText(laid), false);
+    const halfW = chipSeatHalfW(rateChipText(laid.data), false);
     const runs = horizontalRuns(drawn.pts);
     const blk = cards.find((c) => c.id === "blk")!;
     const centre = (runs[0]!.lo + runs[0]!.hi) / 2;
@@ -638,7 +638,7 @@ describe("a run centre whose ideal position is off the 0.01 grid", () => {
       nodes.filter((n) => n.type !== "group"),
       byId,
     );
-    const halfW = chipSeatHalfW(rateChipText(laid), false);
+    const halfW = chipSeatHalfW(rateChipText(laid.data), false);
     const runs = horizontalRuns(drawn.pts);
     const centre = (runs[0]!.lo + runs[0]!.hi) / 2;
     const rounded = Math.round(centre * 100) / 100;

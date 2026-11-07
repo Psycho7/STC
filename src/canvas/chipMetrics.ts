@@ -22,7 +22,7 @@ import type Fraction from "fraction.js";
 
 import { CHIP_BOX_HEIGHT, CHIP_BOX_WIDTH } from "./dimensions";
 import type { BusEdgeData } from "./busRouting";
-import { edgeRate } from "./nodeGeometry";
+import { edgeDataRate } from "./nodeGeometry";
 import { formatRatePerMin, groupRateDigits } from "../data/rate-format";
 
 // Chip half-extents, in graph units. A chip draws at its natural CSS size at
@@ -140,8 +140,8 @@ export function chipNaturalWidth(
 // takes that as "no usable rate" and reserves the worst case for an invisible
 // box, which can only over-reserve. Exported for the item-chip seat, which
 // reserves this text's box directly; the other two builders wrap it.
-export function rateChipText(edge: Edge): ChipText | undefined {
-  const rate = edgeRate(edge);
+export function rateChipText(data: unknown): ChipText | undefined {
+  const rate = edgeDataRate(data);
   return rate === undefined
     ? undefined
     : { body: chipRateBody(rate), unit: true };
@@ -157,10 +157,10 @@ function chipRateBody(rate: Fraction): string {
 // back to this member's own rate, as BusEdge does) plus the unit. Every trunk
 // draws one, on its owner; on a single-member trunk the total IS that member's
 // rate.
-export function aggregateChipText(edge: Edge): ChipText | undefined {
-  const total = (edge.data as BusEdgeData | undefined)?.busTotalRate;
+export function aggregateChipText(data: unknown): ChipText | undefined {
+  const total = (data as BusEdgeData | undefined)?.busTotalRate;
   return total === undefined
-    ? rateChipText(edge)
+    ? rateChipText(data)
     : { body: chipRateBody(total), unit: true };
 }
 
@@ -169,16 +169,14 @@ export function aggregateChipText(edge: Edge): ChipText | undefined {
 // prints on the aggregate chip alone. The seating pass reserves the member
 // chip's box through this builder and the exam reservation rows read it too;
 // BusEdge formats the same rate the same way.
-export function branchChipText(edge: Edge): ChipText | undefined {
-  return rateChipText(edge);
+export function branchChipText(data: unknown): ChipText | undefined {
+  return rateChipText(data);
 }
 
 // The half-widths of the two chips one TRUNK MEMBER can draw -- its trunk's
 // aggregate and its own member rate -- taken off the edge payload alone. The
 // path builders' anchor rule needs them (a chip is seated by its box, not by
-// its centre) and they hold `data`, not the Edge the two builders above take,
-// so this wraps the payload in the minimal edge shape rather than restating
-// either rule. An un-rateable payload falls back to the worst-case box exactly
+// its centre). An un-rateable payload falls back to the worst-case box exactly
 // as chipSeatHalfW does.
 export function chipHalfWidthsOf(data: unknown): {
   aggHalfW: number;
@@ -193,8 +191,7 @@ export function chipHalfWidthsOf(data: unknown): {
 
 // The member half-width alone, for a caller that draws no aggregate chip.
 export function memberHalfWOf(data: unknown): number {
-  const edge = { id: "", source: "", target: "", data } as Edge;
-  const rate = edgeRate(edge);
+  const rate = edgeDataRate(data);
   return rate === undefined
     ? chipSeatHalfW(undefined, false)
     : rateSeatHalfW(rate);
@@ -242,7 +239,7 @@ export function examChipReservations(edges: Edge[]): ExamChipReservation[] {
   };
   for (const edge of edges) {
     if (edge.type === "item") {
-      push(`item-edge-label-${edge.id}`, rateChipText(edge));
+      push(`item-edge-label-${edge.id}`, rateChipText(edge.data));
       // The far owner of a fan-out trunk with no near member draws that
       // trunk's total as a second chip on the item shape, under the same
       // -drop suffix a retyped member's aggregate uses.
@@ -250,11 +247,11 @@ export function examChipReservations(edges: Edge[]): ExamChipReservation[] {
         | { busChipOwner?: boolean; fanoutColumn?: boolean }
         | undefined;
       if (data?.busChipOwner === true && data.fanoutColumn === true) {
-        push(`item-edge-${edge.id}-drop`, aggregateChipText(edge));
+        push(`item-edge-${edge.id}-drop`, aggregateChipText(edge.data));
       }
     } else if (edge.type === "bus") {
-      push(`bus-edge-label-${edge.id}-drop`, aggregateChipText(edge));
-      push(`bus-edge-label-${edge.id}-rise`, branchChipText(edge));
+      push(`bus-edge-label-${edge.id}-drop`, aggregateChipText(edge.data));
+      push(`bus-edge-label-${edge.id}-rise`, branchChipText(edge.data));
     }
   }
   return out;
