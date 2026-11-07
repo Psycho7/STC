@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 import Fraction from "fraction.js";
-import { snapDraw, solveLp, type LpModel, type LpResult } from "./lp";
+import {
+  snapDraw,
+  solveLp,
+  type LpModel,
+  type LpPassReport,
+  type LpResult,
+} from "./lp";
 import { makePack, withoutGasMachines } from "./closed-form-fixtures";
 import { effectiveSupply } from "./effectiveSupply";
 import { pack } from "../data/load";
@@ -1186,6 +1192,70 @@ describe("solveLp - boundary-consumption tie-break", () => {
     expect(result.rates.has("gas_copper_enr")).toBe(false);
     expect(result.rates.has("gas_xiranite_enr")).toBe(false);
   });
+
+  // "grow" consumes only its own product, so the pack pulls nothing from the
+  // boundary and runs no boundary pass. The fallback row is fault injection:
+  // both tie-break models get a cost cap three times pass 1's, the cheaper
+  // b_plain loses both tie-breaks to the pricier a_lean, both passes fail the
+  // cost check, and the solve keeps pass 1. A primary-infeasible row is not
+  // here: every mb_ row carries deficit and surplus slack, so a model with
+  // finite demand always solves.
+  it.each([
+    {
+      name: "kept lex",
+      pack: leanPack,
+      reports: [
+        { pass: "primary", accepted: true, acceptedFinal: false },
+        { pass: "boundary", accepted: true, acceptedFinal: false },
+        { pass: "lex", accepted: true, acceptedFinal: true },
+      ],
+    },
+    {
+      name: "boundary-free",
+      pack: makePack(
+        [{ id: "grow", time: 1, in: { X: 1 }, out: { X: 2 } }],
+        [{ id: "X" }],
+      ),
+      reports: [
+        { pass: "primary", accepted: true, acceptedFinal: false },
+        { pass: "lex", accepted: true, acceptedFinal: true },
+      ],
+    },
+    {
+      name: "primary fallback",
+      pack: makePack(
+        [
+          { id: "a_lean", time: 1, in: { R: 1 }, out: { X: 1 } },
+          { id: "b_plain", time: 1, in: { R: 2 }, out: { X: 1 } },
+        ],
+        [{ id: "R", raw: true }, { id: "X" }],
+      ),
+      recipeCosts: new Map([["a_lean", 2]]),
+      onModel: (mode: string, model: LpModel) => {
+        if (mode !== "primary") model.constraints.cost_cap!.max! *= 3;
+      },
+      reports: [
+        { pass: "primary", accepted: true, acceptedFinal: true },
+        { pass: "boundary", accepted: false, acceptedFinal: false },
+        { pass: "lex", accepted: false, acceptedFinal: false },
+      ],
+    },
+  ])(
+    "reports each pass of a $name solve",
+    ({ pack: p, recipeCosts, onModel, reports: expected }) => {
+      const reports: LpPassReport[] = [];
+      const result = solveLp({
+        targets,
+        pack: p,
+        ...(recipeCosts !== undefined && { recipeCosts }),
+        ...(onModel !== undefined && { onModel }),
+        onPass: (r) => reports.push(r),
+      });
+      expect(result.status).toBe("feasible");
+      expect(reports).toEqual(expected);
+      expect(reports.filter((r) => r.acceptedFinal)).toHaveLength(1);
+    },
+  );
 });
 
 // The draw snap saturates against the cap. The window is wider than
