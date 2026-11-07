@@ -43,8 +43,9 @@ export type SolveForRenderRequest = {
   pack?: RawPack | undefined;
   /**
    * App-level availability state (#144): recipe ids switched off for this
-   * solve, threaded to the graph walk and the LP. Defaults to empty, like the
-   * other optionals - which is what a fresh browser solves with.
+   * solve, threaded to the graph walk and the LP. Defaults to empty, i.e. the
+   * full pack - not what a fresh browser solves with (ended cohorts and other
+   * settlements are off there).
    */
   unavailableRecipeIds?: ReadonlySet<RecipeId> | undefined;
 };
