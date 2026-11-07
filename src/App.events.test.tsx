@@ -33,7 +33,9 @@ vi.mock("./canvas/layout", async (importOriginal) => {
 // test arms `recast`, at which point every derived cause keeps its recipe id
 // and swaps its kind. The app produces area causes on its own now (#124's
 // settlement picker), but no manual ones yet (#125 owns that toggle), and the
-// point of the case is precisely that the ids do not move.
+// point of the case is precisely that the ids do not move. The recast covers
+// the item-level map as well as the recipe map, since the banner names the
+// item-level cause; the key is re-digested over both recast maps.
 const availabilitySpy = vi.hoisted(() => ({
   recast: null as null | { kind: "manual"; recipeId: string },
   lastIds: [] as string[],
@@ -42,12 +44,25 @@ vi.mock("./data/availability", async (importOriginal) => {
   const orig = await importOriginal<typeof import("./data/availability")>();
   return {
     ...orig,
-    unavailableCauses: (...args: Parameters<typeof orig.unavailableCauses>) => {
-      const causes = orig.unavailableCauses(...args);
-      availabilitySpy.lastIds = [...causes.keys()].sort();
+    deriveAvailability: (
+      ...args: Parameters<typeof orig.deriveAvailability>
+    ) => {
+      const derived = orig.deriveAvailability(...args);
+      availabilitySpy.lastIds = [...derived.causes.keys()].sort();
       const recast = availabilitySpy.recast;
-      if (recast === null) return causes;
-      return new Map([...causes.keys()].map((id) => [id, recast]));
+      if (recast === null) return derived;
+      const causes = new Map(
+        [...derived.causes.keys()].map((id) => [id, recast]),
+      );
+      const items = new Map(
+        [...derived.items.keys()].map((id) => [id, recast]),
+      );
+      return {
+        ...derived,
+        causes,
+        items,
+        key: `${orig.availabilityKey(causes)}#${orig.availabilityKey(items)}`,
+      };
     },
   };
 });

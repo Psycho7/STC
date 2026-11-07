@@ -11,6 +11,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import type { Item, Machine, Recipe, RecipePack, Stoich } from "@aef/schema";
 import {
   availabilityKey,
+  deriveAvailability,
   effectiveCohortEnabled,
   eventCohortsOf,
   packCohortOf,
@@ -402,6 +403,40 @@ describe("availabilityKey", () => {
     expect(
       availabilityKey(unavailableCauses(fixturePack(), eventsOnly())),
     ).toBe(availabilityKey(unavailableCauses(fixturePack(), eventsOnly())));
+  });
+});
+
+describe("deriveAvailability", () => {
+  it("changes its key when only an item-level cohort flips", () => {
+    // relic carries cohort v7.7 but its recipe is untagged, so flipping v7.7
+    // leaves every recipe cause alone and moves only the item-level cause the
+    // blocked-target banner reads.
+    const pack = fixturePack();
+    const smelt = pack.recipes.find((r) => r.id === "smelt")!;
+    pack.items = [
+      ...pack.items,
+      {
+        ...pack.items.find((i) => i.id === "bar")!,
+        id: "relic",
+        event: "v7.7",
+      },
+    ];
+    pack.recipes = [
+      ...pack.recipes,
+      { ...smelt, id: "forge_relic", out: [{ item: "relic", qty: 1 }] },
+    ];
+    const off = deriveAvailability(pack, eventsOnly());
+    const on = deriveAvailability(pack, eventsOnly({ "v7.7": true }));
+    expect(availabilityKey(on.causes)).toBe(availabilityKey(off.causes));
+    expect(off.items.get("relic")).toEqual({ kind: "event", cohort: "v7.7" });
+    expect(on.items.has("relic")).toBe(false);
+    expect(on.key).not.toBe(off.key);
+  });
+
+  it("is stable across two derivations of the same settings", () => {
+    expect(deriveAvailability(fixturePack(), eventsOnly()).key).toBe(
+      deriveAvailability(fixturePack(), eventsOnly()).key,
+    );
   });
 });
 

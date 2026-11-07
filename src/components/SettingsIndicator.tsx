@@ -19,7 +19,7 @@ type Props = {
 // settings, so a shared link that draws differently here has a visible cause.
 // Display only: the settings never ride the plan wire. Renders nothing while
 // the area is the latest settlement and every cohort follows its default rule
-// (on iff it is the pack's own cohort).
+// (on iff it is the pack's own cohort and its event has not ended).
 export function SettingsIndicator({
   pack,
   area,

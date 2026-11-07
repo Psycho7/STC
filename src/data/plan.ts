@@ -102,9 +102,8 @@ export const CAUSE_PRECEDENCE: ProducerUnavailableCause["kind"][] = [
 ];
 
 // The outermost of the causes an item's producers carry, or undefined when the
-// list is empty. Shared with the item-level derivation in availability.ts so
-// the blocked-target banner and the picker hint cannot name different switches for
-// the same item.
+// list is empty. The item-level derivation in availability.ts falls back to it
+// when the item's own cohort is on.
 export function outermostCause(
   causes: readonly ProducerUnavailableCause[],
 ): ProducerUnavailableCause | undefined {
@@ -316,14 +315,19 @@ export type BlockedTarget = {
 // Every target of an otherwise valid plan that the viewer's settings leave
 // without a producer, in target order. validatePlan stops at the first; the
 // app names them all on the banner of a plan it adopts without solving.
+// Whether a target is blocked comes from the recipe causes; the cause named is
+// the item-level one (the item's own off cohort first) from the same map the
+// picker hint and shortfall strip read, so the three cannot disagree.
 export function blockedTargets(
   plan: Plan,
   pack: RecipePack,
   unavailableCauses: ReadonlyMap<string, ProducerUnavailableCause>,
+  itemCauses: ReadonlyMap<string, ProducerUnavailableCause>,
 ): BlockedTarget[] {
   return plan.targets.flatMap((t) => {
     const cause = producerUnavailableCause(pack, t.itemId, unavailableCauses);
-    return cause ? [{ itemId: t.itemId, cause }] : [];
+    if (!cause) return [];
+    return [{ itemId: t.itemId, cause: itemCauses.get(t.itemId) ?? cause }];
   });
 }
 
